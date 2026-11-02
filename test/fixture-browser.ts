@@ -38,6 +38,7 @@ const draw = canvas.getContext("2d")!; draw.font = "16px Arial"; draw.fillStyle 
 const digest = async (value: BufferSource) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", value))).map(v => v.toString(16).padStart(2, "0")).join("");
 async function observe() {
   const gl = document.createElement("canvas").getContext("webgl"); const ext = gl?.getExtension("WEBGL_debug_renderer_info");
+  const gl2 = document.createElement("canvas").getContext("webgl2"); const ext2 = gl2?.getExtension("WEBGL_debug_renderer_info");
   let audio = "unavailable";
   try {
     const context = new OfflineAudioContext(1, 2048, 44100), oscillator = context.createOscillator();
@@ -50,6 +51,7 @@ async function observe() {
     screen: { width: screen.width, height: screen.height, availWidth: screen.availWidth, availHeight: screen.availHeight, colorDepth: screen.colorDepth },
     window: { innerWidth, innerHeight, outerWidth, outerHeight, devicePixelRatio }, webdriver: navigator.webdriver,
     webgl: gl && ext ? { vendor: gl.getParameter(ext.UNMASKED_VENDOR_WEBGL), renderer: gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) } : null,
+    webgl2: gl2 && ext2 ? { vendor: gl2.getParameter(ext2.UNMASKED_VENDOR_WEBGL), renderer: gl2.getParameter(ext2.UNMASKED_RENDERER_WEBGL) } : null,
     canvas: await digest(new TextEncoder().encode(canvas.toDataURL())), audio,
   };
   el("observations").textContent = JSON.stringify(value, null, 2);

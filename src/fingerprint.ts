@@ -17,11 +17,20 @@ export function freezeDevice(config: Fingerprint): Fingerprint {
 
 export function replayFingerprint(saved: Fingerprint, generated: Fingerprint): Fingerprint {
   // Fresh upstream defaults (including future settings) survive. Only device fields replay.
-  return { ...generated, ...freezeDevice(saved) };
+  const device = freezeDevice(saved), effective = { ...generated, ...device };
+  // The pinned sampler omits WebGL2 fields for GPUs that do not support it.
+  if ("webGl:parameters" in device) {
+    for (const key of Object.keys(effective)) {
+      if (key.startsWith("webGl2:") && !(key in device)) delete effective[key];
+    }
+  }
+  return effective;
 }
 
-export function launchPreferences(current: Fingerprint | undefined, proxied: boolean): Fingerprint {
+export function launchPreferences(current: Fingerprint | undefined, proxied: boolean, device: Fingerprint = {}): Fingerprint {
   // Never replay old Firefox preferences. They include policy, not just identity.
+  // Derive WebGL2 support from the saved GPU, not the newly sampled GPU.
+  const capabilities = "webGl:parameters" in device ? { "webgl.enable-webgl2": "webGl2:parameters" in device } : {};
   // Apply the mandatory rule last, including when a direct identity switches to a proxy.
-  return { ...current, ...(proxied ? { "media.peerconnection.enabled": false } : {}) };
+  return { ...current, ...capabilities, ...(proxied ? { "media.peerconnection.enabled": false } : {}) };
 }

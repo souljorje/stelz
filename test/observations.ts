@@ -1,6 +1,6 @@
 import { isDeepStrictEqual } from "node:util";
 export type Observation = Record<string, unknown>;
-export const STABLE_OBSERVATIONS = ["userAgent", "platform", "hardwareConcurrency", "languages", "timezone", "screen", "window", "webdriver", "webgl"];
+export const STABLE_OBSERVATIONS = ["userAgent", "platform", "hardwareConcurrency", "languages", "timezone", "screen", "window", "webdriver", "webgl", "webgl2"];
 const VARIABLE_OBSERVATIONS = ["canvas", "audio"];
 
 export function compareObservations(before: Observation, after: Observation) {

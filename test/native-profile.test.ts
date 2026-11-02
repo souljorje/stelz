@@ -85,3 +85,35 @@ test("a native identity cannot silently fall back to old checkpoints", async () 
     assert.equal(f.counts().ephemeral, 0);
   } finally { f.close(); }
 });
+
+test("native browser data prevents checkpoint fallback even when its marker is missing", async () => {
+  const f = fixture();
+  try {
+    const directory = join(f.directory, "browser-data");
+    mkdirSync(directory); writeFileSync(join(directory, "cookies.sqlite"), "saved login");
+    await assert.rejects(launchIdentityBrowser(f.launcher, {}, {}, { mode: "checkpoint", directory: f.directory }), /stale checkpoints/);
+    assert.equal(readFileSync(join(directory, "cookies.sqlite"), "utf8"), "saved login");
+    assert.equal(f.counts().ephemeral, 0);
+  } finally { f.close(); }
+});
+
+test("an interrupted native launch cannot permit checkpoint fallback", async () => {
+  const f = fixture();
+  try {
+    const launcher = { ...f.launcher, async launchPersistentContext(directory: string) {
+      writeFileSync(join(directory, "cookies.sqlite"), "partial profile"); throw Error("Launch interrupted");
+    } };
+    await assert.rejects(launchIdentityBrowser(launcher, {}, {}, { mode: "native", directory: f.directory }), /Launch interrupted/);
+    await assert.rejects(launchIdentityBrowser(f.launcher, {}, {}, { mode: "checkpoint", directory: f.directory }), /stale checkpoints/);
+    assert.equal(f.counts().ephemeral, 0);
+  } finally { f.close(); }
+});
+
+test("a marked native identity refuses to replace a missing browser-data directory", async () => {
+  const f = fixture();
+  try {
+    writeFileSync(join(f.directory, "native-profile.json"), '{"version":1}');
+    await assert.rejects(launchIdentityBrowser(f.launcher, {}, {}, { mode: "native", directory: f.directory }), /Native browser data is missing/);
+    assert.deepEqual(f.counts(), { persistent: 0, ephemeral: 0, newContexts: 0 });
+  } finally { f.close(); }
+});

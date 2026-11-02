@@ -42,7 +42,7 @@ Authenticated SOCKS5 is not supported.
 Stop the identity before you change its network or storage configuration.
 The start command rejects changes to an active identity's configuration.
 Only loopback hosts bypass a configured proxy. Proxied identities disable WebRTC.
-Current launch policy overrides saved device data; a legacy direct-mode pin cannot re-enable WebRTC in proxy mode.
+Current browser policy overrides saved device data. A legacy direct-mode pin cannot re-enable WebRTC in proxy mode.
 Browser-side IP checks reject failed proxies and unexpected IP addresses. There is no direct fallback.
 These settings do not change client LLM traffic.
 
@@ -69,7 +69,7 @@ Stop and start the identity explicitly. An interrupted task is not automatically
 The service stores identity data in `identities/ID/` inside the service directory.
 
 - `browser-data/` is the native Firefox profile in native mode. The agent controls that same persistent context.
-- `native-profile.json` marks a native identity. Switching it back to potentially stale checkpoints is refused.
+- `native-profile.json` marks a native identity. The service refuses to replace native data with potentially stale checkpoints.
 - `storage/` stores cookie, localStorage, and IndexedDB checkpoints in legacy checkpoint mode only.
 - `fingerprint.json` stores generated device properties. New pins use schema 2. Schema 1 pins remain readable and are not rewritten.
 - `running.json` records the supervisor and browser service lifetime.
@@ -80,9 +80,12 @@ The service uses the configured ID for the upstream `userId`. It uses the stable
 Native mode does not restore snapshots over an existing profile. A checkpoint identity cannot silently become a fresh native identity:
 startup refuses this change if saved checkpoints exist. Keep `storage: "checkpoint"` for that identity or create a new native identity.
 Automated conversion of existing checkpoints is not part of this change. No conversion deletes or renames saved data.
+An existing `browser-data/` directory also prevents checkpoint mode if the native marker is missing.
+If a marked native identity loses its profile directory, startup fails. Restore the original directory before starting that identity.
 
 Saved device properties do not override current language, location, add-on paths, session history, or Firefox security preferences.
-Changing the browser executable still requires an explicit migration; no browser-version migration command is added here.
+WebGL2 support follows the saved GPU properties. Fresh GPU samples cannot change this capability after restart.
+Changing the browser executable still requires an explicit migration. This release has no command to migrate browser versions.
 Saved configuration does not guarantee stable observable output. Canvas hashes varied in earlier restart tests.
 No automation-detection guarantee applies.
 

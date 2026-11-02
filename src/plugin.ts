@@ -97,7 +97,7 @@ export async function register(app: App, ctx: PluginContext) {
     for (let offset = 0; offset < serialized.length; offset += 32767) env[`CAMOU_CONFIG_${offset / 32767 + 1}`] = serialized.slice(offset, offset + 32767);
     options.env = env;
     if (state.mode === "proxy" && !options.proxy) throw Error("Proxy launch configuration is missing; direct fallback is disabled");
-    options.firefoxUserPrefs = launchPreferences(options.firefoxUserPrefs, state.mode === "proxy");
+    options.firefoxUserPrefs = launchPreferences(options.firefoxUserPrefs, state.mode === "proxy", pin.config);
     if (options.proxy) options.proxy.bypass = "127.0.0.1,localhost";
     const machine = freezeDevice(pin.config);
     persist({ phase: "starting", fingerprintSha256: hash(machine), engineSha256 });

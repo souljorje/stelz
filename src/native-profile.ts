@@ -30,15 +30,16 @@ export async function launchIdentityBrowser(
 ): Promise<Browser> {
   if (!isAbsolute(storage.directory)) throw Error("An absolute identity directory is required");
   const marker = join(storage.directory, "native-profile.json");
+  const directory = join(storage.directory, "browser-data");
   if (storage.mode === "checkpoint") {
-    if (existsSync(marker)) throw Error("Native profile exists; refusing to fall back to stale checkpoints");
+    if (existsSync(marker) || existsSync(directory)) throw Error("Native profile exists; refusing to fall back to stale checkpoints");
     return firefox.launch(options);
   }
+  if (existsSync(marker) && !existsSync(directory)) throw Error("Native browser data is missing; restore the original browser-data directory before starting this identity");
   if (!existsSync(marker) && hasCheckpoint(join(storage.directory, "storage"))) {
     throw Error("Existing storage checkpoints require an explicit migration. Keep storage=checkpoint or use a new identity; no data was removed.");
   }
   if ("storageState" in contextOptions) throw Error("Native profiles must not restore a storage checkpoint on launch");
-  const directory = join(storage.directory, "browser-data");
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   // Context options (permissions, locale, timezone, viewport) must apply at launch,
   // not to a new incognito context after the native profile has already opened.

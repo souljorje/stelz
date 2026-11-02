@@ -28,6 +28,25 @@ The complete dependency-pinned typecheck, Bun build/unit suite, native browser a
 headed macOS behavior, real proxy transitions, and human/cross-harness handoff were not run here.
 The previous baseline results in `tests.md` do not validate this revision.
 
+## Local review on 2026-11-02
+
+The local review fixed two additional defects:
+
+1. Checkpoint mode now refuses an existing native profile directory even if its marker is missing.
+   This also covers an interrupted first launch. A marked identity cannot silently recreate a missing native directory.
+2. WebGL2 support now follows the saved GPU properties for both pin schemas.
+   A fresh GPU sample cannot change the preference or supply incompatible WebGL2 fields.
+   The browser acceptance test now compares WebGL2 observations across restart.
+
+The initial five regression cases failed before these fixes. The expanded suite passes all 38 unit and regression tests.
+Build, TypeScript checks, and both native and checkpoint browser acceptance passed on macOS 26.5.2.
+Archive installation and browser acceptance also passed with an isolated npm prefix and an empty working directory.
+The checks used Bun 1.4.4, Node.js 24.14.0, and TypeScript 5.9.3.
+Each browser acceptance run used two isolated identities in direct development mode.
+The native report is `.state/native-acceptance-8WHNXR/report.json`.
+It records stable device and WebGL2 observations. Canvas hashes changed after restart.
+Real proxies, human takeover, and handoff between LLM harnesses remain unverified.
+
 ## Validation before merge
 
 ```sh

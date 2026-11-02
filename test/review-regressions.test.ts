@@ -100,6 +100,27 @@ test("a new pin stores device fields, not Firefox security preferences", async (
   } finally { await h.close(); }
 });
 
+for (const version of [1, 2]) for (const enabled of [true, false]) {
+  test(`the launch hook keeps schema-${version} WebGL2 support ${enabled} when the fresh GPU differs`, async () => {
+    const h = await harness();
+    try {
+      const gpu = { "webGl:vendor": "saved GPU", "webGl:parameters": {},
+        ...(enabled ? { "webGl2:parameters": {}, "webGl2:supportedExtensions": ["saved extension"] } : {}) };
+      writeFileSync(join(h.stateDir, "fingerprint.json"), JSON.stringify({ version,
+        engineSha256: createHash("sha256").update(readFileSync(h.binary)).digest("hex"), config: { ...generated, ...gpu } }));
+      const options = h.options();
+      options.env.CAMOU_CONFIG_1 = JSON.stringify({ ...generated, "webGl:parameters": {},
+        ...(!enabled ? { "webGl2:parameters": {}, "webGl2:supportedExtensions": ["fresh extension"] } : {}) });
+      options.firefoxUserPrefs["webgl.enable-webgl2"] = !enabled;
+      await h.emit("browser:launching", { options });
+      assert.equal(options.firefoxUserPrefs["webgl.enable-webgl2"], enabled);
+      const effective = JSON.parse(options.env.CAMOU_CONFIG_1!);
+      assert.deepEqual(effective["webGl2:supportedExtensions"], enabled ? ["saved extension"] : undefined);
+      assert.equal("webGl2:parameters" in effective, enabled);
+    } finally { await h.close(); }
+  });
+}
+
 test("session destruction latches a block before cleanup and refuses upstream recovery", async () => {
   const h = await harness();
   try {
