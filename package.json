@@ -21,7 +21,7 @@
     "mcp": "bun src/cli.ts mcp",
     "browser": "bun src/call.ts",
     "fixture": "bun test/fixture.ts",
-    "test": "bun test test/unit.test.ts && bun run test:regression",
+    "test": "bun test test/unit.test.ts test/lifecycle.test.ts test/setup.test.ts && bun run test:regression",
     "test:regression": "node --experimental-transform-types --test test/plugin.test.ts test/native-profile.test.ts test/observations.test.ts",
     "test:integration": "bun test/integration.ts",
     "test:native": "bun test/native-integration.ts",

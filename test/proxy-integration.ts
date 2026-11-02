@@ -101,20 +101,38 @@ try {
     await closeClients(); await command("stop", "all");
   }
   configuration("proxy", "192.0.2.1");
-  let rejected = false; try { await command("start", ids[0]!); } catch { rejected = true; }
-  assert(rejected, "Mismatched expected IP permitted startup");
-  await command("stop", "all"); report.push({ check: "Mismatched expected IP rejects startup", result: "passed" });
+  await command("start", ids[0]!);
+  const mismatch = await client(ids[0]!);
+  assert((await call(mismatch, "identity_status")).phase === "verification_failed", "Mismatched expected IP did not block the identity");
+  let rejected = false;
+  try { await call(mismatch, "camofox_list_tabs"); } catch { rejected = true; }
+  assert(rejected, "Mismatched expected IP permitted browser actions");
+  await closeClients();
+  await command("stop", "all");
+  report.push({ check: "Mismatched expected IP blocks browser actions", result: "passed" });
   configuration("proxy", ip.ip); await Promise.all(ids.map(id => command("start", id)));
   const active = await Promise.all(ids.map(client));
   const instances = ids.map(id => readFileSync(identityFile(id, "running.json"), "utf8"));
-  relay.close(); for (const socket of sockets) socket.destroy();
+  const address = relay.address();
+  assert(address && typeof address !== "string", "Proxy relay is unavailable");
+  const relayPort = address.port;
+  const relayClosed = new Promise<void>(resolve => relay.close(() => resolve()));
+  for (const socket of sockets) socket.destroy();
+  await relayClosed;
   await Promise.all(active.map(async (c, i) => {
     let blocked = false; try { await call(c, "camofox_list_tabs"); } catch { blocked = true; }
     assert(blocked, "Browser action succeeded after proxy loss");
-    const status = await call(c, "identity_status"); assert(status.phase === "blocked", "Proxy loss did not block the identity");
+    const status = await call(c, "identity_status"); assert(status.phase === "verification_failed", "Proxy loss did not block the identity");
     assert(readFileSync(identityFile(ids[i]!, "running.json"), "utf8") === instances[i], "Proxy loss replaced the browser service");
   }));
   report.push({ check: "Live proxy loss blocks both identities without direct fallback or replacement", result: "passed" });
+  await new Promise<void>(resolve => relay.listen(relayPort, "127.0.0.1", resolve));
+  await Promise.all(active.map(async (c, i) => {
+    await call(c, "identity_recheck");
+    await call(c, "camofox_list_tabs");
+    assert(readFileSync(identityFile(ids[i]!, "running.json"), "utf8") === instances[i], "Recheck replaced the browser service");
+  }));
+  report.push({ check: "Explicit recheck restores control after proxy recovery", result: "passed" });
 } catch (error) {
   let message = String(error);
   for (const secret of [proxyURL.href, proxyURL.username, proxyURL.password, decodeURIComponent(proxyURL.username), decodeURIComponent(proxyURL.password)].filter(Boolean)) message = message.replaceAll(secret, "[redacted]");

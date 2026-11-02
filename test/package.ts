@@ -1,6 +1,7 @@
 import { mkdtempSync, mkdirSync, symlinkSync, readFileSync, writeFileSync, readdirSync, lstatSync, realpathSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
+import { STELZ_VERSION } from "../src/versions.ts";
 const root = resolve(import.meta.dir, ".."), temp = mkdtempSync(join(tmpdir(), "stelz-package-"));
 const prefix = join(temp, "global"), cwd = join(temp, "empty"), home = join(temp, "data"), bin = join(temp, "bin");
 for (const path of [cwd, bin]) mkdirSync(path, { recursive: true });
@@ -29,7 +30,7 @@ writeFileSync(join(cwd, ".env"), `STELZ_HOME=${poisonHome}\n`);
 const defaultEnv = { ...cleanEnv }; delete defaultEnv.STELZ_HOME;
 if ((await run([executable, "--help"], { cwd, env: defaultEnv })).includes(poisonHome)) throw Error("The global command loaded project environment state.");
 const version = (await run([executable, "--version"], { cwd, env: cleanEnv })).trim();
-if (version !== "0.2.0") throw Error("Global command version does not match.");
+if (version !== STELZ_VERSION) throw Error("Global command version does not match.");
 await run([executable, "init"], { cwd, env: cleanEnv });
 await run([executable, "setup"], { cwd, env: cleanEnv });
 const installedCli = join(prefix, "lib/node_modules/stelz/dist/cli.js");

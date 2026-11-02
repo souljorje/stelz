@@ -1,5 +1,10 @@
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
 /** Device identity is persistent; location, session state and security policy are not. */
 export type Fingerprint = Record<string, unknown>;
+export type LaunchOptions = { env?: Record<string, string>; firefoxUserPrefs?: Fingerprint; proxy?: Record<string, unknown> };
 
 // Classification follows camoufox-profile-manager's device/runtime distinction.
 // See THIRD_PARTY_NOTICES.md. Keep this allowlist small and test observable output.
@@ -33,4 +38,44 @@ export function launchPreferences(current: Fingerprint | undefined, proxied: boo
   const capabilities = "webGl:parameters" in device ? { "webgl.enable-webgl2": "webGl2:parameters" in device } : {};
   // Apply the mandatory rule last, including when a direct identity switches to a proxy.
   return { ...current, ...capabilities, ...(proxied ? { "media.peerconnection.enabled": false } : {}) };
+}
+
+export function applyFingerprint(options: LaunchOptions, stateDir: string, binary: string, proxied: boolean) {
+  if (proxied && !options.proxy) throw Error("Proxy launch configuration is missing; direct fallback is disabled");
+  const env = options.env || {};
+  const chunks = Object.entries(env)
+    .filter(([key]) => /^CAMOU_CONFIG_[1-9]\d*$/.test(key))
+    .sort(([a], [b]) => Number(a.split("_").at(-1)) - Number(b.split("_").at(-1)));
+  if (!chunks.length || chunks.some(([key], index) => key !== `CAMOU_CONFIG_${index + 1}`)) {
+    throw Error("Missing/incomplete generated fingerprint");
+  }
+
+  const generated = JSON.parse(chunks.map(([, value]) => value).join("")) as Fingerprint;
+  const path = join(stateDir, "fingerprint.json");
+  const engineSha256 = createHash("sha256").update(readFileSync(binary)).digest("hex");
+  type Pin = { version: number; engineSha256: string; config: Fingerprint };
+  let pin: Pin;
+  if (existsSync(path)) {
+    pin = JSON.parse(readFileSync(path, "utf8")) as Pin;
+    if (![1, 2].includes(pin.version) || pin.engineSha256 !== engineSha256 ||
+      typeof pin.config?.["navigator.userAgent"] !== "string" || !pin.config["navigator.userAgent"]) {
+      throw Error("Fingerprint pin is corrupt or browser binary changed; explicit migration required");
+    }
+  } else {
+    if (!generated["navigator.userAgent"]) throw Error("Generated fingerprint has no user agent");
+    pin = { version: 2, engineSha256, config: freezeDevice(generated) };
+    writeFileSync(path, JSON.stringify(pin, null, 2), { mode: 0o600, flag: "wx" });
+  }
+
+  const effective = replayFingerprint(pin.config, generated);
+  for (const [key] of chunks) delete env[key];
+  const serialized = JSON.stringify(effective);
+  for (let offset = 0; offset < serialized.length; offset += 32767) {
+    env[`CAMOU_CONFIG_${offset / 32767 + 1}`] = serialized.slice(offset, offset + 32767);
+  }
+  options.env = env;
+  options.firefoxUserPrefs = launchPreferences(options.firefoxUserPrefs, proxied, pin.config);
+  if (options.proxy) options.proxy.bypass = "127.0.0.1,localhost";
+  const fingerprintSha256 = createHash("sha256").update(JSON.stringify(freezeDevice(pin.config))).digest("hex");
+  return { fingerprintSha256, engineSha256 };
 }

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { proxyEnvironment, type Profile } from "../src/config.ts";
 import { lock } from "../src/runtime.ts";
-import { ControllerLease } from "../src/controller.ts";
+import { createControllerLease } from "../src/controller.ts";
 const p: Profile = { id: "unit", port: 9471, mode: "proxy", proxyEnv: "STELZ_UNIT_PROXY" };
 const folder = mkdtempSync(join(tmpdir(), "stelz-unit-"));
 afterAll(() => { delete process.env.STELZ_UNIT_PROXY; rmSync(folder, { recursive: true, force: true }); });
@@ -25,13 +25,13 @@ test("lifecycle operations serialize", async () => {
 });
 const a = { id: "connection-a", pid: 10, label: "Client A" }, b = { id: "connection-b", pid: 20, label: "Client B" };
 test("one identity rejects a second controller until release", async () => {
-  const lease = new ControllerLease(() => true); lease.acquire(a);
+  const lease = createControllerLease(() => true); lease.acquire(a);
   expect(() => lease.acquire(b)).toThrow("active controller");
   await lease.release(a.id); expect(lease.acquire(b).acquired).toBe(true);
   await expect(lease.run(a.id, async () => 1)).rejects.toThrow("Acquire");
 });
 test("handoff waits for active and queued actions", async () => {
-  const lease = new ControllerLease(() => true); lease.acquire(a);
+  const lease = createControllerLease(() => true); lease.acquire(a);
   let finish!: () => void;
   const action = lease.run(a.id, () => new Promise<void>(resolve => { finish = resolve; }));
   await Bun.sleep(0);
@@ -45,7 +45,7 @@ test("handoff waits for active and queued actions", async () => {
   expect(lease.acquire(b).acquired).toBe(true);
 });
 test("a dead controller cannot hand off an action still running in the service", async () => {
-  let alive = true; const lease = new ControllerLease(() => alive); lease.acquire(a);
+  let alive = true; const lease = createControllerLease(() => alive); lease.acquire(a);
   let finish!: () => void;
   const action = lease.run(a.id, () => new Promise<void>(resolve => { finish = resolve; }));
   await Bun.sleep(0); alive = false;
@@ -54,7 +54,7 @@ test("a dead controller cannot hand off an action still running in the service",
   expect(lease.acquire(b).acquired).toBe(true);
 });
 test("an action failure releases the service queue", async () => {
-  const lease = new ControllerLease(() => true); lease.acquire(a);
+  const lease = createControllerLease(() => true); lease.acquire(a);
   await expect(lease.run(a.id, async () => { throw Error("action failed"); })).rejects.toThrow("action failed");
   await lease.release(a.id); expect(lease.acquire(b).acquired).toBe(true);
 });
