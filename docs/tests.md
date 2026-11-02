@@ -1,61 +1,65 @@
-# Test results
+# Development and testing
 
-Tests use macOS 26.5.2 on Apple Silicon, Bun 1.3.8, and Node.js 24.14.0.
-The existing browser is Camoufox 152.0.4 beta.30.
-The package pins Camofox to npm version 1.18.1. The service records the browser checksum in `runtime/versions.json`.
+Use the runtime requirements in [Use the service](README.md).
 
-| Check | Result |
-| --- | --- |
-| TypeScript checks | Passed. |
-| Controller and proxy unit tests | Ten tests passed. |
-| Two independent browsers | Passed through standard MCP. Both test identities explicitly used direct development mode. |
-| Bound identity and exclusive control | Passed. A second controller failed acquisition while the first controller held access. |
-| Deliberate handoff | Passed. The browser lifetime, original tab, visible storage, and fingerprint file remained unchanged. |
-| Client disconnect and reconnect | Passed. The service kept the original browser open. |
-| Client crash during an action | Passed. The service kept the action lock until the action finished. The next controller retained the browser. |
-| Explicit browser restart | Passed. Separate cookie, localStorage, and IndexedDB markers survived. Saved fingerprints remained unchanged. |
-| Global archive installation | Passed in an isolated npm prefix and an empty working directory. |
-| Runtime independence | Passed without Codex, Claude Code, or Hermes commands in PATH. The test supplied no LLM credentials. |
-| Project environment independence | Passed. A project `.env` file could not select a different service directory. |
-| Handoff between two agent harnesses | Unverified. See the client limits below. |
-| Supplied fixed-IP proxies | Unverified. The test had no proxy credentials. |
-| Actual human takeover | Unverified. Pause and resume passed without a simulated human action. |
-
-## Evidence
-
-Run the checks from the development checkout:
+## Build
 
 ```sh
+bun install --frozen-lockfile
 bun run build
-bun run typecheck
-bun run test
-bun run test:integration
-bun run test:package
+npm pack
 ```
 
-`test:integration` uses independent MCP SDK clients. It does not require a harness or a model.
-`test:package` installs the npm archive globally into a temporary prefix. It runs browser checks against that installed package.
-The package test excludes source files, tests, harness directories, and saved browser state from the archive.
-It checks that runtime dependency links do not refer to the source checkout.
+Build regenerates `dist/` from source.
+The archive contains the CLI, supervisor, browser plugin, documentation, client examples, and third-party notices.
+The diagnostic client runs from source. The archive excludes source files, tests, installed dependencies, and browser state.
 
-The development reports are `.state/standalone-acceptance/report.json` and `.state/package-test/report.json`.
-The package report records the temporary install, working directory, service directory, and browser checks.
+## Checks
 
-## Client limits
+| Command | Coverage |
+| --- | --- |
+| `bun run typecheck` | TypeScript checks. |
+| `bun run test` | Controller, proxy, plugin, native storage, and observation tests. |
+| `bun run test:integration` | Two checkpoint identities, exclusive control, handoff, disconnect, client crash, pause, and restart. |
+| `bun run test:native` | Two native identities, persistent storage, and observed device properties across restart. |
+| `bun run test:package` | Archive installation in an isolated npm prefix, an empty working directory, and browser acceptance. |
 
-The installed Codex CLI rejects its existing external model catalog. Its version is 0.142.4.
-Claude Code is not installed. The Hermes CLI is available.
-No test claimed a live handoff between two ready agent harnesses. The standard MCP handoff test passed independently.
-The connection examples follow each client's official configuration documentation.
+All checks passed on 2026-11-02 with macOS 26.5.2 on Apple Silicon.
+The run used Bun 1.4.4, Node.js 24.14.0, TypeScript 5.9.3, and Camoufox 152.0.4 beta.30.
+The unit and regression suites contain 38 tests.
+Camofox remains pinned to npm version 1.18.1.
 
-## Browser limits
+The regression suite also runs directly with Node. It does not require a browser.
+The plugin tests use the actual hooks with simulated browser and network interfaces.
 
-The service preserves a generated fingerprint configuration. It does not promise stable output for every observable signal.
-Earlier restart tests found different canvas hashes despite unchanged saved configuration.
-Storage checkpoints do not preserve the complete Firefox profile.
+## Test data
+
+Browser checks use independent MCP SDK clients and two identities in explicit direct development mode.
+Each run stops its test browsers. These checks require no model credentials.
+
+- `test:integration` uses `.state/standalone-acceptance/`. Set `STELZ_TEST_HOME` to select another test directory.
+- `test:native` creates a fresh `.state/native-acceptance-*` directory.
+- `test:package` uses temporary install and service directories. Its report is `.state/package-test/report.json`.
+
+Reports, screenshots, and test profiles are disposable. Keep actual identity data in the configured `STELZ_HOME`.
+
+## Diagnostics
+
+Start the selected identity before using the diagnostic client:
+
+```sh
+bun run browser identity-02 identity_status
+bun run browser identity-02 tools
+```
+
+Use the same `STELZ_HOME` for diagnostics and lifecycle commands.
+
+## Limits
+
+Native restart checks compare selected device properties, including WebGL and WebGL2.
+They report canvas and audio differences separately. Canvas hashes changed in the latest run.
+Checkpoint mode preserves cookies, localStorage, and IndexedDB. It does not preserve a complete Firefox profile.
+
+Real proxy transitions, human takeover, and handoff between LLM harnesses remain unverified.
+Browser executable changes require an explicit migration.
 No test establishes that websites cannot detect automation.
-
-## Package availability
-
-The global package archive is `stelz-0.2.0.tgz`. npm publication remains a separate release step.
-No test requires a repository clone to run the installed service.

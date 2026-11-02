@@ -1,8 +1,9 @@
-import { mkdirSync, chmodSync } from "node:fs";
+import { mkdirSync, chmodSync, rmSync } from "node:fs";
 import { join } from "node:path";
 const root = join(import.meta.dir, "..");
+rmSync(join(root, "dist"), { recursive: true, force: true });
 mkdirSync(join(root, "dist"), { recursive: true });
-for (const name of ["cli", "supervisor", "call"]) {
+for (const name of ["cli", "supervisor"]) {
   const result = await Bun.build({ entrypoints: [join(root, "src", `${name}.ts`)], target: "bun", packages: "external", format: "esm", outdir: join(root, "dist"), naming: `${name}.js` });
   if (!result.success) throw Error(result.logs.join("\n"));
   chmodSync(join(root, "dist", `${name}.js`), 0o755);

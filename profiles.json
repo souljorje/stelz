@@ -1,7 +1,0 @@
-{
-  "maxActive": 2,
-  "profiles": [
-    { "id": "agent-01", "port": 9377, "mode": "proxy", "proxyEnv": "AGENT_01_PROXY_URL", "expectedIPEnv": "AGENT_01_EXPECTED_IP" },
-    { "id": "agent-02", "port": 9378, "mode": "direct" }
-  ]
-}

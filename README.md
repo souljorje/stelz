@@ -22,6 +22,4 @@ Use `stelz stop ID` to stop a browser and save its state.
 - [Use the service](docs/README.md)
 - [Connect a client](docs/clients.md)
 - [Instructions for agents](docs/agents.md)
-- [Test results and limits](docs/tests.md)
-
-Documentation follows STE structural rules. It does not claim certified dictionary compliance.
+- [Development and testing](docs/tests.md)
