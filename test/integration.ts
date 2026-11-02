@@ -97,7 +97,7 @@ try {
   await rejection(d.client, "camofox_click", { tabId: tabs["identity-01"], selector: "#human" });
   await call(d.client, "identity_resume");
   await call(d.client, "camofox_scroll", { tabId: tabs["identity-01"], direction: "down", amount: 100 });
-  await call(d.client, "camofox_snapshot", { tabId: tabs["identity-01"] });
+  await checkSamePage(d.client);
   report.push({ check: "Pause and resume keep the selected browser", result: "passed" });
   await d.client.close(); await second.client.close();
   const pins = { "identity-01": pin("identity-01"), "identity-02": pin("identity-02") };

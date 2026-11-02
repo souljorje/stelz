@@ -6,7 +6,7 @@ import { pathToFileURL } from "node:url";
 import { createControllerLease } from "./controller.ts";
 import { applyFingerprint, type LaunchOptions } from "./fingerprint.ts";
 import { createIpVerification, type Probe } from "./ip-verification.ts";
-import { allowedBrowserTools } from "./tool-policy.ts";
+import { allowedBrowserTools, browserToolArguments } from "./tool-policy.ts";
 import type { Contracts } from "./upstream.ts";
 
 type Context = {
@@ -59,7 +59,7 @@ export async function register(app: App, ctx: PluginContext, options: { actionTi
   let state: ProfileState = { identityId: id, instanceId: randomUUID(), mode, phase: "starting", exitIp: null };
   const controller = createControllerLease();
   const upstream = await import(pathToFileURL(join(process.env.STELZ_UPSTREAM!, "mcp/lib/tool-contracts.mjs")).href) as Contracts;
-  const browserTools = new Set(allowedBrowserTools(upstream.TOOL_DEFS).map(tool => tool.name));
+  const browserTools = new Map(allowedBrowserTools(upstream.TOOL_DEFS).map(tool => [tool.name, tool]));
   const expected = process.env.STELZ_EXPECTED_IP || "";
   const ipVerification = createIpVerification(ctx, id, expected);
   const requiresCheck = mode === "proxy" || !!expected;
@@ -213,11 +213,13 @@ export async function register(app: App, ctx: PluginContext, options: { actionTi
     try {
       const body = req.body || {};
       const name = String(body.name || "");
-      if (!browserTools.has(name)) throw Error("Unknown browser tool.");
+      const tool = browserTools.get(name);
+      if (!tool) throw Error("Unknown browser tool.");
+      const args = browserToolArguments(tool, body.args);
       const result = await controller.run(String(body.controllerId || ""), () => bounded(async () => {
         await verify();
         try {
-          const { spec, payload } = await upstream.runTool(name, (body.args || {}) as Record<string, unknown>,
+          const { spec, payload } = await upstream.runTool(name, args,
             { userId: id, sessionKey: "default" }, `http://127.0.0.1:${process.env.CAMOFOX_PORT}`,
             { accessKey: process.env.CAMOFOX_ACCESS_KEY, apiKey: process.env.CAMOFOX_API_KEY, cookiesDir: process.env.CAMOFOX_COOKIES_DIR });
           return { content: upstream.adaptResponse(spec, payload) };

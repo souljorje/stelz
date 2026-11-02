@@ -1,9 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { launchIdentityBrowser, claimIdentityContext } from "../src/native-profile.ts";
 
 function fixture() {
@@ -65,6 +67,22 @@ test("switching an existing checkpoint identity to native refuses without changi
     mkdirSync(join(f.directory, "storage", "hash"), { recursive: true }); writeFileSync(path, '{"cookies":[]}');
     await assert.rejects(launchIdentityBrowser(f.launcher, {}, {}, { mode: "native", directory: f.directory }), /explicit migration/);
     assert.equal(readFileSync(path, "utf8"), '{"cookies":[]}');
+    assert.deepEqual(f.counts(), { persistent: 0, ephemeral: 0, newContexts: 0 });
+  } finally { f.close(); }
+});
+
+test("native mode detects checkpoints written by the installed upstream persistence code", async () => {
+  const f = fixture();
+  try {
+    const upstream = dirname(createRequire(import.meta.url).resolve("@askjo/camofox-browser/package.json"));
+    const { persistStorageState } = await import(pathToFileURL(join(upstream, "lib/persistence.js")).href);
+    const result = await persistStorageState({ profileDir: join(f.directory, "storage"), userId: "identity-01",
+      storageState: { cookies: [], origins: [{ origin: "https://example.com", localStorage: [{ name: "identity", value: "saved" }] }] } });
+    assert.equal(result.persisted, true);
+    const before = readFileSync(result.storageStatePath, "utf8");
+    await assert.rejects(launchIdentityBrowser(f.launcher, {}, {}, { mode: "native", directory: f.directory }), /explicit migration/);
+    assert.equal(readFileSync(result.storageStatePath, "utf8"), before);
+    assert.equal(existsSync(join(f.directory, "browser-data")), false);
     assert.deepEqual(f.counts(), { persistent: 0, ephemeral: 0, newContexts: 0 });
   } finally { f.close(); }
 });

@@ -20,7 +20,8 @@ function runtimeStorage(): Storage {
 function hasCheckpoint(directory: string): boolean {
   if (!existsSync(directory)) return false;
   return readdirSync(directory, { withFileTypes: true }).some(entry =>
-    entry.name === "storage_state.json" || (entry.isDirectory() && hasCheckpoint(join(directory, entry.name)))
+    entry.name === "storage-state.json" || entry.name === "storage_state.json" ||
+      (entry.isDirectory() && hasCheckpoint(join(directory, entry.name)))
   );
 }
 

@@ -1,12 +1,19 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { EventEmitter } from "node:events";
+import { EventEmitter, once } from "node:events";
+import { createServer } from "node:http";
+import { createRequire } from "node:module";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { createHash } from "node:crypto";
 import { freezeDevice, replayFingerprint, launchPreferences } from "../src/fingerprint.ts";
 import { register } from "../src/plugin.ts";
+
+const contractsUrl = pathToFileURL(join(dirname(createRequire(import.meta.url).resolve("@askjo/camofox-browser/package.json")),
+  "mcp/lib/tool-contracts.mjs")).href;
+const tabId = "79bed5c4-d5b8-4369-9d13-b159451ece91";
 
 const generated = { "navigator.userAgent": "test UA", "navigator.hardwareConcurrency": 8,
   "navigator.languages": ["en-US"], "screen.width": 1440, "window.history.length": 1,
@@ -32,19 +39,19 @@ test("proxy policy wins and unrelated fresh preferences survive", () => {
 type App = Parameters<typeof register>[0];
 type Handler = Parameters<App["post"]>[1];
 async function harness(mode: "direct" | "proxy" = "direct", waitForIP?: Promise<void>,
-  fixture: { expected?: string; timeout?: number; ipError?: string } = {}) {
+  fixture: { expected?: string; timeout?: number; ipError?: string; canonical?: boolean; port?: number } = {}) {
   const root = mkdtempSync(join(tmpdir(), "stelz-regression-")), id = "identity-01";
   const stateDir = join(root, id), upstream = join(root, "upstream"), binary = join(root, "browser");
   mkdirSync(stateDir); mkdirSync(join(upstream, "mcp/lib"), { recursive: true });
   writeFileSync(binary, "test browser binary");
-  writeFileSync(join(upstream, "mcp/lib/tool-contracts.mjs"), `
-    export const TOOL_DEFS = ["camofox_snapshot", "camofox_evaluate", "camofox_import_cookies"]
-      .map(name => ({ name, description: name, inputSchema: { type: "object" } }));
+  writeFileSync(join(upstream, "mcp/lib/tool-contracts.mjs"), fixture.canonical ? `export * from ${JSON.stringify(contractsUrl)};` : `
+    export { TOOL_DEFS } from ${JSON.stringify(contractsUrl)};
     export async function runTool(name, args) { return globalThis.__stelzTool(name, args); }
     export function adaptResponse(_spec, payload) { return [{ type: "text", text: JSON.stringify(payload) }]; }
   `);
   const settings = { STELZ_PROFILE_ID: id, STELZ_PROFILE_DIR: stateDir, STELZ_UPSTREAM: upstream,
-    CAMOUFOX_EXECUTABLE: binary, STELZ_MODE: mode, STELZ_EXPECTED_IP: fixture.expected ?? "198.51.100.10" };
+    CAMOUFOX_EXECUTABLE: binary, STELZ_MODE: mode, STELZ_EXPECTED_IP: fixture.expected ?? "198.51.100.10",
+    CAMOFOX_PORT: String(fixture.port ?? 0), CAMOFOX_ACCESS_KEY: "fixture-key" };
   const previous = Object.fromEntries(Object.keys(settings).map(key => [key, process.env[key]]));
   Object.assign(process.env, settings);
   const events = new EventEmitter(), routes = new Map<string, Handler>();
@@ -221,7 +228,89 @@ test("pausing during an IP check does not become an irreversible context-loss bl
 });
 
 const controller = { id: "controller-a", pid: process.pid, label: "test" };
-const snapshot = { controllerId: controller.id, name: "camofox_snapshot", args: {} };
+const snapshot = { controllerId: controller.id, name: "camofox_snapshot", args: { tabId } };
+
+async function canonicalHarness() {
+  const requests: Array<{ method: string; url: string; authorization?: string; body?: Record<string, unknown> }> = [];
+  const server = createServer(async (req, res) => {
+    let body = "";
+    for await (const chunk of req) body += chunk;
+    requests.push({ method: req.method!, url: req.url!, authorization: req.headers.authorization,
+      body: body ? JSON.parse(body) : undefined });
+    if (new URL(req.url!, "http://localhost").pathname.endsWith("/screenshot")) {
+      res.writeHead(200, { "Content-Type": "image/png" }).end("fixture-image");
+    } else res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ ok: true }));
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  assert(address && typeof address !== "string");
+  const h = await harness("direct", undefined, { expected: "", canonical: true, port: address.port });
+  return { h, requests, async close() {
+    try { await h.close(); }
+    finally { await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); }
+  } };
+}
+
+test("canonical dispatch rejects tab-ID route injection before any HTTP request", async () => {
+  const fixture = await canonicalHarness(), { h, requests } = fixture;
+  try {
+    await h.launch(); await h.create(); await h.request("acquire", controller);
+    for (const name of ["camofox_click", "camofox_type", "camofox_navigate", "camofox_scroll",
+      "camofox_snapshot", "camofox_screenshot", "camofox_close_tab"]) {
+      for (const invalid of [
+        "../local-profile/stop?ignored=", `${tabId}/evaluate?ignored=`, "../sessions/identity-01/storage_state",
+        "%2e%2e/local-profile/stop?ignored=", "..\\local-profile\\stop?ignored=", `${tabId}%2fevaluate`,
+        `${tabId}?userId=another`, `${tabId}#ignored`, `${tabId}/../`, `${tabId}\n`, `\t${tabId}`,
+        ".", "..", "", undefined, null, 123, [tabId], { tabId },
+      ]) {
+        const result = await h.request("tool", { controllerId: controller.id, name,
+          args: { tabId: invalid, selector: "#x", expression: "1+1", text: "test", direction: "down", url: "https://example.com" } });
+        assert.equal(result.code, 409, `${name}: ${JSON.stringify(invalid)}`);
+        assert.match(String((result.payload as { error: string }).error), /tabId/);
+      }
+    }
+    for (const args of [null, false, 1, [], "invalid"]) {
+      assert.equal((await h.request("tool", { ...snapshot, args })).code, 409);
+    }
+    assert.deepEqual(requests, []);
+    assert.equal(h.state().phase, "ready");
+    assert.equal((await h.request("tool", snapshot)).code, 200);
+    assert.equal(requests.length, 1);
+  } finally { await fixture.close(); }
+});
+
+test("canonical dispatch preserves valid tool routes, arguments, and authentication", async () => {
+  const fixture = await canonicalHarness(), { h, requests } = fixture;
+  try {
+    await h.launch(); await h.create(); await h.request("acquire", controller);
+    const cases: Array<[string, Record<string, unknown>, string, string]> = [
+      ["camofox_create_tab", { url: "https://example.com" }, "POST", "/tabs"],
+      ["camofox_list_tabs", {}, "GET", "/tabs"],
+      ["camofox_click", { tabId, selector: "#x" }, "POST", `/tabs/${tabId}/click`],
+      ["camofox_type", { tabId, selector: "#x", text: "hello" }, "POST", `/tabs/${tabId}/type`],
+      ["camofox_navigate", { tabId, url: "https://example.com" }, "POST", `/tabs/${tabId}/navigate`],
+      ["camofox_scroll", { tabId, direction: "down", amount: 100 }, "POST", `/tabs/${tabId}/scroll`],
+      ["camofox_snapshot", { tabId, offset: 10 }, "GET", `/tabs/${tabId}/snapshot`],
+      ["camofox_screenshot", { tabId }, "GET", `/tabs/${tabId}/screenshot`],
+      ["camofox_close_tab", { tabId }, "DELETE", `/tabs/${tabId}`],
+    ];
+    for (const [name, args, method, path] of cases) {
+      assert.equal((await h.request("tool", { controllerId: controller.id, name, args })).code, 200, name);
+      const req = requests.at(-1)!;
+      const url = new URL(req.url, "http://localhost");
+      assert.equal(req.method, method);
+      assert.equal(url.pathname, path);
+      assert.equal(req.authorization, "Bearer fixture-key");
+      if (method === "POST") {
+        const { tabId: _tabId, ...body } = args;
+        assert.deepEqual(req.body, { ...body, userId: h.id, ...(name === "camofox_create_tab" ? { sessionKey: "default" } : {}) });
+      } else assert.equal(url.searchParams.get("userId"), h.id);
+      if (name === "camofox_snapshot") assert.equal(url.searchParams.get("offset"), "10");
+    }
+    assert.equal(requests.length, cases.length);
+  } finally { await fixture.close(); }
+});
 
 test("direct mode without an expected IP works when the IP service is unavailable", async () => {
   const h = await harness("direct", undefined, { expected: "", ipError: "offline" });
