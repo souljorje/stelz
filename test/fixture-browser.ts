@@ -53,5 +53,7 @@ async function observe() {
     canvas: await digest(new TextEncoder().encode(canvas.toDataURL())), audio,
   };
   el("observations").textContent = JSON.stringify(value, null, 2);
+  const id = new URL(location.href).searchParams.get("capture");
+  if (id) await fetch("/observations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, value }) });
 }
 void refresh(); void observe();

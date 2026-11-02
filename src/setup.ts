@@ -51,6 +51,14 @@ export async function setup() {
     "os: hostOS,\n        window: [1200, 800],\n        screen: { minWidth: 1280, minHeight: 900, maxWidth: 1920, maxHeight: 1200 },\n        humanize: true,");
   patch(join(UPSTREAM, "server.js"), "proxy: launchProxy,\n        geoip: !!launchProxy,",
     "proxy: launchProxy,\n        block_webrtc: !!launchProxy,\n        geoip: !!launchProxy,");
+  // Keep browser ownership in upstream, but bind its one session to the native context.
+  // These exact replacements fail closed if the pinned upstream boundary changes.
+  patch(join(UPSTREAM, "server.js"), "candidateBrowser = await firefox.launch(options);",
+    "candidateBrowser = await (await import('./plugins/local-profile/index.js')).launchIdentityBrowser(firefox, options, { viewport: null, ...contextIdentityOptions({ hasProxy: !!proxyPool, directIdentity: CONFIG.directIdentity }) });");
+  patch(join(UPSTREAM, "server.js"), "const context = await b.newContext(contextOptions);",
+    "const context = await (await import('./plugins/local-profile/index.js')).claimIdentityContext(b, contextOptions);");
+  patch(join(UPSTREAM, "plugins/persistence/index.js"), "export async function register(app, ctx, pluginConfig = {}) {",
+    "export async function register(app, ctx, pluginConfig = {}) {\n  if (process.env.STELZ_STORAGE_MODE === 'native') return; // Native Firefox profile owns storage.");
   const output = join(UPSTREAM, "plugins/local-profile/index.js");
   mkdirSync(dirname(output), { recursive: true });
   if (!existsSync(join(ROOT, "dist/plugin.js"))) throw Error("Build the package before setup.");

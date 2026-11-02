@@ -11,14 +11,14 @@ export const STATE = join(HOME_DIR, "identities");
 export const UPSTREAM_VERSION = "1.18.1";
 export const COMMIT = "39c82094013480b373df6600d44c7f036f58356e";
 export const UPSTREAM = join(HOME_DIR, "runtime", `camofox-${UPSTREAM_VERSION}`);
-export type Profile = { id: string; port: number; mode: "direct" | "proxy"; proxyEnv?: string; expectedIPEnv?: string };
+export type Profile = { id: string; port: number; mode: "direct" | "proxy"; proxyEnv?: string; expectedIPEnv?: string; storage?: "native" | "checkpoint" };
 export type Settings = { maxActive: number; identities: Profile[] };
 export function initialize() {
   mkdirSync(STATE, { recursive: true, mode: 0o700 });
   const config = join(HOME_DIR, "identities.json");
   if (!existsSync(config)) save(config, { maxActive: 2, identities: [
-    { id: "identity-01", port: 9377, mode: "proxy", proxyEnv: "IDENTITY_01_PROXY_URL", expectedIPEnv: "IDENTITY_01_EXPECTED_IP" },
-    { id: "identity-02", port: 9378, mode: "direct" }
+    { id: "identity-01", port: 9377, mode: "proxy", storage: "native", proxyEnv: "IDENTITY_01_PROXY_URL", expectedIPEnv: "IDENTITY_01_EXPECTED_IP" },
+    { id: "identity-02", port: 9378, mode: "direct", storage: "native" }
   ] });
   const secrets = join(HOME_DIR, "secrets.env");
   if (!existsSync(secrets)) writeFileSync(secrets, "IDENTITY_01_PROXY_URL=\nIDENTITY_01_EXPECTED_IP=\n", { mode: 0o600, flag: "wx" });
@@ -30,6 +30,7 @@ export function settings(): Settings {
   const ids = new Set<string>(), ports = new Set<number>();
   for (const p of value.identities) {
     if (!/^[a-z][a-z0-9-]{0,63}$/.test(p.id) || !Number.isInteger(p.port) || p.port < 1024 || p.port > 65535 || !["direct", "proxy"].includes(p.mode) || ids.has(p.id) || ports.has(p.port)) throw Error("Identity IDs and ports must be valid and unique.");
+    if (p.storage !== undefined && !["native", "checkpoint"].includes(p.storage)) throw Error("Storage must be native or checkpoint.");
     ids.add(p.id); ports.add(p.port);
   }
   return value;
