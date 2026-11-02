@@ -1,55 +1,63 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, cpSync, symlinkSync, rmSync } from "node:fs";
 import { join, dirname } from "node:path";
+import { createRequire } from "node:module";
 import { createHash } from "node:crypto";
-import { ROOT, UPSTREAM, COMMIT, executable } from "./config.ts";
+import { ROOT, HOME_DIR, UPSTREAM, COMMIT, UPSTREAM_VERSION, executable, initialize, settings } from "./config.ts";
+import { running } from "./runtime.ts";
 
-async function run(args: string[], cwd = ROOT, env = process.env) {
-  const proc = Bun.spawn(args, { cwd, env: { ...env, npm_config_cache: join(ROOT, ".runtime/npm-cache"), npm_config_devdir: join(ROOT, ".runtime/node-gyp") }, stdout: "inherit", stderr: "inherit" });
-  if (await proc.exited) throw Error(`${args[0]} failed`);
+function packagePath(name: string, from: string): string {
+  const require = createRequire(join(from, "package.json"));
+  let path: string;
+  try { path = dirname(require.resolve(`${name}/package.json`)); }
+  catch { path = dirname(require.resolve(name === "@modelcontextprotocol/sdk" ? `${name}/server/index.js` : name)); }
+  for (;;) {
+    const manifest = join(path, "package.json");
+    if (existsSync(manifest) && JSON.parse(readFileSync(manifest, "utf8")).name === name) return path;
+    const parent = dirname(path); if (parent === path) throw Error(`Cannot locate dependency: ${name}`); path = parent;
+  }
 }
-if (!existsSync(executable())) throw Error(`Installed Camoufox not found at ${executable()}; set CAMOUFOX_EXECUTABLE`);
-if (!existsSync(join(UPSTREAM, ".git"))) {
-  mkdirSync(join(ROOT, ".runtime"), { recursive: true });
-  await run(["git", "clone", "--filter=blob:none", "--no-checkout", "https://github.com/jo-inc/camofox-browser.git", UPSTREAM]);
-}
-await run(["git", "checkout", "--detach", COMMIT], UPSTREAM);
-await run(["npm", "ci", "--omit=dev", "--ignore-scripts"], UPSTREAM, { ...process.env, CAMOUFOX_EXECUTABLE: executable(), CAMOFOX_SKIP_DOWNLOAD: "1" });
-// Only build the native dependency required by upstream, never fetch a browser.
-await run(["npm", "rebuild", "better-sqlite3"], UPSTREAM);
-// The pinned upstream tries to add a symlink inside an external macOS .app.
-// Read its existing Resources/properties.json instead; leave the installed app untouched.
-function patchExact(file: string, before: string, after: string) {
+function patch(file: string, before: string, after: string) {
   const text = readFileSync(file, "utf8");
   if (text.includes(after)) return;
-  if (!text.includes(before)) throw Error(`Pinned-source compatibility patch no longer applies: ${file}`);
+  if (!text.includes(before)) throw Error(`The pinned compatibility patch does not match ${file}.`);
   writeFileSync(file, text.replace(before, after));
 }
-patchExact(join(UPSTREAM, "lib/camoufox-executable.js"),
-  "if (!existsSync(executableProperties)) ensureSymlink(realpathSync(resourceProperties), executableProperties);",
-  "// stelz: macOS resource-aware loader avoids modifying the installed app bundle.");
-patchExact(join(UPSTREAM, "node_modules/camoufox-js/dist/utils.js"),
-  'propFile = path.join(path.dirname(filePath), "properties.json");',
-  'propFile = process.platform === "darwin" && filePath.includes(".app/Contents/MacOS/") ? path.join(path.dirname(filePath), "../Resources/properties.json") : path.join(path.dirname(filePath), "properties.json");');
-const serverFile = join(UPSTREAM, "server.js");
-let serverSource = readFileSync(serverFile, "utf8");
-if (!serverSource.includes("stelz-headed-constraints")) {
-  serverSource = serverSource.replace("        window: [1200, 800], // supported generation constraint; no hand-crafted device values\n", "");
-  const before = "os: hostOS,\n        humanize: true,";
-  if (!serverSource.includes(before)) throw Error("Pinned headed-window patch no longer applies");
-  writeFileSync(serverFile, serverSource.replace(before, "os: hostOS,\n        // stelz-headed-constraints: supported generator constraints, not hand-crafted device values\n        window: [1200, 800],\n        screen: { minWidth: 1280, minHeight: 900, maxWidth: 1920, maxHeight: 1200 },\n        humanize: true,"));
+export async function setup() {
+  initialize();
+  if (settings().identities.some(p => running(p.id))) throw Error("Stop all identities before setup.");
+  if (!existsSync(executable())) throw Error(`Camoufox is missing at ${executable()}. Set CAMOUFOX_EXECUTABLE in secrets.env.`);
+  const source = packagePath("@askjo/camofox-browser", ROOT);
+  if (JSON.parse(readFileSync(join(source, "package.json"), "utf8")).version !== UPSTREAM_VERSION) throw Error("The installed Camofox version does not match the pinned version.");
+  mkdirSync(UPSTREAM, { recursive: true, mode: 0o700 });
+  for (const name of ["server.js", "package.json", "LICENSE", "lib", "mcp", "plugins/persistence"]) {
+    const from = join(source, name); if (existsSync(from)) cpSync(from, join(UPSTREAM, name), { recursive: true });
+  }
+  const modules = join(UPSTREAM, "node_modules"); mkdirSync(modules, { recursive: true });
+  const camoufox = packagePath("camoufox-js", ROOT);
+  const dependencies = { ...JSON.parse(readFileSync(join(source, "package.json"), "utf8")).dependencies, ...JSON.parse(readFileSync(join(camoufox, "package.json"), "utf8")).dependencies, "@modelcontextprotocol/sdk": "1.30.0" };
+  for (const name of Object.keys(dependencies)) {
+    const target = join(modules, name); mkdirSync(dirname(target), { recursive: true });
+    rmSync(target, { recursive: true, force: true });
+    if (name === "camoufox-js") cpSync(camoufox, target, { recursive: true, filter: source => !source.slice(camoufox.length).includes("node_modules") });
+    else symlinkSync(packagePath(name, source), target, "dir");
+  }
+  patch(join(UPSTREAM, "lib/camoufox-executable.js"),
+    "if (!existsSync(executableProperties)) ensureSymlink(realpathSync(resourceProperties), executableProperties);",
+    "// stelz: read macOS resources without changing the installed app bundle.");
+  patch(join(modules, "camoufox-js/dist/utils.js"),
+    'propFile = path.join(path.dirname(filePath), "properties.json");',
+    'propFile = process.platform === "darwin" && filePath.includes(".app/Contents/MacOS/") ? path.join(path.dirname(filePath), "../Resources/properties.json") : path.join(path.dirname(filePath), "properties.json");');
+  patch(join(UPSTREAM, "server.js"), "os: hostOS,\n        humanize: true,",
+    "os: hostOS,\n        window: [1200, 800],\n        screen: { minWidth: 1280, minHeight: 900, maxWidth: 1920, maxHeight: 1200 },\n        humanize: true,");
+  patch(join(UPSTREAM, "server.js"), "proxy: launchProxy,\n        geoip: !!launchProxy,",
+    "proxy: launchProxy,\n        block_webrtc: !!launchProxy,\n        geoip: !!launchProxy,");
+  const output = join(UPSTREAM, "plugins/local-profile/index.js");
+  mkdirSync(dirname(output), { recursive: true });
+  if (!existsSync(join(ROOT, "dist/plugin.js"))) throw Error("Build the package before setup.");
+  copyFileSync(join(ROOT, "dist/plugin.js"), output);
+  writeFileSync(join(UPSTREAM, "camofox.config.json"), JSON.stringify({ interactive: { mode: "desktop" }, plugins: { persistence: { enabled: true, indexedDB: true }, "local-profile": { enabled: true } } }, null, 2));
+  const versionPath = join(executable().includes(".app/Contents/MacOS/") ? dirname(dirname(dirname(dirname(executable())))) : dirname(executable()), "version.json");
+  const versions = Object.fromEntries(["camoufox-js", "playwright-core", "@modelcontextprotocol/sdk"].map(name => [name, JSON.parse(readFileSync(join(packagePath(name, ROOT), "package.json"), "utf8")).version]));
+  writeFileSync(join(HOME_DIR, "runtime/versions.json"), JSON.stringify({ stelz: "0.2.0", camofoxVersion: UPSTREAM_VERSION, sourceCommit: COMMIT, camoufoxExecutable: executable(), camoufoxVersion: existsSync(versionPath) ? JSON.parse(readFileSync(versionPath, "utf8")) : null, executableSha256: createHash("sha256").update(readFileSync(executable())).digest("hex"), dependencies: versions, bun: Bun.version, node: Bun.spawnSync(["node", "--version"]).stdout.toString().trim() }, null, 2));
+  console.log(`Service files are ready in ${HOME_DIR}. The installed browser is unchanged.`);
 }
-patchExact(serverFile,
-  "proxy: launchProxy,\n        geoip: !!launchProxy,",
-  "proxy: launchProxy,\n        block_webrtc: !!launchProxy, // supported option: prevent unproxied WebRTC traffic\n        geoip: !!launchProxy,");
-const output = join(UPSTREAM, "plugins/local-profile/index.js");
-mkdirSync(join(UPSTREAM, "plugins/local-profile"), { recursive: true });
-const result = await Bun.build({ entrypoints: [join(ROOT, "src/plugin.ts")], target: "node", format: "esm", outdir: join(ROOT, "dist"), naming: "plugin.js" });
-if (!result.success) throw Error(result.logs.join("\n"));
-copyFileSync(join(ROOT, "dist/plugin.js"), output);
-writeFileSync(join(UPSTREAM, "camofox.config.json"), JSON.stringify({ interactive: { mode: "desktop" }, plugins: { persistence: { enabled: true, indexedDB: true }, "local-profile": { enabled: true } } }, null, 2));
-const fingerprint = createHash("sha256").update(readFileSync(executable())).digest("hex");
-const versionPath = join(executable().includes(".app/Contents/MacOS/") ? dirname(dirname(dirname(dirname(executable())))) : dirname(executable()), "version.json");
-const upstreamLock = JSON.parse(readFileSync(join(UPSTREAM, "package-lock.json"), "utf8"));
-const dependencies = Object.fromEntries(["camoufox-js", "playwright-core", "@modelcontextprotocol/sdk", "fingerprint-generator"].map(name => [name, upstreamLock.packages[`node_modules/${name}`].version]));
-writeFileSync(join(ROOT, ".runtime/versions.json"), JSON.stringify({ camofoxCommit: COMMIT, camoufoxExecutable: executable(), camoufoxVersion: existsSync(versionPath) ? JSON.parse(readFileSync(versionPath, "utf8")) : null, executableSha256: fingerprint, upstreamDependencies: dependencies, bun: Bun.version, node: Bun.spawnSync(["node", "--version"]).stdout.toString().trim() }, null, 2));
-console.log("Setup complete. Existing Camoufox reused; browser download disabled.");

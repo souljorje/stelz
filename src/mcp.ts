@@ -1,61 +1,55 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
-import { settings, profile, base, dir } from "./config.ts";
-import { acquire, release, intervention, withBrowser, status, key } from "./runtime.ts";
+import { profile, control } from "./config.ts";
+import { assertRunning, running, status } from "./runtime.ts";
 import { contracts, type Tool } from "./upstream.ts";
-import { join } from "node:path";
 
-const index = process.argv.indexOf("--profile");
-const assigned = index < 0 ? undefined : process.argv[index + 1];
-if (assigned) profile(assigned);
-const upstream = await contracts();
-const browserTools = upstream.TOOL_DEFS.filter(t => !["camofox_evaluate", "camofox_import_cookies"].includes(t.name));
-const profileProperty = assigned ? {} : { profileId: { type: "string", description: "Only the profile assigned to this worker" } };
-const requiredProfile = assigned ? [] : ["profileId"];
-const lease = { leaseToken: { type: "string", description: "Exclusive token returned by profile_acquire; never reuse another worker's token" } };
-function definition(name: string, description: string, properties: Record<string, unknown>, required: string[]): Tool {
-  return { name, description, inputSchema: { type: "object", properties, required, additionalProperties: false } };
+export async function runMcp(id: string) {
+  if (!id) throw Error("Select an identity: stelz mcp --identity ID");
+  const p = profile(id), controllerId = crypto.randomUUID();
+  const upstream = await contracts();
+  const browserTools = upstream.TOOL_DEFS.filter(t => !["camofox_evaluate", "camofox_import_cookies"].includes(t.name));
+  const local = (name: string, description: string): Tool => ({ name, description, inputSchema: { type: "object", properties: {}, additionalProperties: false } });
+  const tools: Tool[] = [
+    local("identity_status", "Read the selected identity and controller status. This tool does not start a browser."),
+    local("identity_acquire", "Acquire exclusive control of the selected running identity. Start the browser with the standalone CLI first."),
+    local("identity_release", "Release control after current actions finish. Keep the same browser, pages, storage, and fingerprint configuration."),
+    local("identity_pause", "Pause browser actions for manual work in the same window. Keep the current controller."),
+    local("identity_resume", "Resume browser actions after manual work. Read a fresh snapshot before the next action."),
+    ...browserTools,
+  ];
+  let acquired = false, closing: Promise<void> | undefined;
+  const server = new Server({ name: "stelz", version: "0.2.0" }, {
+    capabilities: { tools: {} },
+    instructions: `This connection selects identity ${id}. Acquire control before browser actions. Read fresh snapshots. Pause for authentication. Release control for handoff. Disconnect does not stop the browser or transfer conversation history.`,
+  });
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }));
+  server.setRequestHandler(CallToolRequestSchema, async request => {
+    const { name, arguments: args = {} } = request.params;
+    try {
+      if (!tools.some(t => t.name === name)) throw Error("Unknown tool.");
+      let result: unknown;
+      if (name === "identity_status") result = running(id) ? await control(p, "GET", "status") : status(id);
+      else if (name === "identity_acquire") {
+        assertRunning(id);
+        result = await control(p, "POST", "acquire", { id: controllerId, pid: process.pid, label: server.getClientVersion()?.name || "MCP client" });
+        acquired = true;
+      } else if (name === "identity_release") {
+        result = await control(p, "POST", "release", { controllerId }); acquired = false;
+      } else {
+        if (!acquired) throw Error("Call identity_acquire before browser actions.");
+        assertRunning(id);
+        if (name === "identity_pause" || name === "identity_resume") result = await control(p, "POST", name === "identity_pause" ? "pause" : "resume", { controllerId });
+        else return await control(p, "POST", "tool", { controllerId, name, args }) as { content: Awaited<ReturnType<typeof upstream.adaptResponse>> };
+      }
+      return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
+    } catch (e) { return { isError: true, content: [{ type: "text" as const, text: (e as Error).message }] }; }
+  });
+  const detach = () => closing ||= (async () => {
+    if (acquired) { await control(p, "POST", "release", { controllerId }).catch(() => {}); acquired = false; }
+  })();
+  server.onclose = () => { void detach().finally(() => process.exit(0)); };
+  for (const signal of ["SIGTERM", "SIGINT"] as const) process.once(signal, () => { void detach().finally(() => server.close()).finally(() => process.exit(0)); });
+  await server.connect(new StdioServerTransport());
 }
-const tools: Tool[] = [
-  definition("profiles_list", "List configured profiles, network mode, and runtime status. Does not launch a browser.", {}, []),
-  definition("profile_acquire", "Acquire the assigned profile exclusively and start its visible Camofox browser if stopped. Never launch browser processes yourself. Missing proxy credentials fail closed.", { ...profileProperty, owner: { type: "string", description: "Worker/task identifier" } }, [...requiredProfile, "owner"]),
-  definition("profile_release", "Release this worker's profile after the task; cleanly stop by default, preserving storage and fingerprint. Set stopBrowser=false only when asked to leave the window open.", { ...profileProperty, ...lease, stopBrowser: { type: "boolean", default: true } }, [...requiredProfile, "leaseToken"]),
-  definition("profile_pause", "Pause agent browser actions for authentication or manual intervention in the same window. Keep the lease; tell the orchestrator that human action is required.", { ...profileProperty, ...lease }, [...requiredProfile, "leaseToken"]),
-  definition("profile_resume", "Resume a paused profile after the human reports completion; verify the browser exit IP again, then take a fresh snapshot before acting.", { ...profileProperty, ...lease }, [...requiredProfile, "leaseToken"]),
-  ...browserTools.map(t => ({ ...t, description: `For the assigned, exclusively leased profile. Use fresh observations. ${t.description.replace(/PREFERRED: /, "").replace(/they bypass bot detection on Google, Amazon, LinkedIn, etc\./, "use the visible assigned browser.")}`, inputSchema: { ...t.inputSchema, properties: { ...t.inputSchema.properties, ...profileProperty, ...lease }, required: [...(t.inputSchema.required || []), ...requiredProfile, "leaseToken"], additionalProperties: false } })),
-];
-const server = new Server({ name: "stelz-camofox", version: "0.1.0" }, {
-  capabilities: { tools: {} },
-  instructions: "Each browser worker must acquire only its assigned profile, retain its lease token, use fresh snapshots, pause for authentication, and release after verification. Codex owns reasoning and delegation; this server only manages profile lifecycle and forwards upstream browser tools. Parallelism is limited by maxActive; no automatic queue exists.",
-});
-server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }));
-server.setRequestHandler(CallToolRequestSchema, async request => {
-  const { name, arguments: raw = {} } = request.params;
-  try {
-    if (!tools.some(t => t.name === name)) throw Error("Unknown tool");
-    if (name === "profiles_list") return { content: [{ type: "text", text: JSON.stringify(settings().profiles.filter(p => !assigned || p.id === assigned).map(p => status(p.id))) }] };
-    const id = assigned || String(raw.profileId || "");
-    if (assigned && raw.profileId && raw.profileId !== assigned) throw Error("This MCP session is assigned to a different profile");
-    profile(id);
-    let result: unknown;
-    if (name === "profile_acquire") {
-      if (typeof raw.owner !== "string" || !raw.owner.trim()) throw Error("owner is required");
-      result = await acquire(id, raw.owner);
-    } else if (name === "profile_release") result = await release(id, String(raw.leaseToken), raw.stopBrowser !== false);
-    else if (name === "profile_pause" || name === "profile_resume") {
-      const { assertLease } = await import("./runtime.ts"); assertLease(id, String(raw.leaseToken));
-      result = await intervention(id, name === "profile_pause" ? "pause" : "resume");
-    } else {
-      return await withBrowser(id, String(raw.leaseToken), async p => {
-        const args = { ...raw }; delete args.profileId; delete args.leaseToken;
-        const { spec, payload } = await upstream.runTool(name, args, { userId: id, sessionKey: "default" }, base(p), { accessKey: key(id), apiKey: key(id), cookiesDir: join(dir(id), "cookies") });
-        return { content: upstream.adaptResponse(spec, payload) };
-      });
-    }
-    return { content: [{ type: "text", text: JSON.stringify(result) }] };
-  } catch (e) {
-    return { isError: true, content: [{ type: "text", text: (e as Error).message.replace(/(https?|socks5):\/\/[^\s/@]+:[^\s/@]+@/g, "$1://[redacted]@") }] };
-  }
-});
-await server.connect(new StdioServerTransport());

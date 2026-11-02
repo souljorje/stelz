@@ -1,6 +1,6 @@
 import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { ROOT, UPSTREAM, profile, dir, base, proxyEnvironment, executable, json, save, initDir } from "./config.ts";
+import { HOME_DIR, UPSTREAM, profile, dir, base, proxyEnvironment, executable, json, save, initDir, secret, configurationHash } from "./config.ts";
 import { key } from "./runtime.ts";
 
 process.umask(0o077);
@@ -25,11 +25,12 @@ const env = {
   SESSION_TIMEOUT_MS: "0", BROWSER_IDLE_TIMEOUT_MS: "0", MAX_SESSIONS: "1",
   TAB_INACTIVITY_MS: "31536000000",
   STELZ_PROFILE_ID: p.id, STELZ_PROFILE_DIR: runtimeDir, STELZ_MODE: p.mode,
-  STELZ_EXPECTED_IP: p.expectedIPEnv ? process.env[p.expectedIPEnv] || "" : "",
+  STELZ_EXPECTED_IP: p.expectedIPEnv ? secret(p.expectedIPEnv) || "" : "",
+  STELZ_HOME: HOME_DIR, STELZ_UPSTREAM: UPSTREAM,
 };
 const instanceId = process.argv[3] || crypto.randomUUID();
 const server = Bun.spawn(["node", join(UPSTREAM, "server.js")], { cwd: UPSTREAM, env, stdout: "pipe", stderr: "pipe" });
-save(join(runtimeDir, "running.json"), { pid: process.pid, serverPid: server.pid, instanceId });
+save(join(runtimeDir, "running.json"), { pid: process.pid, serverPid: server.pid, instanceId, configurationHash: configurationHash(p) });
 async function capture(stream: ReadableStream<Uint8Array>) {
   const decoder = new TextDecoder(); let pending = "";
   for await (const bytes of stream) {
@@ -65,6 +66,6 @@ const exitCode = await server.exited;
 await logs;
 const old = json<Record<string, unknown>>(join(runtimeDir, "status.json"));
 const clean = exitCode === 0 && old?.phase === "stopped";
-save(join(runtimeDir, "status.json"), { ...old, profileId: p.id, phase: clean ? "stopped" : "unclean", exitCode });
+save(join(runtimeDir, "status.json"), { ...old, identityId: p.id, phase: clean ? "stopped" : "unclean", exitCode });
 if (clean) save(join(runtimeDir, "stopped.json"), { instanceId });
 process.exit(exitCode);

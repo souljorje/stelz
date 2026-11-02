@@ -1,7 +1,0 @@
-[mcp_servers.stelz_camofox]
-command = "/Users/georgii/.bun/bin/bun"
-args = ["/Users/georgii/Desktop/IT/stelz/src/mcp.ts"]
-cwd = "/Users/georgii/Desktop/IT/stelz"
-startup_timeout_sec = 20
-tool_timeout_sec = 180
-required = true

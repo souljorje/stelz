@@ -1,85 +1,122 @@
-// Explicit, isolated direct-development acceptance run. Never edits production profiles.
+// Harness-independent acceptance. Both identities explicitly use direct development mode.
 import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { resolve, join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { fixture } from "./fixture.ts";
-
-const root = resolve(import.meta.dir, ".."), folder = join(root, ".state/acceptance");
-mkdirSync(folder, { recursive: true, mode: 0o700 });
-const configPath = join(folder, "profiles.json");
-writeFileSync(configPath, JSON.stringify({ maxActive: 2, profiles: [{ id: "test-01", port: 9471, mode: "direct" }, { id: "test-02", port: 9472, mode: "direct", expectedIPEnv: "STELZ_TEST_EXPECTED_IP" }, { id: "test-proxy-fail", port: 9473, mode: "proxy", proxyEnv: "STELZ_TEST_BAD_PROXY" }] }));
-process.env.STELZ_CONFIG = configPath; process.env.STELZ_STATE_DIR = folder;
-// config.ts has already been loaded by fixture.ts; runtime is exercised through MCP children.
-const testServer = await fixture();
-const env = Object.fromEntries(Object.entries(process.env).filter((v): v is [string, string] => v[1] !== undefined));
-const client = new Client({ name: "stelz-acceptance", version: "0.1.0" });
-const transport = new StdioClientTransport({ command: process.execPath, args: [join(root, "src/mcp.ts")], cwd: root, env, stderr: "inherit" });
-type Entry = { test: string; result: string; evidence?: unknown };
-const report: Entry[] = [];
-const tokens: Record<string, string> = {}, tabs: Record<string, string> = {};
+const root = resolve(import.meta.dir, ".."), home = process.env.STELZ_TEST_HOME || join(root, ".state/standalone-acceptance");
+mkdirSync(home, { recursive: true, mode: 0o700 });
+const cli = process.env.STELZ_TEST_CLI || join(root, "dist/cli.js");
+// Child processes receive runtime paths and browser configuration, not model credentials.
+const env: Record<string, string> = { STELZ_HOME: home };
+for (const key of ["PATH", "HOME", "LANG", "TMPDIR", "CAMOUFOX_EXECUTABLE"]) if (process.env[key]) env[key] = process.env[key]!;
+const report: Record<string, unknown>[] = [], clients: Client[] = [];
 function assert(value: unknown, message: string): asserts value { if (!value) throw Error(message); }
-async function call(name: string, args: Record<string, unknown> = {}) {
+async function command(...args: string[]) {
+  const process = Bun.spawn([Bun.which("bun")!, "--no-env-file", cli, ...args], { env, stdout: "pipe", stderr: "pipe" });
+  const [out, err, code] = await Promise.all([new Response(process.stdout).text(), new Response(process.stderr).text(), process.exited]);
+  if (code) throw Error(`${args.join(" ")}: ${err || out}`); return out;
+}
+async function connect(id: string, label: string) {
+  const client = new Client({ name: label, version: "1.0.0" }); clients.push(client);
+  const transport = new StdioClientTransport({ command: Bun.which("bun")!, args: ["--no-env-file", cli, "mcp", "--identity", id], env, stderr: "inherit" });
+  await client.connect(transport); return { client, transport };
+}
+async function call(client: Client, name: string, args: Record<string, unknown> = {}) {
   const result = await client.callTool({ name, arguments: args }, undefined, { timeout: 180000 });
   const blocks = result.content as Array<{ type: string; text?: string; data?: string }>;
-  const text = blocks.filter(b => b.type === "text").map(b => b.text).join("\n");
+  const text = blocks.filter(x => x.type === "text").map(x => x.text).join("\n");
   if (result.isError) throw Error(text);
-  const image = blocks.find(b => b.type === "image");
-  if (image?.data) writeFileSync(join(folder, `${name}-${String(args.profileId || "all")}.png`), Buffer.from(image.data, "base64"), { mode: 0o600 });
-  try { return JSON.parse(text) as Record<string, unknown>; } catch { return { text }; }
+  const shot = blocks.find(x => x.type === "image");
+  if (shot?.data) writeFileSync(join(home, `snapshot-${Date.now()}.png`), Buffer.from(shot.data, "base64"), { mode: 0o600 });
+  return JSON.parse(text) as Record<string, unknown>;
 }
-const args = (id: string, extra: Record<string, unknown> = {}) => ({ profileId: id, leaseToken: tokens[id], tabId: tabs[id], ...extra });
-async function acquire(id: string) { const result = await call("profile_acquire", { profileId: id, owner: "automated-acceptance" }); tokens[id] = String(result.leaseToken); return result; }
-async function open(id: string) { const result = await call("camofox_create_tab", args(id, { url: "http://127.0.0.1:9410" })); tabs[id] = String(result.tabId); assert(tabs[id] !== "undefined", `No tabId: ${JSON.stringify(result)}`); }
-async function observe(id: string) {
-  const response = await fetch(`http://127.0.0.1:${id === "test-01" ? 9471 : 9472}/tabs/${tabs[id]}/evaluate`, { method: "POST", headers: { Authorization: `Bearer ${readFileSync(join(folder, id, "access-key"), "utf8").trim()}`, "Content-Type": "application/json" }, body: JSON.stringify({ userId: id, expression: "({markers: JSON.parse(document.getElementById('markers').textContent), observations: JSON.parse(document.getElementById('observations').textContent)})" }) });
-  const payload = await response.json() as { result?: { markers: Record<string, unknown>; observations: Record<string, unknown> }; error?: string };
-  assert(response.ok && payload.result, `Observation failed: ${JSON.stringify(payload)}`); return payload.result;
+async function rejection(client: Client, name: string, args: Record<string, unknown> = {}) {
+  const result = await client.callTool({ name, arguments: args }, undefined, { timeout: 180000 }); assert(result.isError, `${name} did not reject an invalid controller`);
 }
+const identityDir = (id: string) => join(home, "identities", id);
+const pin = (id: string) => readFileSync(join(identityDir(id), "fingerprint.json"), "utf8");
+const instance = (id: string) => JSON.parse(readFileSync(join(identityDir(id), "running.json"), "utf8")) as { instanceId: string; serverPid: number };
+let pageServer: Awaited<ReturnType<typeof fixture>> | undefined;
 try {
-  console.log("EXPLICIT DIRECT DEVELOPMENT TEST: two isolated test profiles; no fixed-IP verification.");
-  await client.connect(transport);
-  const list = await client.listTools(); assert(list.tools.some(t => t.name === "camofox_snapshot"), "MCP tools missing");
-  await Promise.all([acquire("test-01"), acquire("test-02")]);
-  const live = await call("profiles_list");
-  report.push({ test: "A: concurrent visible runtimes", result: "passed", evidence: live });
-  try { await acquire("test-01"); throw Error("Duplicate lease unexpectedly succeeded"); } catch (e) { assert(String(e).includes("already leased"), String(e)); }
-  report.push({ test: "Exclusive profile lease", result: "passed" });
-  await Promise.all([open("test-01"), open("test-02")]);
-  for (const id of ["test-01", "test-02"]) {
-    await call("camofox_snapshot", args(id));
-    await call("camofox_type", args(id, { selector: "#marker", text: id }));
-    await call("camofox_click", args(id, { selector: "#save" }));
-    await call("camofox_scroll", args(id, { direction: "down", amount: 100 }));
-    await call("camofox_screenshot", args(id));
+  console.log("Explicit direct-development test. No LLM credentials or harness commands are used.");
+  await command("init");
+  writeFileSync(join(home, "identities.json"), JSON.stringify({ maxActive: 2, identities: [{ id: "identity-01", port: 9471, mode: "direct" }, { id: "identity-02", port: 9472, mode: "direct" }] }));
+  await command("setup"); pageServer = await fixture();
+  const stopped = await connect("identity-01", "stopped-client");
+  await rejection(stopped.client, "identity_acquire"); await stopped.client.close();
+  report.push({ check: "MCP cannot implicitly start a stopped browser", result: "passed" });
+  await Promise.all([command("start", "identity-01"), command("start", "identity-02")]);
+  const before = instance("identity-01"), fingerprint = pin("identity-01");
+  const a = await connect("identity-01", "sdk-client-a"), b = await connect("identity-01", "sdk-client-b"), second = await connect("identity-02", "sdk-client-second-identity");
+  await call(a.client, "identity_acquire"); await call(second.client, "identity_acquire");
+  await rejection(b.client, "identity_acquire");
+  const tabs: Record<string, string> = {};
+  for (const [id, client] of [["identity-01", a.client], ["identity-02", second.client]] as const) {
+    const tab = await call(client, "camofox_create_tab", { url: `http://127.0.0.1:9410/?profile=${id}` }); tabs[id] = String(tab.tabId);
+    await call(client, "camofox_type", { tabId: tabs[id], selector: "#marker", text: id });
+    await call(client, "camofox_click", { tabId: tabs[id], selector: "#save" });
+    const snapshot = await call(client, "camofox_snapshot", { tabId: tabs[id] });
+    assert(String(snapshot.snapshot).includes(`Storage marker: ${id}`), "Storage marker is missing from the browser snapshot");
   }
-  const before: Record<string, Awaited<ReturnType<typeof observe>>> = {};
-  const pins: Record<string, string> = {};
-  for (const id of ["test-01", "test-02"]) { before[id] = await observe(id); pins[id] = readFileSync(join(folder, id, "fingerprint.json"), "utf8"); assert(before[id].markers.localStorage === id && before[id].markers.indexedDB === id && String(before[id].markers.cookie).includes(id), "Wrong pre-restart marker"); }
-  await call("profile_pause", args("test-01"));
-  try { await call("camofox_click", args("test-01", { selector: "#human" })); throw Error("Paused action unexpectedly succeeded"); } catch (e) { assert(String(e).includes("paused"), String(e)); }
-  await call("profile_resume", args("test-01"));
-  await call("camofox_snapshot", args("test-01"));
-  report.push({ test: "Pause blocks actions; resume retains the context", result: "passed" });
-  await Promise.all([call("profile_release", args("test-01")), call("profile_release", args("test-02"))]);
-  await Promise.all([acquire("test-01"), acquire("test-02")]);
-  await Promise.all([open("test-01"), open("test-02")]);
-  const after: typeof before = {};
-  for (const id of ["test-01", "test-02"]) {
-    after[id] = await observe(id);
-    assert(after[id].markers.localStorage === id && after[id].markers.indexedDB === id && String(after[id].markers.cookie).includes(id), "Storage did not persist separately");
-    assert(pins[id] === readFileSync(join(folder, id, "fingerprint.json"), "utf8"), "Saved fingerprint changed");
+  await rejection(a.client, "camofox_snapshot", { tabId: tabs["identity-02"] });
+  report.push({ check: "Two browsers, separate storage and bound MCP connections", result: "passed" });
+  await call(a.client, "identity_release"); await call(b.client, "identity_acquire");
+  const checkSamePage = async (client: Client) => {
+    const listing = await call(client, "camofox_list_tabs");
+    assert(JSON.stringify(listing).includes(tabs["identity-01"]!), "The original tab disappeared during handoff");
+    const snapshot = await call(client, "camofox_snapshot", { tabId: tabs["identity-01"] });
+    assert(String(snapshot.snapshot).includes("Storage marker: identity-01"), "The original page lost its state");
+    assert(JSON.stringify(instance("identity-01")) === JSON.stringify(before), "Handoff relaunched the browser");
+    assert(pin("identity-01") === fingerprint, "Handoff changed the saved fingerprint");
+  };
+  await checkSamePage(b.client);
+  report.push({ check: "Deliberate release and handoff retain process, tab, storage and fingerprint", result: "passed", evidence: before });
+  await b.client.close(); await a.client.close();
+  const c = await connect("identity-01", "sdk-client-c-after-disconnect");
+  await call(c.client, "identity_acquire"); await checkSamePage(c.client);
+  report.push({ check: "Disconnect and reconnect preserve the same running browser", result: "passed" });
+  const pendingAction = call(c.client, "camofox_navigate", { tabId: tabs["identity-01"], url: "http://127.0.0.1:9410/slow" }).catch(() => undefined);
+  for (let n = 0; n < 30; n++) {
+    const s = await call(c.client, "identity_status");
+    if ((s.controller as { activeActions?: number } | undefined)?.activeActions) break;
+    await Bun.sleep(20);
   }
-  assert(pins["test-01"] !== pins["test-02"], "Fingerprint configurations are identical");
-  report.push({ test: "C: separated cookies, localStorage and IndexedDB survive clean restart", result: "passed", evidence: Object.fromEntries(Object.entries(after).map(([id, value]) => [id, value.markers])) });
-  report.push({ test: "D: distinct immutable fingerprint configurations; observable comparison", result: "passed", evidence: { before, after, differences: Object.fromEntries(Object.keys(before).map(id => [id, Object.keys(before[id]!.observations).filter(k => JSON.stringify(before[id]!.observations[k]) !== JSON.stringify(after[id]!.observations[k]))])) } });
-  report.push({ test: "B: two natural-language Codex workers", result: "unverified", evidence: "Run the two provided prompts through Codex; scripted fixture checks do not count." });
-  report.push({ test: "E: supplied proxy and expected fixed IPs", result: "unverified", evidence: "No proxy credentials supplied; both acceptance profiles are explicitly direct." });
-  report.push({ test: "F: actual human intervention followed by agent continuation", result: "unverified", evidence: "Pause/resume mechanics pass; a human must perform the manual action." });
-} catch (e) { report.push({ test: "Acceptance run", result: "failed", evidence: String(e) }); process.exitCode = 1; }
+  assert(c.transport.pid, "The MCP process ID is unavailable"); process.kill(c.transport.pid, "SIGKILL");
+  await c.client.close();
+  const d = await connect("identity-01", "sdk-client-d-after-crash");
+  await rejection(d.client, "identity_acquire");
+  let acquired = false;
+  for (let n = 0; n < 60; n++) {
+    try { await call(d.client, "identity_acquire"); acquired = true; break; } catch { await Bun.sleep(100); }
+  }
+  assert(acquired, "The service did not release the dead controller after its action");
+  await pendingAction; await checkSamePage(d.client);
+  report.push({ check: "A crashed MCP client retains its action lock until the service finishes the action", result: "passed" });
+  await call(d.client, "identity_pause");
+  await rejection(d.client, "camofox_click", { tabId: tabs["identity-01"], selector: "#human" });
+  await call(d.client, "identity_resume");
+  await call(d.client, "camofox_scroll", { tabId: tabs["identity-01"], direction: "down", amount: 100 });
+  await call(d.client, "camofox_snapshot", { tabId: tabs["identity-01"] });
+  report.push({ check: "Pause and resume keep the selected browser", result: "passed" });
+  await d.client.close(); await second.client.close();
+  const pins = { "identity-01": pin("identity-01"), "identity-02": pin("identity-02") };
+  assert(pins["identity-01"] !== pins["identity-02"], "Identity fingerprints are identical");
+  await command("stop", "all"); await command("start", "all");
+  for (const id of ["identity-01", "identity-02"]) {
+    const next = await connect(id, `restart-${id}`); await call(next.client, "identity_acquire");
+    const tab = await call(next.client, "camofox_create_tab", { url: "http://127.0.0.1:9410" });
+    const snapshot = await call(next.client, "camofox_snapshot", { tabId: tab.tabId });
+    assert(String(snapshot.snapshot).includes(`Storage marker: ${id}`), "Storage did not survive restart");
+    assert(pin(id) === pins[id as keyof typeof pins], "Restart changed a saved fingerprint"); await next.client.close();
+  }
+  report.push({ check: "Separate storage and saved fingerprints survive explicit stop and start", result: "passed" });
+  report.push({ check: "Handoff between two installed LLM harnesses", result: "unverified", reason: "SDK clients prove the protocol. Actual Codex, Claude Code and Hermes integration needs separate validation." });
+  report.push({ check: "Supplied fixed-IP proxies and human takeover", result: "unverified", reason: "No proxy credentials or human action were supplied." });
+} catch (e) { report.push({ check: "Acceptance run", result: "failed", error: String(e) }); process.exitCode = 1; }
 finally {
-  for (const id of Object.keys(tokens)) { try { await call("profile_release", args(id)); } catch {} }
-  await client.close(); testServer.stop();
-  writeFileSync(join(folder, "report.json"), JSON.stringify(report, null, 2), { mode: 0o600 });
+  for (const client of clients) await client.close().catch(() => {});
+  await command("stop", "all").catch(() => {}); pageServer?.stop();
+  writeFileSync(join(home, "report.json"), JSON.stringify(report, null, 2), { mode: 0o600 });
   console.log(JSON.stringify(report, null, 2));
 }

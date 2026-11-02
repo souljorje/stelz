@@ -1,24 +1,17 @@
-// Generic MCP diagnostic client, also usable before desktop MCP reload.
+#!/usr/bin/env bun
+// Generic MCP diagnostic client. No model or harness is required.
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { join } from "node:path";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { ROOT, STATE } from "./config.ts";
-const client = new Client({ name: "stelz-diagnostic", version: "0.1.0" });
-const transport = new StdioClientTransport({ command: process.execPath, args: [join(ROOT, "src/mcp.ts")], cwd: ROOT, env: Object.fromEntries(Object.entries(process.env).filter((v): v is [string, string] => v[1] !== undefined)), stderr: "inherit" });
+import { entry, HOME_DIR } from "./config.ts";
+const [id, name = "identity_status", input = "{}"] = process.argv.slice(2);
+if (!id) throw Error("Select an identity: bun src/call.ts ID [TOOL] [JSON]");
+const client = new Client({ name: "stelz-diagnostic", version: "0.2.0" });
 try {
-  await client.connect(transport);
-  const [name = "tools", input = "{}"] = process.argv.slice(2);
+  await client.connect(new StdioClientTransport({ command: process.execPath, args: ["--no-env-file", entry("cli"), "mcp", "--identity", id], env: { ...Object.fromEntries(Object.entries(process.env).filter((v): v is [string, string] => v[1] !== undefined)), STELZ_HOME: HOME_DIR } }));
   if (name === "tools") console.log(JSON.stringify(await client.listTools(), null, 2));
   else {
+    if (name.startsWith("camofox_")) { const acquired = await client.callTool({ name: "identity_acquire", arguments: {} }); if (acquired.isError) throw Error(JSON.stringify(acquired.content)); }
     const result = await client.callTool({ name, arguments: JSON.parse(input) }, undefined, { timeout: 180000 });
-    for (const block of result.content as Array<{ type: string; text?: string; data?: string }>) {
-      if (block.type === "text") console.log(block.text);
-      if (block.type === "image" && block.data) {
-        const folder = join(STATE, "artifacts"); mkdirSync(folder, { recursive: true, mode: 0o700 });
-        const path = join(folder, `${name}-${Date.now()}.png`); writeFileSync(path, Buffer.from(block.data, "base64"), { mode: 0o600 }); console.log(`Screenshot: ${path}`);
-      }
-    }
-    if (result.isError) process.exitCode = 1;
+    console.log(JSON.stringify(result, null, 2)); if (result.isError) process.exitCode = 1;
   }
 } finally { await client.close(); }

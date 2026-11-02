@@ -18,7 +18,9 @@ async function indexed(value?: string) {
   });
 }
 async function refresh() {
-  el("markers").textContent = JSON.stringify({ cookie: document.cookie, localStorage: localStorage.getItem("identity"), indexedDB: await indexed() }, null, 2);
+  const value = await indexed();
+  el("markers").textContent = JSON.stringify({ cookie: document.cookie, localStorage: localStorage.getItem("identity"), indexedDB: value }, null, 2);
+  el("marker-status").textContent = value && localStorage.getItem("identity") === value && document.cookie.includes(`identity=${encodeURIComponent(value)}`) ? `Storage marker: ${value}` : "Storage marker is incomplete";
 }
 el("begin").onclick = () => { el("task").hidden = false; el<HTMLInputElement>("answer").focus(); };
 el("submit").onclick = () => {

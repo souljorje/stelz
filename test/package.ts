@@ -1,0 +1,49 @@
+import { mkdtempSync, mkdirSync, symlinkSync, readFileSync, writeFileSync, readdirSync, lstatSync, realpathSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { tmpdir } from "node:os";
+const root = resolve(import.meta.dir, ".."), temp = mkdtempSync(join(tmpdir(), "stelz-package-"));
+const prefix = join(temp, "global"), cwd = join(temp, "empty"), home = join(temp, "data"), bin = join(temp, "bin");
+for (const path of [cwd, bin]) mkdirSync(path, { recursive: true });
+const npm = Bun.which("npm")!, node = Bun.which("node")!, bun = Bun.which("bun")!;
+symlinkSync(node, join(bin, "node")); symlinkSync(bun, join(bin, "bun"));
+const env: Record<string, string> = { PATH: process.env.PATH!, HOME: process.env.HOME!, CAMOFOX_SKIP_DOWNLOAD: "1", npm_config_cache: join(temp, "npm-cache") };
+if (process.env.TMPDIR) env.TMPDIR = process.env.TMPDIR;
+async function run(args: string[], options: { cwd?: string; env?: Record<string, string>; inherit?: boolean } = {}) {
+  const p = Bun.spawn(args, { cwd: options.cwd || root, env: options.env || env, stdout: options.inherit ? "inherit" : "pipe", stderr: options.inherit ? "inherit" : "pipe" });
+  if (options.inherit) { if (await p.exited) throw Error(`${args[0]} failed.`); return ""; }
+  const [out, err, code] = await Promise.all([new Response(p.stdout as ReadableStream).text(), new Response(p.stderr as ReadableStream).text(), p.exited]);
+  if (code) throw Error(err || out); return out;
+}
+console.log("Pack and install the release archive into an isolated global prefix.");
+await run([bun, "run", "build"]);
+const packed = JSON.parse(await run([npm, "pack", "--json", "--ignore-scripts"])) as Array<{ filename: string; files: Array<{ path: string }> }>;
+const archive = join(root, packed[0]!.filename);
+for (const file of packed[0]!.files) if (/^(src|test|node_modules|\.git|\.codex|\.state|sessions)\//.test(file.path)) throw Error(`Unexpected archive file: ${file.path}`);
+await run([npm, "install", "--global", "--prefix", prefix, archive]);
+const cleanEnv: Record<string, string> = { PATH: `${join(prefix, "bin")}:${bin}:/usr/bin:/bin`, HOME: env.HOME!, STELZ_HOME: home };
+if (env.TMPDIR) cleanEnv.TMPDIR = env.TMPDIR;
+for (const harness of ["codex", "claude", "hermes"]) if (Bun.which(harness, { PATH: cleanEnv.PATH })) throw Error(`Unexpected harness command in isolated PATH: ${harness}`);
+const executable = join(prefix, "bin/stelz");
+const poisonHome = join(temp, "wrong-project-home");
+writeFileSync(join(cwd, ".env"), `STELZ_HOME=${poisonHome}\n`);
+const defaultEnv = { ...cleanEnv }; delete defaultEnv.STELZ_HOME;
+if ((await run([executable, "--help"], { cwd, env: defaultEnv })).includes(poisonHome)) throw Error("The global command loaded project environment state.");
+const version = (await run([executable, "--version"], { cwd, env: cleanEnv })).trim();
+if (version !== "0.2.0") throw Error("Global command version does not match.");
+await run([executable, "init"], { cwd, env: cleanEnv });
+await run([executable, "setup"], { cwd, env: cleanEnv });
+const installedCli = join(prefix, "lib/node_modules/stelz/dist/cli.js");
+await run([bun, join(root, "test/integration.ts")], { cwd, env: { ...cleanEnv, STELZ_TEST_HOME: home, STELZ_TEST_CLI: installedCli }, inherit: true });
+// Setup must resolve every dependency from the installed archive, not the source checkout.
+function checkLinks(folder: string) {
+  for (const name of readdirSync(folder)) {
+    const file = join(folder, name), stat = lstatSync(file);
+    if (stat.isSymbolicLink()) { if (realpathSync(file).startsWith(root)) throw Error(`Package depends on source checkout: ${file}`); }
+    else if (stat.isDirectory()) checkLinks(file);
+  }
+}
+checkLinks(join(home, "runtime"));
+const evidence = { result: "passed", archive, version, globalPrefix: prefix, cwd, serviceHome: home, harnessExecutablesRequired: false, llmCredentialsProvided: false, runtimeLinksReferToSourceCheckout: false, browserChecks: JSON.parse(readFileSync(join(home, "report.json"), "utf8")) };
+mkdirSync(join(root, ".state/package-test"), { recursive: true, mode: 0o700 });
+writeFileSync(join(root, ".state/package-test/report.json"), JSON.stringify(evidence, null, 2), { mode: 0o600 });
+console.log(JSON.stringify({ result: evidence.result, archive, globalPrefix: prefix, serviceHome: home, cwd }, null, 2));

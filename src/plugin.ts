@@ -3,6 +3,9 @@ import { readFileSync, writeFileSync, renameSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { isIP } from "node:net";
+import { pathToFileURL } from "node:url";
+import { ControllerLease } from "./controller.ts";
+import type { Contracts } from "./upstream.ts";
 
 type Context = {
   newPage(): Promise<Probe>;
@@ -20,7 +23,7 @@ type Events = {
   "server:shutdown": unknown;
 };
 type Response = { status(n: number): Response; json(value: unknown): void };
-type Handler = (req: unknown, res: Response, next?: () => void) => unknown;
+type Handler = (req: { body?: Record<string, unknown> }, res: Response, next?: () => void) => unknown;
 type App = { get(path: string, ...handlers: Handler[]): void; post(path: string, ...handlers: Handler[]): void };
 type PluginContext = {
   auth(): Handler;
@@ -36,7 +39,10 @@ export async function register(app: App, ctx: PluginContext) {
   const id = process.env.STELZ_PROFILE_ID!, stateDir = process.env.STELZ_PROFILE_DIR!;
   if (!id || !stateDir) throw Error("local-profile requires STELZ_PROFILE_ID and STELZ_PROFILE_DIR");
   const file = join(stateDir, "status.json");
-  let state: Record<string, unknown> = { profileId: id, instanceId: randomUUID(), mode: process.env.STELZ_MODE, phase: "starting", exitIp: null };
+  let state: Record<string, unknown> = { identityId: id, instanceId: randomUUID(), mode: process.env.STELZ_MODE, phase: "starting", exitIp: null };
+  const controller = new ControllerLease();
+  const upstream = await import(pathToFileURL(join(process.env.STELZ_UPSTREAM!, "mcp/lib/tool-contracts.mjs")).href) as Contracts;
+  const browserTools = new Set(upstream.TOOL_DEFS.filter(t => !["camofox_evaluate", "camofox_import_cookies"].includes(t.name)).map(t => t.name));
   let context: Context | undefined, probe: Probe | undefined, stopping = false;
   let probeLease: unknown, probeSession: unknown;
   let checking: Promise<void> | undefined;
@@ -129,19 +135,55 @@ export async function register(app: App, ctx: PluginContext) {
   ctx.events.on("browser:restart", () => { context = undefined; probe = undefined; persist({ phase: "blocked", error: "Browser restarted; explicit stop/start is required before continuing" }); });
   ctx.events.on("browser:closed", () => { context = undefined; probe = undefined; persist({ phase: stopping ? "stopped" : "blocked" }); });
   ctx.events.on("server:shutdown", () => { stopping = true; persist({ phase: "stopped" }); });
-  app.get("/local-profile/status", ctx.auth(), (_req, res) => res.json(state));
-  app.post("/local-profile/stop", ctx.auth(), (_req, res) => {
+  app.get("/local-profile/status", ctx.auth(), (_req, res) => res.json({ ...state, controller: controller.status() }));
+  app.post("/local-profile/acquire", ctx.auth(), (req, res) => {
+    try {
+      if (!["ready", "paused"].includes(String(state.phase))) throw Error(`Identity is ${state.phase}.`);
+      const body = req.body || {};
+      const lease = controller.acquire({ id: String(body.id || ""), pid: Number(body.pid), label: String(body.label || "MCP client") });
+      res.json({ ...state, ...lease });
+    } catch (e) { res.status(409).json({ error: (e as Error).message }); }
+  });
+  app.post("/local-profile/release", ctx.auth(), async (req, res) => {
+    try { res.json({ ...await controller.release(String(req.body?.controllerId || "")), identityId: id }); }
+    catch (e) { res.status(409).json({ error: (e as Error).message }); }
+  });
+  app.post("/local-profile/handoff", ctx.auth(), async (_req, res) => {
+    await controller.releaseCurrent(); res.json({ released: true, identityId: id });
+  });
+  app.post("/local-profile/tool", ctx.auth(), async (req, res) => {
+    try {
+      const body = req.body || {}, name = String(body.name || "");
+      if (!browserTools.has(name)) throw Error("Unknown browser tool.");
+      const result = await controller.run(String(body.controllerId || ""), async () => {
+        await verify();
+        try {
+          const { spec, payload } = await upstream.runTool(name, (body.args || {}) as Record<string, unknown>, { userId: id, sessionKey: "default" }, `http://127.0.0.1:${process.env.CAMOFOX_PORT}`, { accessKey: process.env.CAMOFOX_ACCESS_KEY, apiKey: process.env.CAMOFOX_API_KEY, cookiesDir: process.env.CAMOFOX_COOKIES_DIR });
+          return { content: upstream.adaptResponse(spec, payload) };
+        } catch (e) {
+          if (/timed out|timeout/i.test((e as Error).message)) persist({ phase: "blocked", error: "A browser action exceeded its time limit. Stop the identity before another controller acts." });
+          throw e;
+        }
+      });
+      res.json(result);
+    } catch (e) { res.status(409).json({ error: (e as Error).message }); }
+  });
+  app.post("/local-profile/stop", ctx.auth(), async (_req, res) => {
+    persist({ phase: "stopping" });
+    await controller.releaseCurrent();
     res.json({ stopping: true });
     setTimeout(() => process.kill(process.pid, "SIGTERM"), 20);
   });
   app.post("/local-profile/check", ctx.auth(), async (_req, res) => {
     try { await verify(); res.json(state); } catch (e) { res.status(409).json({ error: (e as Error).message }); }
   });
-  app.post("/local-profile/pause", ctx.auth(), (_req, res) => {
+  app.post("/local-profile/pause", ctx.auth(), async (req, res) => {
+    if (req.body?.controllerId && controller.status()?.id !== req.body.controllerId) return res.status(409).json({ error: "This connection does not control the identity." });
     if (state.phase !== "ready") return res.status(409).json({ error: `Cannot pause ${state.phase} profile` });
-    persist({ phase: "paused" }); res.json(state);
+    persist({ phase: "paused" }); await controller.drain(); res.json(state);
   });
-  app.post("/local-profile/resume", ctx.auth(), async (_req, res) => {
+  app.post("/local-profile/resume", ctx.auth(), async (req, res) => {
+    if (req.body?.controllerId && controller.status()?.id !== req.body.controllerId) return res.status(409).json({ error: "This connection does not control the identity." });
     if (state.phase !== "paused") return res.status(409).json({ error: `Cannot resume ${state.phase} profile` });
     persist({ phase: "ready" });
     try { await verify(); res.json(state); } catch (e) { res.status(409).json({ error: (e as Error).message }); }
