@@ -1,0 +1,7 @@
+mcp_servers:
+  stelz_identity_01:
+    command: "stelz"
+    args: ["mcp", "--identity", "identity-01"]
+  stelz_identity_02:
+    command: "stelz"
+    args: ["mcp", "--identity", "identity-02"]
