@@ -10,10 +10,10 @@ import { register } from "../src/plugin.ts";
 
 const generated = { "navigator.userAgent": "test UA", "navigator.hardwareConcurrency": 8,
   "navigator.languages": ["en-US"], "screen.width": 1440, "window.history.length": 1,
-  timezone: "America/New_York", addons: ["/current/addon"], "canvas:seed": 123 };
+  timezone: "America/New_York", addons: [join(tmpdir(), "stelz-test-addons", "current")], "canvas:seed": 123 };
 
 test("device replay preserves hardware but refreshes language, location, paths and new settings", () => {
-  const saved = { ...generated, "navigator.hardwareConcurrency": 4, timezone: "Old/Zone", addons: ["/old/addon"] };
+  const saved = { ...generated, "navigator.hardwareConcurrency": 4, timezone: "Old/Zone", addons: [join(tmpdir(), "stelz-test-addons", "old")] };
   const fresh = { ...generated, "navigator.languages": ["en-GB"], "window.history.length": 3, futureSetting: true };
   const result = replayFingerprint(saved, fresh);
   assert.equal(result["navigator.hardwareConcurrency"], 4);
