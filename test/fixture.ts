@@ -1,0 +1,21 @@
+import { ROOT } from "../src/config.ts";
+import { join } from "node:path";
+export async function fixture(port = 9410) {
+  const build = await Bun.build({ entrypoints: [join(ROOT, "test/fixture-browser.ts")], target: "browser" });
+  if (!build.success) throw Error(build.logs.join("\n"));
+  const script = await build.outputs[0]!.text();
+  return Bun.serve({ hostname: "127.0.0.1", port, fetch(request) {
+    if (new URL(request.url).pathname === "/fixture.js") return new Response(script, { headers: { "Content-Type": "text/javascript" } });
+    const challenge = crypto.randomUUID().slice(0, 8);
+    const candidate = new URL(request.url).searchParams.get("profile") || "";
+    const label = /^[a-z0-9-]{1,64}$/.test(candidate) ? ` — ${candidate}` : "";
+    return new Response(`<!doctype html><html lang="en"><meta charset="utf-8"><title>Camoufox acceptance fixture${label}</title>
+<style>body{font:18px system-ui;max-width:850px;margin:40px auto;padding:20px;color:#17212b}button,input{font:inherit;margin:6px;padding:8px}pre{white-space:pre-wrap;background:#f2f4f5;padding:14px}section{margin:30px 0}</style>
+<h1>Camoufox acceptance fixture${label}</h1><p>Harmless local test data. Challenge: <strong id="challenge">${challenge}</strong></p>
+<button id="begin">Begin task</button><section id="task" hidden><label>Answer <input id="answer"></label><button id="submit">Check answer</button><p id="result" role="status">Waiting for an answer</p></section>
+<section><h2>Identity storage</h2><label>Identity marker <input id="marker"></label><button id="save">Save identity marker</button><pre id="markers">Loading</pre></section>
+<section><h2>Manual intervention</h2><button id="human">Human confirmation</button><p id="human-result">Waiting for human</p></section>
+<section><h2>Observable fingerprint</h2><pre id="observations">Loading</pre></section><script type="module" src="/fixture.js"></script></html>`, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
+  } });
+}
+if (import.meta.main) { await fixture(); console.log("Fixture: http://127.0.0.1:9410 (keep this terminal running)"); }

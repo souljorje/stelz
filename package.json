@@ -1,0 +1,25 @@
+{
+  "name": "stelz-local-camoufox",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.3.8",
+  "scripts": {
+    "setup": "bun src/setup.ts",
+    "configure": "bun src/configure.ts",
+    "start": "bun src/cli.ts start",
+    "status": "bun src/cli.ts status",
+    "stop": "bun src/cli.ts stop",
+    "pause": "bun src/cli.ts pause",
+    "resume": "bun src/cli.ts resume",
+    "codex": "bun src/cli.ts codex",
+    "mcp": "bun src/mcp.ts",
+    "browser": "bun src/call.ts",
+    "fixture": "bun test/fixture.ts",
+    "test": "bun test test/unit.test.ts",
+    "test:integration": "bun test/integration.ts",
+    "test:failures": "bun test/failures.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": { "@modelcontextprotocol/sdk": "1.30.0" },
+  "devDependencies": { "@types/bun": "1.3.8", "typescript": "5.9.3" }
+}
