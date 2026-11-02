@@ -4,12 +4,12 @@ import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { parseEnv } from "node:util";
 import { createHash } from "node:crypto";
+import { UPSTREAM_VERSION } from "./versions.ts";
+export { UPSTREAM_VERSION, COMMIT } from "./versions.ts";
 
 export const ROOT = fileURLToPath(new URL("..", import.meta.url));
 export const HOME_DIR = resolve(process.env.STELZ_HOME || join(homedir(), ".local/share/stelz"));
 export const STATE = join(HOME_DIR, "identities");
-export const UPSTREAM_VERSION = "1.18.1";
-export const COMMIT = "39c82094013480b373df6600d44c7f036f58356e";
 export const UPSTREAM = join(HOME_DIR, "runtime", `camofox-${UPSTREAM_VERSION}`);
 export type Profile = { id: string; port: number; mode: "direct" | "proxy"; proxyEnv?: string; expectedIPEnv?: string; storage?: "native" | "checkpoint" };
 export type Settings = { maxActive: number; identities: Profile[] };
