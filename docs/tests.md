@@ -19,20 +19,21 @@ The diagnostic client runs from source. The archive excludes source files, tests
 | Command | Coverage |
 | --- | --- |
 | `bun run typecheck` | TypeScript checks. |
-| `bun run test` | Controller, proxy, plugin, native storage, and observation tests. |
+| `bun run test` | Controller, lifecycle, setup, proxy, plugin, native storage, and observation tests. |
 | `bun run test:integration` | Two checkpoint identities, exclusive control, handoff, disconnect, client crash, pause, and restart. |
 | `bun run test:native` | Two native identities, persistent storage, and observed device properties across restart. |
 | `bun run test:proxy` | US exit IP, direct-to-proxy transition, native restart, WebRTC, and live proxy failure. |
 | `bun run test:manual` | Human interaction while paused, followed by MCP resume in the same browser and tab. |
 | `bun run test:package` | Archive installation in an isolated npm prefix, an empty working directory, and browser acceptance. |
 
-All checks passed on 2026-11-02 with macOS 26.5.2 on Apple Silicon.
-The run used Bun 1.4.4, Node.js 24.14.0, TypeScript 5.9.3, and Camoufox 152.0.4 beta.30.
-The unit and regression suites contain 38 tests.
+The previous browser acceptance run passed on 2026-11-02 with macOS 26.5.2 on Apple Silicon.
+That run used Bun 1.4.4, Node.js 24.14.0, TypeScript 5.9.3, and Camoufox 152.0.4 beta.30.
 Camofox remains pinned to npm version 1.18.1.
 
 The regression suite also runs directly with Node. It does not require a browser.
 The plugin tests use the actual hooks with simulated browser and network interfaces.
+They cover stalled actions, failed IP checks, explicit recheck, and action serialization.
+Lifecycle and setup tests cover orphaned servers, interrupted setup, and concurrent lock recovery.
 
 ## Continuous integration
 

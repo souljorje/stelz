@@ -19,6 +19,7 @@ An identity is a stable browser ID. A controller is one MCP client with exclusiv
 Setup copies the published Camofox package into the service directory. It does not clone a repository.
 Setup does not change the installed Camoufox app.
 Stop all identities before setup after a code update.
+Setup stages and checks the complete runtime before it replaces the active runtime.
 
 The default service directory is `~/.local/share/stelz`.
 Set `STELZ_HOME` to use a different directory. Use the same value for all clients and lifecycle commands.
@@ -42,6 +43,9 @@ The start command rejects changes to an active identity's configuration.
 Only loopback hosts bypass a configured proxy. Proxied identities disable WebRTC.
 Current browser policy overrides saved device data. A legacy direct-mode pin cannot re-enable WebRTC in proxy mode.
 Browser-side IP checks reject failed proxies and unexpected IP addresses. There is no direct fallback.
+Direct mode does not require an IP check unless the identity specifies an expected IP.
+After a failed check, correct the network and run `stelz recheck ID`.
+If the identity remains paused, resume it after the recheck succeeds.
 These settings do not change client LLM traffic.
 
 ## Commands
@@ -51,16 +55,34 @@ These settings do not change client LLM traffic.
 | `stelz start identity-02` | Start one visible browser. |
 | `stelz start all` | Start both configured identities. |
 | `stelz status` | Read state and current controller information. |
+| `stelz doctor [ID]` | Inspect configuration, process ownership, and service status. |
+| `stelz logs ID [--lines 1-500]` | Read bounded server and supervisor logs. |
 | `stelz release identity-02` | Release the controller after current actions finish. Keep the browser open. |
 | `stelz pause identity-02` | Block new browser actions. Keep the controller and browser. |
-| `stelz resume identity-02` | Check the exit IP before actions resume. |
+| `stelz resume identity-02` | Resume actions after any required IP check. |
+| `stelz recheck identity-01` | Repeat a failed IP check without replacing the browser. |
 | `stelz stop all` | Stop both browsers cleanly. Keep their saved state. |
+| `stelz recover identity-02` | Archive an unclean lifetime after its recorded processes exit. |
 
 MCP cannot implicitly start a stopped browser. Start it with the CLI first.
 A disconnected client cannot stop the browser through process-group cleanup. The browser supervisor runs separately.
-An unclean service exit blocks a replacement start. Check the recorded processes before you archive the identity's `running.json`.
+An unclean service exit blocks a replacement start.
+If the supervisor exits while its server remains active, status reports `orphaned`.
+Run `stelz doctor ID` to inspect the recorded processes. Run `stelz stop ID` to stop the server.
+Check for browser processes that outlived the server. Recovery cannot check browser descendants.
+Then run `stelz recover ID` to archive the unclean lifetime. Recovery refuses live processes and unknown ownership.
+If ownership is unknown, inspect the processes before you take further action.
+After an upgrade, `stelz stop ID` can stop a legacy service through its authenticated endpoint.
+The identity configuration must match its recorded start configuration.
+The command checks the saved identity and service instance. It never signals unverified PIDs.
+A clean-stop receipt does not override live PIDs with unknown ownership.
 Unexpected browser or context loss blocks the service lifetime. Upstream recovery cannot clear the block or create another context.
 Stop and start the identity explicitly. An interrupted task is not automatically replayed.
+
+The service limits each browser action or IP check to 60 seconds.
+If an operation exceeds that limit, browser actions remain blocked because the operation may still be active.
+Stop and start the identity before you continue. Release, pause, and stop wait for the bounded operation.
+An MCP client timeout does not cancel an operation in the service.
 
 ## Persistent state
 

@@ -16,6 +16,11 @@ Each MCP connection must select one configured identity with `stelz mcp --identi
 
 An active controller causes another acquisition to fail. Wait for deliberate release or operator handoff.
 Do not start another browser to avoid a controller conflict.
+If status reports `orphaned`, ask the operator to inspect the identity with `stelz doctor ID`.
+If an IP check fails, ask the operator to correct the network. Then call `identity_recheck`.
+If the identity remains paused, call `identity_resume` after the recheck succeeds.
+After a successful recheck, read a fresh snapshot before the next action.
+If an operation exceeds its service deadline, ask the operator to stop and start the identity.
 
 ## Authentication and manual work
 
@@ -30,10 +35,10 @@ Do not close the reserved IP-check tab.
 
 ## Tool interface
 
-`identity_status`, `identity_acquire`, `identity_release`, `identity_pause`, and `identity_resume` take no arguments.
+`identity_status`, `identity_acquire`, `identity_release`, `identity_pause`, `identity_resume`, and `identity_recheck` take no arguments.
 The browser tools use the upstream Camofox schemas. Read them through standard MCP `tools/list`.
 Do not add identity IDs, controller tokens, or conversation IDs to browser tool arguments.
-The connection already fixes the identity.
+The connection already selects the identity.
 
 ## Handoff
 
