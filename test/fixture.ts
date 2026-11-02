@@ -6,12 +6,18 @@ export async function fixture(port = 9410) {
   if (!build.success) throw Error(build.logs.join("\n"));
   const script = await build.outputs[0]!.text();
   const observations = new Map<string, Observation>();
+  const manualConfirmations = new Map<string, { trusted: boolean }>();
   const server = Bun.serve({ hostname: "127.0.0.1", port, async fetch(request) {
     const url = new URL(request.url);
     if (url.pathname === "/observations" && request.method === "POST") {
       const { id, value } = await request.json() as { id: string; value: Observation };
       if (!/^[a-z0-9-]{1,128}$/.test(id) || !value || typeof value !== "object") return new Response("Invalid sample", { status: 400 });
       observations.set(id, value); return new Response(null, { status: 204 });
+    }
+    if (url.pathname === "/manual-confirmation" && request.method === "POST") {
+      const value = await request.json() as { id: string; trusted: boolean };
+      if (!/^[a-z0-9-]{1,128}$/.test(value.id) || value.trusted !== true) return new Response("Invalid confirmation", { status: 400 });
+      manualConfirmations.set(value.id, { trusted: value.trusted }); return new Response(null, { status: 204 });
     }
     if (url.pathname === "/slow") await Bun.sleep(1500);
     if (url.pathname === "/fixture.js") return new Response(script, { headers: { "Content-Type": "text/javascript" } });
@@ -26,6 +32,6 @@ export async function fixture(port = 9410) {
 <section><h2>Manual intervention</h2><button id="human">Human confirmation</button><p id="human-result">Waiting for human</p></section>
 <section><h2>Observable fingerprint</h2><pre id="observations">Loading</pre></section><script type="module" src="/fixture.js"></script></html>`, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
   } });
-  return { observations, stop: () => server.stop() };
+  return { observations, manualConfirmations, stop: () => server.stop() };
 }
 if (import.meta.main) { await fixture(); console.log("Fixture: http://127.0.0.1:9410 (keep this terminal running)"); }

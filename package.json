@@ -25,6 +25,8 @@
     "test:regression": "node --experimental-transform-types --test test/plugin.test.ts test/native-profile.test.ts test/observations.test.ts",
     "test:integration": "bun test/integration.ts",
     "test:native": "bun test/native-integration.ts",
+    "test:proxy": "bun test/proxy-integration.ts",
+    "test:manual": "bun test/manual-integration.ts",
     "test:package": "bun test/package.ts",
     "typecheck": "tsc --noEmit"
   },

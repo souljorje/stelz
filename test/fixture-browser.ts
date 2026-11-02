@@ -32,7 +32,11 @@ el("save").onclick = async () => {
   document.cookie = `identity=${encodeURIComponent(value)}; Max-Age=604800; Path=/; SameSite=Lax`;
   localStorage.setItem("identity", value); await indexed(value); await refresh();
 };
-el("human").onclick = () => { el("human-result").textContent = "Human confirmation received"; };
+el("human").onclick = async event => {
+  el("human-result").textContent = "Human confirmation received";
+  const id = new URL(location.href).searchParams.get("manual");
+  if (id) await fetch("/manual-confirmation", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, trusted: event.isTrusted }) });
+};
 const canvas = document.createElement("canvas"); canvas.width = 240; canvas.height = 60;
 const draw = canvas.getContext("2d")!; draw.font = "16px Arial"; draw.fillStyle = "#123456"; draw.fillText("Camoufox profile continuity", 8, 30);
 const digest = async (value: BufferSource) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", value))).map(v => v.toString(16).padStart(2, "0")).join("");
@@ -53,6 +57,10 @@ async function observe() {
     webgl: gl && ext ? { vendor: gl.getParameter(ext.UNMASKED_VENDOR_WEBGL), renderer: gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) } : null,
     webgl2: gl2 && ext2 ? { vendor: gl2.getParameter(ext2.UNMASKED_VENDOR_WEBGL), renderer: gl2.getParameter(ext2.UNMASKED_RENDERER_WEBGL) } : null,
     canvas: await digest(new TextEncoder().encode(canvas.toDataURL())), audio,
+    ...(new URL(location.href).searchParams.has("network") ? {
+      exitIp: (await (await fetch("https://api.ipify.org?format=json", { cache: "no-store" })).json() as { ip: string }).ip,
+      webRTCEnabled: typeof RTCPeerConnection !== "undefined",
+    } : {}),
   };
   el("observations").textContent = JSON.stringify(value, null, 2);
   const id = new URL(location.href).searchParams.get("capture");
