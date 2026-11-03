@@ -151,6 +151,11 @@ It also checks that oversized paced input preserves existing text and that insta
 The check explicitly stops its browser. Results are in `.state/typing-acceptance-*/report.json`.
 The default test command checks typing logic and runtime setup without starting a browser.
 
+To use an existing stopped profile, run `bun run test:typing --profile ID`.
+Its service must already contain the current typing runtime.
+This mode starts and stops the selected profile twice. Typing mode overrides apply only to the test processes.
+The profile catalog and secrets file remain unchanged.
+
 ## Diagnostics
 
 Start the selected profile before using the diagnostic client:

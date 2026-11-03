@@ -1,18 +1,24 @@
-// Headed input acceptance through the unchanged MCP tools and an isolated service.
+// Headed input acceptance through unchanged MCP tools. Existing profiles must be stopped.
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { HOME_DIR } from "../src/config.ts";
 
 const root = resolve(import.meta.dir, ".."), cli = join(root, "dist/cli.js");
+const args = process.argv.slice(2);
+if (args.length && (args.length !== 2 || args[0] !== "--profile" || !/^[a-z][a-z0-9-]{0,63}$/.test(args[1]!)))
+  throw Error("Usage: bun run test:typing [--profile STOPPED-PROFILE]");
+const existingProfile = args[1], profileId = existingProfile || "typing-check";
 mkdirSync(join(root, ".state"), { recursive: true });
-const home = mkdtempSync(join(root, ".state/typing-acceptance-"));
-const env: Record<string, string> = { STELZ_HOME: home };
+const output = mkdtempSync(join(root, ".state/typing-acceptance-"));
+const home = existingProfile ? HOME_DIR : output;
+const env: Record<string, string> = { STELZ_HOME: home, STELZ_TYPING_MODE: "paced" };
 for (const name of ["PATH", "HOME", "USER", "LOGNAME", "LANG", "TMPDIR", "CAMOUFOX_EXECUTABLE"])
   if (process.env[name]) env[name] = process.env[name]!;
 type Event = { type: string; target: string; key: string; trusted: boolean; at: number };
 type Sample = { values: Record<string, string>; events: Event[]; submits: number };
-let sample: Sample | undefined, client: Client | undefined;
+let sample: Sample | undefined, client: Client | undefined, started = false;
 const checks: Array<{ check: string; [key: string]: unknown }> = [];
 function assert(value: unknown, message: string): asserts value { if (!value) throw Error(message); }
 const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
@@ -50,11 +56,12 @@ async function command(...args: string[]) {
   const child = Bun.spawn([process.execPath, "--no-env-file", cli, ...args], { env, stdout: "pipe", stderr: "pipe" });
   const [out, err, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   if (code) throw Error(`${args[0]}: ${err || out}`);
+  return out;
 }
 async function connect() {
   client = new Client({ name: "typing-acceptance", version: "1.0.0" });
   await client.connect(new StdioClientTransport({ command: process.execPath,
-    args: ["--no-env-file", cli, "mcp", "--profile", "typing-check"], env, stderr: "inherit" }));
+    args: ["--no-env-file", cli, "mcp", "--profile", profileId], env, stderr: "inherit" }));
   await call("profile_status"); await call("profile_acquire");
 }
 async function result(name: string, args: Record<string, unknown> = {}) {
@@ -80,11 +87,18 @@ async function type(tabId: string, selector: string, text: string, pressEnter = 
   await call("camofox_snapshot", { tabId });
 }
 try {
-  await command("init");
-  writeFileSync(join(home, "profiles.json"), JSON.stringify({ maxActive: 2, profiles: [
-    { id: "typing-check", port, mode: "direct", storage: "native" },
-  ] }));
-  await command("setup"); await command("start", "typing-check"); await connect();
+  if (existingProfile) {
+    const status = JSON.parse(await command("status", profileId));
+    assert(status.phase === "stopped", "The selected profile must be stopped before typing acceptance.");
+  } else {
+    await command("init");
+    writeFileSync(join(home, "profiles.json"), JSON.stringify({ maxActive: 2, profiles: [
+      { id: profileId, port, mode: "direct", storage: "native" },
+    ] }));
+    await command("setup");
+  }
+  started = true;
+  await command("start", profileId); await connect();
   const tools = await client!.listTools();
   const schema = tools.tools.find(tool => tool.name === "camofox_type")!.inputSchema;
   assert(!("mode" in schema.properties!) && !("delay" in schema.properties!), "The canonical MCP typing schema changed.");
@@ -120,9 +134,10 @@ try {
   assert((await call("profile_status")).phase === "ready", "A preflight length rejection blocked the browser.");
   checks.push({ check: "oversized paced input preserves field contents and service readiness" });
   await call("profile_release"); await client!.close(); client = undefined;
-  await command("stop", "typing-check");
-  writeFileSync(join(home, "secrets.env"), "STELZ_TYPING_MODE=instant\n", { mode: 0o600 });
-  await command("start", "typing-check"); await connect();
+  await command("stop", profileId); started = false;
+  env.STELZ_TYPING_MODE = "instant";
+  started = true;
+  await command("start", profileId); await connect();
   const instantTab = String((await call("camofox_create_tab", { url: `http://127.0.0.1:${server.port}` })).tabId);
   await observed(value => value.values.message === "old value");
   const bulk = "Bulk text ".repeat(200);
@@ -132,14 +147,14 @@ try {
   assert(bulkInputs.length === 1, "The service did not forward instant mode to the browser runtime.");
   checks.push({ check: "instant service setting preserves bulk fill and Enter", inputEvents: bulkInputs.length });
   await call("profile_release");
-  console.log(JSON.stringify({ result: "passed", checks, report: join(home, "report.json") }, null, 2));
+  console.log(JSON.stringify({ result: "passed", profileId, checks, report: join(output, "report.json") }, null, 2));
 } catch (error) {
   process.exitCode = 1;
   checks.push({ check: "typing acceptance", error: String(error) });
   console.error(String(error));
 } finally {
   await client?.close().catch(() => {});
-  await command("stop", "typing-check").catch(error => { process.exitCode = 1; checks.push({ check: "explicit stop", error: String(error) }); });
+  if (started) await command("stop", profileId).catch(error => { process.exitCode = 1; checks.push({ check: "explicit stop", error: String(error) }); });
   server.stop(true);
-  writeFileSync(join(home, "report.json"), JSON.stringify({ result: process.exitCode ? "failed" : "passed", checks }, null, 2), { mode: 0o600 });
+  writeFileSync(join(output, "report.json"), JSON.stringify({ result: process.exitCode ? "failed" : "passed", profileId, checks }, null, 2), { mode: 0o600 });
 }
