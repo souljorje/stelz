@@ -1,11 +1,11 @@
-[mcp_servers.stelz_identity_01]
+[mcp_servers.stelz_profile_01]
 command = "stelz"
-args = ["mcp", "--identity", "identity-01"]
+args = ["mcp", "--profile", "profile-01"]
 startup_timeout_sec = 20
 tool_timeout_sec = 180
 
-[mcp_servers.stelz_identity_02]
+[mcp_servers.stelz_profile_02]
 command = "stelz"
-args = ["mcp", "--identity", "identity-02"]
+args = ["mcp", "--profile", "profile-02"]
 startup_timeout_sec = 20
 tool_timeout_sec = 180

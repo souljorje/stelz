@@ -14,11 +14,12 @@ stelz is a standalone browser service. It must run without Codex, Claude Code, H
 Do not add a reasoning loop, agent framework, generic plugin framework, or fleet platform.
 Keep the tested limit at two browsers.
 
-Each MCP connection selects one identity with `--identity`. The browser service enforces one controller per identity.
-A client releases control with `identity_release`. Disconnect must preserve the browser and its open pages.
+Each MCP connection selects one profile with `stelz mcp --profile ID`. The browser service enforces one controller per profile.
+A client releases control with `profile_release`. Disconnect must preserve the browser and its open pages.
 Only an explicit lifecycle command stops a browser.
 
-Keep identity state under `STELZ_HOME`. Never derive an identity from a client PID, conversation ID, or harness directory.
+Keep profile state under `STELZ_HOME`. Never derive a profile from a client PID, conversation ID, or harness directory.
+Preserve existing profile IDs, data paths, and configured secret references.
 Reuse the upstream Camofox server and canonical MCP tool contracts.
 
 Browser tasks must use fresh observations. Pause for human authentication in the same window.

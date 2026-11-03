@@ -20,6 +20,12 @@ The release archive contains the built UI, including its fonts.
 The installed UI requires no development server, remote assets, agent harness, or model credentials.
 The HTTP API uses Hono on Bun. The React interface uses the same local session and API routes.
 
+## Theme
+
+The UI follows the system theme by default, including changes while it is open.
+Select **System**, **Light**, or **Dark** in Settings.
+Your browser saves this choice locally.
+
 ## Local session
 
 The session URL contains a temporary token in its fragment.
@@ -32,20 +38,24 @@ Keep the session URL private.
 The UI server accepts only its loopback host and requests from its own origin.
 Browser service keys and saved proxy credentials remain on the backend.
 
-## Identity controls
+## Profile controls
 
-Init creates no preset identities. Existing identities remain unchanged.
-Select **New identity** and enter a name.
+Init creates no preset profiles. Existing profiles remain unchanged.
+Open **Profiles**. Select **New profile** and enter a name.
 Supply a proxy URL if necessary. Leave it blank to use a direct connection.
-Creation saves the identity without starting a browser.
+Creation saves the profile without starting a browser.
 The service assigns its port and uses a native persistent profile.
 You can configure its network later in the Network tab.
 
-The identity table shows browser phase and controller ownership separately.
+The profile table shows browser phase and controller ownership separately.
 A ready browser can still have an active MCP controller.
 Reading status does not acquire or release a controller.
+Select a profile row to open its details. Start and Stop buttons act independently.
+Profile details show applicable lifecycle actions.
+For a stopped profile, Start stays visible and disabled when unavailable.
+Deletion is available only for a cleanly stopped profile.
 
-- **Start** starts the selected stopped identity.
+- **Start** starts the selected stopped profile.
 - **Stop** stops its browser after current actions finish.
 - **Pause** blocks new actions for human authentication in the same browser window.
 - **Resume** permits actions after the human finishes and any required IP check succeeds.
@@ -53,19 +63,48 @@ Reading status does not acquire or release a controller.
 - **Recheck IP** repeats the browser-side network check.
 
 The UI does not resume a paused browser automatically.
-Closing its browser window stops the identity. Start it explicitly to open it again.
+Closing its browser window stops the profile. Start it explicitly to open it again.
 A failed IP check keeps actions blocked.
 An operation timeout can require an explicit stop and start.
 See [Use the service](README.md) for process inspection and recovery procedures.
 
-## Delete an identity
+## Find a profile's windows
 
-Stop the identity cleanly. Open its details and select **Delete identity**.
+Each browser window uses its profile's color and a title prefix, such as `[profile-02]`.
+The toolbar badge shows the short profile label. Select the badge to read the full profile name.
+The profile table and detail heading use the same color and label.
+Website titles and page content remain unchanged.
+
+Select the window icon beside **Stop** to show that profile's most recent window.
+The control is disabled when the window connection is unavailable.
+Open a running profile's Overview tab to see its **Browser windows** list.
+Select a page in the list to show that page and its window.
+The service restores a minimized window before it shows the page.
+macOS can refuse foreground activation from a background service.
+If this occurs, select the profile's browser manually. Then select **Show window** again.
+The list updates while the Overview tab is visible. Select **Refresh browser windows** for an immediate update.
+
+Showing a window keeps the current controller and browser lifetime.
+Pause the profile before manual authentication or other manual work.
+An old window selection fails if the browser restarts or the page closes.
+Refresh the list before you select the window again.
+
+After a source update, stop all profiles and run `bun run build`.
+Run `stelz setup` with the same service directory.
+Start each profile explicitly to apply the browser labels and window controls.
+For new profiles, the service creates its private add-on under `STELZ_HOME/profiles/ID/window-addon/`.
+Existing state paths remain supported. See [Compatibility](README.md#compatibility).
+The add-on communicates only with that profile's authenticated loopback service.
+The installed Camoufox app remains unchanged.
+
+## Delete a profile
+
+Stop the profile cleanly. Open its details and select **Delete profile**.
 Type its exact name to confirm deletion.
-The service removes the identity from the list and archives its complete directory under `STELZ_HOME/trash/`.
-The archive includes its configuration and saved browser profile.
-The service retains secret values because other identities can share them.
-Running identities, uncertain process ownership, and unclean lifetimes cannot be deleted.
+The service removes the profile from the list and archives its complete directory under `STELZ_HOME/trash/`.
+The archive includes its configuration in `profile.json` and its saved browser data in `profile/`.
+The service retains secret values because other profiles can share them.
+Running profiles, uncertain process ownership, and unclean lifetimes cannot be deleted.
 Inspect and recover an unclean lifetime before deleting it.
 
 An interrupted creation or deletion leaves a private transaction record.
@@ -74,11 +113,12 @@ Read-only status does not change the transaction. Conflicting manual edits block
 
 ## Network configuration
 
-Stop an identity before you edit its network configuration.
+Stop a profile before you edit its network configuration.
 Direct mode is the default. A proxy is optional.
 Select **Direct (no proxy)** to use the connection without a proxy.
 Direct mode requires no IP lookup unless you set an expected exit IP.
 The Network tab permits direct or proxy mode, a replacement proxy URL, and an expected exit IP.
+Open **IP verification** to set an expected exit IP.
 A blank replacement proxy field preserves the saved credential.
 An empty expected IP removes that check in direct mode.
 Proxy mode always requires a successful browser-side IP check.
@@ -95,14 +135,14 @@ Read-only status does not complete the transaction.
 Conflicting manual edits block recovery.
 Run `stelz doctor ID` to inspect the failure.
 
-Identity IDs cannot be renamed after creation. Storage mode, saved device properties, and browser versions remain read-only.
-All identity state stays under `STELZ_HOME`.
-The catalog permits up to 1000 saved identities. The tested active browser limit remains two.
+Profile IDs cannot be renamed after creation. Storage mode, saved device properties, and browser versions remain read-only.
+All profile state stays under `STELZ_HOME`.
+The catalog permits up to 1000 saved profiles. The tested active browser limit remains two.
 
 ## Diagnostics
 
 The Diagnostics view reports installation, executable, configuration, and process ownership checks.
-Identity details contain bounded server and supervisor logs.
+Profile details contain bounded server and supervisor logs.
 The Settings view shows the service directory and runtime versions.
 Use the MCP command shown with the same service directory.
 The UI does not modify client harness configuration.

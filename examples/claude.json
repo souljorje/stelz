@@ -1,6 +1,6 @@
 {
   "mcpServers": {
-    "stelz_identity_01": { "command": "stelz", "args": ["mcp", "--identity", "identity-01"] },
-    "stelz_identity_02": { "command": "stelz", "args": ["mcp", "--identity", "identity-02"] }
+    "stelz_profile_01": { "command": "stelz", "args": ["mcp", "--profile", "profile-01"] },
+    "stelz_profile_02": { "command": "stelz", "args": ["mcp", "--profile", "profile-02"] }
   }
 }
