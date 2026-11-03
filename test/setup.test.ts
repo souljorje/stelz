@@ -22,10 +22,13 @@ if (process.argv[2] === "setup") await setup();
 else await start(process.argv[3]!);
 `);
   file(join(project, "package.json"), JSON.stringify({ type: "module", version: "0.2.0", dependencies: { "@askjo/camofox-browser": "1.18.1", "@modelcontextprotocol/sdk": "1.30.0" } }));
-  file(join(project, "dist/plugin.js"), "export function register() {}\nexport function launchIdentityBrowser() {}\nexport function claimIdentityContext() {}\n");
+  file(join(project, "dist/plugin.js"), "export function register() {}\nexport function launchIdentityBrowser() {}\nexport function claimIdentityContext() {}\nexport function typeIntoLocator() {}\n");
   const upstream = join(project, "node_modules/@askjo/camofox-browser");
   file(join(upstream, "package.json"), JSON.stringify({ name: "@askjo/camofox-browser", version: "1.18.1", type: "module", dependencies: { "camoufox-js": "0.11.5", "playwright-core": "1.62.1" } }));
-  file(join(upstream, "server.js"), `const options = { os: hostOS,
+  file(join(upstream, "server.js"), `async function fillLocator(locator, text) {
+  await locator.fill(text, { timeout: 10000 });
+}
+const options = { os: hostOS,
         humanize: true, proxy: launchProxy,
         geoip: !!launchProxy, };
 async function launch() {
@@ -105,6 +108,7 @@ test("activates a complete runtime and manifest, including legacy replacement", 
     const server = readFileSync(join(f.home, "runtime/camofox-1.18.1/server.js"), "utf8");
     expect(server).toContain("launchIdentityBrowser");
     expect(server).toContain("block_webrtc: !!launchProxy");
+    expect(server).toContain("typeIntoLocator(locator, text)");
     expect(existsSync(join(f.home, "runtime/camofox-1.18.1/plugins/local-profile/index.js"))).toBe(true);
   }
   expect(readdirSync(f.home).filter(name => name.startsWith(".runtime-setup-"))).toEqual([]);

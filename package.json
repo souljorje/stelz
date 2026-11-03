@@ -30,7 +30,7 @@
     "ui": "bun --no-env-file src/cli.ts ui",
     "browser": "bun src/call.ts",
     "fixture": "bun test/fixture.ts",
-    "test": "bun test test/unit.test.ts test/lifecycle.test.ts test/setup.test.ts test/ui-server.test.ts test/ui-model.test.ts ui/api.test.ts ui/model.test.ts && bun run test:regression",
+    "test": "bun test test/unit.test.ts test/typing.test.ts test/lifecycle.test.ts test/setup.test.ts test/ui-server.test.ts test/ui-model.test.ts ui/api.test.ts ui/model.test.ts && bun run test:regression",
     "test:ui": "bun test test/ui-server.test.ts test/ui-model.test.ts ui/api.test.ts ui/model.test.ts",
     "test:ui:browser": "bun test/ui-browser.ts",
     "test:regression": "node --experimental-transform-types --test test/plugin.test.ts test/native-profile.test.ts test/observations.test.ts",
@@ -39,6 +39,7 @@
     "test:window-close": "bun test/window-close.ts",
     "test:proxy": "bun test/proxy-integration.ts",
     "test:manual": "bun test/manual-integration.ts",
+    "test:typing": "bun --no-env-file test/typing-browser.ts",
     "test:package": "bun test/package.ts",
     "typecheck": "tsc --noEmit"
   },

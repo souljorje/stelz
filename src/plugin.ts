@@ -8,6 +8,7 @@ import { applyFingerprint, type LaunchOptions } from "./fingerprint.ts";
 import { createIpVerification, type Probe } from "./ip-verification.ts";
 import { allowedBrowserTools, browserToolArguments } from "./tool-policy.ts";
 import type { Contracts } from "./upstream.ts";
+export { typeIntoLocator } from "./typing.ts";
 
 type Page = { on(event: "close", listener: () => void): unknown };
 type Context = {

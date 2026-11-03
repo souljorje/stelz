@@ -14,6 +14,7 @@ import {
   initDir,
   secret,
   configurationHash,
+  typingMode,
 } from "./config.ts";
 import { key, lock, processStart, rotateLog, type Running } from "./runtime.ts";
 
@@ -65,6 +66,7 @@ const env = {
   MAX_SESSIONS: "1",
   TAB_INACTIVITY_MS: "31536000000",
   STELZ_STORAGE_MODE: p.storage || "checkpoint",
+  STELZ_TYPING_MODE: typingMode(),
   STELZ_PROFILE_ID: p.id,
   STELZ_PROFILE_DIR: runtimeDir,
   STELZ_MODE: p.mode,

@@ -134,6 +134,9 @@ function copyDependencies(source: string, upstream: string) {
 }
 
 function applyPatches(upstream: string) {
+  patch(join(upstream, "server.js"),
+    "await locator.fill(text, { timeout: 10000 });",
+    "await (await import('./plugins/local-profile/index.js')).typeIntoLocator(locator, text);");
   patch(join(upstream, "lib/camoufox-executable.js"),
     "if (!existsSync(executableProperties)) ensureSymlink(realpathSync(resourceProperties), executableProperties);",
     "// stelz: read macOS resources without changing the installed app bundle.");
@@ -189,7 +192,7 @@ function validate(upstream: string) {
     if (!Array.isArray(contract.TOOL_DEFS) || typeof contract.runTool !== "function" || typeof contract.adaptResponse !== "function") {
       throw Error("Invalid Camofox tool contracts.");
     }
-    for (const name of ["register", "launchIdentityBrowser", "claimIdentityContext"]) {
+    for (const name of ["register", "launchIdentityBrowser", "claimIdentityContext", "typeIntoLocator"]) {
       if (typeof plugin[name] !== "function") throw Error("Missing local-profile export: " + name);
     }
   `;
