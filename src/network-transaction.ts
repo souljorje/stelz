@@ -1,0 +1,241 @@
+import { randomUUID } from "node:crypto";
+import {
+  closeSync, constants, fstatSync, fsyncSync, lstatSync, openSync, readFileSync,
+  renameSync, unlinkSync, writeFileSync,
+} from "node:fs";
+import { isIP } from "node:net";
+import { join } from "node:path";
+import { isDeepStrictEqual, parseEnv } from "node:util";
+import { HOME_DIR, STATE, dir, validateProxy, validateSettings, type Settings } from "./config.ts";
+
+export const NETWORK_JOURNAL = join(HOME_DIR, ".network-transaction.json");
+const configFile = join(HOME_DIR, "identities.json"), secretsFile = join(HOME_DIR, "secrets.env");
+const LIMIT = 1024 * 1024;
+export type NetworkFiles = { config: string; secrets: string | null };
+type Transaction = {
+  version: 1;
+  token: string;
+  identityId: string;
+  direction: "commit" | "rollback";
+  before: NetworkFiles;
+  after: NetworkFiles;
+};
+
+const quote = (value: string) => /^[A-Za-z0-9_@%+=:,./-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`;
+function instruction(id?: string) {
+  return `env STELZ_HOME=${quote(HOME_DIR)} stelz ${id ? `start ${id}` : "doctor all"}`;
+}
+export class NetworkTransactionError extends Error {
+  readonly status = 409;
+  constructor(reason: string, id?: string) {
+    super(`${reason} Inspect identities.json, secrets.env, and the private network journal. Then retry: ${instruction(id)}`);
+    this.name = "NetworkTransactionError";
+  }
+}
+function fail(id?: string): never { throw new NetworkTransactionError("Network save recovery requires inspection.", id); }
+const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
+function keys(value: unknown, names: string[]): value is Record<string, unknown> {
+  return object(value) && Object.keys(value).length === names.length && names.every(name => Object.hasOwn(value, name));
+}
+function directory(file: string, optional = false) {
+  try {
+    const info = lstatSync(file);
+    if (!info.isDirectory() || info.isSymbolicLink()) fail();
+  } catch (error) {
+    if (optional && (error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw error;
+  }
+}
+function read(file: string, privateFile = false, limit = LIMIT): string | null {
+  let fd: number | undefined;
+  try {
+    const path = lstatSync(file);
+    if (!path.isFile() || path.isSymbolicLink() || path.nlink !== 1) fail();
+    fd = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW);
+    const info = fstatSync(fd);
+    if (!info.isFile() || info.nlink !== 1 || info.size > limit || path.dev !== info.dev || path.ino !== info.ino ||
+        process.getuid && info.uid !== process.getuid() || privateFile && (info.mode & 0o7777) !== 0o600) fail();
+    const bytes = readFileSync(fd), text = bytes.toString("utf8");
+    if (!Buffer.from(text).equals(bytes)) fail();
+    return text;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  } finally { if (fd !== undefined) closeSync(fd); }
+}
+function syncHome() {
+  const fd = openSync(HOME_DIR, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    try { fsyncSync(fd); }
+    catch (error) { if (!["EINVAL", "ENOTSUP"].includes((error as NodeJS.ErrnoException).code || "")) throw error; }
+  } finally { closeSync(fd); }
+}
+function sameFiles(value: NetworkFiles, other: NetworkFiles) {
+  return value.config === other.config && value.secrets === other.secrets;
+}
+function files(): NetworkFiles {
+  directory(HOME_DIR);
+  const config = read(configFile);
+  if (config === null) fail();
+  return { config, secrets: read(secretsFile) };
+}
+function validate(value: unknown): Transaction {
+  if (!keys(value, ["version", "token", "identityId", "direction", "before", "after"]) || value.version !== 1 ||
+      typeof value.token !== "string" || !/^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/.test(value.token) ||
+      typeof value.identityId !== "string" || !/^[a-z][a-z\d-]{0,63}$/.test(value.identityId) ||
+      !["commit", "rollback"].includes(value.direction as string)) fail();
+  const transaction = value as unknown as Transaction;
+  const configs: Settings[] = [];
+  for (const state of [transaction.before, transaction.after]) {
+    if (!keys(state, ["config", "secrets"]) || typeof state.config !== "string" || Buffer.byteLength(state.config) > LIMIT ||
+        state.secrets !== null && (typeof state.secrets !== "string" || Buffer.byteLength(state.secrets) > LIMIT)) fail();
+    configs.push(validateSettings(JSON.parse(state.config)));
+  }
+  const [before, after] = configs;
+  const oldProfile = before!.identities.find(p => p.id === transaction.identityId);
+  const newProfile = after!.identities.find(p => p.id === transaction.identityId);
+  if (!oldProfile || !newProfile) fail();
+  // A journal can change only this identity's mode and optional secret references.
+  const withoutNetwork = (config: Settings) => ({ ...config, identities: config.identities.map(p => {
+    if (p.id !== transaction.identityId) return p;
+    const { mode: _mode, proxyEnv: _proxy, expectedIPEnv: _expected, ...rest } = p;
+    return rest;
+  }) });
+  if (!isDeepStrictEqual(withoutNetwork(before!), withoutNetwork(after!)) ||
+      oldProfile.proxyEnv && oldProfile.proxyEnv !== newProfile.proxyEnv ||
+      oldProfile.expectedIPEnv && oldProfile.expectedIPEnv !== newProfile.expectedIPEnv) fail();
+  const oldSecrets = parseEnv(transaction.before.secrets || ""), newSecrets = parseEnv(transaction.after.secrets || "");
+  for (const field of ["proxyEnv", "expectedIPEnv"] as const) {
+    const name = newProfile[field];
+    if (!oldProfile[field] && name && (Object.hasOwn(oldSecrets, name) ||
+        before!.identities.some(p => [p.proxyEnv, p.expectedIPEnv].includes(name)))) fail();
+  }
+  const references = [newProfile.proxyEnv, newProfile.expectedIPEnv];
+  for (const name of new Set([...Object.keys(oldSecrets), ...Object.keys(newSecrets)])) {
+    if (oldSecrets[name] === newSecrets[name]) continue;
+    if (!references.includes(name) || after!.identities.some(p => p.id !== transaction.identityId && [p.proxyEnv, p.expectedIPEnv].includes(name))) fail();
+    if (name === newProfile.proxyEnv) {
+      if (!newSecrets[name]) fail();
+      validateProxy(newSecrets[name]!);
+    }
+    if (name === newProfile.expectedIPEnv && newSecrets[name] && (!isIP(newSecrets[name]!) || newSecrets[name]!.includes("%"))) fail();
+  }
+  return transaction;
+}
+function readJournal(): Transaction | undefined {
+  directory(HOME_DIR, true);
+  const text = read(NETWORK_JOURNAL, true, LIMIT * 16);
+  if (text === null) return;
+  try { return validate(JSON.parse(text)); } catch { fail(); }
+}
+function identityPaths(transaction: Transaction) {
+  directory(STATE);
+  directory(dir(transaction.identityId));
+  for (const name of ["running.json", "stopped.json"]) read(join(dir(transaction.identityId), name));
+}
+function unchanged(transaction: Transaction) {
+  if (!isDeepStrictEqual(readJournal(), transaction)) fail(transaction.identityId);
+  identityPaths(transaction);
+  const current = files();
+  for (const key of ["config", "secrets"] as const) {
+    if (current[key] !== transaction.before[key] && current[key] !== transaction.after[key])
+      throw new NetworkTransactionError("Network save conflicts with manually changed service files.", transaction.identityId);
+  }
+  return current;
+}
+function replace(file: string, value: string, check: () => void) {
+  const temp = `${file}.${randomUUID()}.tmp`;
+  let fd: number | undefined;
+  try {
+    fd = openSync(temp, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, 0o600);
+    writeFileSync(fd, value);
+    fsyncSync(fd);
+    closeSync(fd); fd = undefined;
+    check();
+    renameSync(temp, file);
+    syncHome();
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+    try { unlinkSync(temp); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+  }
+}
+function journal(transaction: Transaction, previous?: Transaction) {
+  replace(NETWORK_JOURNAL, JSON.stringify(transaction) + "\n", () => {
+    if (!isDeepStrictEqual(readJournal(), previous)) fail(transaction.identityId);
+    if (!previous && !sameFiles(files(), transaction.before)) fail(transaction.identityId);
+  });
+}
+function complete(transaction: Transaction) {
+  const desired = transaction.direction === "commit" ? transaction.after : transaction.before;
+  unchanged(transaction);
+  for (const [key, file] of [["config", configFile], ["secrets", secretsFile]] as const) {
+    if (unchanged(transaction)[key] === desired[key]) continue;
+    if (desired[key] === null) { unchanged(transaction); unlinkSync(file); syncHome(); }
+    else replace(file, desired[key], () => { unchanged(transaction); });
+  }
+  if (!sameFiles(unchanged(transaction), desired)) fail(transaction.identityId);
+  unlinkSync(NETWORK_JOURNAL);
+  syncHome();
+}
+
+export function networkTransactionIdentity(): string | undefined {
+  try {
+    const transaction = readJournal();
+    if (!transaction) return;
+    unchanged(transaction);
+    return transaction.identityId;
+  } catch (error) {
+    if (error instanceof NetworkTransactionError) throw error;
+    fail();
+  }
+}
+
+// Call only under admission.lock and the journal identity's lifecycle.lock.
+export function recoverNetworkTransaction() {
+  try { const transaction = readJournal(); if (transaction) complete(transaction); }
+  catch (error) {
+    if (error instanceof NetworkTransactionError) throw error;
+    fail();
+  }
+}
+
+// The caller validates the stopped identity while both locks are held.
+export function saveNetworkTransaction(identityId: string, before: NetworkFiles, after: NetworkFiles) {
+  const transaction = validate({ version: 1, token: randomUUID(), identityId, direction: "commit", before, after });
+  if (readJournal()) fail(identityId);
+  journal(transaction);
+  try { complete(transaction); }
+  catch (error) {
+    // Record rollback intent before undoing a write. A second interruption can then resume rollback.
+    try {
+      unchanged(transaction);
+      const rollback: Transaction = { ...transaction, direction: "rollback" };
+      journal(rollback, transaction);
+      complete(rollback);
+    } catch {
+      if (error instanceof NetworkTransactionError) throw error;
+      throw new NetworkTransactionError("Network save is pending after an interrupted write.", identityId);
+    }
+    throw new NetworkTransactionError("Network save failed. The previous configuration was restored.", identityId);
+  }
+}
+
+export function pendingNetworkTransaction(): { identityId: string | null; message: string; blocked: boolean } | null {
+  let transaction: Transaction | undefined;
+  try {
+    transaction = readJournal();
+    if (!transaction) return null;
+    unchanged(transaction);
+    return { identityId: transaction.identityId, blocked: false, message: `Network save is pending. Complete it with: ${instruction(transaction.identityId)}` };
+  } catch (error) {
+    return { identityId: transaction?.identityId || null, blocked: true,
+      message: error instanceof NetworkTransactionError ? error.message : new NetworkTransactionError("Network save recovery requires inspection.", transaction?.identityId).message };
+  }
+}
+
+export function networkTransactionSecretValues(): string[] {
+  try {
+    const transaction = readJournal();
+    return transaction ? [transaction.before, transaction.after].flatMap(state => Object.values(parseEnv(state.secrets || "")).filter((value): value is string => value !== undefined)) : [];
+  } catch { return []; }
+}

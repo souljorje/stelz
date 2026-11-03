@@ -6,7 +6,7 @@ Each MCP connection must select one configured identity with `stelz mcp --identi
 ## Procedure
 
 1. Call `identity_status`.
-2. Ask the operator to start a stopped identity with `stelz start ID`.
+2. Ask the operator to create an unknown identity in the UI. Ask them to start a stopped identity with `stelz start ID`.
 3. Call `identity_acquire`.
 4. Read the open tabs with `camofox_list_tabs`.
 5. Read a fresh `camofox_snapshot` before you select an action.
@@ -46,3 +46,4 @@ Release and disconnect do not close pages or change the saved fingerprint config
 The next controller sees the same open browser page and browser state.
 It does not receive the previous client's conversation or reasoning history.
 Only an explicit lifecycle command stops the browser.
+Closing the browser window also stops its identity. The next start remains explicit.

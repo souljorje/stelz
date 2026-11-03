@@ -18,6 +18,9 @@ import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { dlopen, FFIType, ptr } from "bun:ffi";
 import {
+  NetworkTransactionError, networkTransactionIdentity, pendingNetworkTransaction, recoverNetworkTransaction,
+} from "./network-transaction.ts";
+import {
   HOME_DIR,
   STATE,
   settings,
@@ -197,8 +200,8 @@ function ownership(pid: number | undefined, expected: string | undefined): Owner
   if (!actual) return alive(pid) ? "unverified" : "missing";
   return !expected ? "unverified" : actual === expected ? "owned" : "different";
 }
-function observe(id: string) {
-  const record = json<Running>(join(dir(id), "running.json"));
+function observe(id: string, directory = dir(id)) {
+  const record = json<Running>(join(directory, "running.json"));
   if (
     record !== undefined &&
     (!record ||
@@ -222,8 +225,14 @@ function observe(id: string) {
   const supervisor = ownership(record?.pid, record?.supervisorStart);
   const server = ownership(record?.serverPid, record?.serverStart);
   const clean =
-    !!record && json<{ instanceId: string }>(join(dir(id), "stopped.json"))?.instanceId === record.instanceId;
+    !!record && json<{ instanceId: string }>(join(directory, "stopped.json"))?.instanceId === record.instanceId;
   return { record, supervisor, server, clean };
+}
+export function assertStoppedIdentity(id: string, directory = dir(id)) {
+  const o = observe(id, directory);
+  if (o.record && (o.record.version !== undefined && o.record.version !== 2 || !o.clean ||
+      [o.supervisor, o.server].some(value => value === "owned" || value === "unverified")))
+    throw Error("Stop the identity cleanly before deleting it or changing its configuration.");
 }
 export function running(id: string): Running | undefined {
   const o = observe(id);
@@ -340,17 +349,21 @@ export async function reportStatus(id: string) {
 }
 
 export async function start(id: string) {
-  const p = profile(id);
-  initDir(id);
-  const configHash = configurationHash(p);
-  if (!existsSync(join(HOME_DIR, "runtime/versions.json"))) throw Error("Run stelz setup first.");
+  settings();
   await lock(join(STATE, "admission.lock"), async () => {
+    await (await import("./identity-catalog.ts")).recoverIdentityCatalog();
+    await recoverNetworkConfiguration();
+    const p = profile(id), configHash = configurationHash(p);
+    initDir(id);
+    if (!existsSync(join(HOME_DIR, "runtime/versions.json"))) throw Error("Run stelz setup first.");
     const o = observe(id);
     if (running(id)) {
       if (o.supervisor !== "owned" || o.server === "unverified" || o.server === "different")
         throw Error(`${id}: the previous service needs inspection. Run stelz doctor ${id}.`);
       if (o.record?.configurationHash !== configHash)
         throw Error("Identity configuration changed. Stop the identity before you restart it.");
+      if (["stopping", "stopped"].includes(String(status(id).phase)))
+        throw Error("The browser is closing. Wait for shutdown before starting this identity.");
       return;
     }
     if (o.record && !o.clean)
@@ -415,6 +428,7 @@ export async function start(id: string) {
         )
           return s;
         if (s.phase === "blocked") throw Error(String(s.error || "Identity is blocked."));
+        if (["stopping", "stopped"].includes(String(s.phase))) throw Error("The browser closed during launch. Wait for shutdown before starting it again.");
       } catch (e) {
         if (!/fetch|connect|ECONN|timed out|timeout/i.test(String(e))) throw e;
       }
@@ -424,11 +438,35 @@ export async function start(id: string) {
   throw Error(`${id}: launch exceeded its time limit. The service was left intact; run stelz doctor ${id}.`);
 }
 
+// The caller holds admission.lock. Recovery uses the same lock order as stop and UI saves.
+export async function recoverNetworkConfiguration() {
+  const id = networkTransactionIdentity();
+  if (!id) return;
+  try {
+    await lock(join(dir(id), "lifecycle.lock"), async () => {
+      const o = observe(id);
+      if (o.record && (o.record.version !== undefined && o.record.version !== 2 || !o.clean ||
+          [o.supervisor, o.server].some(value => value === "owned" || value === "unverified")))
+        throw new NetworkTransactionError("Stop the journal identity cleanly before network recovery.", id);
+      recoverNetworkTransaction();
+    });
+  } catch (error) {
+    if (error instanceof NetworkTransactionError) throw error;
+    throw new NetworkTransactionError("Cannot verify the stopped identity for network recovery.", id);
+  }
+}
+
 export async function stop(id: string) {
   profile(id);
-  initDir(id);
-  return lock(join(STATE, "admission.lock"), () =>
-    lock(join(dir(id), "lifecycle.lock"), async () => {
+  return lock(join(STATE, "admission.lock"), async () => {
+    // A pending deletion may already have archived this directory. Never create
+    // a replacement while recovering its catalog entry. Existing live identities
+    // remain stoppable even when another catalog transaction needs inspection.
+    if (!existsSync(dir(id))) {
+      await (await import("./identity-catalog.ts")).recoverIdentityCatalog();
+      return status(id);
+    }
+    return lock(join(dir(id), "lifecycle.lock"), async () => {
       const o = observe(id);
       if (
         !o.record ||
@@ -471,15 +509,18 @@ export async function stop(id: string) {
         await Bun.sleep(100);
       }
       throw Error(`${id}: clean stop exceeded its time limit. State remains intact.`);
-    }),
-  );
+    });
+  });
 }
 
 export async function recover(id: string) {
   profile(id);
-  initDir(id);
-  return lock(join(STATE, "admission.lock"), () =>
-    lock(join(dir(id), "lifecycle.lock"), async () => {
+  return lock(join(STATE, "admission.lock"), async () => {
+    if (!existsSync(dir(id))) {
+      await (await import("./identity-catalog.ts")).recoverIdentityCatalog();
+      return status(id);
+    }
+    return lock(join(dir(id), "lifecycle.lock"), async () => {
       const o = observe(id);
       if (!o.record) return status(id);
       if ([o.supervisor, o.server].some((s) => s === "owned" || s === "unverified"))
@@ -493,8 +534,8 @@ export async function recover(id: string) {
       const archived = join(dir(id), `running.recovered-${crypto.randomUUID()}.json`);
       renameSync(join(dir(id), "running.json"), archived);
       return { ...status(id), recovered: true, archived };
-    }),
-  );
+    });
+  });
 }
 
 export const key = (id: string) => readFileSync(join(dir(id), "access-key"), "utf8").trim();
@@ -535,12 +576,14 @@ export function logs(id: string, lines = 100) {
   return { identityId: id, server: read("server.log"), supervisor: read("supervisor.log") };
 }
 export async function doctor(target?: string) {
+  const pending = pendingNetworkTransaction();
   const result: Record<string, unknown> = {
     home: HOME_DIR,
     initialized: existsSync(join(HOME_DIR, "identities.json")),
     setup: existsSync(join(HOME_DIR, "runtime/versions.json")),
     node: !!Bun.which("node"),
     browserExecutable: existsSync(executable()),
+    ...(pending ? { networkRecovery: pending.message } : {}),
   };
   if (!result.initialized) return result;
   const ids = target && target !== "all" ? [target] : settings().identities.map((p) => p.id);
@@ -553,6 +596,7 @@ export async function doctor(target?: string) {
       } catch (e) {
         configuration = (e as Error).message;
       }
+      if (pending && (!pending.identityId || pending.identityId === id)) configuration = pending.message;
       return {
         ...(await reportStatus(id)),
         configuration,

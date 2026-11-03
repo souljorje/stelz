@@ -1,7 +1,4 @@
 {
   "maxActive": 2,
-  "identities": [
-    { "id": "identity-01", "port": 9377, "mode": "proxy", "storage": "native", "proxyEnv": "IDENTITY_01_PROXY_URL", "expectedIPEnv": "IDENTITY_01_EXPECTED_IP" },
-    { "id": "identity-02", "port": 9378, "mode": "direct", "storage": "native" }
-  ]
+  "identities": []
 }

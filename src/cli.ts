@@ -1,41 +1,24 @@
 #!/usr/bin/env -S bun --no-env-file
 import { HOME_DIR, initialize, settings } from "./config.ts";
-import { start, stop, reportStatus, intervention, recover, doctor, logs } from "./runtime.ts";
+import { recover, doctor, logs } from "./runtime.ts";
+import { runLifecycle } from "./operations.ts";
+import type { UiAction } from "./ui-types.ts";
 import { setup } from "./setup.ts";
 import { runMcp } from "./mcp.ts";
 import { STELZ_VERSION } from "./versions.ts";
-
-async function runLifecycle(command: string, id: string) {
-  switch (command) {
-    case "start":
-      return start(id);
-    case "stop":
-      return stop(id);
-    case "status":
-      return reportStatus(id);
-    case "release":
-      return intervention(id, "handoff");
-    case "recheck":
-      return intervention(id, "check");
-    case "pause":
-    case "resume":
-      return intervention(id, command);
-    default:
-      throw Error(`Unknown command: ${command}`);
-  }
-}
 
 const [command = "help", ...args] = process.argv.slice(2);
 try {
   if (command === "--version" || command === "version") console.log(STELZ_VERSION);
   else if (command === "help" || command === "--help")
     console.log(
-      `stelz ${STELZ_VERSION}\n\nstelz init\nstelz setup\nstelz start ID|all\nstelz status [ID|all]\nstelz doctor [ID|all]\nstelz logs ID [--lines 1-500]\nstelz recover ID\nstelz stop ID|all\nstelz pause ID\nstelz resume ID\nstelz recheck ID\nstelz release ID\nstelz mcp --identity ID\n\nSTELZ_HOME selects the service data directory. Default: ${HOME_DIR}`,
+      `stelz ${STELZ_VERSION}\n\nstelz init\nstelz setup\nstelz ui [--port 1024-65535] [--open]\nstelz start ID|all\nstelz status [ID|all]\nstelz doctor [ID|all]\nstelz logs ID [--lines 1-500]\nstelz recover ID\nstelz stop ID|all\nstelz pause ID\nstelz resume ID\nstelz recheck ID\nstelz release ID\nstelz mcp --identity ID\n\nSTELZ_HOME selects the service data directory. Default: ${HOME_DIR}`,
     );
   else if (command === "init") {
     initialize();
     console.log(HOME_DIR);
   } else if (command === "setup") await setup();
+  else if (command === "ui") (await import("./ui-server.ts")).runUi(args);
   else if (command === "doctor") {
     if (args.length > 1) throw Error("Use: stelz doctor [ID|all]");
     console.log(JSON.stringify(await doctor(args[0]), null, 2));
@@ -58,7 +41,7 @@ try {
     const ids = target === "all" ? settings().identities.map((p) => p.id) : [target];
     for (const id of ids) {
       try {
-        const result = await runLifecycle(command, id);
+        const result = await runLifecycle(command as UiAction | "status", id);
         console.log(JSON.stringify(result, null, 2));
       } catch (e) {
         console.error((e as Error).message);

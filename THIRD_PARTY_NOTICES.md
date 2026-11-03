@@ -1,5 +1,12 @@
 # Third-party notices
 
+The local HTTP API uses Hono under the MIT License.
+
+The bundled local UI includes React, React DOM, and Scheduler under the MIT License.
+It includes IBM Plex Sans and IBM Plex Mono under the SIL Open Font License 1.1.
+The release archive contains their license texts in `dist/ui/licenses/`.
+The UI layout follows Camoufox Profile Manager. Its source code is not bundled into the UI.
+
 The device/runtime fingerprint classification in `src/fingerprint.ts` adapts
 ideas and field classifications from `core/fingerprint_store.py` in
 Camoufox Profile Manager (https://github.com/polyackiy/camoufox-profile-manager).

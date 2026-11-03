@@ -1,13 +1,36 @@
 import { test, expect, afterAll } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { proxyEnvironment, type Profile } from "../src/config.ts";
+import { proxyEnvironment, validateSettings, type Profile } from "../src/config.ts";
 import { lock } from "../src/runtime.ts";
 import { createControllerLease } from "../src/controller.ts";
 const p: Profile = { id: "unit", port: 9471, mode: "proxy", proxyEnv: "STELZ_UNIT_PROXY" };
 const folder = mkdtempSync(join(tmpdir(), "stelz-unit-"));
 afterAll(() => { delete process.env.STELZ_UNIT_PROXY; rmSync(folder, { recursive: true, force: true }); });
+test("init creates an empty catalog and preserves existing identities", async () => {
+  const home = join(folder, "defaults");
+  const script = `import { initialize, settings, proxyEnvironment } from ${JSON.stringify(join(import.meta.dir, "../src/config.ts"))}; initialize(); console.log(JSON.stringify(settings().identities.map(p => ({mode:p.mode,storage:p.storage,proxy:proxyEnvironment(p)}))));`;
+  const initialize = async () => {
+    const child = Bun.spawn([process.execPath, "--no-env-file", "-e", script], { env: { ...process.env, STELZ_HOME: home }, stdout: "pipe", stderr: "pipe" });
+    const [output, error, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+    if (code) throw Error(error);
+    return JSON.parse(output);
+  };
+  expect(await initialize()).toEqual([]);
+  const config = JSON.stringify({ maxActive: 2, identities: [{ id: "existing", port: 9474, mode: "proxy", storage: "checkpoint", proxyEnv: "INIT_TEST_PROXY" }] });
+  const secrets = "# existing credentials\nINIT_TEST_PROXY=http://proxy.test:8080\n";
+  writeFileSync(join(home, "identities.json"), config);
+  writeFileSync(join(home, "secrets.env"), secrets);
+  await initialize();
+  expect(readFileSync(join(home, "identities.json"), "utf8")).toBe(config);
+  expect(readFileSync(join(home, "secrets.env"), "utf8")).toBe(secrets);
+});
+test("saved identities can exceed browser slots while the active limit remains two", () => {
+  const identities = Array.from({ length: 3 }, (_, i) => ({ id: `browser-${i}`, port: 9475 + i, mode: "direct" as const }));
+  expect(validateSettings({ maxActive: 2, identities }).identities).toHaveLength(3);
+  expect(() => validateSettings({ maxActive: 3, identities })).toThrow("two active browsers");
+});
 test("missing proxy rejects launch", () => { delete process.env.STELZ_UNIT_PROXY; expect(() => proxyEnvironment(p)).toThrow("Direct fallback is disabled"); });
 test("direct mode ignores proxy credentials", () => { process.env.STELZ_UNIT_PROXY = "http://secret:password@host:9999"; expect(proxyEnvironment({ ...p, mode: "direct" })).toEqual({}); });
 test("upstream decodes HTTP credentials once", () => { process.env.STELZ_UNIT_PROXY = "http://u%40name:p%253Ass@127.0.0.1:8888"; const v = proxyEnvironment(p); expect(decodeURIComponent(v.PROXY_USERNAME!)).toBe("u@name"); expect(decodeURIComponent(v.PROXY_PASSWORD!)).toBe("p%3Ass"); });

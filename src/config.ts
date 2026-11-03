@@ -16,21 +16,24 @@ export type Settings = { maxActive: number; identities: Profile[] };
 export function initialize() {
   mkdirSync(STATE, { recursive: true, mode: 0o700 });
   const config = join(HOME_DIR, "identities.json");
-  if (!existsSync(config)) save(config, { maxActive: 2, identities: [
-    { id: "identity-01", port: 9377, mode: "proxy", storage: "native", proxyEnv: "IDENTITY_01_PROXY_URL", expectedIPEnv: "IDENTITY_01_EXPECTED_IP" },
-    { id: "identity-02", port: 9378, mode: "direct", storage: "native" }
-  ] });
+  if (!existsSync(config)) save(config, { maxActive: 2, identities: [] });
   const secrets = join(HOME_DIR, "secrets.env");
-  if (!existsSync(secrets)) writeFileSync(secrets, "IDENTITY_01_PROXY_URL=\nIDENTITY_01_EXPECTED_IP=\n", { mode: 0o600, flag: "wx" });
+  if (!existsSync(secrets)) writeFileSync(secrets, "", { mode: 0o600, flag: "wx" });
 }
 export function settings(): Settings {
   const value = json<Settings>(join(HOME_DIR, "identities.json"));
   if (!value) throw Error("Run stelz init first.");
-  if (!Number.isInteger(value.maxActive) || value.maxActive < 1 || value.maxActive > 2 || !Array.isArray(value.identities) || value.identities.length > 2) throw Error("Configure at most two identities and two active browsers.");
+  return validateSettings(value);
+}
+export function validateSettings(value: Settings): Settings {
+  if (!value || typeof value !== "object" || !Number.isInteger(value.maxActive) || value.maxActive < 1 || value.maxActive > 2 || !Array.isArray(value.identities) || value.identities.length > 1000) throw Error("Configure at most 1000 saved identities and two active browsers.");
   const ids = new Set<string>(), ports = new Set<number>();
   for (const p of value.identities) {
-    if (!/^[a-z][a-z0-9-]{0,63}$/.test(p.id) || !Number.isInteger(p.port) || p.port < 1024 || p.port > 65535 || !["direct", "proxy"].includes(p.mode) || ids.has(p.id) || ports.has(p.port)) throw Error("Identity IDs and ports must be valid and unique.");
+    if (!p || typeof p !== "object" || typeof p.id !== "string" || !/^[a-z][a-z0-9-]{0,63}$/.test(p.id) || !Number.isInteger(p.port) || p.port < 1024 || p.port > 65535 || !["direct", "proxy"].includes(p.mode) || ids.has(p.id) || ports.has(p.port)) throw Error("Identity IDs and ports must be valid and unique.");
     if (p.storage !== undefined && !["native", "checkpoint"].includes(p.storage)) throw Error("Storage must be native or checkpoint.");
+    for (const name of [p.proxyEnv, p.expectedIPEnv]) {
+      if (name !== undefined && (typeof name !== "string" || !/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(name))) throw Error("Environment variable names must be valid.");
+    }
     ids.add(p.id); ports.add(p.port);
   }
   return value;
@@ -68,12 +71,16 @@ export function proxyEnvironment(p: Profile): Record<string, string> {
   if (p.mode === "direct") return {};
   const raw = p.proxyEnv && secret(p.proxyEnv);
   if (!raw) throw Error(`${p.id}: set ${p.proxyEnv || "proxyEnv"} in ${join(HOME_DIR, "secrets.env")}. Direct fallback is disabled.`);
-  let u: URL;
-  try { u = new URL(raw); } catch { throw Error(`${p.id}: proxy URL is invalid. Credentials are hidden.`); }
-  if (!["http:", "https:", "socks5:"].includes(u.protocol) || !u.hostname || u.pathname !== "/" && u.pathname !== "" || u.search || u.hash) throw Error(`${p.id}: use HTTP(S) or unauthenticated SOCKS5.`);
-  if (u.protocol === "socks5:" && (u.username || u.password)) throw Error(`${p.id}: SOCKS5 authentication is not supported. Use an HTTP proxy.`);
-  try { decodeURIComponent(u.username); decodeURIComponent(u.password); } catch { throw Error(`${p.id}: proxy credentials have invalid percent encoding.`); }
+  const u = validateProxy(raw, p.id);
   return { PROXY_STRATEGY: "round_robin", PROXY_PROTOCOL: u.protocol.slice(0, -1), PROXY_HOST: u.hostname, PROXY_PORT: u.port || (u.protocol === "http:" ? "80" : u.protocol === "https:" ? "443" : "1080"), PROXY_USERNAME: u.username, PROXY_PASSWORD: u.password };
+}
+export function validateProxy(raw: string, id = "Identity"): URL {
+  let u: URL;
+  try { u = new URL(raw); } catch { throw Error(`${id}: proxy URL is invalid. Credentials are hidden.`); }
+  if (!["http:", "https:", "socks5:"].includes(u.protocol) || !u.hostname || u.pathname !== "/" && u.pathname !== "" || u.search || u.hash) throw Error(`${id}: use HTTP(S) or unauthenticated SOCKS5.`);
+  if (u.protocol === "socks5:" && (u.username || u.password)) throw Error(`${id}: SOCKS5 authentication is not supported. Use an HTTP proxy.`);
+  try { decodeURIComponent(u.username); decodeURIComponent(u.password); } catch { throw Error(`${id}: proxy credentials have invalid percent encoding.`); }
+  return u;
 }
 export const configurationHash = (p: Profile) => createHash("sha256").update(JSON.stringify({ ...p, proxy: proxyEnvironment(p), expectedIP: p.expectedIPEnv ? secret(p.expectedIPEnv) || "" : "" })).digest("hex");
 export async function control(p: Profile, method: string, action: string, body?: unknown) {

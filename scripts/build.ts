@@ -1,5 +1,6 @@
 import { mkdirSync, chmodSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { createHash } from "node:crypto";
 const root = join(import.meta.dir, "..");
 rmSync(join(root, "dist"), { recursive: true, force: true });
 mkdirSync(join(root, "dist"), { recursive: true });
@@ -10,4 +11,28 @@ for (const name of ["cli", "supervisor"]) {
 }
 const plugin = await Bun.build({ entrypoints: [join(root, "src/plugin.ts")], target: "node", packages: "external", format: "esm", outdir: join(root, "dist"), naming: "plugin.js" });
 if (!plugin.success) throw Error(plugin.logs.join("\n"));
-console.log("Built standalone CLI and browser service.");
+const ui = await Bun.build({
+  entrypoints: [join(root, "ui/index.html")], target: "browser", format: "esm",
+  outdir: join(root, "dist/ui"), minify: true,
+  loader: { ".woff2": "file", ".woff": "file" },
+  define: { "process.env.NODE_ENV": JSON.stringify("production") },
+});
+if (!ui.success) throw Error(ui.logs.join("\n"));
+// Some Bun versions inline CSS font URLs. Keep fonts in local files for font-src 'self'.
+for (const output of ui.outputs) {
+  if (!output.path.endsWith(".css")) continue;
+  const fonts: Promise<number>[] = [];
+  const css = (await output.text()).replace(/url\((["']?)data:font\/(woff2?);base64,([A-Za-z0-9+/=]+)\1\)/g, (_match, _quote, format: string, encoded: string) => {
+    const bytes = Buffer.from(encoded, "base64");
+    const name = `font-${createHash("sha256").update(bytes).digest("hex").slice(0, 16)}.${format}`;
+    fonts.push(Bun.write(join(root, "dist/ui", name), bytes));
+    return `url(./${name})`;
+  });
+  await Promise.all(fonts);
+  await Bun.write(output.path, css);
+}
+for (const [name, path] of [
+  ["react", "react/LICENSE"], ["react-dom", "react-dom/LICENSE"], ["scheduler", "scheduler/LICENSE"],
+  ["ibm-plex-sans", "@fontsource/ibm-plex-sans/LICENSE"], ["ibm-plex-mono", "@fontsource/ibm-plex-mono/LICENSE"],
+]) await Bun.write(join(root, "dist/ui/licenses", `${name}.txt`), Bun.file(join(root, "node_modules", path!)));
+console.log("Built standalone CLI, browser service, and local UI.");

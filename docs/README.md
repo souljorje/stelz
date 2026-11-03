@@ -13,8 +13,9 @@ An identity is a stable browser ID. A controller is one MCP client with exclusiv
 
 1. Install the release archive with `npm install --global ./stelz-0.2.0.tgz`.
 2. Run `stelz init`.
-3. Edit the identity configuration if necessary.
-4. Run `stelz setup`.
+3. Run `stelz setup`.
+4. Run `stelz ui --open`.
+5. Create an identity. Configure a proxy if necessary, then start it.
 
 Setup copies the published Camofox package into the service directory. It does not clone a repository.
 Setup does not change the installed Camoufox app.
@@ -28,13 +29,19 @@ The global CLI ignores automatic project `.env` files.
 
 ## Configuration
 
-`identities.json` contains two identity entries. Each entry specifies its ID, loopback port, network mode, and storage mode.
+`identities.json` contains the saved identities. Each entry specifies its ID, loopback port, network mode, and storage mode.
 `secrets.env` contains proxy credentials. Keep this file private.
 
-The default configuration requires a proxy for `identity-01`. It explicitly uses direct development mode for `identity-02`.
-New configurations use `storage: "native"` for both identities.
+Init creates an empty identity list. It never overwrites existing entries.
+Use **New identity** in the UI to create a named identity with an optional proxy.
+The service assigns a free loopback port. New identities use `storage: "native"`.
+An identity uses a direct connection unless you supply a proxy.
+The catalog permits up to 1000 saved identities. At most two browsers can be active.
 Existing entries without a `storage` field keep `checkpoint` mode. Init never overwrites them.
-Set `IDENTITY_01_PROXY_URL` in `secrets.env`. Optionally set `IDENTITY_01_EXPECTED_IP`.
+Select Proxy in the UI to configure a proxy for a stopped identity.
+For manual configuration, set `mode: "proxy"` and `proxyEnv: "IDENTITY_01_PROXY_URL"` on that identity.
+Set `IDENTITY_01_PROXY_URL` in `secrets.env`.
+Optionally set `expectedIPEnv: "IDENTITY_01_EXPECTED_IP"` and its value in `secrets.env` to require a specific exit IP.
 Camofox supports HTTP(S) proxy authentication and unauthenticated SOCKS5.
 Authenticated SOCKS5 is not supported.
 
@@ -52,8 +59,9 @@ These settings do not change client LLM traffic.
 
 | Command | Effect |
 | --- | --- |
+| `stelz ui [--port PORT] [--open]` | Serve the local identity UI. The default port is 9380. |
 | `stelz start identity-02` | Start one visible browser. |
-| `stelz start all` | Start both configured identities. |
+| `stelz start all` | Start configured identities, subject to the active browser limit. |
 | `stelz status` | Read state and current controller information. |
 | `stelz doctor [ID]` | Inspect configuration, process ownership, and service status. |
 | `stelz logs ID [--lines 1-500]` | Read bounded server and supervisor logs. |
@@ -61,10 +69,12 @@ These settings do not change client LLM traffic.
 | `stelz pause identity-02` | Block new browser actions. Keep the controller and browser. |
 | `stelz resume identity-02` | Resume actions after any required IP check. |
 | `stelz recheck identity-01` | Repeat a failed IP check without replacing the browser. |
-| `stelz stop all` | Stop both browsers cleanly. Keep their saved state. |
+| `stelz stop all` | Stop active configured browsers cleanly. Keep their saved state. |
 | `stelz recover identity-02` | Archive an unclean lifetime after its recorded processes exit. |
 
-MCP cannot implicitly start a stopped browser. Start it with the CLI first.
+See [Use the local UI](ui.md) for UI sessions, lifecycle controls, and network edits.
+
+MCP cannot implicitly start a stopped browser. Start it with the CLI or UI first.
 A disconnected client cannot stop the browser through process-group cleanup. The browser supervisor runs separately.
 An unclean service exit blocks a replacement start.
 If the supervisor exits while its server remains active, status reports `orphaned`.
@@ -76,8 +86,10 @@ After an upgrade, `stelz stop ID` can stop a legacy service through its authenti
 The identity configuration must match its recorded start configuration.
 The command checks the saved identity and service instance. It never signals unverified PIDs.
 A clean-stop receipt does not override live PIDs with unknown ownership.
-Unexpected browser or context loss blocks the service lifetime. Upstream recovery cannot clear the block or create another context.
-Stop and start the identity explicitly. An interrupted task is not automatically replayed.
+Closing a browser window stops its identity. The UI reports Stopped after shutdown.
+Start the identity explicitly when you need it again.
+Upstream browser restart or session replacement still blocks the service lifetime.
+Stop and start a blocked identity explicitly. An interrupted task is not automatically replayed.
 
 The service limits each browser action or IP check to 60 seconds.
 If an operation exceeds that limit, browser actions remain blocked because the operation may still be active.

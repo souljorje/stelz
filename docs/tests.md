@@ -11,7 +11,7 @@ npm pack
 ```
 
 Build regenerates `dist/` from source.
-The archive contains the CLI, supervisor, browser plugin, documentation, client examples, and third-party notices.
+The archive contains the CLI, supervisor, browser plugin, built local UI, documentation, client examples, and third-party notices.
 The diagnostic client runs from source. The archive excludes source files, tests, installed dependencies, and browser state.
 
 ## Checks
@@ -19,9 +19,12 @@ The diagnostic client runs from source. The archive excludes source files, tests
 | Command | Coverage |
 | --- | --- |
 | `bun run typecheck` | TypeScript checks. |
+| `bun run test:ui` | UI sessions, lifecycle dispatch, identity creation and deletion, interrupted saves, safe network edits, and redaction. |
+| `bun run test:ui:browser` | Built UI in Chrome, local sessions, offline assets, forms, and responsive layouts. |
 | `bun run test` | Controller, lifecycle, setup, proxy, plugin, native storage, and observation tests. |
 | `bun run test:integration` | Two checkpoint identities, exclusive control, handoff, disconnect, client crash, pause, and restart. |
 | `bun run test:native` | Two native identities, persistent storage, and observed device properties across restart. |
+| `bun run test:window-close` | Close one isolated test window when prompted. Check clean shutdown, Stopped UI state, and explicit restart. |
 | `bun run test:proxy` | US exit IP, direct-to-proxy transition, native restart, WebRTC, and live proxy failure. |
 | `bun run test:manual` | Human interaction while paused, followed by MCP resume in the same browser and tab. |
 | `bun run test:package` | Archive installation in an isolated npm prefix, an empty working directory, and browser acceptance. |
@@ -34,6 +37,13 @@ The regression suite also runs directly with Node. It does not require a browser
 The plugin tests use the actual hooks with simulated browser and network interfaces.
 They cover stalled actions, failed IP checks, explicit recheck, and action serialization.
 Lifecycle and setup tests cover orphaned servers, interrupted setup, and concurrent lock recovery.
+
+Build the UI before `test:ui:browser`.
+That check uses the actual UI API and isolated service files with simulated lifecycle operations.
+It does not start Camoufox identities.
+It uses installed Chrome on macOS. Set `STELZ_UI_CHROME` to select another Chrome or Chromium executable.
+Screenshots and its report are in `.state/ui-browser/`.
+The UI check also creates identities with and without a proxy, confirms deletion, and checks profile archives.
 
 ## Continuous integration
 
