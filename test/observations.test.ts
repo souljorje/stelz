@@ -11,7 +11,7 @@ test("known variable rendering signals are recorded separately", () => {
   assert.deepEqual(compareObservations(sample, { ...sample, canvas: "canvas-b", audio: "audio-b" }),
     { stableDifferences: [], variableDifferences: ["canvas", "audio"] });
 });
-test("WebGL2 support drift fails the observable identity check", () => {
+test("WebGL2 support drift fails the observable profile check", () => {
   assert.deepEqual(compareObservations(sample, { ...sample, webgl2: null }).stableDifferences, ["webgl2"]);
 });
 test("missing samples cannot pass as two identical undefined values", () => {

@@ -54,8 +54,8 @@ async function command(...args: string[]) {
 async function connect() {
   client = new Client({ name: "typing-acceptance", version: "1.0.0" });
   await client.connect(new StdioClientTransport({ command: process.execPath,
-    args: ["--no-env-file", cli, "mcp", "--identity", "typing-check"], env, stderr: "inherit" }));
-  await call("identity_status"); await call("identity_acquire");
+    args: ["--no-env-file", cli, "mcp", "--profile", "typing-check"], env, stderr: "inherit" }));
+  await call("profile_status"); await call("profile_acquire");
 }
 async function result(name: string, args: Record<string, unknown> = {}) {
   return client!.callTool({ name, arguments: args }, undefined, { timeout: 65_000 });
@@ -81,7 +81,7 @@ async function type(tabId: string, selector: string, text: string, pressEnter = 
 }
 try {
   await command("init");
-  writeFileSync(join(home, "identities.json"), JSON.stringify({ maxActive: 2, identities: [
+  writeFileSync(join(home, "profiles.json"), JSON.stringify({ maxActive: 2, profiles: [
     { id: "typing-check", port, mode: "direct", storage: "native" },
   ] }));
   await command("setup"); await command("start", "typing-check"); await connect();
@@ -117,9 +117,9 @@ try {
   const tooLong = await result("camofox_type", { tabId, selector: "#message", text: "x".repeat(10_000) });
   assert(tooLong.isError && JSON.stringify(tooLong.content).includes("typing_too_long"), "Oversized paced input did not fail before editing.");
   assert(JSON.stringify(await call("camofox_snapshot", { tabId })).includes("Keep this value"), "Oversized input changed the field contents.");
-  assert((await call("identity_status")).phase === "ready", "A preflight length rejection blocked the browser.");
+  assert((await call("profile_status")).phase === "ready", "A preflight length rejection blocked the browser.");
   checks.push({ check: "oversized paced input preserves field contents and service readiness" });
-  await call("identity_release"); await client!.close(); client = undefined;
+  await call("profile_release"); await client!.close(); client = undefined;
   await command("stop", "typing-check");
   writeFileSync(join(home, "secrets.env"), "STELZ_TYPING_MODE=instant\n", { mode: 0o600 });
   await command("start", "typing-check"); await connect();
@@ -131,7 +131,7 @@ try {
   const bulkInputs = instant.events.filter(event => event.type === "input" && event.target === "message");
   assert(bulkInputs.length === 1, "The service did not forward instant mode to the browser runtime.");
   checks.push({ check: "instant service setting preserves bulk fill and Enter", inputEvents: bulkInputs.length });
-  await call("identity_release");
+  await call("profile_release");
   console.log(JSON.stringify({ result: "passed", checks, report: join(home, "report.json") }, null, 2));
 } catch (error) {
   process.exitCode = 1;

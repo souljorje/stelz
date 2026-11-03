@@ -1,6 +1,7 @@
 node_modules/
 .runtime/
 .state/
+.taste-skill/
 .env.local
 dist/
 *.tgz

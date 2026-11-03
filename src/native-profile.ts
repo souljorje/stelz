@@ -14,7 +14,7 @@ const contexts = new WeakMap<Browser, { context: Context; options: Options; clai
 
 function runtimeStorage(): Storage {
   const mode = process.env.STELZ_STORAGE_MODE || "checkpoint";
-  if (mode !== "native" && mode !== "checkpoint") throw Error("Unknown identity storage mode");
+  if (mode !== "native" && mode !== "checkpoint") throw Error("Unknown profile storage mode");
   return { mode, directory: process.env.STELZ_PROFILE_DIR || "" };
 }
 function hasCheckpoint(directory: string): boolean {
@@ -26,19 +26,19 @@ function hasCheckpoint(directory: string): boolean {
 }
 
 /** Narrow compatibility boundary for the pinned upstream's browser/session split. */
-export async function launchIdentityBrowser(
+export async function launchProfileBrowser(
   firefox: Launcher, options: Options, contextOptions: Options, storage = runtimeStorage(),
 ): Promise<Browser> {
-  if (!isAbsolute(storage.directory)) throw Error("An absolute identity directory is required");
+  if (!isAbsolute(storage.directory)) throw Error("An absolute profile directory is required");
   const marker = join(storage.directory, "native-profile.json");
   const directory = join(storage.directory, "browser-data");
   if (storage.mode === "checkpoint") {
     if (existsSync(marker) || existsSync(directory)) throw Error("Native profile exists; refusing to fall back to stale checkpoints");
     return firefox.launch(options);
   }
-  if (existsSync(marker) && !existsSync(directory)) throw Error("Native browser data is missing; restore the original browser-data directory before starting this identity");
+  if (existsSync(marker) && !existsSync(directory)) throw Error("Native browser data is missing; restore the original browser-data directory before starting this profile");
   if (!existsSync(marker) && hasCheckpoint(join(storage.directory, "storage"))) {
-    throw Error("Existing storage checkpoints require an explicit migration. Keep storage=checkpoint or use a new identity; no data was removed.");
+    throw Error("Existing storage checkpoints require an explicit migration. Keep storage=checkpoint or use a new profile; no data was removed.");
   }
   if ("storageState" in contextOptions) throw Error("Native profiles must not restore a storage checkpoint on launch");
   mkdirSync(directory, { recursive: true, mode: 0o700 });
@@ -57,7 +57,7 @@ export async function launchIdentityBrowser(
   } catch (error) { await context.close().catch(() => {}); throw error; }
 }
 
-export async function claimIdentityContext(browser: Browser, options: Options): Promise<Context> {
+export async function claimProfileContext(browser: Browser, options: Options): Promise<Context> {
   const record = contexts.get(browser);
   if (!record) {
     if (runtimeStorage().mode === "native") throw Error("Original persistent context is unavailable");

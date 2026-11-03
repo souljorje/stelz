@@ -14,11 +14,11 @@ type Fixture = { home: string; state: string; config: string; secrets: string; p
 function fixture(profiles: Profile[] = [{ id: "test", port: 19471, mode: "direct", storage: "native" }], secrets = "# private configuration\n", initialized = true): Fixture {
   const home = mkdtempSync(join(tmpdir(), "stelz-ui-model-"));
   homes.push(home);
-  const state = join(home, "identities"), config = join(home, "identities.json"), secretFile = join(home, "secrets.env");
+  const state = join(home, "profiles"), config = join(home, "profiles.json"), secretFile = join(home, "secrets.env");
   if (initialized) {
     mkdirSync(state, { recursive: true });
     for (const p of profiles) mkdirSync(join(state, p.id), { recursive: true });
-    writeFileSync(config, JSON.stringify({ maxActive: 2, identities: profiles }), { mode: 0o600 });
+    writeFileSync(config, JSON.stringify({ maxActive: 2, profiles: profiles }), { mode: 0o600 });
     writeFileSync(secretFile, secrets, { mode: 0o600 });
   }
   return { home, state, config, secrets: secretFile, profiles };
@@ -50,32 +50,32 @@ function tree(folder: string): unknown[] {
     return [name, info.mode, info.mtimeMs, info.isDirectory() ? tree(file) : readFileSync(file, "utf8")];
   });
 }
-const withRevision = `const revision = (await model.snapshot()).identities[0].network.revision;`;
+const withRevision = `const revision = (await model.snapshot()).profiles[0].network.revision;`;
 const withCatalogRevision = `const revision = (await model.snapshot()).catalogRevision;`;
 
-test("the UI creates named identities with optional proxies and more saved profiles than browser slots", async () => {
+test("the UI creates named profiles with optional proxies and more saved profiles than browser slots", async () => {
   const f = fixture([], "# keep this comment\nUNRELATED='literal # value'\n");
   const result = await run(f, `
     const initial = await model.snapshot();
-    const first = await model.createIdentity({ id: 'work', revision: initial.catalogRevision });
-    const second = await model.createIdentity({ id: 'personal', revision: (await model.snapshot()).catalogRevision,
+    const first = await model.createProfile({ id: 'work', revision: initial.catalogRevision });
+    const second = await model.createProfile({ id: 'personal', revision: (await model.snapshot()).catalogRevision,
       proxyUrl: 'http://private-reader:private-password@proxy.test:8080', expectedIp: '2001:db8::9' });
-    await model.createIdentity({ id: 'spare', revision: (await model.snapshot()).catalogRevision });
+    await model.createProfile({ id: 'spare', revision: (await model.snapshot()).catalogRevision });
     return { first, second, initial, snapshot: await model.snapshot() };
   `);
   expect(result.ok).toBe(true);
-  expect(result.value.initial.identities).toEqual([]);
+  expect(result.value.initial.profiles).toEqual([]);
   expect(result.value.first).toMatchObject({ id: "work", phase: "stopped", mode: "direct", storage: "native", configurationError: null });
   expect(result.value.first.network).toMatchObject({ proxyConfigured: false, expectedIp: "" });
   expect(result.value.second).toMatchObject({ id: "personal", phase: "stopped", mode: "proxy", storage: "native", configurationError: null });
   expect(result.value.second.network).toMatchObject({ proxyDisplay: "http://proxy.test:8080", expectedIp: "2001:db8::9" });
-  expect(result.value.snapshot.identities).toHaveLength(3);
-  expect(new Set(result.value.snapshot.identities.map((row: { port: number }) => row.port)).size).toBe(3);
+  expect(result.value.snapshot.profiles).toHaveLength(3);
+  expect(new Set(result.value.snapshot.profiles.map((row: { port: number }) => row.port)).size).toBe(3);
   expect(result.value.snapshot.catalogRevision).not.toBe(result.value.initial.catalogRevision);
   expect(JSON.stringify(result)).not.toMatch(/private-reader|private-password/);
   const config = JSON.parse(readFileSync(f.config, "utf8")), secrets = readFileSync(f.secrets, "utf8");
   expect(secrets).toContain("# keep this comment\nUNRELATED='literal # value'\n");
-  expect(parseEnv(secrets)[config.identities[1].proxyEnv]).toBe("http://private-reader:private-password@proxy.test:8080");
+  expect(parseEnv(secrets)[config.profiles[1].proxyEnv]).toBe("http://private-reader:private-password@proxy.test:8080");
   expect(lstatSync(f.secrets).mode & 0o777).toBe(0o600);
   expect(readdirSync(f.state)).toEqual(["admission.lock"]);
 });
@@ -90,42 +90,42 @@ test("creation rejects unsafe input, duplicate state, and stale catalog revision
     { id: "valid", expectedIp: "not-an-ip" }, { id: "test" },
     { id: "valid", revision: "0".repeat(64) },
   ]) {
-    const result = await run(f, `${withCatalogRevision} return await model.createIdentity({ revision, ...${JSON.stringify(input)} });`);
+    const result = await run(f, `${withCatalogRevision} return await model.createProfile({ revision, ...${JSON.stringify(input)} });`);
     expect(result.ok).toBe(false);
     expect([400, 409]).toContain(result.status);
     expect([readFileSync(f.config, "utf8"), readFileSync(f.secrets, "utf8")]).toEqual(before);
   }
   mkdirSync(join(f.state, "orphan"));
-  const orphan = await run(f, `${withCatalogRevision} return await model.createIdentity({ revision, id: 'orphan' });`);
+  const orphan = await run(f, `${withCatalogRevision} return await model.createProfile({ revision, id: 'orphan' });`);
   expect(orphan).toMatchObject({ ok: false, status: 409 });
 });
 
 test("catalog writes serialize and reject competing revisions", async () => {
   const f = fixture([]);
   const result = await run(f, `${withCatalogRevision}
-    const results = await Promise.allSettled(['first', 'second'].map(id => model.createIdentity({ id, revision })));
+    const results = await Promise.allSettled(['first', 'second'].map(id => model.createProfile({ id, revision })));
     return { statuses: results.map(result => result.status), snapshot: await model.snapshot() };`);
   expect(result.ok).toBe(true);
   expect(result.value.statuses.sort()).toEqual(["fulfilled", "rejected"]);
-  expect(result.value.snapshot.identities).toHaveLength(1);
+  expect(result.value.snapshot.profiles).toHaveLength(1);
 });
 
-test("deleting a stopped identity archives its complete profile and retains shared secrets", async () => {
+test("deleting a stopped profile archives its complete profile and retains shared secrets", async () => {
   const f = fixture([proxyProfile, { id: "other", port: 19472, mode: "direct", storage: "native" }], "UI_TEST_PROXY=http://reader:password@proxy.test:8080\n");
   mkdirSync(join(f.state, "test/browser-data"));
   writeFileSync(join(f.state, "test/browser-data/saved-cookie"), "private saved session");
   writeFileSync(join(f.state, "test/fingerprint.json"), '{"version":2,"config":{}}');
   const before = readFileSync(f.secrets, "utf8");
-  const result = await run(f, `${withCatalogRevision} await model.deleteIdentity('test', revision); return await model.snapshot();`);
+  const result = await run(f, `${withCatalogRevision} await model.deleteProfile('test', revision); return await model.snapshot();`);
   expect(result.ok).toBe(true);
-  expect(result.value.identities.map((row: { id: string }) => row.id)).toEqual(["other"]);
+  expect(result.value.profiles.map((row: { id: string }) => row.id)).toEqual(["other"]);
   expect(existsSync(join(f.state, "test"))).toBe(false);
   const archived = join(f.home, "trash", readdirSync(join(f.home, "trash"))[0]!);
   expect(readFileSync(join(archived, "profile/browser-data/saved-cookie"), "utf8")).toBe("private saved session");
-  expect(JSON.parse(readFileSync(join(archived, "identity.json"), "utf8")).identity).toEqual(proxyProfile);
+  expect(JSON.parse(readFileSync(join(archived, "profile.json"), "utf8")).profile).toEqual(proxyProfile);
   expect(readFileSync(f.secrets, "utf8")).toBe(before);
-  expect(existsSync(join(f.home, ".identity-transaction.json"))).toBe(false);
-  const recreated = await run(f, `${withCatalogRevision} return await model.createIdentity({ revision, id: 'test' });`);
+  expect(existsSync(join(f.home, ".profile-transaction.json"))).toBe(false);
+  const recreated = await run(f, `${withCatalogRevision} return await model.createProfile({ revision, id: 'test' });`);
   expect(recreated.value).toMatchObject({ id: "test", mode: "direct", storage: "native", phase: "stopped" });
   expect(readFileSync(join(archived, "profile/browser-data/saved-cookie"), "utf8")).toBe("private saved session");
 });
@@ -138,16 +138,16 @@ test("deletion refuses active, unclean, unknown, and symbolic-link state", async
     `{ version: 3, pid: 0, instanceId: 'future', serverState: 'not-started' }`,
   ]) {
     const result = await run(f, `${withCatalogRevision}
-      fs.writeFileSync(join(home, 'identities/test/running.json'), JSON.stringify(${record}));
-      fs.writeFileSync(join(home, 'identities/test/stopped.json'), JSON.stringify({ instanceId: 'future' }));
-      await model.deleteIdentity('test', revision);`);
+      fs.writeFileSync(join(home, 'profiles/test/running.json'), JSON.stringify(${record}));
+      fs.writeFileSync(join(home, 'profiles/test/stopped.json'), JSON.stringify({ instanceId: 'future' }));
+      await model.deleteProfile('test', revision);`);
     expect(result).toMatchObject({ ok: false, status: 409 });
     expect(readFileSync(f.config, "utf8")).toBe(before);
   }
   rmSync(join(f.state, "test/running.json"));
   const linked = join(f.home, "linked-state"); writeFileSync(linked, "{}");
   symlinkSync(linked, join(f.state, "test/running.json"));
-  expect(await run(f, `${withCatalogRevision} await model.deleteIdentity('test', revision);`)).toMatchObject({ ok: false, status: 409 });
+  expect(await run(f, `${withCatalogRevision} await model.deleteProfile('test', revision);`)).toMatchObject({ ok: false, status: 409 });
   expect(readFileSync(f.config, "utf8")).toBe(before);
   expect(existsSync(join(f.home, "trash"))).toBe(false);
 });
@@ -162,58 +162,58 @@ mock.module('node:fs', () => ({ ...originalFs, renameSync(from, to) {
 
 test("an interrupted creation recovers secrets and configuration before a start", async () => {
   const f = fixture([]);
-  await expect(run(f, `${withCatalogRevision} return await model.createIdentity({ id: 'work', revision, proxyUrl: 'http://reader:password@proxy.test:8080' });`, {},
+  await expect(run(f, `${withCatalogRevision} return await model.createProfile({ id: 'work', revision, proxyUrl: 'http://reader:password@proxy.test:8080' });`, {},
     catalogInterruption(`to === join(process.env.STELZ_HOME, 'secrets.env')`))).rejects.toThrow();
-  expect(JSON.parse(readFileSync(f.config, "utf8")).identities).toEqual([]);
-  expect(lstatSync(join(f.home, ".identity-transaction.json")).mode & 0o777).toBe(0o600);
+  expect(JSON.parse(readFileSync(f.config, "utf8")).profiles).toEqual([]);
+  expect(lstatSync(join(f.home, ".profile-transaction.json")).mode & 0o777).toBe(0o600);
   const result = await run(f, `try { await runtime.start('work'); } catch (error) { if (!error.message.includes('setup')) throw error; } return await model.snapshot();`);
   expect(result.ok).toBe(true);
-  expect(result.value.identities[0]).toMatchObject({ id: "work", phase: "stopped", mode: "proxy", configurationError: null });
-  expect(existsSync(join(f.home, ".identity-transaction.json"))).toBe(false);
+  expect(result.value.profiles[0]).toMatchObject({ id: "work", phase: "stopped", mode: "proxy", configurationError: null });
+  expect(existsSync(join(f.home, ".profile-transaction.json"))).toBe(false);
   expect(existsSync(join(f.state, "work/running.json"))).toBe(false);
 });
 
-test("an interrupted deletion recovers before start and cannot recreate the archived identity", async () => {
+test("an interrupted deletion recovers before start and cannot recreate the archived profile", async () => {
   const f = fixture();
   writeFileSync(join(f.state, "test/saved-data"), "keep the original profile");
-  await expect(run(f, `${withCatalogRevision} await model.deleteIdentity('test', revision);`, {},
+  await expect(run(f, `${withCatalogRevision} await model.deleteProfile('test', revision);`, {},
     catalogInterruption(`to.endsWith('/profile')`))).rejects.toThrow();
-  expect(JSON.parse(readFileSync(f.config, "utf8")).identities).toHaveLength(1);
+  expect(JSON.parse(readFileSync(f.config, "utf8")).profiles).toHaveLength(1);
   expect(existsSync(join(f.state, "test"))).toBe(false);
-  const result = await run(f, `try { await runtime.start('test'); } catch (error) { if (!error.message.includes('Unknown identity')) throw error; } return await model.snapshot();`);
+  const result = await run(f, `try { await runtime.start('test'); } catch (error) { if (!error.message.includes('Unknown profile')) throw error; } return await model.snapshot();`);
   expect(result.ok).toBe(true);
-  expect(result.value.identities).toEqual([]);
+  expect(result.value.profiles).toEqual([]);
   expect(existsSync(join(f.state, "test"))).toBe(false);
-  expect(existsSync(join(f.home, ".identity-transaction.json"))).toBe(false);
+  expect(existsSync(join(f.home, ".profile-transaction.json"))).toBe(false);
   const archived = join(f.home, "trash", readdirSync(join(f.home, "trash"))[0]!, "profile");
   expect(readFileSync(join(archived, "saved-data"), "utf8")).toBe("keep the original profile");
 });
 
-for (const action of ["stop", "recover"]) test(`${action} cannot recreate an identity after an interrupted deletion`, async () => {
+for (const action of ["stop", "recover"]) test(`${action} cannot recreate a profile after an interrupted deletion`, async () => {
   const f = fixture();
   writeFileSync(join(f.state, "test/saved-data"), "preserve this profile");
-  await expect(run(f, `${withCatalogRevision} await model.deleteIdentity('test', revision);`, {},
+  await expect(run(f, `${withCatalogRevision} await model.deleteProfile('test', revision);`, {},
     catalogInterruption(`to.endsWith('/profile')`))).rejects.toThrow();
-  const result = await run(f, `try { await runtime.${action}('test'); } catch (error) { if (!error.message.includes('Unknown identity')) throw error; } return await model.snapshot();`);
+  const result = await run(f, `try { await runtime.${action}('test'); } catch (error) { if (!error.message.includes('Unknown profile')) throw error; } return await model.snapshot();`);
   expect(result.ok).toBe(true);
-  expect(result.value.identities).toEqual([]);
+  expect(result.value.profiles).toEqual([]);
   expect(existsSync(join(f.state, "test"))).toBe(false);
-  expect(existsSync(join(f.home, ".identity-transaction.json"))).toBe(false);
+  expect(existsSync(join(f.home, ".profile-transaction.json"))).toBe(false);
   const archived = join(f.home, "trash", readdirSync(join(f.home, "trash"))[0]!, "profile");
   expect(readFileSync(join(archived, "saved-data"), "utf8")).toBe("preserve this profile");
 });
 
 test("catalog recovery refuses manual file changes without overwriting them", async () => {
   const f = fixture();
-  await expect(run(f, `${withCatalogRevision} await model.deleteIdentity('test', revision);`, {},
+  await expect(run(f, `${withCatalogRevision} await model.deleteProfile('test', revision);`, {},
     catalogInterruption(`to.endsWith('/profile')`))).rejects.toThrow();
-  const manual = JSON.stringify({ maxActive: 1, identities: f.profiles });
+  const manual = JSON.stringify({ maxActive: 1, profiles: f.profiles });
   writeFileSync(f.config, manual);
   const result = await run(f, `await runtime.start('test');`);
   expect(result).toMatchObject({ ok: false, status: 409, message: expect.stringContaining("manually changed") });
   expect(readFileSync(f.config, "utf8")).toBe(manual);
   expect(existsSync(join(f.state, "test"))).toBe(false);
-  expect(existsSync(join(f.home, ".identity-transaction.json"))).toBe(true);
+  expect(existsSync(join(f.home, ".profile-transaction.json"))).toBe(true);
 });
 const proxyProfile: Profile = { id: "test", port: 19471, mode: "proxy", storage: "native", proxyEnv: "UI_TEST_PROXY", expectedIPEnv: "UI_TEST_EXPECTED" };
 const journalName = ".network-transaction.json";
@@ -224,13 +224,13 @@ function spawnNetworkSave(f: Fixture, onRename: string) {
 import { join } from 'node:path';
 import { mock } from 'bun:test';
 const originalFs = { ...fs }, home = process.env.STELZ_HOME;
-const configPath = join(home, 'identities.json'), secretsPath = join(home, 'secrets.env'), journalPath = join(home, ${JSON.stringify(journalName)});
+const configPath = join(home, 'profiles.json'), secretsPath = join(home, 'secrets.env'), journalPath = join(home, ${JSON.stringify(journalName)});
 mock.module('node:fs', () => ({ ...originalFs, renameSync(from, to) {
   ${onRename}
   return originalFs.renameSync(from, to);
 }}));
 const { createUiModel } = await import(${JSON.stringify(modelPath)});
-const model = createUiModel(), revision = (await model.snapshot()).identities[0].network.revision;
+const model = createUiModel(), revision = (await model.snapshot()).profiles[0].network.revision;
 await model.updateNetwork('test', { revision, mode: 'proxy', proxyUrl: 'http://recovered-user:recovered-password@recovered.test:8181', expectedIp: '2001:db8::8' });
 console.log('saved');`;
   return Bun.spawn([process.execPath, "--no-env-file", "-e", script], {
@@ -250,12 +250,12 @@ async function interruptedSave(f: Fixture, rollback = false) {
   const [code, stderr] = await Promise.all([child.exited, new Response(child.stderr).text(), new Response(child.stdout).text()]);
   if (child.signalCode !== "SIGKILL") throw Error(stderr || `Expected an interrupted save, received exit ${code}.`);
   expect(lstatSync(join(f.home, journalName)).mode & 0o777).toBe(0o600);
-  expect(JSON.parse(readFileSync(f.config, "utf8")).identities[0].mode).toBe("proxy");
+  expect(JSON.parse(readFileSync(f.config, "utf8")).profiles[0].mode).toBe("proxy");
   expect(readFileSync(f.secrets, "utf8")).toBe(oldNetworkSecrets);
 }
 function expectRecovered(f: Fixture, committed = true) {
   const config = JSON.parse(readFileSync(f.config, "utf8")), text = readFileSync(f.secrets, "utf8"), secrets = parseEnv(text);
-  expect(config.identities[0]).toMatchObject({ id: "test", storage: "native", mode: committed ? "proxy" : "direct" });
+  expect(config.profiles[0]).toMatchObject({ id: "test", storage: "native", mode: committed ? "proxy" : "direct" });
   expect(secrets.UI_TEST_PROXY).toBe(committed ? "http://recovered-user:recovered-password@recovered.test:8181" : "http://old-user:old-password@old.test:8080");
   expect(secrets.UI_TEST_EXPECTED).toBe(committed ? "2001:db8::8" : "198.51.100.9");
   expect(text).toContain("UNRELATED='literal # value' # keep comment\n");
@@ -270,8 +270,8 @@ test("uninitialized observations do not initialize or create service state", asy
   const f = fixture([], "", false), before = tree(f.home);
   const result = await run(f, "return { snapshot: await model.snapshot(), diagnostics: await model.diagnostics() };");
   expect(result.ok).toBe(true);
-  expect(result.value.snapshot).toMatchObject({ initialized: false, setup: false, maxActive: 2, identities: [] });
-  expect(result.value.diagnostics).toMatchObject({ initialized: false, identities: [] });
+  expect(result.value.snapshot).toMatchObject({ initialized: false, setup: false, maxActive: 2, profiles: [] });
+  expect(result.value.diagnostics).toMatchObject({ initialized: false, profiles: [] });
   expect(tree(f.home)).toEqual(before);
 });
 
@@ -287,8 +287,8 @@ test("stopped observations preserve files but do not present an old controller o
   const before = tree(f.home);
   const result = await run(f, "return { snapshot: await model.snapshot(), detail: await model.detail('test'), diagnostics: await model.diagnostics() };");
   expect(result.ok).toBe(true);
-  expect(result.value.snapshot.identities[0]).toMatchObject({ phase: "stopped", controller: null, error: null, controlError: null });
-  expect(result.value.detail.identity).toMatchObject({ phase: "stopped", controller: null, error: null, controlError: null });
+  expect(result.value.snapshot.profiles[0]).toMatchObject({ phase: "stopped", controller: null, error: null, controlError: null });
+  expect(result.value.detail.profile).toMatchObject({ phase: "stopped", controller: null, error: null, controlError: null });
   expect(result.value.detail.device).toEqual({ version: 1, properties: [{ name: "User agent", value: "Saved agent" }, { name: "Screen width (px)", value: "1440" }] });
   expect(tree(f.home)).toEqual(before);
 });
@@ -296,13 +296,13 @@ test("stopped observations preserve files but do not present an old controller o
 test("live observations call only authenticated status and expose no controller ID", async () => {
   const f = fixture();
   const result = await run(f, `
-    const calls = [], state = join(home, 'identities/test');
+    const calls = [], state = join(home, 'profiles/test');
     const service = Bun.serve({ port: 0, fetch(request) {
       calls.push([request.method, new URL(request.url).pathname, request.headers.get('authorization')]);
-      return Response.json({ identityId: 'test', phase: 'verification_failed', error: 'Expected exit IP verification failed.', checkFailure: 'page.goto: NS_ERROR_UNKNOWN_HOST https://hidden-user:hidden-password@ip.example/?token=private-query', controller: { id: 'lease-secret', label: 'Live client', pid: process.pid, activeActions: 1, releasing: false } });
+      return Response.json({ profileId: 'test', phase: 'verification_failed', error: 'Expected exit IP verification failed.', checkFailure: 'page.goto: NS_ERROR_UNKNOWN_HOST https://hidden-user:hidden-password@ip.example/?token=private-query', windowControls: { available: true }, controller: { id: 'lease-secret', label: 'Live client', pid: process.pid, activeActions: 1, releasing: false } });
     }});
     try {
-      fs.writeFileSync(join(home, 'identities.json'), JSON.stringify({ maxActive: 2, identities: [{ id: 'test', port: service.port, mode: 'direct' }] }));
+      fs.writeFileSync(join(home, 'profiles.json'), JSON.stringify({ maxActive: 2, profiles: [{ id: 'test', port: service.port, mode: 'direct' }] }));
       fs.writeFileSync(join(state, 'access-key'), 'status-only-key');
       const stamp = runtime.processStart(process.pid);
       fs.writeFileSync(join(state, 'running.json'), JSON.stringify({ version: 2, pid: process.pid, supervisorStart: stamp, serverPid: process.pid, serverStart: stamp, serverState: 'started', instanceId: 'instance', configurationHash: 'unused', port: service.port }));
@@ -311,12 +311,59 @@ test("live observations call only authenticated status and expose no controller 
     } finally { service.stop(true); }
   `);
   expect(result.ok).toBe(true);
-  expect(result.value.snapshot.identities[0].phase).toBe("verification_failed");
-  expect(result.value.snapshot.identities[0].error).toContain("NS_ERROR_UNKNOWN_HOST");
+  expect(result.value.snapshot.profiles[0].phase).toBe("verification_failed");
+  expect(result.value.snapshot.profiles[0].error).toContain("NS_ERROR_UNKNOWN_HOST");
   for (const value of ["hidden-user", "hidden-password", "private-query"]) expect(JSON.stringify(result.value)).not.toContain(value);
-  expect(result.value.snapshot.identities[0].controller.label).toBe("Live client");
+  expect(result.value.snapshot.profiles[0].controller.label).toBe("Live client");
+  expect(result.value.snapshot.profiles[0].windowControls).toEqual({ available: true, reason: null });
   expect(result.value.calls).toEqual(Array(3).fill(["GET", "/local-profile/status", true]));
   expect(JSON.stringify(result.value)).not.toContain("lease-secret");
+});
+
+test("window inventories redact whole values before truncation and load secrets once per response", async () => {
+  const password = "sensitive-window-password".repeat(30);
+  const f = fixture([{ id: "test", port: 19471, mode: "direct", proxyEnv: "WINDOW_PROXY" }],
+    `WINDOW_PROXY=http://window-user:${password}@proxy.test:8080\n`);
+  const result = await run(f, `
+    const { createWindowModel } = await import(${JSON.stringify(join(root, "src/window-model.ts"))});
+    const password = ${JSON.stringify(password)}, state = join(home, 'profiles/test');
+    let unsupported = false;
+    const service = Bun.serve({ port: 0, fetch(request) {
+      if (new URL(request.url).pathname === '/local-profile/status') return Response.json({ profileId: 'test', instanceId: 'window-life', phase: 'ready' });
+      if (unsupported) return new Response('<html>Not found</html>', { status: 404 });
+      return Response.json({ profileId: 'test', instanceId: 'window-life', available: true, reason: null, updatedAt: new Date().toISOString(),
+        windows: [{ id: 1, title: 'x'.repeat(230) + password, focused: true, state: 'normal', tabs: Array.from({ length: 100 }, (_, index) => ({
+          id: index, active: index === 0, title: 'x'.repeat(190) + password,
+          url: index === 99 ? 'https://window-user:' + password.slice(0, 490) : 'https://window-user:' + password + '@example.test/path?private=value',
+        })) }] });
+    }});
+    try {
+      fs.writeFileSync(join(home, 'profiles.json'), JSON.stringify({ maxActive: 2, profiles: [{ id: 'test', port: service.port, mode: 'direct', proxyEnv: 'WINDOW_PROXY' }] }));
+      fs.writeFileSync(join(state, 'access-key'), 'window-service-key');
+      fs.writeFileSync(join(state, 'status.json'), JSON.stringify({ profileId: 'test', instanceId: 'window-life', phase: 'ready' }));
+      const stamp = runtime.processStart(process.pid);
+      fs.writeFileSync(join(state, 'running.json'), JSON.stringify({ version: 2, pid: process.pid, supervisorStart: stamp,
+        serverPid: process.pid, serverStart: stamp, serverState: 'started', instanceId: 'reservation', configurationHash: 'fixture', port: service.port }));
+      const windows = createWindowModel(), inventory = await windows.list('test'), reads = secretReads;
+      unsupported = true;
+      return { inventory, reads, unsupported: await windows.list('test') };
+    } finally { service.stop(true); }
+  `, {}, `import { mock } from 'bun:test';
+const originalFs = { ...(await import('node:fs')) };
+let secretReads = 0;
+mock.module('node:fs', () => ({ ...originalFs, readFileSync(path, ...args) {
+  if (String(path).endsWith('/secrets.env')) secretReads++;
+  return originalFs.readFileSync(path, ...args);
+} }));`);
+  expect(result.ok).toBe(true);
+  expect(result.value.inventory.available).toBe(true);
+  expect(result.value.inventory.windows[0].tabs).toHaveLength(100);
+  expect(result.value.reads).toBe(1);
+  expect(JSON.stringify(result.value)).not.toMatch(/window-user|sensitive-window|private=value/);
+  expect(result.value.inventory.windows[0].title.length).toBeLessThanOrEqual(240);
+  expect(result.value.inventory.windows[0].tabs[0].title.length).toBeLessThanOrEqual(200);
+  expect(result.value.inventory.windows[0].tabs[99].url).toBe("");
+  expect(result.value.unsupported).toMatchObject({ available: false, windows: [], reason: expect.stringContaining("stelz setup") });
 });
 
 test("all outward state, diagnostics, devices, errors, and both logs redact credentials", async () => {
@@ -342,13 +389,13 @@ test("all outward state, diagnostics, devices, errors, and both logs redact cred
   const output = JSON.stringify(result.value);
   for (const value of [accessKey, controllerId, "u%40name", "u@name", "p%3Ass", "p%253Ass", "unrelated-private-value", "env-private-value", "unknown-user", "unknown-pass", "query-private-value", "odd-user", "pa'ss", "unknown-bearer-value"])
     expect(output).not.toContain(value);
-  const identity = result.value.snapshot.identities[0];
-  expect(identity.network).toMatchObject({ proxyDisplay: "http://proxy.test:8080", proxyConfigured: true, expectedIp: "198.51.100.42" });
-  expect(identity.controller).toBeNull();
-  expect(identity.engineSha256).toBeNull();
-  expect(Object.keys(identity).sort()).toEqual(["id", "port", "mode", "storage", "phase", "instanceId", "exitIp", "checkedAt", "fixedIpVerified", "controller", "supervisorPid", "serverPid", "ownership", "fingerprintSha256", "engineSha256", "error", "controlError", "configurationError", "network"].sort());
-  expect(result.value.diagnostics.identities[0].accessKeyPresent).toBe(true);
-  expect(result.value.diagnostics.identities[0]).not.toHaveProperty("accessKey");
+  const profile = result.value.snapshot.profiles[0];
+  expect(profile.network).toMatchObject({ proxyDisplay: "http://proxy.test:8080", proxyConfigured: true, expectedIp: "198.51.100.42" });
+  expect(profile.controller).toBeNull();
+  expect(profile.engineSha256).toBeNull();
+  expect(Object.keys(profile).sort()).toEqual(["id", "port", "mode", "storage", "phase", "instanceId", "exitIp", "checkedAt", "fixedIpVerified", "windowControls", "controller", "supervisorPid", "serverPid", "ownership", "fingerprintSha256", "engineSha256", "error", "controlError", "configurationError", "network"].sort());
+  expect(result.value.diagnostics.profiles[0].accessKeyPresent).toBe(true);
+  expect(result.value.diagnostics.profiles[0]).not.toHaveProperty("accessKey");
   expect(result.value.detail.device.properties).toContainEqual({ name: "CPU cores", value: "8" });
   expect(result.value.detail.device.properties.find((item: { name: string }) => item.name === "Platform").value).toHaveLength(64);
   expect(result.value.detail.device.properties).toHaveLength(5);
@@ -375,11 +422,11 @@ test("missing and invalid proxy configuration has safe text and a usable revisio
     const f = fixture([proxyProfile], `UI_TEST_PROXY=${proxy}\n`);
     const result = await run(f, "return { snapshot: await model.snapshot(), diagnostics: await model.diagnostics() };");
     expect(result.ok).toBe(true);
-    const identity = result.value.snapshot.identities[0];
-    expect(identity.configurationError).toContain(proxy ? "invalid" : "missing");
-    expect(identity.network.revision).toMatch(/^[a-f0-9]{64}$/);
-    expect(identity.network.proxyDisplay).toBeNull();
-    expect(identity.network.proxyConfigured).toBe(false);
+    const profile = result.value.snapshot.profiles[0];
+    expect(profile.configurationError).toContain(proxy ? "invalid" : "missing");
+    expect(profile.network.revision).toMatch(/^[a-f0-9]{64}$/);
+    expect(profile.network.proxyDisplay).toBeNull();
+    expect(profile.network.proxyConfigured).toBe(false);
     expect(JSON.stringify(result)).not.toContain("private-value");
     expect(JSON.stringify(result)).not.toContain("private-query");
   }
@@ -390,20 +437,20 @@ test("network edits create distinct safe environment references without changing
   const f = fixture(profiles, "# keep this comment\nSTELZ_TEST_PROXY_URL=unrelated\n");
   const result = await run(f, `
     const before = await model.snapshot();
-    const first = await model.updateNetwork('test', { revision: before.identities[0].network.revision, mode: 'proxy', proxyUrl: 'http://new-user:new-private-password@proxy.test:8080', expectedIp: '2001:db8::1' });
-    const secondRevision = (await model.snapshot()).identities[1].network.revision;
+    const first = await model.updateNetwork('test', { revision: before.profiles[0].network.revision, mode: 'proxy', proxyUrl: 'http://new-user:new-private-password@proxy.test:8080', expectedIp: '2001:db8::1' });
+    const secondRevision = (await model.snapshot()).profiles[1].network.revision;
     const second = await model.updateNetwork('other', { revision: secondRevision, mode: 'proxy', proxyUrl: 'socks5://other.test:1080', expectedIp: '198.51.100.7' });
     return { first, second };
   `);
   expect(result.ok).toBe(true);
   const config = JSON.parse(readFileSync(f.config, "utf8")), secrets = parseEnv(readFileSync(f.secrets, "utf8"));
-  const refs = config.identities.flatMap((p: Profile) => [p.proxyEnv, p.expectedIPEnv]);
+  const refs = config.profiles.flatMap((p: Profile) => [p.proxyEnv, p.expectedIPEnv]);
   expect(new Set(refs).size).toBe(4);
   for (const ref of refs) expect(ref).toMatch(/^[A-Za-z_][A-Za-z0-9_]{0,127}$/);
-  expect(config.identities.map((p: Profile) => ({ id: p.id, storage: p.storage }))).toEqual([{ id: "test", storage: undefined }, { id: "other", storage: "native" }]);
+  expect(config.profiles.map((p: Profile) => ({ id: p.id, storage: p.storage }))).toEqual([{ id: "test", storage: undefined }, { id: "other", storage: "native" }]);
   expect(config.maxActive).toBe(2);
-  expect(secrets[config.identities[0].proxyEnv]).toBe("http://new-user:new-private-password@proxy.test:8080");
-  expect(secrets[config.identities[0].expectedIPEnv]).toBe("2001:db8::1");
+  expect(secrets[config.profiles[0].proxyEnv]).toBe("http://new-user:new-private-password@proxy.test:8080");
+  expect(secrets[config.profiles[0].expectedIPEnv]).toBe("2001:db8::1");
   expect(secrets.STELZ_TEST_PROXY_URL).toBe("unrelated");
   expect(result.value.first.storage).toBe("checkpoint");
   expect(result.value.second.network.proxyDisplay).toBe("socks5://other.test:1080");
@@ -438,30 +485,30 @@ test("omitted network values preserve secrets and direct mode ignores a saved pr
   expect(readFileSync(f.secrets, "utf8")).toBe(text);
 });
 
-test("public identity IDs and MCP commands stay usable when a proxy username matches the ID", async () => {
+test("public profile IDs and MCP commands stay usable when a proxy username matches the ID", async () => {
   const f = fixture([proxyProfile], "UI_TEST_PROXY=http://test:private-password@proxy.test:8080\n");
   const result = await run(f, "return { snapshot: await model.snapshot(), detail: await model.detail('test'), diagnostics: await model.diagnostics() };");
   expect(result.ok).toBe(true);
-  expect(result.value.snapshot.identities[0].id).toBe("test");
-  expect(result.value.detail.identity.id).toBe("test");
-  expect(result.value.diagnostics.identities[0].id).toBe("test");
-  expect(result.value.detail.mcpCommand).toBe(`env STELZ_HOME=${f.home} stelz mcp --identity test`);
+  expect(result.value.snapshot.profiles[0].id).toBe("test");
+  expect(result.value.detail.profile.id).toBe("test");
+  expect(result.value.diagnostics.profiles[0].id).toBe("test");
+  expect(result.value.detail.mcpCommand).toBe(`env STELZ_HOME=${f.home} stelz mcp --profile test`);
   expect(JSON.stringify(result)).not.toContain("private-password");
 });
 
 test("revisions include config, shadowed file secrets, and effective environment values", async () => {
   const f = fixture([proxyProfile], "UI_TEST_PROXY=http://file:private-file@proxy.test:8080\nUI_TEST_EXPECTED=198.51.100.1\n");
   const result = await run(f, `
-    const revisions = [], snapshot = async () => (await model.snapshot()).identities[0].network;
+    const revisions = [], snapshot = async () => (await model.snapshot()).profiles[0].network;
     revisions.push(await snapshot());
     process.env.UI_TEST_PROXY = 'http://env:private-env@env.test:8080';
     process.env.UI_TEST_EXPECTED = '';
     revisions.push(await snapshot());
     fs.writeFileSync(join(home, 'secrets.env'), 'UI_TEST_PROXY=http://file:private-file-new@proxy.test:8080\\nUI_TEST_EXPECTED=198.51.100.1\\n');
     revisions.push(await snapshot());
-    const config = JSON.parse(fs.readFileSync(join(home, 'identities.json'), 'utf8'));
-    config.identities[0].port++;
-    fs.writeFileSync(join(home, 'identities.json'), JSON.stringify(config));
+    const config = JSON.parse(fs.readFileSync(join(home, 'profiles.json'), 'utf8'));
+    config.profiles[0].port++;
+    fs.writeFileSync(join(home, 'profiles.json'), JSON.stringify(config));
     revisions.push(await snapshot());
     return revisions;
   `);
@@ -491,7 +538,7 @@ test("environment and shared references reject secret writes while honoring proc
       try { await model.updateNetwork('test', { revision, mode: 'proxy', ...patch }); results.push('unexpected'); }
       catch (error) { results.push({ status: error.status, message: error.message }); }
     }
-    return { results, network: (await model.snapshot()).identities[0].network };
+    return { results, network: (await model.snapshot()).profiles[0].network };
   `, { UI_TEST_PROXY: "http://environment:private-environment@env.test:8080", UI_TEST_EXPECTED: "2001:db8::2" });
   expect(result.ok).toBe(true);
   expect(result.value.results.map((item: { status: number }) => item.status)).toEqual([409, 409]);
@@ -506,7 +553,7 @@ test("environment and shared references reject secret writes while honoring proc
       try { await model.updateNetwork('test', { revision, mode: 'proxy', ...patch }); results.push('unexpected'); }
       catch (error) { results.push(error.status); }
     }
-    return { results, network: (await model.snapshot()).identities[0].network };
+    return { results, network: (await model.snapshot()).profiles[0].network };
   `);
   expect(rejection.ok).toBe(true);
   expect(rejection.value.results).toEqual([409, 409]);
@@ -517,7 +564,7 @@ test("environment and shared references reject secret writes while honoring proc
 test("active, orphaned, unknown ownership, unclean, reserved, and malformed records reject edits", async () => {
   const f = fixture();
   const result = await run(f, `
-    const state = join(home, 'identities/test'), stamp = runtime.processStart(process.pid), dead = 2147483647;
+    const state = join(home, 'profiles/test'), stamp = runtime.processStart(process.pid), dead = 2147483647;
     ${withRevision}
     const base = { version: 2, pid: process.pid, supervisorStart: stamp, serverPid: process.pid, serverStart: stamp, serverState: 'started', instanceId: 'lifetime', configurationHash: 'old', port: 19471 };
     const cases = [
@@ -544,7 +591,7 @@ test("active, orphaned, unknown ownership, unclean, reserved, and malformed reco
   `);
   expect(result.ok).toBe(true);
   expect(result.value).toEqual(Array(8).fill(409));
-  expect(JSON.parse(readFileSync(f.config, "utf8")).identities).toEqual(f.profiles);
+  expect(JSON.parse(readFileSync(f.config, "utf8")).profiles).toEqual(f.profiles);
 });
 
 test("a verified clean stopped record permits network changes", async () => {
@@ -621,10 +668,10 @@ test("an interrupted save stays read-only in observations and recovers all netwo
   const before = tree(f.home);
   const observed = await run(f, "return { snapshot: await model.snapshot(), diagnostics: await model.diagnostics() };");
   expect(observed.ok).toBe(true);
-  const message = observed.value.snapshot.identities[0].configurationError;
+  const message = observed.value.snapshot.profiles[0].configurationError;
   expect(message).toContain("Network save is pending");
   expect(message).toContain(`env STELZ_HOME=${f.home} stelz start test`);
-  expect(observed.value.diagnostics.identities[0].configuration).toBe(message);
+  expect(observed.value.diagnostics.profiles[0].configuration).toBe(message);
   for (const value of ["old-password", "recovered-password", "old-user", "recovered-user"]) expect(JSON.stringify(observed)).not.toContain(value);
   expect(tree(f.home)).toEqual(before);
   const started = await run(f, "return await runtime.start('test');");
@@ -664,8 +711,8 @@ test("manual edits to either file block recovery, preserve all bytes, and provid
     const journal = join(f.home, journalName), before = [readFileSync(f.config, "utf8"), readFileSync(f.secrets, "utf8"), readFileSync(journal, "utf8")];
     const observed = await run(f, "return { snapshot: await model.snapshot(), diagnostics: await model.diagnostics() };");
     expect(observed.ok).toBe(true);
-    expect(observed.value.snapshot.identities[0].configurationError).toContain("manually changed");
-    expect(observed.value.diagnostics.identities[0].configuration).toContain(`env STELZ_HOME=${f.home} stelz start test`);
+    expect(observed.value.snapshot.profiles[0].configurationError).toContain("manually changed");
+    expect(observed.value.diagnostics.profiles[0].configuration).toContain(`env STELZ_HOME=${f.home} stelz start test`);
     const started = await run(f, "return await runtime.start('test');");
     const saved = await run(f, `${withRevision} return await model.updateNetwork('test', { revision, mode: 'direct' });`);
     for (const result of [started, saved]) {
@@ -693,7 +740,7 @@ test("invalid journal schemas, unsafe paths, and public journal permissions cann
     }
     if (kind === "storage") {
       const value = JSON.parse(readFileSync(path, "utf8")), after = JSON.parse(value.after.config);
-      after.identities[0].storage = "checkpoint";
+      after.profiles[0].storage = "checkpoint";
       value.after.config = JSON.stringify(after);
       writeFileSync(path, JSON.stringify(value));
     }
@@ -704,8 +751,8 @@ test("invalid journal schemas, unsafe paths, and public journal permissions cann
     const before = [readFileSync(f.config, "utf8"), readFileSync(f.secrets, "utf8")];
     const observed = await run(f, "return await model.snapshot();");
     expect(observed.ok).toBe(true);
-    expect(observed.value.identities[0].configurationError).toContain("recovery requires inspection");
-    expect(observed.value.identities[0].configurationError).toContain(`env STELZ_HOME=${f.home} stelz doctor all`);
+    expect(observed.value.profiles[0].configurationError).toContain("recovery requires inspection");
+    expect(observed.value.profiles[0].configurationError).toContain(`env STELZ_HOME=${f.home} stelz doctor all`);
     expect(await run(f, "return await runtime.start('test');")).toMatchObject({ ok: false, status: 409 });
     expect([readFileSync(f.config, "utf8"), readFileSync(f.secrets, "utf8")]).toEqual(before);
     expect(readFileSync(outside, "utf8")).toBe("untouched");
@@ -731,7 +778,7 @@ test("a concurrent start waits for a normal UI commit without inspecting its liv
 const originalFs = { ...fs };
 mock.module('node:fs', () => ({ ...originalFs, openSync(path, ...args) {
   if (path === join(process.env.STELZ_HOME, ${JSON.stringify(journalName)})) {
-    const owner = JSON.parse(originalFs.readFileSync(join(process.env.STELZ_HOME, 'identities/admission.lock'), 'utf8'));
+    const owner = JSON.parse(originalFs.readFileSync(join(process.env.STELZ_HOME, 'profiles/admission.lock'), 'utf8'));
     if (owner.pid !== process.pid) throw Error('Start inspected the journal before admission.');
   }
   return originalFs.openSync(path, ...args);
@@ -760,7 +807,7 @@ test("simultaneous saves serialize and only one can consume a revision", async (
   expect(result.ok).toBe(true);
   expect(result.value.filter((item: { saved?: string }) => item.saved)).toHaveLength(1);
   expect(result.value.filter((item: { status?: number }) => item.status === 409)).toHaveLength(1);
-  expect(JSON.parse(readFileSync(f.config, "utf8")).identities).toHaveLength(1);
+  expect(JSON.parse(readFileSync(f.config, "utf8")).profiles).toHaveLength(1);
 });
 
 test("a queued CLI start reads the configuration after a UI edit releases admission", async () => {
@@ -769,10 +816,10 @@ test("a queued CLI start reads the configuration after a UI edit releases admiss
     let entered, release;
     const ready = new Promise(resolve => { entered = resolve; });
     const gate = new Promise(resolve => { release = resolve; });
-    const held = runtime.lock(join(home, 'identities/test/lifecycle.lock'), async () => { entered(); await gate; });
+    const held = runtime.lock(join(home, 'profiles/test/lifecycle.lock'), async () => { entered(); await gate; });
     await ready;
     const edit = model.updateNetwork('test', { revision, mode: 'direct' });
-    const admission = join(home, 'identities/admission.lock'), deadline = Date.now() + 3000;
+    const admission = join(home, 'profiles/admission.lock'), deadline = Date.now() + 3000;
     while (!fs.existsSync(admission)) {
       if (Date.now() > deadline) throw Error('UI edit did not obtain admission.');
       await Bun.sleep(5);
@@ -784,18 +831,18 @@ test("a queued CLI start reads the configuration after a UI edit releases admiss
     release();
     await held;
     const saved = await edit, started = await start;
-    return { waited, saved: saved.mode, started, running: fs.existsSync(join(home, 'identities/test/running.json')) };
+    return { waited, saved: saved.mode, started, running: fs.existsSync(join(home, 'profiles/test/running.json')) };
   `);
   expect(result.ok).toBe(true);
   expect(result.value).toEqual({ waited: true, saved: "direct", started: { message: "Run stelz setup first." }, running: false });
 });
 
 test("network saves reject symlinks instead of writing outside the service directory", async () => {
-  for (const kind of ["secrets", "identity", "lock"] as const) {
+  for (const kind of ["secrets", "profile", "lock"] as const) {
     const f = fixture(), outside = join(f.home, "outside");
     writeFileSync(outside, "untouched");
     if (kind === "secrets") { rmSync(f.secrets); symlinkSync(outside, f.secrets); }
-    if (kind === "identity") { rmSync(join(f.state, "test"), { recursive: true }); symlinkSync(f.home, join(f.state, "test")); }
+    if (kind === "profile") { rmSync(join(f.state, "test"), { recursive: true }); symlinkSync(f.home, join(f.state, "test")); }
     if (kind === "lock") symlinkSync(outside, join(f.state, "admission.lock"));
     const result = await run(f, `return await model.updateNetwork('test', { revision: '0'.repeat(64), mode: 'direct' });`);
     expect(result).toMatchObject({ ok: false, status: 409 });
@@ -807,10 +854,43 @@ test("MCP commands quote STELZ_HOME and select the same service directory", asyn
   const f = fixture(), original = f.home;
   const quotedHome = join(original, "service's $(literal) directory");
   mkdirSync(quotedHome);
-  mkdirSync(join(quotedHome, "identities/test"), { recursive: true });
-  writeFileSync(join(quotedHome, "identities.json"), readFileSync(f.config));
+  mkdirSync(join(quotedHome, "profiles/test"), { recursive: true });
+  writeFileSync(join(quotedHome, "profiles.json"), readFileSync(f.config));
   const result = await run({ ...f, home: quotedHome }, "return (await model.detail('test')).mcpCommand;");
   expect(result.ok).toBe(true);
-  expect(result.value).toBe(`env STELZ_HOME='${quotedHome.replaceAll("'", "'\\''")}' stelz mcp --identity test`);
+  expect(result.value).toBe(`env STELZ_HOME='${quotedHome.replaceAll("'", "'\\''")}' stelz mcp --profile test`);
   expect(existsSync(join(original, "literal"))).toBe(false);
+});
+
+test("network edits reject corrupt status before changing either service file", async () => {
+  const f = fixture();
+  const before = [readFileSync(f.config, "utf8"), readFileSync(f.secrets, "utf8")];
+  const result = await run(f, `${withRevision}
+    fs.writeFileSync(join(home, "profiles/test/status.json"), "{broken", { mode: 0o600 });
+    return await model.updateNetwork('test', {
+    revision, mode: 'proxy', proxyUrl: 'http://private-user:private-password@proxy.test:8080'
+  });`);
+  expect(result).toMatchObject({ ok: false, status: 409 });
+  expect(JSON.stringify(result)).not.toMatch(/private-user|private-password/);
+  expect([readFileSync(f.config, "utf8"), readFileSync(f.secrets, "utf8")]).toEqual(before);
+  expect(existsSync(join(f.home, journalName))).toBe(false);
+});
+
+test("network edit responses use the validated observation when status changes after commit", async () => {
+  const f = fixture();
+  const prelude = `import { mock } from 'bun:test';
+const originalFs = { ...fs };
+mock.module('node:fs', () => ({ ...originalFs, unlinkSync(path) {
+  originalFs.unlinkSync(path);
+  if (path === join(process.env.STELZ_HOME, ${JSON.stringify(journalName)}))
+    originalFs.writeFileSync(join(process.env.STELZ_HOME, 'profiles/test/status.json'), '{broken');
+}}));`;
+  const result = await run(f, `${withRevision} return await model.updateNetwork('test', {
+    revision, mode: 'proxy', proxyUrl: 'http://private-user:private-password@proxy.test:8080'
+  });`, {}, prelude);
+  expect(result).toMatchObject({ ok: true, value: { mode: "proxy", phase: "stopped", network: { proxyDisplay: "http://proxy.test:8080" } } });
+  expect(JSON.stringify(result)).not.toMatch(/private-user|private-password/);
+  expect(JSON.parse(readFileSync(f.config, "utf8")).profiles[0].mode).toBe("proxy");
+  expect(readFileSync(join(f.state, "test/status.json"), "utf8")).toBe("{broken");
+  expect(existsSync(join(f.home, journalName))).toBe(false);
 });

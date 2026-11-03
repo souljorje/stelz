@@ -1,4 +1,4 @@
-// Harness-independent acceptance. Both identities explicitly use direct development mode.
+// Harness-independent acceptance. Both profiles explicitly use direct development mode.
 import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -19,7 +19,7 @@ async function command(...args: string[]) {
 }
 async function connect(id: string, label: string) {
   const client = new Client({ name: label, version: "1.0.0" }); clients.push(client);
-  const transport = new StdioClientTransport({ command: Bun.which("bun")!, args: ["--no-env-file", cli, "mcp", "--identity", id], env, stderr: "inherit" });
+  const transport = new StdioClientTransport({ command: Bun.which("bun")!, args: ["--no-env-file", cli, "mcp", "--profile", id], env, stderr: "inherit" });
   await client.connect(transport); return { client, transport };
 }
 async function call(client: Client, name: string, args: Record<string, unknown> = {}) {
@@ -34,77 +34,77 @@ async function call(client: Client, name: string, args: Record<string, unknown> 
 async function rejection(client: Client, name: string, args: Record<string, unknown> = {}) {
   const result = await client.callTool({ name, arguments: args }, undefined, { timeout: 180000 }); assert(result.isError, `${name} did not reject an invalid controller`);
 }
-const identityDir = (id: string) => join(home, "identities", id);
-const pin = (id: string) => readFileSync(join(identityDir(id), "fingerprint.json"), "utf8");
-const instance = (id: string) => JSON.parse(readFileSync(join(identityDir(id), "running.json"), "utf8")) as { instanceId: string; serverPid: number };
+const profileDir = (id: string) => join(home, "profiles", id);
+const pin = (id: string) => readFileSync(join(profileDir(id), "fingerprint.json"), "utf8");
+const instance = (id: string) => JSON.parse(readFileSync(join(profileDir(id), "running.json"), "utf8")) as { instanceId: string; serverPid: number };
 let pageServer: Awaited<ReturnType<typeof fixture>> | undefined;
 try {
   console.log("Explicit direct-development test. No LLM credentials or harness commands are used.");
   await command("init");
-  writeFileSync(join(home, "identities.json"), JSON.stringify({ maxActive: 2, identities: [{ id: "identity-01", port: 9471, mode: "direct" }, { id: "identity-02", port: 9472, mode: "direct" }] }));
+  writeFileSync(join(home, "profiles.json"), JSON.stringify({ maxActive: 2, profiles: [{ id: "profile-01", port: 9471, mode: "direct" }, { id: "profile-02", port: 9472, mode: "direct" }] }));
   await command("setup"); pageServer = await fixture();
-  const stopped = await connect("identity-01", "stopped-client");
-  await rejection(stopped.client, "identity_acquire"); await stopped.client.close();
+  const stopped = await connect("profile-01", "stopped-client");
+  await rejection(stopped.client, "profile_acquire"); await stopped.client.close();
   report.push({ check: "MCP cannot implicitly start a stopped browser", result: "passed" });
-  await Promise.all([command("start", "identity-01"), command("start", "identity-02")]);
-  const before = instance("identity-01"), fingerprint = pin("identity-01");
-  const a = await connect("identity-01", "sdk-client-a"), b = await connect("identity-01", "sdk-client-b"), second = await connect("identity-02", "sdk-client-second-identity");
-  await call(a.client, "identity_acquire"); await call(second.client, "identity_acquire");
-  await rejection(b.client, "identity_acquire");
+  await Promise.all([command("start", "profile-01"), command("start", "profile-02")]);
+  const before = instance("profile-01"), fingerprint = pin("profile-01");
+  const a = await connect("profile-01", "sdk-client-a"), b = await connect("profile-01", "sdk-client-b"), second = await connect("profile-02", "sdk-client-second-profile");
+  await call(a.client, "profile_acquire"); await call(second.client, "profile_acquire");
+  await rejection(b.client, "profile_acquire");
   const tabs: Record<string, string> = {};
-  for (const [id, client] of [["identity-01", a.client], ["identity-02", second.client]] as const) {
+  for (const [id, client] of [["profile-01", a.client], ["profile-02", second.client]] as const) {
     const tab = await call(client, "camofox_create_tab", { url: `http://127.0.0.1:9410/?profile=${id}` }); tabs[id] = String(tab.tabId);
     await call(client, "camofox_type", { tabId: tabs[id], selector: "#marker", text: id });
     await call(client, "camofox_click", { tabId: tabs[id], selector: "#save" });
     const snapshot = await call(client, "camofox_snapshot", { tabId: tabs[id] });
     assert(String(snapshot.snapshot).includes(`Storage marker: ${id}`), "Storage marker is missing from the browser snapshot");
   }
-  await rejection(a.client, "camofox_snapshot", { tabId: tabs["identity-02"] });
+  await rejection(a.client, "camofox_snapshot", { tabId: tabs["profile-02"] });
   report.push({ check: "Two browsers, separate storage and bound MCP connections", result: "passed" });
-  await call(a.client, "identity_release"); await call(b.client, "identity_acquire");
+  await call(a.client, "profile_release"); await call(b.client, "profile_acquire");
   const checkSamePage = async (client: Client) => {
     const listing = await call(client, "camofox_list_tabs");
-    assert(JSON.stringify(listing).includes(tabs["identity-01"]!), "The original tab disappeared during handoff");
-    const snapshot = await call(client, "camofox_snapshot", { tabId: tabs["identity-01"] });
-    assert(String(snapshot.snapshot).includes("Storage marker: identity-01"), "The original page lost its state");
-    assert(JSON.stringify(instance("identity-01")) === JSON.stringify(before), "Handoff relaunched the browser");
-    assert(pin("identity-01") === fingerprint, "Handoff changed the saved fingerprint");
+    assert(JSON.stringify(listing).includes(tabs["profile-01"]!), "The original tab disappeared during handoff");
+    const snapshot = await call(client, "camofox_snapshot", { tabId: tabs["profile-01"] });
+    assert(String(snapshot.snapshot).includes("Storage marker: profile-01"), "The original page lost its state");
+    assert(JSON.stringify(instance("profile-01")) === JSON.stringify(before), "Handoff relaunched the browser");
+    assert(pin("profile-01") === fingerprint, "Handoff changed the saved fingerprint");
   };
   await checkSamePage(b.client);
   report.push({ check: "Deliberate release and handoff retain process, tab, storage and fingerprint", result: "passed", evidence: before });
   await b.client.close(); await a.client.close();
-  const c = await connect("identity-01", "sdk-client-c-after-disconnect");
-  await call(c.client, "identity_acquire"); await checkSamePage(c.client);
+  const c = await connect("profile-01", "sdk-client-c-after-disconnect");
+  await call(c.client, "profile_acquire"); await checkSamePage(c.client);
   report.push({ check: "Disconnect and reconnect preserve the same running browser", result: "passed" });
-  const pendingAction = call(c.client, "camofox_navigate", { tabId: tabs["identity-01"], url: "http://127.0.0.1:9410/slow" }).catch(() => undefined);
+  const pendingAction = call(c.client, "camofox_navigate", { tabId: tabs["profile-01"], url: "http://127.0.0.1:9410/slow" }).catch(() => undefined);
   for (let n = 0; n < 30; n++) {
-    const s = await call(c.client, "identity_status");
+    const s = await call(c.client, "profile_status");
     if ((s.controller as { activeActions?: number } | undefined)?.activeActions) break;
     await Bun.sleep(20);
   }
   assert(c.transport.pid, "The MCP process ID is unavailable"); process.kill(c.transport.pid, "SIGKILL");
   await c.client.close();
-  const d = await connect("identity-01", "sdk-client-d-after-crash");
-  await rejection(d.client, "identity_acquire");
+  const d = await connect("profile-01", "sdk-client-d-after-crash");
+  await rejection(d.client, "profile_acquire");
   let acquired = false;
   for (let n = 0; n < 60; n++) {
-    try { await call(d.client, "identity_acquire"); acquired = true; break; } catch { await Bun.sleep(100); }
+    try { await call(d.client, "profile_acquire"); acquired = true; break; } catch { await Bun.sleep(100); }
   }
   assert(acquired, "The service did not release the dead controller after its action");
   await pendingAction; await checkSamePage(d.client);
   report.push({ check: "A crashed MCP client retains its action lock until the service finishes the action", result: "passed" });
-  await call(d.client, "identity_pause");
-  await rejection(d.client, "camofox_click", { tabId: tabs["identity-01"], selector: "#human" });
-  await call(d.client, "identity_resume");
-  await call(d.client, "camofox_scroll", { tabId: tabs["identity-01"], direction: "down", amount: 100 });
+  await call(d.client, "profile_pause");
+  await rejection(d.client, "camofox_click", { tabId: tabs["profile-01"], selector: "#human" });
+  await call(d.client, "profile_resume");
+  await call(d.client, "camofox_scroll", { tabId: tabs["profile-01"], direction: "down", amount: 100 });
   await checkSamePage(d.client);
   report.push({ check: "Pause and resume keep the selected browser", result: "passed" });
   await d.client.close(); await second.client.close();
-  const pins = { "identity-01": pin("identity-01"), "identity-02": pin("identity-02") };
-  assert(pins["identity-01"] !== pins["identity-02"], "Identity fingerprints are identical");
+  const pins = { "profile-01": pin("profile-01"), "profile-02": pin("profile-02") };
+  assert(pins["profile-01"] !== pins["profile-02"], "Profile fingerprints are identical");
   await command("stop", "all"); await command("start", "all");
-  for (const id of ["identity-01", "identity-02"]) {
-    const next = await connect(id, `restart-${id}`); await call(next.client, "identity_acquire");
+  for (const id of ["profile-01", "profile-02"]) {
+    const next = await connect(id, `restart-${id}`); await call(next.client, "profile_acquire");
     const tab = await call(next.client, "camofox_create_tab", { url: "http://127.0.0.1:9410" });
     const snapshot = await call(next.client, "camofox_snapshot", { tabId: tab.tabId });
     assert(String(snapshot.snapshot).includes(`Storage marker: ${id}`), "Storage did not survive restart");

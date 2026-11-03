@@ -46,11 +46,11 @@ function directory(path: string) {
 function stateFile<T>(file: string): T | undefined {
   const info = stat(file);
   if (!info) return;
-  if (!info.isFile()) throw Error(`Invalid identity state: ${file}`);
+  if (!info.isFile()) throw Error(`Invalid profile state: ${file}`);
   try {
     return JSON.parse(readFileSync(file, "utf8")) as T;
   } catch {
-    throw Error(`Cannot read identity state: ${file}`);
+    throw Error(`Cannot read profile state: ${file}`);
   }
 }
 
@@ -58,7 +58,7 @@ function assertStopped() {
   settings();
   for (const item of readdirSync(STATE, { withFileTypes: true })) {
     if (item.name === "admission.lock") continue;
-    if (item.isSymbolicLink()) throw Error(`Invalid identity directory: ${item.name}`);
+    if (item.isSymbolicLink()) throw Error(`Invalid profile directory: ${item.name}`);
     if (!item.isDirectory()) continue;
 
     const base = join(STATE, item.name);
@@ -67,12 +67,12 @@ function assertStopped() {
     if (record === null || typeof record !== "object" || !Number.isSafeInteger(record.pid) || (record.pid as number) < 0 ||
         (record.serverPid !== undefined && (!Number.isSafeInteger(record.serverPid) || (record.serverPid as number) < 1)) ||
         typeof record.instanceId !== "string" || !record.instanceId) {
-      throw Error(`Invalid identity state: ${item.name}`);
+      throw Error(`Invalid profile state: ${item.name}`);
     }
 
     const stopped = stateFile<{ instanceId?: unknown }>(join(base, "stopped.json"));
     if (stopped?.instanceId !== record.instanceId || running(item.name)) {
-      throw Error(`${item.name}: stop all identities and resolve unclean or orphaned processes before setup.`);
+      throw Error(`${item.name}: stop all profiles and resolve unclean or orphaned processes before setup.`);
     }
   }
 }
@@ -147,10 +147,11 @@ function applyPatches(upstream: string) {
     "os: hostOS,\n        window: [1200, 800],\n        screen: { minWidth: 1280, minHeight: 900, maxWidth: 1920, maxHeight: 1200 },\n        humanize: true,");
   patch(join(upstream, "server.js"), "proxy: launchProxy,\n        geoip: !!launchProxy,",
     "proxy: launchProxy,\n        block_webrtc: !!launchProxy,\n        geoip: !!launchProxy,");
+  // contextIdentityOptions and directIdentity are upstream Camofox identifiers.
   patch(join(upstream, "server.js"), "candidateBrowser = await firefox.launch(options);",
-    "candidateBrowser = await (await import('./plugins/local-profile/index.js')).launchIdentityBrowser(firefox, options, { viewport: null, ...contextIdentityOptions({ hasProxy: !!proxyPool, directIdentity: CONFIG.directIdentity }) });");
+    "candidateBrowser = await (await import('./plugins/local-profile/index.js')).launchProfileBrowser(firefox, options, { viewport: null, ...contextIdentityOptions({ hasProxy: !!proxyPool, directIdentity: CONFIG.directIdentity }) });");
   patch(join(upstream, "server.js"), "const context = await b.newContext(contextOptions);",
-    "const context = await (await import('./plugins/local-profile/index.js')).claimIdentityContext(b, contextOptions);");
+    "const context = await (await import('./plugins/local-profile/index.js')).claimProfileContext(b, contextOptions);");
   patch(join(upstream, "plugins/persistence/index.js"), "export async function register(app, ctx, pluginConfig = {}) {",
     "export async function register(app, ctx, pluginConfig = {}) {\n  if (process.env.STELZ_STORAGE_MODE === 'native') return; // Native Firefox profile owns storage.");
 }
@@ -192,7 +193,7 @@ function validate(upstream: string) {
     if (!Array.isArray(contract.TOOL_DEFS) || typeof contract.runTool !== "function" || typeof contract.adaptResponse !== "function") {
       throw Error("Invalid Camofox tool contracts.");
     }
-    for (const name of ["register", "launchIdentityBrowser", "claimIdentityContext", "typeIntoLocator"]) {
+    for (const name of ["register", "launchProfileBrowser", "claimProfileContext", "typeIntoLocator"]) {
       if (typeof plugin[name] !== "function") throw Error("Missing local-profile export: " + name);
     }
   `;

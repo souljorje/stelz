@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-/** Device identity is persistent; location, session state and security policy are not. */
+/** Device profile is persistent; location, session state and security policy are not. */
 export type Fingerprint = Record<string, unknown>;
 export type LaunchOptions = { env?: Record<string, string>; firefoxUserPrefs?: Fingerprint; proxy?: Record<string, unknown> };
 
@@ -33,10 +33,10 @@ export function replayFingerprint(saved: Fingerprint, generated: Fingerprint): F
 }
 
 export function launchPreferences(current: Fingerprint | undefined, proxied: boolean, device: Fingerprint = {}): Fingerprint {
-  // Never replay old Firefox preferences. They include policy, not just identity.
+  // Never replay old Firefox preferences. They include policy, not just profile.
   // Derive WebGL2 support from the saved GPU, not the newly sampled GPU.
   const capabilities = "webGl:parameters" in device ? { "webgl.enable-webgl2": "webGl2:parameters" in device } : {};
-  // Apply the mandatory rule last, including when a direct identity switches to a proxy.
+  // Apply the mandatory rule last, including when a direct profile switches to a proxy.
   return { ...current, ...capabilities, ...(proxied ? { "media.peerconnection.enabled": false } : {}) };
 }
 

@@ -67,5 +67,5 @@ export function bootstrapSession(): Promise<void> {
     }).then(() => undefined);
 }
 
-export const identityPath = (id: string) => `/api/identities/${encodeURIComponent(id)}`;
+export const profilePath = (id: string) => `/api/profiles/${encodeURIComponent(id)}`;
 export const errorMessage = (error: unknown) => error instanceof Error ? redact(error.message) : "The request failed. Refresh and try again.";

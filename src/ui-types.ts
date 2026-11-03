@@ -14,7 +14,7 @@ export type UiNetwork = {
   expectedIpReadOnly: boolean;
 };
 
-export type UiIdentity = {
+export type UiProfile = {
   id: string;
   port: number;
   mode: "direct" | "proxy";
@@ -24,6 +24,7 @@ export type UiIdentity = {
   exitIp: string | null;
   checkedAt: string | null;
   fixedIpVerified: boolean;
+  windowControls: { available: boolean; reason: string | null };
   controller: { label: string; pid: number; activeActions: number; releasing: boolean } | null;
   supervisorPid: number | null;
   serverPid: number | null;
@@ -34,7 +35,7 @@ export type UiIdentity = {
   controlError: string | null;
   configurationError: string | null;
   network: UiNetwork;
-  pendingAction?: UiAction | "save" | "delete";
+  pendingAction?: UiAction | "save" | "delete" | "show";
 };
 
 export type UiSnapshot = {
@@ -45,12 +46,13 @@ export type UiSnapshot = {
   setup: boolean;
   maxActive: number;
   catalogRevision: string;
-  identities: UiIdentity[];
+  profiles: UiProfile[];
   updatedAt: string;
 };
 
-export type UiIdentityDetail = {
-  identity: UiIdentity;
+export type UiProfileDetail = {
+  profile: UiProfile;
+  directory: string;
   device: { version: number | null; properties: { name: string; value: string }[] };
   logs: { server: string; supervisor: string };
   mcpCommand: string;
@@ -62,7 +64,7 @@ export type UiDiagnostics = {
   setup: boolean;
   node: boolean;
   browserExecutable: boolean;
-  identities: {
+  profiles: {
     id: string;
     phase: UiPhase;
     configuration: string;
@@ -73,25 +75,14 @@ export type UiDiagnostics = {
   }[];
 };
 
-export type UiNetworkUpdate = {
-  revision: string;
-  mode: "direct" | "proxy";
-  proxyUrl?: string;
-  expectedIp?: string;
-};
-
-export type UiIdentityCreate = {
-  revision: string;
-  id: string;
-  proxyUrl?: string;
-  expectedIp?: string;
-};
+export type { NetworkUpdate as UiNetworkUpdate, ProfileCreate as UiProfileCreate } from "./profile-configuration-types.ts";
+import type { NetworkUpdate as UiNetworkUpdate, ProfileCreate as UiProfileCreate } from "./profile-configuration-types.ts";
 
 export type UiModel = {
   snapshot(): Promise<UiSnapshot>;
-  detail(id: string): Promise<UiIdentityDetail>;
+  detail(id: string): Promise<UiProfileDetail>;
   diagnostics(): Promise<UiDiagnostics>;
-  updateNetwork(id: string, update: UiNetworkUpdate): Promise<UiIdentity>;
-  createIdentity(input: UiIdentityCreate): Promise<UiIdentity>;
-  deleteIdentity(id: string, revision: string): Promise<void>;
+  updateNetwork(id: string, update: UiNetworkUpdate): Promise<UiProfile>;
+  createProfile(input: UiProfileCreate): Promise<UiProfile>;
+  deleteProfile(id: string, revision: string): Promise<void>;
 };

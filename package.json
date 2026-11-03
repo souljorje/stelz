@@ -1,7 +1,7 @@
 {
   "name": "stelz",
   "version": "0.2.0",
-  "description": "Standalone persistent Camoufox identities with exclusive MCP control",
+  "description": "Standalone persistent Camoufox profiles with exclusive MCP control",
   "license": "UNLICENSED",
   "bin": {
     "stelz": "dist/cli.js"
@@ -30,13 +30,14 @@
     "ui": "bun --no-env-file src/cli.ts ui",
     "browser": "bun src/call.ts",
     "fixture": "bun test/fixture.ts",
-    "test": "bun test test/unit.test.ts test/typing.test.ts test/lifecycle.test.ts test/setup.test.ts test/ui-server.test.ts test/ui-model.test.ts ui/api.test.ts ui/model.test.ts && bun run test:regression",
-    "test:ui": "bun test test/ui-server.test.ts test/ui-model.test.ts ui/api.test.ts ui/model.test.ts",
+    "test": "bun test test/profile-compat.test.ts test/profile-windows.test.ts test/unit.test.ts test/typing.test.ts test/lifecycle.test.ts test/setup.test.ts test/ui-server.test.ts test/ui-model.test.ts test/profile-configuration.test.ts ui/api.test.ts ui/model.test.ts && bun run test:regression",
+    "test:ui": "bun test test/profile-windows.test.ts test/ui-server.test.ts test/ui-model.test.ts test/profile-configuration.test.ts ui/api.test.ts ui/model.test.ts",
     "test:ui:browser": "bun test/ui-browser.ts",
     "test:regression": "node --experimental-transform-types --test test/plugin.test.ts test/native-profile.test.ts test/observations.test.ts",
     "test:integration": "bun test/integration.ts",
     "test:native": "bun test/native-integration.ts",
     "test:window-close": "bun test/window-close.ts",
+    "test:windows": "bun --no-env-file test/profile-windows-browser.ts",
     "test:proxy": "bun test/proxy-integration.ts",
     "test:manual": "bun test/manual-integration.ts",
     "test:typing": "bun --no-env-file test/typing-browser.ts",

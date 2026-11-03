@@ -17,6 +17,7 @@ import {
   typingMode,
 } from "./config.ts";
 import { key, lock, processStart, rotateLog, type Running } from "./runtime.ts";
+import { normalizeProfileId } from "./profile-compat.ts";
 
 process.umask(0o077);
 const p = profile(process.argv[2]!);
@@ -97,7 +98,7 @@ const server = await lock(join(STATE, "admission.lock"), async () => {
   )
     throw Error("The service reservation is no longer valid.");
   if (record.configurationHash !== configurationHash(p))
-    throw Error("Identity configuration changed during startup.");
+    throw Error("Profile configuration changed during startup.");
   const reserved = { ...record, pid: process.pid, supervisorStart };
   save(file, reserved);
   const child = Bun.spawn(["node", "-e", bootstrap, join(UPSTREAM, "server.js")], {
@@ -200,11 +201,11 @@ const initialize = async () => {
 void initialize();
 const exitCode = await server.exited;
 await Promise.race([logs, Bun.sleep(1000)]);
-const old = json<Record<string, unknown>>(join(runtimeDir, "status.json"));
+const old = normalizeProfileId(json<Record<string, unknown>>(join(runtimeDir, "status.json")) || {});
 const clean = exitCode === 0 && old?.phase === "stopped";
 save(join(runtimeDir, "status.json"), {
   ...old,
-  identityId: p.id,
+  profileId: p.id,
   phase: clean ? "stopped" : "unclean",
   exitCode,
 });

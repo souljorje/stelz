@@ -22,7 +22,7 @@ if (process.argv[2] === "setup") await setup();
 else await start(process.argv[3]!);
 `);
   file(join(project, "package.json"), JSON.stringify({ type: "module", version: "0.2.0", dependencies: { "@askjo/camofox-browser": "1.18.1", "@modelcontextprotocol/sdk": "1.30.0" } }));
-  file(join(project, "dist/plugin.js"), "export function register() {}\nexport function launchIdentityBrowser() {}\nexport function claimIdentityContext() {}\nexport function typeIntoLocator() {}\n");
+  file(join(project, "dist/plugin.js"), "export function register() {}\nexport function launchProfileBrowser() {}\nexport function claimProfileContext() {}\nexport function typeIntoLocator() {}\n");
   const upstream = join(project, "node_modules/@askjo/camofox-browser");
   file(join(upstream, "package.json"), JSON.stringify({ name: "@askjo/camofox-browser", version: "1.18.1", type: "module", dependencies: { "camoufox-js": "0.11.5", "playwright-core": "1.62.1" } }));
   file(join(upstream, "server.js"), `async function fillLocator(locator, text) {
@@ -106,7 +106,7 @@ test("activates a complete runtime and manifest, including legacy replacement", 
     expect(manifest.browserVersion).toEqual({ version: "browser-fixture" });
     expect(manifest.executableSha256).toHaveLength(64);
     const server = readFileSync(join(f.home, "runtime/camofox-1.18.1/server.js"), "utf8");
-    expect(server).toContain("launchIdentityBrowser");
+    expect(server).toContain("launchProfileBrowser");
     expect(server).toContain("block_webrtc: !!launchProxy");
     expect(server).toContain("typeIntoLocator(locator, text)");
     expect(existsSync(join(f.home, "runtime/camofox-1.18.1/plugins/local-profile/index.js"))).toBe(true);
@@ -125,7 +125,7 @@ test("validation failure preserves the previous runtime and manifest", async () 
 
 test("missing contract modules or required exports cannot replace the runtime", async () => {
   const contractExports = ["TOOL_DEFS", "runTool", "adaptResponse"];
-  const pluginExports = ["register", "launchIdentityBrowser", "claimIdentityContext"];
+  const pluginExports = ["register", "launchProfileBrowser", "claimProfileContext"];
   const cases = ["missing-contract", ...contractExports.map(name => `contract:${name}`), ...pluginExports.map(name => `plugin:${name}`)];
   for (const item of cases) {
     const f = fixture();
@@ -182,7 +182,7 @@ test("interruption during old-runtime cleanup leaves the new runtime complete", 
     child.kill("SIGKILL"); await finish(child);
     const manifest = JSON.parse(readFileSync(join(f.home, "runtime/versions.json"), "utf8"));
     expect(manifest.upstreamVersion).toBe("1.18.1");
-    expect(readFileSync(join(f.home, "runtime/camofox-1.18.1/server.js"), "utf8")).toContain("launchIdentityBrowser");
+    expect(readFileSync(join(f.home, "runtime/camofox-1.18.1/server.js"), "utf8")).toContain("launchProfileBrowser");
     expect(existsSync(join(f.home, "runtime/camofox-1.18.1/plugins/local-profile/index.js"))).toBe(true);
   } finally { child.kill("SIGKILL"); stopGate(f); }
 }, 30000);
@@ -193,11 +193,11 @@ test("setup serializes with another setup and a real start operation", async () 
   let second: ReturnType<typeof launch> | undefined, start: ReturnType<typeof launch> | undefined;
   try {
     await until(() => existsSync(f.gate), "first setup");
-    second = launch(f); start = launch(f, "start identity-02");
+    second = launch(f); start = launch(f, "start profile-02");
     await Bun.sleep(250);
     expect(second.exitCode).toBeNull();
     expect(start.exitCode).toBeNull();
-    expect(existsSync(join(f.home, "identities/identity-02/running.json"))).toBe(false);
+    expect(existsSync(join(f.home, "profiles/profile-02/running.json"))).toBe(false);
     expect(readdirSync(f.home).filter(name => name.startsWith(".runtime-setup-"))).toHaveLength(1);
     oldRuntime(f);
     start.kill("SIGKILL"); await finish(start);
@@ -220,33 +220,33 @@ test("simultaneous first setups initialize and activate safely", async () => {
   expect(JSON.parse(readFileSync(join(f.home, "runtime/versions.json"), "utf8")).upstreamVersion).toBe("1.18.1");
 }, 30000);
 
-test("active, orphaned, unclean, and malformed identity records block setup", async () => {
+test("active, orphaned, unclean, and malformed profile records block setup", async () => {
   for (const [id, value] of [
-    ["identity-02", { pid: process.pid, instanceId: "live" }],
-    ["removed-identity", { pid: 99999999, serverPid: process.pid, instanceId: "orphan" }],
-    ["identity-01", { pid: 99999999, instanceId: "unclean" }],
-    ["identity-01", { pid: 0, instanceId: "reservation" }],
-    ["identity-01", null],
+    ["profile-02", { pid: process.pid, instanceId: "live" }],
+    ["removed-profile", { pid: 99999999, serverPid: process.pid, instanceId: "orphan" }],
+    ["profile-01", { pid: 99999999, instanceId: "unclean" }],
+    ["profile-01", { pid: 0, instanceId: "reservation" }],
+    ["profile-01", null],
   ] as const) {
     const f = fixture(); legacy(f);
-    file(join(f.home, "identities", id, "running.json"), JSON.stringify(value));
+    file(join(f.home, "profiles", id, "running.json"), JSON.stringify(value));
     const result = await finish(launch(f));
     expect(result.code).not.toBe(0);
     oldRuntime(f);
   }
 });
 
-test("setup rechecks identities after obtaining the shared admission lock", async () => {
+test("setup rechecks profiles after obtaining the shared admission lock", async () => {
   const f = fixture(); legacy(f);
-  const state = join(f.home, "identities"), held = join(f.base, "held"), release = join(f.base, "unlock");
+  const state = join(f.home, "profiles"), held = join(f.base, "held"), release = join(f.base, "unlock");
   mkdirSync(state, { recursive: true });
   const code = `import { lock } from ${JSON.stringify(join(f.project, "src/runtime.ts"))};
 import { writeFileSync, existsSync, mkdirSync } from "node:fs";
 await lock(${JSON.stringify(join(state, "admission.lock"))}, async () => {
   writeFileSync(${JSON.stringify(held)}, "held");
   while (!existsSync(${JSON.stringify(release)})) await Bun.sleep(10);
-  mkdirSync(${JSON.stringify(join(state, "identity-02"))}, { recursive: true });
-  writeFileSync(${JSON.stringify(join(state, "identity-02/running.json"))}, JSON.stringify({ pid: ${process.pid}, instanceId: "started" }));
+  mkdirSync(${JSON.stringify(join(state, "profile-02"))}, { recursive: true });
+  writeFileSync(${JSON.stringify(join(state, "profile-02/running.json"))}, JSON.stringify({ pid: ${process.pid}, instanceId: "started" }));
 });`;
   const holder = Bun.spawn([process.execPath, "-e", code], { cwd: f.project, env: { ...process.env, STELZ_HOME: f.home }, stdout: "pipe", stderr: "pipe" });
   let setup: ReturnType<typeof launch> | undefined;
@@ -265,7 +265,7 @@ test("a clean stopped record permits setup, but a matching marker cannot hide a 
   for (const live of [false, true]) {
     const f = fixture();
     legacy(f);
-    const base = join(f.home, "identities/identity-02");
+    const base = join(f.home, "profiles/profile-02");
     file(join(base, "running.json"), JSON.stringify({ pid: 99999999, serverPid: live ? process.pid : undefined, instanceId: "clean" }));
     file(join(base, "stopped.json"), JSON.stringify({ instanceId: "clean" }));
     const result = await finish(launch(f));
@@ -279,14 +279,14 @@ test("a clean stopped record permits setup, but a matching marker cannot hide a 
   }
 });
 
-test("symlinks in runtime, lock, identity state, and setup sources cannot be followed", async () => {
-  for (const kind of ["runtime", "lock", "hardlock", "identity", "source"] as const) {
+test("symlinks in runtime, lock, profile state, and setup sources cannot be followed", async () => {
+  for (const kind of ["runtime", "lock", "hardlock", "profile", "source"] as const) {
     const f = fixture(), outside = join(f.base, "outside");
     file(outside, "untouched");
     if (kind === "runtime") symlinkSync(f.base, join(f.home, "runtime"));
-    if (kind === "lock") { mkdirSync(join(f.home, "identities")); symlinkSync(outside, join(f.home, "identities/admission.lock")); }
-    if (kind === "hardlock") { mkdirSync(join(f.home, "identities")); linkSync(outside, join(f.home, "identities/admission.lock")); }
-    if (kind === "identity") { mkdirSync(join(f.home, "identities/identity-01"), { recursive: true }); symlinkSync(outside, join(f.home, "identities/identity-01/running.json")); }
+    if (kind === "lock") { mkdirSync(join(f.home, "profiles")); symlinkSync(outside, join(f.home, "profiles/admission.lock")); }
+    if (kind === "hardlock") { mkdirSync(join(f.home, "profiles")); linkSync(outside, join(f.home, "profiles/admission.lock")); }
+    if (kind === "profile") { mkdirSync(join(f.home, "profiles/profile-01"), { recursive: true }); symlinkSync(outside, join(f.home, "profiles/profile-01/running.json")); }
     if (kind === "source") { legacy(f); symlinkSync(outside, join(f.upstream, "lib/unsafe.js")); }
     const result = await finish(launch(f));
     expect(result.code).not.toBe(0);

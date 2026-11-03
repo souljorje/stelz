@@ -8,6 +8,8 @@ import { applyFingerprint, type LaunchOptions } from "./fingerprint.ts";
 import { createIpVerification, type Probe } from "./ip-verification.ts";
 import { allowedBrowserTools, browserToolArguments } from "./tool-policy.ts";
 import type { Contracts } from "./upstream.ts";
+import { addProfileExtension, createProfileWindows } from "./profile-windows.ts";
+import { activateProfileBrowser } from "./window-activation.ts";
 export { typeIntoLocator } from "./typing.ts";
 
 type Page = { on(event: "close", listener: () => void): unknown };
@@ -39,7 +41,7 @@ type PluginContext = {
 };
 type Phase = "starting" | "ready" | "paused" | "verification_failed" | "blocked" | "stopping" | "stopped";
 type ProfileState = {
-  identityId: string;
+  profileId: string;
   instanceId: string;
   mode: "direct" | "proxy";
   phase: Phase;
@@ -61,7 +63,7 @@ export async function register(app: App, ctx: PluginContext, options: { actionTi
   if (!id || !stateDir) throw Error("local-profile requires STELZ_PROFILE_ID and STELZ_PROFILE_DIR");
   const file = join(stateDir, "status.json");
   const mode = process.env.STELZ_MODE === "proxy" ? "proxy" : "direct";
-  let state: ProfileState = { identityId: id, instanceId: randomUUID(), mode, phase: "starting", exitIp: null };
+  let state: ProfileState = { profileId: id, instanceId: randomUUID(), mode, phase: "starting", exitIp: null };
   const controller = createControllerLease();
   const upstream = await import(pathToFileURL(join(process.env.STELZ_UPSTREAM!, "mcp/lib/tool-contracts.mjs")).href) as Contracts;
   const browserTools = new Map(allowedBrowserTools(upstream.TOOL_DEFS).map(tool => [tool.name, tool]));
@@ -75,6 +77,9 @@ export async function register(app: App, ctx: PluginContext, options: { actionTi
   let sessionAdmitted = false;
   let invalidated = false;
   let restorePhase: "ready" | "paused" = "ready";
+  const windows = createProfileWindows({ id, instanceId: state.instanceId, directory: stateDir,
+    port: Number(process.env.CAMOFOX_PORT), accessKey: process.env.CAMOFOX_ACCESS_KEY!, phase: () => state.phase,
+    activate: () => activateProfileBrowser(process.env.CAMOUFOX_EXECUTABLE!) });
 
   function persist(patch: Partial<ProfileState>) {
     state = { ...state, ...patch };
@@ -115,8 +120,8 @@ export async function register(app: App, ctx: PluginContext, options: { actionTi
     let timer: ReturnType<typeof setTimeout> | undefined;
     const deadline = new Promise<never>((_resolve, reject) => {
       timer = setTimeout(() => {
-        invalidate("A service operation exceeded its time limit. Stop the identity before another browser action.");
-        reject(Error("A service operation exceeded its time limit. Stop the identity before another browser action."));
+        invalidate("A service operation exceeded its time limit. Stop the profile before another browser action.");
+        reject(Error("A service operation exceeded its time limit. Stop the profile before another browser action."));
       }, timeout);
     });
     try {
@@ -131,7 +136,7 @@ export async function register(app: App, ctx: PluginContext, options: { actionTi
   async function verify(explicit = false) {
     if (explicit) {
       if (invalidated || stopping || !["starting", "ready", "paused", "verification_failed"].includes(state.phase)) {
-        throw Error(`Cannot recheck a ${state.phase} identity.`);
+        throw Error(`Cannot recheck a ${state.phase} profile.`);
       }
     } else {
       assertUsable();
@@ -168,6 +173,7 @@ export async function register(app: App, ctx: PluginContext, options: { actionTi
     }
     launchAdmitted = true;
     const hashes = applyFingerprint(launchOptions, stateDir, process.env.CAMOUFOX_EXECUTABLE!, mode === "proxy");
+    addProfileExtension(launchOptions, windows.extensionPath);
     persist({ phase: "starting", ...hashes });
   });
   ctx.events.on("browser:launched", ({ browser }) => browser.on("disconnected", browserClosed));
@@ -219,10 +225,24 @@ export async function register(app: App, ctx: PluginContext, options: { actionTi
     persist({ phase: "stopped" });
   });
 
-  app.get("/local-profile/status", ctx.auth(), (_req, res) => res.json({ ...state, controller: controller.status() }));
+  app.get("/local-profile/status", ctx.auth(), (_req, res) => {
+    const { available, reason } = windows.snapshot();
+    res.json({ ...state, controller: controller.status(), windowControls: { available, reason } });
+  });
+  app.get("/local-profile/windows", ctx.auth(), (_req, res) => res.json(windows.snapshot()));
+  app.post("/local-profile/window-bridge", ctx.auth(), (req, res) => {
+    try { res.json(windows.exchange(req.body)); }
+    catch { res.status(400).json({ error: "Invalid window inventory." }); }
+  });
+  app.post("/local-profile/window-show", ctx.auth(), async (req, res) => {
+    try {
+      await controller.runExclusive(() => windows.show(req.body));
+      res.json({ shown: true });
+    } catch (error) { res.status(409).json({ error: (error as Error).message }); }
+  });
   app.post("/local-profile/acquire", ctx.auth(), (req, res) => {
     try {
-      if (!["ready", "paused", "verification_failed"].includes(state.phase)) throw Error(`Identity is ${state.phase}.`);
+      if (!["ready", "paused", "verification_failed"].includes(state.phase)) throw Error(`Profile is ${state.phase}.`);
       const body = req.body || {};
       const lease = controller.acquire({ id: String(body.id || ""), pid: Number(body.pid), label: String(body.label || "MCP client") });
       res.json({ ...state, ...lease });
@@ -232,14 +252,14 @@ export async function register(app: App, ctx: PluginContext, options: { actionTi
   });
   app.post("/local-profile/release", ctx.auth(), async (req, res) => {
     try {
-      res.json({ ...await controller.release(String(req.body?.controllerId || "")), identityId: id });
+      res.json({ ...await controller.release(String(req.body?.controllerId || "")), profileId: id });
     } catch (error) {
       res.status(409).json({ error: (error as Error).message });
     }
   });
   app.post("/local-profile/handoff", ctx.auth(), async (_req, res) => {
     await controller.releaseCurrent();
-    res.json({ released: true, identityId: id });
+    res.json({ released: true, profileId: id });
   });
   app.post("/local-profile/tool", ctx.auth(), async (req, res) => {
     try {
@@ -257,7 +277,7 @@ export async function register(app: App, ctx: PluginContext, options: { actionTi
           return { content: upstream.adaptResponse(spec, payload) };
         } catch (error) {
           if (/timed out|timeout/i.test((error as Error).message)) {
-            invalidate("A browser action timed out. Stop the identity before another browser action.");
+            invalidate("A browser action timed out. Stop the profile before another browser action.");
           }
           throw error;
         }
@@ -277,7 +297,7 @@ export async function register(app: App, ctx: PluginContext, options: { actionTi
   });
   app.post("/local-profile/check", ctx.auth(), async (req, res) => {
     try {
-      if (req.body?.controllerId && controller.status()?.id !== req.body.controllerId) throw Error("This connection does not control the identity.");
+      if (req.body?.controllerId && controller.status()?.id !== req.body.controllerId) throw Error("This connection does not control the profile.");
       await controller.runExclusive(() => bounded(() => verify(true)));
       res.json(state);
     } catch (error) {
@@ -285,7 +305,7 @@ export async function register(app: App, ctx: PluginContext, options: { actionTi
     }
   });
   app.post("/local-profile/pause", ctx.auth(), async (req, res) => {
-    if (req.body?.controllerId && controller.status()?.id !== req.body.controllerId) return res.status(409).json({ error: "This connection does not control the identity." });
+    if (req.body?.controllerId && controller.status()?.id !== req.body.controllerId) return res.status(409).json({ error: "This connection does not control the profile." });
     if (state.phase !== "ready") return res.status(409).json({ error: `Cannot pause ${state.phase} profile` });
     persist({ phase: "paused" });
     await controller.drain();
@@ -293,7 +313,7 @@ export async function register(app: App, ctx: PluginContext, options: { actionTi
   });
   app.post("/local-profile/resume", ctx.auth(), async (req, res) => {
     try {
-      if (req.body?.controllerId && controller.status()?.id !== req.body.controllerId) throw Error("This connection does not control the identity.");
+      if (req.body?.controllerId && controller.status()?.id !== req.body.controllerId) throw Error("This connection does not control the profile.");
       await controller.runExclusive(() => bounded(async () => {
         if (state.phase !== "paused") throw Error(`Cannot resume ${state.phase} profile`);
         await verify(true);
@@ -306,4 +326,4 @@ export async function register(app: App, ctx: PluginContext, options: { actionTi
   });
 }
 
-export { launchIdentityBrowser, claimIdentityContext } from "./native-profile.ts";
+export { launchProfileBrowser, claimProfileContext } from "./native-profile.ts";

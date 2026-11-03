@@ -1,5 +1,5 @@
 import { mkdirSync, chmodSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { createHash } from "node:crypto";
 const root = join(import.meta.dir, "..");
 rmSync(join(root, "dist"), { recursive: true, force: true });
@@ -18,6 +18,16 @@ const ui = await Bun.build({
   define: { "process.env.NODE_ENV": JSON.stringify("production") },
 });
 if (!ui.success) throw Error(ui.logs.join("\n"));
+const theme = await Bun.build({
+  entrypoints: [join(root, "ui/theme-init.ts")], target: "browser", format: "iife",
+  outdir: join(root, "dist/ui"), naming: "theme-[hash].js", minify: true,
+});
+if (!theme.success) throw Error(theme.logs.join("\n"));
+const themeScript = theme.outputs.find(output => output.path.endsWith(".js"));
+if (!themeScript) throw Error("The UI theme bootstrap was not built.");
+const htmlPath = join(root, "dist/ui/index.html");
+const html = await Bun.file(htmlPath).text();
+await Bun.write(htmlPath, html.replace("</title>", `</title><script src="./${basename(themeScript.path)}"></script>`));
 // Some Bun versions inline CSS font URLs. Keep fonts in local files for font-src 'self'.
 for (const output of ui.outputs) {
   if (!output.path.endsWith(".css")) continue;

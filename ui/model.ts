@@ -1,4 +1,4 @@
-import type { UiAction, UiIdentity, UiNetwork, UiNetworkUpdate, UiPhase, UiSnapshot } from "../src/ui-types";
+import type { UiAction, UiProfile, UiNetwork, UiNetworkUpdate, UiPhase, UiSnapshot } from "../src/ui-types";
 
 export const phaseLabels: Record<UiPhase, string> = {
   starting: "Starting", ready: "Ready", paused: "Paused", verification_failed: "IP check failed",
@@ -35,18 +35,18 @@ export function boundedLog(value: string): string {
 
 export const shellQuote = (value: string): string => `'${value.replaceAll("'", "'\"'\"'")}'`;
 export const homeCommand = (command: string, home: string): string => `STELZ_HOME=${shellQuote(home)} stelz ${command}`;
-export const identityCommand = (command: string, id: string, home: string): string => `${homeCommand(command, home)} ${shellQuote(id)}`;
-export const mcpCommand = (id: string, home: string): string => `${homeCommand("mcp", home)} --identity ${shellQuote(id)}`;
-export const capacityUsed = (identities: UiIdentity[]) => identities.filter(({ phase }) => phase !== "stopped" && phase !== "unclean").length;
+export const profileCommand = (command: string, id: string, home: string): string => `${homeCommand(command, home)} ${shellQuote(id)}`;
+export const mcpCommand = (id: string, home: string): string => `${homeCommand("mcp", home)} --profile ${shellQuote(id)}`;
+export const capacityUsed = (profiles: UiProfile[]) => profiles.filter(({ phase }) => phase !== "stopped" && phase !== "unclean").length;
 
-export function identityAttention(identity: UiIdentity): string | null {
-  if (identity.configurationError) return redact(identity.configurationError);
-  if (identity.error) return redact(identity.error);
-  if (identity.controlError) return redact(identity.controlError);
-  switch (identity.phase) {
+export function profileAttention(profile: UiProfile): string | null {
+  if (profile.configurationError) return redact(profile.configurationError);
+  if (profile.error) return redact(profile.error);
+  if (profile.controlError) return redact(profile.controlError);
+  switch (profile.phase) {
     case "paused": return "Paused for manual work. Resume only after authentication is complete in the same browser.";
     case "verification_failed": return "Correct the network, then recheck the IP. Resume explicitly if the browser remains paused.";
-    case "blocked": return "Browser actions are blocked. Inspect the logs, then stop and start this identity explicitly.";
+    case "blocked": return "Browser actions are blocked. Inspect the logs, then stop and start this profile explicitly.";
     case "orphaned": return "The supervisor exited. Inspect ownership with doctor, then stop the remaining service.";
     case "ownership_unknown": return "Process ownership is unknown. Run doctor and inspect the processes before further action.";
     case "unclean": return "Inspect the recorded processes with doctor. Run recover only after those processes exit.";
@@ -54,47 +54,37 @@ export function identityAttention(identity: UiIdentity): string | null {
   }
 }
 
-export function phaseExplanation(identity: UiIdentity): string {
-  switch (identity.phase) {
-    case "stopped": return "The browser is closed. Start it explicitly before connecting an MCP controller.";
-    case "starting": return "The service is starting the browser and checking its network. Wait for the next state update.";
-    case "ready": return identity.controller ? "The browser is ready. The named controller has exclusive access." : "The browser is ready for an MCP controller to acquire.";
-    case "stopping": return "The service is stopping this browser. Wait for a clean stop before starting it again.";
-    default: return identityAttention(identity) ?? "Inspect this identity before continuing.";
-  }
-}
-
 export type ActionContext = { snapshot: UiSnapshot; connected: boolean; pending: boolean };
 
-export function deleteReason(identity: UiIdentity, context: ActionContext): string | null {
+export function deleteReason(profile: UiProfile, context: ActionContext): string | null {
   if (!context.connected) return "Refresh the connection before making changes.";
-  if (context.pending || identity.pendingAction) return "Wait for the current service action to finish.";
-  return identity.phase === "stopped" ? null : "Stop this identity cleanly before deleting it.";
+  if (context.pending || profile.pendingAction) return "Wait for the current service action to finish.";
+  return profile.phase === "stopped" ? null : "Stop this profile cleanly before deleting it.";
 }
 
-export function actionReason(identity: UiIdentity, action: UiAction, context: ActionContext): string | null {
+export function actionReason(profile: UiProfile, action: UiAction, context: ActionContext): string | null {
   if (!context.connected) return "Refresh the connection before making changes.";
-  if (context.pending || identity.pendingAction) return "Wait for the current service action to finish.";
-  if (identity.phase === "starting" || identity.phase === "stopping") return `Wait until the browser finishes ${identity.phase}.`;
-  if (identity.phase === "ownership_unknown") return "Run doctor and inspect process ownership first.";
-  if (identity.phase === "unclean") return "Run doctor, then recover after the recorded processes exit.";
+  if (context.pending || profile.pendingAction) return "Wait for the current service action to finish.";
+  if (profile.phase === "starting" || profile.phase === "stopping") return `Wait until the browser finishes ${profile.phase}.`;
+  if (profile.phase === "ownership_unknown") return "Run doctor and inspect process ownership first.";
+  if (profile.phase === "unclean") return "Run doctor, then recover after the recorded processes exit.";
   switch (action) {
     case "start":
-      if (identity.phase !== "stopped") return "Stop this identity before starting it.";
+      if (profile.phase !== "stopped") return "Stop this profile before starting it.";
       if (!context.snapshot.initialized) return "Run stelz init first.";
       if (!context.snapshot.setup) return "Run stelz setup first.";
-      if (identity.configurationError) return "Correct the configuration before starting.";
-      if (capacityUsed(context.snapshot.identities) >= context.snapshot.maxActive) return "All browser slots are occupied.";
+      if (profile.configurationError) return "Correct the configuration before starting.";
+      if (capacityUsed(context.snapshot.profiles) >= context.snapshot.maxActive) return "All browser slots are occupied.";
       return null;
-    case "pause": return identity.phase === "ready" ? null : "Pause is available when the browser is ready.";
-    case "resume": return identity.phase === "paused" ? null : "Resume is available when the browser is paused.";
+    case "pause": return profile.phase === "ready" ? null : "Pause is available when the browser is ready.";
+    case "resume": return profile.phase === "paused" ? null : "Resume is available when the browser is paused.";
     case "recheck":
-      if (identity.mode === "direct" && !identity.network.expectedIp) return "IP verification is not enabled for this identity.";
-      return ["ready", "paused", "verification_failed"].includes(identity.phase) ? null : "Start the browser before checking its IP.";
+      if (profile.mode === "direct" && !profile.network.expectedIp) return "IP verification is not enabled for this profile.";
+      return ["ready", "paused", "verification_failed"].includes(profile.phase) ? null : "Start the browser before checking its IP.";
     case "release":
-      if (!identity.controller) return "No controller holds this identity.";
-      return identity.controller.releasing ? "The controller is already releasing." : null;
-    case "stop": return ["ready", "paused", "verification_failed", "blocked", "orphaned"].includes(identity.phase) ? null : "There is no running browser to stop.";
+      if (!profile.controller) return "No controller holds this profile.";
+      return profile.controller.releasing ? "The controller is already releasing." : null;
+    case "stop": return ["ready", "paused", "verification_failed", "blocked", "orphaned"].includes(profile.phase) ? null : "There is no running browser to stop.";
   }
 }
 

@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { UiAction, UiIdentity, UiIdentityCreate, UiNetworkUpdate, UiSnapshot } from "../src/ui-types";
-import { ApiError, errorMessage, identityPath, request } from "./api";
+import type { UiAction, UiProfile, UiProfileCreate, UiNetworkUpdate, UiSnapshot } from "../src/ui-types";
+import { ApiError, errorMessage, profilePath, request } from "./api";
 import { actionReason } from "./model";
+import type { ShowProfileWindow } from "../src/profile-appearance";
 
 export type Connection = "connecting" | "connected" | "offline" | "unauthorized" | "ending" | "ended";
-export type Pending = { id: string; action: UiAction | "save" | "create" | "delete" } | null;
+export type Pending = { id: string; action: UiAction | "save" | "create" | "delete" | "show" } | null;
 export const FRESH_FOR = 10_000;
 
 export function useService(session: Promise<void>) {
@@ -142,41 +143,41 @@ export function useService(session: Promise<void>) {
     }
   }, [markConnection, refresh]);
 
-  const mutate = useCallback(async (id: string, action: UiAction | "save", update?: UiNetworkUpdate): Promise<UiIdentity> => {
-    const state = latest.current, identity = state.snapshot?.identities.find(row => row.id === id);
-    if (!identity || !state.snapshot) throw new ApiError(409, "This identity is no longer in the current state. Refresh before continuing.");
+  const mutate = useCallback(async (id: string, action: UiAction | "save", update?: UiNetworkUpdate): Promise<UiProfile> => {
+    const state = latest.current, profile = state.snapshot?.profiles.find(row => row.id === id);
+    if (!profile || !state.snapshot) throw new ApiError(409, "This profile is no longer in the current state. Refresh before continuing.");
     const reason = action === "save"
-      ? identity.phase !== "stopped" ? "Stop this identity before editing its network." : null
-      : actionReason(identity, action, { snapshot: state.snapshot, connected: true, pending: mutationLock.current });
+      ? profile.phase !== "stopped" ? "Stop this profile before editing its network." : null
+      : actionReason(profile, action, { snapshot: state.snapshot, connected: true, pending: mutationLock.current });
     if (reason) throw new ApiError(409, reason);
     if (action === "save" && !update) throw new ApiError(400, "Network settings are missing.");
     return runMutation(id, action, async () => {
-      const result = await request<{ identity: UiIdentity }>(`${identityPath(id)}/${action === "save" ? "network" : "actions"}`, {
+      const result = await request<{ profile: UiProfile }>(`${profilePath(id)}/${action === "save" ? "network" : "actions"}`, {
         method: action === "save" ? "PUT" : "POST", body: action === "save" ? update : { action }, timeout: 120_000,
       });
       if (mounted.current && latest.current.snapshot) {
-        const next = { ...latest.current.snapshot, identities: latest.current.snapshot.identities.map(row => row.id === id ? result.identity : row) };
+        const next = { ...latest.current.snapshot, profiles: latest.current.snapshot.profiles.map(row => row.id === id ? result.profile : row) };
         latest.current.snapshot = next; setSnapshot(next);
       }
-      return result.identity;
+      return result.profile;
     });
   }, [runMutation]);
 
-  const changeCatalog = useCallback(async (action: "create" | "delete", input: UiIdentityCreate): Promise<void> => {
+  const changeCatalog = useCallback(async (action: "create" | "delete", input: UiProfileCreate): Promise<void> => {
     if (!latest.current.snapshot?.initialized) throw new ApiError(409, "Run stelz init first.");
-    if (action === "delete" && latest.current.snapshot.identities.find(row => row.id === input.id)?.phase !== "stopped")
-      throw new ApiError(409, "Stop this identity cleanly before deleting it.");
+    if (action === "delete" && latest.current.snapshot.profiles.find(row => row.id === input.id)?.phase !== "stopped")
+      throw new ApiError(409, "Stop this profile cleanly before deleting it.");
     await runMutation(input.id, action, async () => {
       if (action === "create") {
-        const result = await request<{ identity: UiIdentity }>("/api/identities", { method: "POST", body: input });
+        const result = await request<{ profile: UiProfile }>("/api/profiles", { method: "POST", body: input });
         if (mounted.current && latest.current.snapshot) {
-          const next = { ...latest.current.snapshot, identities: [...latest.current.snapshot.identities, result.identity] };
+          const next = { ...latest.current.snapshot, profiles: [...latest.current.snapshot.profiles, result.profile] };
           latest.current.snapshot = next; setSnapshot(next);
         }
       } else {
-        await request(identityPath(input.id), { method: "DELETE", body: { revision: input.revision } });
+        await request(profilePath(input.id), { method: "DELETE", body: { revision: input.revision } });
         if (mounted.current && latest.current.snapshot) {
-          const next = { ...latest.current.snapshot, identities: latest.current.snapshot.identities.filter(row => row.id !== input.id) };
+          const next = { ...latest.current.snapshot, profiles: latest.current.snapshot.profiles.filter(row => row.id !== input.id) };
           latest.current.snapshot = next; setSnapshot(next);
         }
       }
@@ -205,7 +206,15 @@ export function useService(session: Promise<void>) {
     } finally { mutationLock.current = false; }
   }, [markConnection]);
 
-  return { snapshot, connection, error, lastGood, refreshing, pending, mutationVersion, refresh, mutate, changeCatalog, endSession };
+  const showWindow = useCallback(async (id: string, selection?: ShowProfileWindow) => {
+    const profile = latest.current.snapshot?.profiles.find(row => row.id === id);
+    if (!profile?.instanceId || !["ready", "paused", "verification_failed"].includes(profile.phase)) throw new ApiError(409, "Start the profile before selecting its window.");
+    if (!profile.windowControls.available) throw new ApiError(409, profile.windowControls.reason || "Window controls are unavailable.");
+    await runMutation(id, "show", () => request(profilePath(id) + "/window", {
+      method: "POST", body: selection ?? { instanceId: profile.instanceId }, timeout: 80_000,
+    }));
+  }, [runMutation]);
+  return { snapshot, connection, error, lastGood, refreshing, pending, mutationVersion, refresh, mutate, changeCatalog, endSession, showWindow };
 }
 
 export function useNow() {

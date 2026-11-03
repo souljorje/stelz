@@ -59,8 +59,8 @@ try {
   if (!session.ok) throw Error("The installed UI session failed.");
   const Cookie = session.headers.get("set-cookie")!.split(";")[0]!;
   const response = await fetch(`${origin}/api/state`, { headers: { Cookie } });
-  const state = await response.json() as { home: string; identities: unknown[] };
-  if (!response.ok || state.home !== home || state.identities.length !== 0) throw Error("The installed UI must use the selected service directory and an empty initial catalog.");
+  const state = await response.json() as { home: string; profiles: unknown[] };
+  if (!response.ok || state.home !== home || state.profiles.length !== 0) throw Error("The installed UI must use the selected service directory and an empty initial catalog.");
   const assets = [...html.matchAll(/(?:src|href)="([^"]+\.(?:js|css))"/g)].map(match => match[1]!);
   if (!assets.some(path => path.endsWith(".js")) || !assets.some(path => path.endsWith(".css"))) throw Error("The installed UI HTML is missing its bundled assets.");
   for (const path of assets) if (!(await fetch(new URL(path, origin))).ok) throw Error("An installed UI asset is unavailable.");

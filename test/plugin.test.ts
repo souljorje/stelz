@@ -19,6 +19,24 @@ const generated = { "navigator.userAgent": "test UA", "navigator.hardwareConcurr
   "navigator.languages": ["en-US"], "screen.width": 1440, "window.history.length": 1,
   timezone: "America/New_York", addons: [join(tmpdir(), "stelz-test-addons", "current")], "canvas:seed": 123 };
 
+test("status advertises window controls only for a current browser inventory", async () => {
+  const h = await harness("direct", undefined, { expected: "" });
+  try {
+    await h.launch(); await h.create();
+    const before = (await h.request("status")).payload as { instanceId: string; windowControls: { available: boolean } };
+    assert.equal(before.windowControls.available, false);
+    const inventory = { instanceId: before.instanceId, windows: [{ id: 1, title: "Window", focused: true, state: "normal",
+      tabs: [{ id: 1, title: "Page", url: "https://example.test/", active: true }] }] };
+    assert.equal((await h.request("window-bridge", inventory)).code, 200);
+    assert.equal(((await h.request("status")).payload as typeof before).windowControls.available, true);
+    await h.request("window-bridge", { ...inventory, windows: [] });
+    assert.equal(((await h.request("status")).payload as typeof before).windowControls.available, false);
+    await h.request("window-bridge", inventory);
+    await h.emit("browser:closed");
+    assert.equal(((await h.request("status")).payload as typeof before).windowControls.available, false);
+  } finally { await h.close(); }
+});
+
 test("device replay preserves hardware but refreshes language, location, paths and new settings", () => {
   const saved = { ...generated, "navigator.hardwareConcurrency": 4, timezone: "Old/Zone", addons: [join(tmpdir(), "stelz-test-addons", "old")] };
   const fresh = { ...generated, "navigator.languages": ["en-GB"], "window.history.length": 3, futureSetting: true };
@@ -40,7 +58,7 @@ type App = Parameters<typeof register>[0];
 type Handler = Parameters<App["post"]>[1];
 async function harness(mode: "direct" | "proxy" = "direct", waitForIP?: Promise<void>,
   fixture: { expected?: string; timeout?: number; ipError?: string; canonical?: boolean; port?: number } = {}) {
-  const root = mkdtempSync(join(tmpdir(), "stelz-regression-")), id = "identity-01";
+  const root = mkdtempSync(join(tmpdir(), "stelz-regression-")), id = "profile-01";
   const stateDir = join(root, id), upstream = join(root, "upstream"), binary = join(root, "browser");
   mkdirSync(stateDir); mkdirSync(join(upstream, "mcp/lib"), { recursive: true });
   writeFileSync(binary, "test browser binary");
@@ -309,7 +327,7 @@ test("canonical dispatch rejects tab-ID route injection before any HTTP request"
     for (const name of ["camofox_click", "camofox_type", "camofox_navigate", "camofox_scroll",
       "camofox_snapshot", "camofox_screenshot", "camofox_close_tab"]) {
       for (const invalid of [
-        "../local-profile/stop?ignored=", `${tabId}/evaluate?ignored=`, "../sessions/identity-01/storage_state",
+        "../local-profile/stop?ignored=", `${tabId}/evaluate?ignored=`, "../sessions/profile-01/storage_state",
         "%2e%2e/local-profile/stop?ignored=", "..\\local-profile\\stop?ignored=", `${tabId}%2fevaluate`,
         `${tabId}?userId=another`, `${tabId}#ignored`, `${tabId}/../`, `${tabId}\n`, `\t${tabId}`,
         ".", "..", "", undefined, null, 123, [tabId], { tabId },

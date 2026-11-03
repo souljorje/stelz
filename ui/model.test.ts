@@ -1,20 +1,20 @@
 import { describe, expect, test } from "bun:test";
 import { UI_ACTIONS } from "../src/ui-types";
-import type { UiIdentity, UiNetwork, UiPhase, UiSnapshot } from "../src/ui-types";
+import type { UiProfile, UiNetwork, UiPhase, UiSnapshot } from "../src/ui-types";
 import { actionReason, boundedLog, capacityUsed, homeCommand, mcpCommand, networkDraft, networkUpdate, proxyDisplay, redact, shellQuote } from "./model";
 
 const network: UiNetwork = { revision: "revision-1", mode: "direct", proxyEnv: null, expectedIPEnv: null, proxyDisplay: null, proxyConfigured: false, expectedIp: "203.0.113.1", proxyReadOnly: false, expectedIpReadOnly: false };
-function identity(phase: UiPhase, changes: Partial<UiIdentity> = {}): UiIdentity {
-  return { id: "identity-01", phase, port: 9340, mode: "direct", storage: "native", instanceId: null, exitIp: null, checkedAt: null, fixedIpVerified: false, controller: null, supervisorPid: null, serverPid: null, ownership: null, fingerprintSha256: null, engineSha256: null, error: null, controlError: null, configurationError: null, network, ...changes };
+function profile(phase: UiPhase, changes: Partial<UiProfile> = {}): UiProfile {
+  return { id: "profile-01", phase, port: 9340, mode: "direct", storage: "native", instanceId: null, exitIp: null, checkedAt: null, fixedIpVerified: false, windowControls: { available: false, reason: null }, controller: null, supervisorPid: null, serverPid: null, ownership: null, fingerprintSha256: null, engineSha256: null, error: null, controlError: null, configurationError: null, network, ...changes };
 }
-function context(row: UiIdentity) {
-  const snapshot: UiSnapshot = { home: "/tmp/stelz", version: "0.2.0", upstreamVersion: "1.18.1", initialized: true, setup: true, maxActive: 2, catalogRevision: "a".repeat(64), identities: [row], updatedAt: new Date().toISOString() };
+function context(row: UiProfile) {
+  const snapshot: UiSnapshot = { home: "/tmp/stelz", version: "0.2.0", upstreamVersion: "1.18.1", initialized: true, setup: true, maxActive: 2, catalogRevision: "a".repeat(64), profiles: [row], updatedAt: new Date().toISOString() };
   return { snapshot, connected: true, pending: false };
 }
 
 describe("lifecycle guards", () => {
   test("ready is independent of controller ownership", () => {
-    const row = identity("ready");
+    const row = profile("ready");
     expect(actionReason(row, "pause", context(row))).toBeNull();
     expect(actionReason(row, "release", context(row))).toContain("No controller");
     const held = { ...row, controller: { label: "MCP client", pid: 41, activeActions: 0, releasing: false } };
@@ -23,33 +23,33 @@ describe("lifecycle guards", () => {
   });
   test("transitions and uncertain process ownership disable every mutation", () => {
     for (const phase of ["starting", "stopping", "ownership_unknown", "unclean"] as const) {
-      const row = identity(phase, { controller: { label: "MCP client", pid: 42, activeActions: 0, releasing: false } });
+      const row = profile(phase, { controller: { label: "MCP client", pid: 42, activeActions: 0, releasing: false } });
       for (const action of UI_ACTIONS) expect(actionReason(row, action, context(row))).not.toBeNull();
     }
   });
   test("configuration and capacity block start", () => {
-    const row = identity("stopped", { configurationError: "Proxy is missing" });
+    const row = profile("stopped", { configurationError: "Proxy is missing" });
     expect(actionReason(row, "start", context(row))).toContain("configuration");
-    const clean = identity("stopped");
+    const clean = profile("stopped");
     const full = context(clean);
-    full.snapshot.identities.push(identity("ready"), identity("paused"));
-    expect(capacityUsed(full.snapshot.identities)).toBe(2);
+    full.snapshot.profiles.push(profile("ready"), profile("paused"));
+    expect(capacityUsed(full.snapshot.profiles)).toBe(2);
     expect(actionReason(clean, "start", full)).toContain("slots");
   });
   test("disconnected and pending states disable every mutation", () => {
-    const row = identity("ready");
+    const row = profile("ready");
     for (const action of UI_ACTIONS) {
       expect(actionReason(row, action, { ...context(row), connected: false })).not.toBeNull();
       expect(actionReason(row, action, { ...context(row), pending: true })).not.toBeNull();
     }
   });
   test("recheck does not grant resume to verification_failed", () => {
-    const row = identity("verification_failed");
+    const row = profile("verification_failed");
     expect(actionReason(row, "recheck", context(row))).toBeNull();
     expect(actionReason(row, "resume", context(row))).not.toBeNull();
   });
   test("direct connections need no IP check unless an expected IP is configured", () => {
-    const row = identity("ready", { network: { ...network, expectedIp: "" } });
+    const row = profile("ready", { network: { ...network, expectedIp: "" } });
     expect(actionReason(row, "recheck", context(row))).toContain("not enabled");
     expect(actionReason(row, "pause", context(row))).toBeNull();
   });
@@ -83,10 +83,10 @@ describe("display boundaries", () => {
     expect(boundedLog(Array.from({ length: 400 }, (_, i) => `line ${i}`).join("\n")).split("\n")).toHaveLength(300);
     expect(boundedLog("a".repeat(60_000)).length).toBeLessThanOrEqual(48_000);
   });
-  test("commands quote both the service home and the identity", () => {
+  test("commands quote both the service home and the profile", () => {
     const home = "/tmp/operator's browser home";
     expect(homeCommand("doctor", home)).toBe("STELZ_HOME='/tmp/operator'\"'\"'s browser home' stelz doctor");
-    expect(mcpCommand("identity-01", home)).toBe(`${homeCommand("mcp", home)} --identity 'identity-01'`);
+    expect(mcpCommand("profile-01", home)).toBe(`${homeCommand("mcp", home)} --profile 'profile-01'`);
     expect(shellQuote("$(touch /tmp/never-executed) 'value'")).toBe("'$(touch /tmp/never-executed) '\"'\"'value'\"'\"''");
   });
 });

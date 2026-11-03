@@ -15,7 +15,7 @@ catch { throw Error("Set a valid PROXY_TEST_URL in the private env file. Credent
 if (proxyURL.protocol !== "http:") throw Error("This acceptance test requires an HTTP proxy");
 const root = resolve(import.meta.dir, ".."); mkdirSync(join(root, ".state"), { recursive: true });
 const home = mkdtempSync(join(root, ".state/proxy-acceptance-")), cli = join(root, "dist/cli.js");
-const ids = ["identity-01", "identity-02"], clients: Client[] = [], report: unknown[] = [];
+const ids = ["profile-01", "profile-02"], clients: Client[] = [], report: unknown[] = [];
 const env: Record<string, string> = { STELZ_HOME: home };
 for (const key of ["PATH", "HOME", "LANG", "TMPDIR", "CAMOUFOX_EXECUTABLE"]) if (process.env[key]) env[key] = process.env[key]!;
 let site: Awaited<ReturnType<typeof fixture>> | undefined;
@@ -39,16 +39,16 @@ async function call(client: Client, name: string, args: Record<string, unknown> 
 }
 async function client(id: string) {
   const value = new Client({ name: "proxy-acceptance", version: "1.0.0" }); clients.push(value);
-  await value.connect(new StdioClientTransport({ command: Bun.which("bun")!, args: ["--no-env-file", cli, "mcp", "--identity", id], env }));
-  await call(value, "identity_acquire"); return value;
+  await value.connect(new StdioClientTransport({ command: Bun.which("bun")!, args: ["--no-env-file", cli, "mcp", "--profile", id], env }));
+  await call(value, "profile_acquire"); return value;
 }
 function configuration(mode: "direct" | "proxy", expected: string) {
-  writeFileSync(join(home, "identities.json"), JSON.stringify({ maxActive: 2, identities: ids.map((id, i) => ({ id, port: 9771 + i, mode, storage: "native", proxyEnv: "TEST_PROXY_URL", expectedIPEnv: "TEST_EXPECTED_IP" })) }));
+  writeFileSync(join(home, "profiles.json"), JSON.stringify({ maxActive: 2, profiles: ids.map((id, i) => ({ id, port: 9771 + i, mode, storage: "native", proxyEnv: "TEST_PROXY_URL", expectedIPEnv: "TEST_EXPECTED_IP" })) }));
   const address = relay.address(); assert(address && typeof address !== "string", "Proxy relay is unavailable");
   const url = new URL(proxyURL); url.hostname = "127.0.0.1"; url.port = String(address.port);
   writeFileSync(join(home, "secrets.env"), `TEST_PROXY_URL=${url.href}\nTEST_EXPECTED_IP=${expected}\n`, { mode: 0o600 });
 }
-const identityFile = (id: string, name: string) => join(home, "identities", id, name);
+const profileFile = (id: string, name: string) => join(home, "profiles", id, name);
 async function capture(c: Client, id: string, stage: string, initialize = false): Promise<Observation> {
   const key = `${stage}-${id}`;
   const tab = await call(c, "camofox_create_tab", { url: `http://127.0.0.1:9710/?network=1&capture=${key}` });
@@ -83,7 +83,7 @@ try {
   await command("init"); configuration("direct", ""); await command("setup"); site = await fixture(9710);
   await Promise.all(ids.map(id => command("start", id)));
   const pins: Record<string, string> = {}, before: Record<string, Observation> = {}, proxied: Record<string, Observation> = {};
-  for (const id of ids) { const c = await client(id); before[id] = await capture(c, id, "direct", true); pins[id] = readFileSync(identityFile(id, "fingerprint.json"), "utf8"); }
+  for (const id of ids) { const c = await client(id); before[id] = await capture(c, id, "direct", true); pins[id] = readFileSync(profileFile(id, "fingerprint.json"), "utf8"); }
   await closeClients(); await command("stop", "all"); configuration("proxy", ip.ip);
   for (const stage of ["proxy", "proxy-restart"]) {
     await Promise.all(ids.map(id => command("start", id)));
@@ -91,19 +91,19 @@ try {
       const c = await client(id), sample = await capture(c, id, stage);
       assert(sample.exitIp === ip.ip, "Browser exit IP changed"); assert(sample.webRTCEnabled === false, "WebRTC remains enabled behind the proxy");
       assert(sample.exitIp !== before[id]!.exitIp, "Proxy used the direct exit IP");
-      assert(readFileSync(identityFile(id, "fingerprint.json"), "utf8") === pins[id], "Device pin changed during proxy transition");
+      assert(readFileSync(profileFile(id, "fingerprint.json"), "utf8") === pins[id], "Device pin changed during proxy transition");
       const comparison = compareObservations(stage === "proxy" ? before[id]! : proxied[id]!, sample);
       const differences = comparison.stableDifferences.filter(key => stage !== "proxy" || !["languages", "timezone"].includes(key));
       assert(differences.length === 0, `Device drift: ${differences.join(", ")}`);
       if (stage === "proxy") proxied[id] = sample;
-      report.push({ check: stage, identity: id, sample, ...comparison });
+      report.push({ check: stage, profile: id, sample, ...comparison });
     }
     await closeClients(); await command("stop", "all");
   }
   configuration("proxy", "192.0.2.1");
   await command("start", ids[0]!);
   const mismatch = await client(ids[0]!);
-  assert((await call(mismatch, "identity_status")).phase === "verification_failed", "Mismatched expected IP did not block the identity");
+  assert((await call(mismatch, "profile_status")).phase === "verification_failed", "Mismatched expected IP did not block the profile");
   let rejected = false;
   try { await call(mismatch, "camofox_list_tabs"); } catch { rejected = true; }
   assert(rejected, "Mismatched expected IP permitted browser actions");
@@ -112,7 +112,7 @@ try {
   report.push({ check: "Mismatched expected IP blocks browser actions", result: "passed" });
   configuration("proxy", ip.ip); await Promise.all(ids.map(id => command("start", id)));
   const active = await Promise.all(ids.map(client));
-  const instances = ids.map(id => readFileSync(identityFile(id, "running.json"), "utf8"));
+  const instances = ids.map(id => readFileSync(profileFile(id, "running.json"), "utf8"));
   const address = relay.address();
   assert(address && typeof address !== "string", "Proxy relay is unavailable");
   const relayPort = address.port;
@@ -122,15 +122,15 @@ try {
   await Promise.all(active.map(async (c, i) => {
     let blocked = false; try { await call(c, "camofox_list_tabs"); } catch { blocked = true; }
     assert(blocked, "Browser action succeeded after proxy loss");
-    const status = await call(c, "identity_status"); assert(status.phase === "verification_failed", "Proxy loss did not block the identity");
-    assert(readFileSync(identityFile(ids[i]!, "running.json"), "utf8") === instances[i], "Proxy loss replaced the browser service");
+    const status = await call(c, "profile_status"); assert(status.phase === "verification_failed", "Proxy loss did not block the profile");
+    assert(readFileSync(profileFile(ids[i]!, "running.json"), "utf8") === instances[i], "Proxy loss replaced the browser service");
   }));
-  report.push({ check: "Live proxy loss blocks both identities without direct fallback or replacement", result: "passed" });
+  report.push({ check: "Live proxy loss blocks both profiles without direct fallback or replacement", result: "passed" });
   await new Promise<void>(resolve => relay.listen(relayPort, "127.0.0.1", resolve));
   await Promise.all(active.map(async (c, i) => {
-    await call(c, "identity_recheck");
+    await call(c, "profile_recheck");
     await call(c, "camofox_list_tabs");
-    assert(readFileSync(identityFile(ids[i]!, "running.json"), "utf8") === instances[i], "Recheck replaced the browser service");
+    assert(readFileSync(profileFile(ids[i]!, "running.json"), "utf8") === instances[i], "Recheck replaced the browser service");
   }));
   report.push({ check: "Explicit recheck restores control after proxy recovery", result: "passed" });
 } catch (error) {

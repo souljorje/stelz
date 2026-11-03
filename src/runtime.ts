@@ -1,10 +1,7 @@
 import {
   closeSync,
-  constants,
   existsSync,
   fstatSync,
-  ftruncateSync,
-  lstatSync,
   openSync,
   readdirSync,
   readFileSync,
@@ -12,16 +9,19 @@ import {
   renameSync,
   statSync,
   writeFileSync,
-  writeSync,
 } from "node:fs";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
-import { dlopen, FFIType, ptr } from "bun:ffi";
+import { lock, observe, observeStatus, isRuntimePhase, processStart, running, type Running } from "./profile-process.ts";
+export { assertStoppedProfile, lock, processStart, running, type Running } from "./profile-process.ts";
+import { prepareProfileConfiguration, recoverProfileCatalog } from "./profile-configuration.ts";
+import { normalizeProfileId } from "./profile-compat.ts";
 import {
-  NetworkTransactionError, networkTransactionIdentity, pendingNetworkTransaction, recoverNetworkTransaction,
+  pendingNetworkTransaction,
 } from "./network-transaction.ts";
 import {
   HOME_DIR,
+  CONFIG_FILE,
   STATE,
   settings,
   profile,
@@ -29,7 +29,6 @@ import {
   initDir,
   save,
   json,
-  alive,
   base,
   configurationHash,
   entry,
@@ -37,247 +36,21 @@ import {
   type Profile,
 } from "./config.ts";
 
-// Keep the lock inode in place. The kernel releases flock when a process dies,
-// so competing stale-lock recoveries cannot unlink each other's new lock.
-const system = dlopen(process.platform === "darwin" ? "/usr/lib/libSystem.B.dylib" : "libc.so.6", {
-  flock: { args: [FFIType.i32, FFIType.i32], returns: FFIType.i32 },
-});
-const proc =
-  process.platform === "darwin"
-    ? dlopen("/usr/lib/libproc.dylib", {
-        proc_pidinfo: {
-          args: [FFIType.i32, FFIType.i32, FFIType.u64, FFIType.ptr, FFIType.i32],
-          returns: FFIType.i32,
-        },
-      })
-    : undefined;
-const macSysctl =
-  process.platform === "darwin"
-    ? dlopen("/usr/lib/libSystem.B.dylib", {
-        sysctl: {
-          args: [FFIType.ptr, FFIType.u32, FFIType.ptr, FFIType.ptr, FFIType.ptr, FFIType.u64],
-          returns: FFIType.i32,
-        },
-      })
-    : undefined;
-
-type Lock = { pid: number; token: string; version?: number };
-export async function lock<T>(path: string, action: () => Promise<T>, timeout = 45000): Promise<T> {
-  const token = crypto.randomUUID(),
-    end = Date.now() + timeout;
-  const flags = constants.O_CREAT | constants.O_RDWR | constants.O_APPEND | constants.O_NOFOLLOW;
-  const fd = openSync(path, flags, 0o600);
-  let held = false;
-  try {
-    const opened = fstatSync(fd);
-    if (!opened.isFile() || opened.nlink !== 1) throw Error(`Invalid lock file: ${path}`);
-    for (;;) {
-      if (system.symbols.flock(fd, 2 | 4) === 0) {
-        held = true;
-        // Refuse an unlinked/replaced inode, including one left by an older client.
-        let same = false;
-        try {
-          const a = fstatSync(fd);
-          const b = lstatSync(path);
-          same =
-            a.isFile() && b.isFile() && a.nlink === 1 && b.nlink === 1 && a.dev === b.dev && a.ino === b.ino;
-        } catch {}
-        if (!same) throw Error(`Lock file changed during acquisition: ${path}`);
-        let previous: Lock | undefined;
-        try {
-          const buffer = Buffer.alloc(4096);
-          const length = readSync(fd, buffer, 0, buffer.length, 0);
-          previous = JSON.parse(buffer.subarray(0, length).toString("utf8")) as Lock;
-        } catch {}
-        // Old versions did not use flock. Do not run alongside a live old owner.
-        if (
-          !previous ||
-          previous.version === 2 ||
-          !Number.isInteger(previous.pid) ||
-          previous.pid <= 1 ||
-          !alive(previous.pid)
-        ) {
-          ftruncateSync(fd, 0);
-          writeSync(fd, JSON.stringify({ version: 2, pid: process.pid, token }));
-          break;
-        }
-        system.symbols.flock(fd, 8);
-        held = false;
-      }
-      if (Date.now() >= end) throw Error("Identity operation is busy. Wait for the current action.");
-      await Bun.sleep(50);
-    }
-    return await action();
-  } finally {
-    if (held) system.symbols.flock(fd, 8);
-    closeSync(fd);
-  }
-}
-
-// A PID alone is not ownership: it may already belong to a different process.
-// Darwin reports an absolute start time; Linux reports boot ID and start ticks.
-function isMacZombie(pid: number): boolean {
-  if (!macSysctl) return false;
-  // CTL_KERN/KERN_PROC/KERN_PROC_PID returns kinfo_proc, including zombies.
-  const mib = Buffer.alloc(16);
-  [1, 14, 1, pid].forEach((value, index) => mib.writeInt32LE(value, index * 4));
-  const data = Buffer.alloc(2048);
-  const size = Buffer.alloc(8);
-  size.writeBigUInt64LE(BigInt(data.length));
-  return (
-    macSysctl.symbols.sysctl(ptr(mib), 4, ptr(data), ptr(size), null, 0) === 0 &&
-    size.readBigUInt64LE() >= 44n &&
-    data.readInt32LE(40) === pid &&
-    data[36] === 5
-  );
-}
-
-function processInfo(pid: number): { start?: string; zombie?: boolean } | undefined {
-  if (!Number.isInteger(pid) || pid <= 1) return;
-  try {
-    if (proc) {
-      const data = Buffer.alloc(136);
-      if (
-        proc.symbols.proc_pidinfo(pid, 3, 0, ptr(data), data.length) !== data.length ||
-        data.readUInt32LE(12) !== pid
-      )
-        return isMacZombie(pid) ? { zombie: true } : undefined;
-      if (data.readUInt32LE(4) === 5) return { zombie: true };
-      if (process.getuid && data.readUInt32LE(20) !== process.getuid()) return;
-      return { start: `darwin:${data.readBigUInt64LE(120)}:${data.readBigUInt64LE(128)}` };
-    }
-    if (process.platform === "linux") {
-      const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
-      const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
-      if (fields[0] === "Z") return { zombie: true };
-      if (!fields[19]) return;
-      return { start: `linux:${readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim()}:${fields[19]}` };
-    }
-  } catch {}
-}
-
-export function processStart(pid: number): string | undefined {
-  return processInfo(pid)?.start;
-}
-
-export type Running = {
-  pid: number;
-  serverPid?: number;
-  instanceId: string;
-  configurationHash: string;
-  port?: number;
-  version?: 2;
-  supervisorStart?: string;
-  serverStart?: string;
-  serverState?: "not-started" | "started";
-};
-type Ownership = "owned" | "missing" | "different" | "unverified";
 function isLegacy(record: Running) {
   return record.version === undefined && record.supervisorStart === undefined &&
     record.serverStart === undefined && record.serverState === undefined;
 }
-const runtimePhases = [
-  "starting",
-  "ready",
-  "paused",
-  "verification_failed",
-  "blocked",
-  "stopping",
-  "stopped",
-  "orphaned",
-  "ownership_unknown",
-  "unclean",
-] as const;
-export type RuntimePhase = (typeof runtimePhases)[number];
-function isRuntimePhase(value: unknown): value is RuntimePhase {
-  return typeof value === "string" && (runtimePhases as readonly string[]).includes(value);
-}
-function ownership(pid: number | undefined, expected: string | undefined): Ownership {
-  if (!Number.isInteger(pid) || !pid || pid <= 1) return "missing";
-  const info = processInfo(pid);
-  if (info?.zombie) return "missing";
-  const actual = info?.start;
-  if (!actual) return alive(pid) ? "unverified" : "missing";
-  return !expected ? "unverified" : actual === expected ? "owned" : "different";
-}
-function observe(id: string, directory = dir(id)) {
-  const record = json<Running>(join(directory, "running.json"));
-  if (
-    record !== undefined &&
-    (!record ||
-      typeof record !== "object" ||
-      !Number.isSafeInteger(record.pid) ||
-      record.pid < 0 ||
-      record.pid === 1 ||
-      typeof record.instanceId !== "string" ||
-      !record.instanceId ||
-      (record.serverPid !== undefined &&
-        (!Number.isSafeInteger(record.serverPid) || record.serverPid <= 1)) ||
-      (record.port !== undefined &&
-        (!Number.isInteger(record.port) || record.port < 1024 || record.port > 65535)) ||
-      (record.supervisorStart !== undefined && typeof record.supervisorStart !== "string") ||
-      (record.serverStart !== undefined && typeof record.serverStart !== "string") ||
-      (record.serverState !== undefined && !["started", "not-started"].includes(record.serverState)) ||
-      (record.serverState === "started" && !record.serverPid) ||
-      (record.serverState === "not-started" && !!record.serverPid))
-  )
-    throw Error(`${id}: invalid process record; inspect it before recovery.`);
-  const supervisor = ownership(record?.pid, record?.supervisorStart);
-  const server = ownership(record?.serverPid, record?.serverStart);
-  const clean =
-    !!record && json<{ instanceId: string }>(join(directory, "stopped.json"))?.instanceId === record.instanceId;
-  return { record, supervisor, server, clean };
-}
-export function assertStoppedIdentity(id: string, directory = dir(id)) {
-  const o = observe(id, directory);
-  if (o.record && (o.record.version !== undefined && o.record.version !== 2 || !o.clean ||
-      [o.supervisor, o.server].some(value => value === "owned" || value === "unverified")))
-    throw Error("Stop the identity cleanly before deleting it or changing its configuration.");
-}
-export function running(id: string): Running | undefined {
-  const o = observe(id);
-  // A reservation may still be claimed by a supervisor waiting on admission.lock.
-  if (
-    o.record &&
-    ([o.supervisor, o.server].some((s) => s === "owned" || s === "unverified") ||
-      (o.record.pid === 0 && !o.clean))
-  )
-    return o.record;
-}
 export function status(id: string) {
-  const p = profile(id),
-    o = observe(id);
-  const stored = json<Record<string, unknown>>(join(dir(id), "status.json"));
-  let phase: RuntimePhase =
-    stored?.phase === undefined ? "starting" : isRuntimePhase(stored.phase) ? stored.phase : "unclean";
-  if (!o.record) phase = "stopped";
-  else if (o.supervisor === "unverified" || o.server === "unverified") phase = "ownership_unknown";
-  else if (o.supervisor !== "owned" && o.server === "owned") phase = "orphaned";
-  else if (o.supervisor === "owned" && o.record.serverState === "not-started") phase = "starting";
-  else if (o.supervisor !== "owned" || o.server !== "owned")
-    phase = o.clean && o.server !== "owned" && o.supervisor !== "owned" ? "stopped" : "unclean";
-  return {
-    identityId: id,
-    mode: p.mode,
-    ...stored,
-    phase,
-    ...(o.record
-      ? {
-          supervisorPid: o.record.pid || undefined,
-          serverPid: o.record.serverPid,
-          ownership: { supervisor: o.supervisor, server: o.server },
-        }
-      : {}),
-  };
+  return observeStatus(profile(id));
 }
 export function assertRunning(id: string, validateConfiguration = false) {
   const p = profile(id),
     o = observe(id);
-  if (!o.record) throw Error(`Identity is stopped. Run stelz start ${id}.`);
+  if (!o.record) throw Error(`Profile is stopped. Run stelz start ${id}.`);
   if (o.supervisor !== "owned" || o.server !== "owned")
     throw Error(`${id}: process ownership or supervisor is unavailable. Run stelz doctor ${id}.`);
   if (validateConfiguration && o.record.configurationHash !== configurationHash(p))
-    throw Error("Identity configuration changed. Stop the identity before you restart it.");
+    throw Error("Profile configuration changed. Stop the profile before you restart it.");
   return p;
 }
 
@@ -298,25 +71,25 @@ async function serviceRequest(p: Profile, method: string, action: string, timeou
     signal: AbortSignal.timeout(timeout),
     redirect: "error",
   });
-  const payload = (await response.json()) as Record<string, unknown>;
-  if (!response.ok) throw Error(String(payload.error || `Identity control returned ${response.status}.`));
+  const payload = normalizeProfileId(await response.json() as Record<string, unknown>);
+  if (!response.ok) throw Error(String(payload.error || `Profile control returned ${response.status}.`));
   return payload;
 }
 
 // Legacy records cannot establish PID ownership. An explicit stop can still use
-// the authenticated endpoint after matching its saved identity and instance.
+// the authenticated endpoint after matching its saved profile and instance.
 // Never promote these PIDs to verified ownership or use the signal fallback.
 async function stopLegacy(id: string, record: Running) {
   const p = profile(id);
   if (record.configurationHash !== configurationHash(p)) {
-    throw Error(`${id}: restore the legacy launch configuration before stopping this identity.`);
+    throw Error(`${id}: restore the legacy launch configuration before stopping this profile.`);
   }
-  const saved = json<{ identityId?: string; instanceId?: string }>(join(dir(id), "status.json"));
-  if (saved?.identityId !== id || !saved.instanceId || typeof saved.instanceId !== "string") {
-    throw Error(`${id}: the saved legacy service identity is missing. Inspect the service before stopping it.`);
+  const saved = normalizeProfileId(json<Record<string, unknown>>(join(dir(id), "status.json")) || {});
+  if (saved?.profileId !== id || !saved.instanceId || typeof saved.instanceId !== "string") {
+    throw Error(`${id}: the saved legacy service profile is missing. Inspect the service before stopping it.`);
   }
   const remote = await serviceRequest(p, "GET", "status", 2000);
-  if (remote.identityId !== id || remote.instanceId !== saved.instanceId) {
+  if (remote.profileId !== id || remote.instanceId !== saved.instanceId) {
     throw Error(`${id}: the endpoint does not match the saved legacy service. No stop was requested.`);
   }
   const unchanged = () => JSON.stringify(observe(id).record) === JSON.stringify(record);
@@ -350,9 +123,7 @@ export async function reportStatus(id: string) {
 
 export async function start(id: string) {
   settings();
-  await lock(join(STATE, "admission.lock"), async () => {
-    await (await import("./identity-catalog.ts")).recoverIdentityCatalog();
-    await recoverNetworkConfiguration();
+  await prepareProfileConfiguration(async () => {
     const p = profile(id), configHash = configurationHash(p);
     initDir(id);
     if (!existsSync(join(HOME_DIR, "runtime/versions.json"))) throw Error("Run stelz setup first.");
@@ -361,21 +132,21 @@ export async function start(id: string) {
       if (o.supervisor !== "owned" || o.server === "unverified" || o.server === "different")
         throw Error(`${id}: the previous service needs inspection. Run stelz doctor ${id}.`);
       if (o.record?.configurationHash !== configHash)
-        throw Error("Identity configuration changed. Stop the identity before you restart it.");
+        throw Error("Profile configuration changed. Stop the profile before you restart it.");
       if (["stopping", "stopped"].includes(String(status(id).phase)))
-        throw Error("The browser is closing. Wait for shutdown before starting this identity.");
+        throw Error("The browser is closing. Wait for shutdown before starting this profile.");
       return;
     }
     if (o.record && !o.clean)
       throw Error(
         `${id}: previous stop was not clean. Run stelz recover ${id} after inspecting its processes.`,
       );
-    const identities = readdirSync(STATE, { withFileTypes: true });
-    if (identities.some((item) => item.isSymbolicLink()))
-      throw Error("Identity state contains a symbolic link.");
-    const active = identities.filter((item) => item.isDirectory() && running(item.name)).length;
+    const profiles = readdirSync(STATE, { withFileTypes: true });
+    if (profiles.some((item) => item.isSymbolicLink()))
+      throw Error("Profile state contains a symbolic link.");
+    const active = profiles.filter((item) => item.isDirectory() && running(item.name)).length;
     if (active >= settings().maxActive)
-      throw Error("The browser limit is reached. Stop another identity first.");
+      throw Error("The browser limit is reached. Stop another profile first.");
     if (!existsSync(join(dir(id), "access-key")))
       writeFileSync(join(dir(id), "access-key"), crypto.randomUUID(), { mode: 0o600, flag: "wx" });
     const instanceId = crypto.randomUUID(),
@@ -427,7 +198,7 @@ export async function start(id: string) {
           initialized?.instanceId === o.record.instanceId
         )
           return s;
-        if (s.phase === "blocked") throw Error(String(s.error || "Identity is blocked."));
+        if (s.phase === "blocked") throw Error(String(s.error || "Profile is blocked."));
         if (["stopping", "stopped"].includes(String(s.phase))) throw Error("The browser closed during launch. Wait for shutdown before starting it again.");
       } catch (e) {
         if (!/fetch|connect|ECONN|timed out|timeout/i.test(String(e))) throw e;
@@ -438,32 +209,14 @@ export async function start(id: string) {
   throw Error(`${id}: launch exceeded its time limit. The service was left intact; run stelz doctor ${id}.`);
 }
 
-// The caller holds admission.lock. Recovery uses the same lock order as stop and UI saves.
-export async function recoverNetworkConfiguration() {
-  const id = networkTransactionIdentity();
-  if (!id) return;
-  try {
-    await lock(join(dir(id), "lifecycle.lock"), async () => {
-      const o = observe(id);
-      if (o.record && (o.record.version !== undefined && o.record.version !== 2 || !o.clean ||
-          [o.supervisor, o.server].some(value => value === "owned" || value === "unverified")))
-        throw new NetworkTransactionError("Stop the journal identity cleanly before network recovery.", id);
-      recoverNetworkTransaction();
-    });
-  } catch (error) {
-    if (error instanceof NetworkTransactionError) throw error;
-    throw new NetworkTransactionError("Cannot verify the stopped identity for network recovery.", id);
-  }
-}
-
 export async function stop(id: string) {
   profile(id);
   return lock(join(STATE, "admission.lock"), async () => {
     // A pending deletion may already have archived this directory. Never create
-    // a replacement while recovering its catalog entry. Existing live identities
+    // a replacement while recovering its catalog entry. Existing live profiles
     // remain stoppable even when another catalog transaction needs inspection.
     if (!existsSync(dir(id))) {
-      await (await import("./identity-catalog.ts")).recoverIdentityCatalog();
+      await recoverProfileCatalog();
       return status(id);
     }
     return lock(join(dir(id), "lifecycle.lock"), async () => {
@@ -517,7 +270,7 @@ export async function recover(id: string) {
   profile(id);
   return lock(join(STATE, "admission.lock"), async () => {
     if (!existsSync(dir(id))) {
-      await (await import("./identity-catalog.ts")).recoverIdentityCatalog();
+      await recoverProfileCatalog();
       return status(id);
     }
     return lock(join(dir(id), "lifecycle.lock"), async () => {
@@ -573,21 +326,21 @@ export function logs(id: string, lines = 100) {
       if (fd !== undefined) closeSync(fd);
     }
   };
-  return { identityId: id, server: read("server.log"), supervisor: read("supervisor.log") };
+  return { profileId: id, server: read("server.log"), supervisor: read("supervisor.log") };
 }
 export async function doctor(target?: string) {
   const pending = pendingNetworkTransaction();
   const result: Record<string, unknown> = {
     home: HOME_DIR,
-    initialized: existsSync(join(HOME_DIR, "identities.json")),
+    initialized: existsSync(CONFIG_FILE),
     setup: existsSync(join(HOME_DIR, "runtime/versions.json")),
     node: !!Bun.which("node"),
     browserExecutable: existsSync(executable()),
     ...(pending ? { networkRecovery: pending.message } : {}),
   };
   if (!result.initialized) return result;
-  const ids = target && target !== "all" ? [target] : settings().identities.map((p) => p.id);
-  result.identities = await Promise.all(
+  const ids = target && target !== "all" ? [target] : settings().profiles.map((p) => p.id);
+  result.profiles = await Promise.all(
     ids.map(async (id) => {
       const p = profile(id);
       let configuration: string = "ok";
@@ -596,7 +349,7 @@ export async function doctor(target?: string) {
       } catch (e) {
         configuration = (e as Error).message;
       }
-      if (pending && (!pending.identityId || pending.identityId === id)) configuration = pending.message;
+      if (pending && (!pending.profileId || pending.profileId === id)) configuration = pending.message;
       return {
         ...(await reportStatus(id)),
         configuration,

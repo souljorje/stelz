@@ -27,11 +27,11 @@ const dead = 2147483647;
 type Fixture = { home: string; idDir: string; profile: Profile };
 function fixture(port = 19471): Fixture {
   const home = mkdtempSync(join(tmpdir(), "stelz-lifecycle-")),
-    idDir = join(home, "identities", "test");
+    idDir = join(home, "profiles", "test");
   const profile: Profile = { id: "test", port, mode: "direct" };
   mkdirSync(idDir, { recursive: true });
   mkdirSync(join(home, "runtime"));
-  writeFileSync(join(home, "identities.json"), JSON.stringify({ maxActive: 2, identities: [profile] }));
+  writeFileSync(join(home, "profiles.json"), JSON.stringify({ maxActive: 2, profiles: [profile] }));
   writeFileSync(join(home, "runtime/versions.json"), "{}");
   writeFileSync(join(idDir, "access-key"), "test-key");
   return { home, idDir, profile };
@@ -167,19 +167,20 @@ test("legacy services stop through authenticated HTTP without adopting their PID
     expect(req.headers.get("authorization")).toBe("Bearer test-key");
     calls.push(`${req.method} ${new URL(req.url).pathname}`);
     if (req.method === "POST") {
-      writeFileSync(join(f.idDir, "status.json"), JSON.stringify({ identityId: "test", instanceId, phase: "stopped" }));
+      writeFileSync(join(f.idDir, "status.json"), JSON.stringify({ profileId: "test", instanceId, phase: "stopped" }));
       writeFileSync(join(f.idDir, "stopped.json"), JSON.stringify({ instanceId: "test-instance" }));
       child.kill("SIGTERM");
       return Response.json({ stopping: true });
     }
-    return Response.json({ identityId: "test", instanceId, phase: "ready" });
+    return Response.json({ profileId: "test", instanceId, phase: "ready" });
   } });
   f = fixture(service.port!);
   try {
     legacyRecord(f, { pid: child.pid, serverPid: child.pid });
-    writeFileSync(join(f.idDir, "status.json"), JSON.stringify({ identityId: "test", instanceId, phase: "ready" }));
+    writeFileSync(join(f.idDir, "status.json"), JSON.stringify({ profileId: "test", instanceId, phase: "ready" }));
     const before = readFileSync(join(f.idDir, "running.json"), "utf8");
     const result = await run(f, "stop", "test");
+    expect(result.stderr).toBe("");
     expect(result.code).toBe(0);
     expect(JSON.parse(result.stdout).phase).toBe("stopped");
     expect(calls).toEqual(["GET /local-profile/status", "POST /local-profile/stop"]);
@@ -211,8 +212,8 @@ test("a legacy clean marker cannot conceal a live unverified server", async () =
 
 test("legacy stop rejects an unrelated or unauthenticated endpoint", async () => {
   for (const response of [
-    { identityId: "another-identity", instanceId: "saved-instance" },
-    { identityId: "test", instanceId: "another-instance" },
+    { profileId: "another-profile", instanceId: "saved-instance" },
+    { profileId: "test", instanceId: "another-instance" },
     { error: "Forbidden" },
   ]) {
     const calls: string[] = [];
@@ -223,7 +224,7 @@ test("legacy stop rejects an unrelated or unauthenticated endpoint", async () =>
     const f = fixture(service.port!);
     try {
       legacyRecord(f);
-      writeFileSync(join(f.idDir, "status.json"), JSON.stringify({ identityId: "test", instanceId: "saved-instance", phase: "ready" }));
+      writeFileSync(join(f.idDir, "status.json"), JSON.stringify({ profileId: "test", instanceId: "saved-instance", phase: "ready" }));
       const before = readFileSync(join(f.idDir, "running.json"), "utf8");
       expect((await run(f, "stop", "test")).code).toBe(1);
       expect(calls).toEqual(["GET"]);
@@ -238,9 +239,9 @@ test("legacy stop refuses changed configuration and missing instance evidence", 
   const f = fixture(service.port!);
   try {
     legacyRecord(f);
-    expect((await run(f, "stop", "test")).stderr).toContain("saved legacy service identity is missing");
-    writeFileSync(join(f.idDir, "status.json"), JSON.stringify({ identityId: "test", instanceId: "saved-instance" }));
-    writeFileSync(join(f.home, "identities.json"), JSON.stringify({ maxActive: 2, identities: [{ ...f.profile, storage: "native" }] }));
+    expect((await run(f, "stop", "test")).stderr).toContain("saved legacy service profile is missing");
+    writeFileSync(join(f.idDir, "status.json"), JSON.stringify({ profileId: "test", instanceId: "saved-instance" }));
+    writeFileSync(join(f.home, "profiles.json"), JSON.stringify({ maxActive: 2, profiles: [{ ...f.profile, storage: "native" }] }));
     expect((await run(f, "stop", "test")).stderr).toContain("restore the legacy launch configuration");
     expect(calls).toBe(0);
   } finally { service.stop(true); dispose(f); }
@@ -252,12 +253,12 @@ test("legacy stop refuses a lifetime replaced during endpoint verification", asy
   const service = Bun.serve({ port: 0, fetch(req) {
     calls.push(req.method);
     record(f, { instanceId: "replacement" });
-    return Response.json({ identityId: "test", instanceId: "saved-instance" });
+    return Response.json({ profileId: "test", instanceId: "saved-instance" });
   } });
   f = fixture(service.port!);
   try {
     legacyRecord(f);
-    writeFileSync(join(f.idDir, "status.json"), JSON.stringify({ identityId: "test", instanceId: "saved-instance" }));
+    writeFileSync(join(f.idDir, "status.json"), JSON.stringify({ profileId: "test", instanceId: "saved-instance" }));
     expect((await run(f, "stop", "test")).stderr).toContain("legacy process record changed");
     expect(calls).toEqual(["GET"]);
     expect(JSON.parse(readFileSync(join(f.idDir, "running.json"), "utf8")).instanceId).toBe("replacement");
@@ -271,7 +272,7 @@ test("a changed configuration port cannot redirect control to another service", 
     port: 0,
     fetch() {
       intendedCalls++;
-      return Response.json({ checked: true });
+      return Response.json({ checked: true, identityId: "test", phase: "ready" });
     },
   });
   const unrelated = Bun.serve({
@@ -283,11 +284,12 @@ test("a changed configuration port cannot redirect control to another service", 
   });
   const f = fixture(intended.port!);
   const client = new Client({ name: "port-test", version: "1" });
+  const legacyClient = new Client({ name: "legacy-port-test", version: "1" });
   try {
     record(f);
     writeFileSync(
-      join(f.home, "identities.json"),
-      JSON.stringify({ maxActive: 2, identities: [{ ...f.profile, port: unrelated.port }] }),
+      join(f.home, "profiles.json"),
+      JSON.stringify({ maxActive: 2, profiles: [{ ...f.profile, port: unrelated.port }] }),
     );
     const result = await run(f, "recheck", "test");
     expect(result.code).toBe(0);
@@ -301,28 +303,47 @@ test("a changed configuration port cannot redirect control to another service", 
     `);
     await client.connect(new StdioClientTransport({
       command: bun,
-      args: ["--no-env-file", cli, "mcp", "--identity", "test"],
+      args: ["--no-env-file", cli, "mcp", "--profile", "test"],
       env: { ...process.env, STELZ_HOME: f.home } as Record<string, string>,
     }));
     const listed = (await client.listTools()).tools.map(tool => tool.name);
     expect(listed).toContain("camofox_snapshot");
-    expect(listed).toContain("identity_recheck");
+    expect(listed).toContain("profile_recheck");
     expect(listed).not.toContain("camofox_evaluate");
     expect(listed).not.toContain("camofox_import_cookies");
-    expect((await client.callTool({ name: "identity_acquire", arguments: {} })).isError).not.toBe(true);
-    expect((await client.callTool({ name: "identity_recheck", arguments: {} })).isError).not.toBe(true);
-    expect((await client.callTool({ name: "identity_release", arguments: {} })).isError).not.toBe(true);
+    expect((await client.callTool({ name: "profile_acquire", arguments: {} })).isError).not.toBe(true);
+    expect((await client.callTool({ name: "profile_recheck", arguments: {} })).isError).not.toBe(true);
+    expect((await client.callTool({ name: "profile_release", arguments: {} })).isError).not.toBe(true);
     expect(intendedCalls).toBe(4);
     expect(unrelatedCalls).toBe(0);
+    await legacyClient.connect(new StdioClientTransport({
+      command: bun,
+      args: ["--no-env-file", cli, "mcp", "--identity", "test"],
+      env: { ...process.env, STELZ_HOME: f.home } as Record<string, string>,
+    }));
+    const legacyList = (await legacyClient.listTools()).tools.map(tool => tool.name);
+    expect(legacyList).toContain("profile_acquire");
+    expect(legacyList.some(name => name.startsWith("identity_"))).toBe(false);
+    const legacyStatus = await legacyClient.callTool({ name: "identity_status", arguments: {} });
+    expect(legacyStatus.isError).not.toBe(true);
+    const payload = JSON.parse((legacyStatus.content as { text: string }[])[0]!.text);
+    expect(payload.profileId).toBe("test");
+    expect(payload.identityId).toBe("test");
+    for (const action of ["acquire", "pause", "resume", "recheck", "release"])
+      expect((await legacyClient.callTool({ name: `identity_${action}`, arguments: {} })).isError).not.toBe(true);
+    expect(intendedCalls).toBe(10);
+    expect(unrelatedCalls).toBe(0);
+    expect((await run(f, "mcp", "--profile", "test", "--identity", "test")).stderr).toContain("stelz mcp --profile ID");
   } finally {
     await client.close();
+    await legacyClient.close();
     intended.stop(true);
     unrelated.stop(true);
     dispose(f);
   }
 });
 
-test("recovery archives only safe records and keeps identity data", async () => {
+test("recovery archives only safe records and keeps profile data", async () => {
   const f = fixture();
   try {
     const data = join(f.idDir, "browser-data");
@@ -354,11 +375,11 @@ test("recovery archives only safe records and keeps identity data", async () => 
   }
 });
 
-test("the browser limit counts live identities removed from configuration", async () => {
+test("the browser limit counts live profiles removed from configuration", async () => {
   const f = fixture();
   try {
-    writeFileSync(join(f.home, "identities.json"), JSON.stringify({ maxActive: 1, identities: [f.profile] }));
-    const removed = join(f.home, "identities", "removed");
+    writeFileSync(join(f.home, "profiles.json"), JSON.stringify({ maxActive: 1, profiles: [f.profile] }));
+    const removed = join(f.home, "profiles", "removed");
     mkdirSync(removed);
     writeFileSync(
       join(removed, "running.json"),
@@ -384,7 +405,7 @@ test("the browser limit counts live identities removed from configuration", asyn
 
 test("concurrent stale-lock recovery serializes across processes", async () => {
   const f = fixture(),
-    lockFile = join(f.home, "identities", "admission.lock"),
+    lockFile = join(f.home, "profiles", "admission.lock"),
     events = join(f.home, "events");
   try {
     writeFileSync(lockFile, JSON.stringify({ pid: dead, token: "stale" }));
@@ -430,9 +451,9 @@ test("lifecycle commands reject lock symlinks without overwriting configuration"
   ]) {
     const f = fixture();
     try {
-      const target = join(f.home, "identities.json");
+      const target = join(f.home, "profiles.json");
       const before = readFileSync(target, "utf8");
-      symlinkSync(target, join(f.home, "identities", name!));
+      symlinkSync(target, join(f.home, "profiles", name!));
       expect((await run(f, command!, "test")).code).toBe(1);
       expect(readFileSync(target, "utf8")).toBe(before);
       expect(existsSync(join(f.idDir, "running.json"))).toBe(false);
@@ -473,7 +494,7 @@ test("recheck maps to the check endpoint and initialized verification failures c
     async fetch(req) {
       calls.push(`${req.method} ${new URL(req.url).pathname}`);
       if (req.method === "POST") await Bun.sleep(120);
-      return Response.json({ identityId: "test", phase: "verification_failed" });
+      return Response.json({ profileId: "test", phase: "verification_failed" });
     },
   });
   const f = fixture(service.port!);
@@ -564,7 +585,7 @@ test("doctor and logs provide bounded operational output", async () => {
     const report = JSON.parse((await run(f, "doctor", "test")).stdout);
     expect(report.initialized).toBe(true);
     expect(report.setup).toBe(true);
-    expect(report.identities[0].phase).toBe("stopped");
+    expect(report.profiles[0].phase).toBe("stopped");
   } finally {
     dispose(f);
   }
@@ -581,13 +602,13 @@ test("a real supervisor crash leaves its server visible until explicit stop and 
     join(upstream, "server.js"),
     `const http=require('node:http'), fs=require('node:fs'), path=require('node:path');
     const status=path.join(process.env.STELZ_PROFILE_DIR,'status.json');
-    fs.writeFileSync(status, JSON.stringify({identityId:'test',phase:'ready'}));
+    fs.writeFileSync(status, JSON.stringify({profileId:'test',phase:'ready'}));
     const server=http.createServer((req,res)=>{
       res.setHeader('content-type','application/json');
       if(req.url==='/local-profile/stop'){res.end('{}');setTimeout(()=>process.kill(process.pid,'SIGTERM'),10);return}
-      res.end(JSON.stringify(req.url==='/local-profile/status'?{identityId:'test',phase:'ready'}:{}));
+      res.end(JSON.stringify(req.url==='/local-profile/status'?{profileId:'test',phase:'ready'}:{}));
     }).listen(Number(process.env.CAMOFOX_PORT),'127.0.0.1');
-    process.on('SIGTERM',()=>{fs.writeFileSync(status,JSON.stringify({identityId:'test',phase:'stopped'}));server.close(()=>process.exit(0))});`,
+    process.on('SIGTERM',()=>{fs.writeFileSync(status,JSON.stringify({profileId:'test',phase:'stopped'}));server.close(()=>process.exit(0))});`,
   );
   let started: { pid: number; supervisorStart: string; serverPid: number; serverStart: string } | undefined;
   try {

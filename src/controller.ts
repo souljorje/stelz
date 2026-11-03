@@ -20,14 +20,14 @@ export function createControllerLease(isAlive: (pid: number) => boolean = alive)
       releasing = false;
     }
     if (owner && (owner.id !== request.id || releasing)) {
-      throw Error("Identity has an active controller. Release that controller first.");
+      throw Error("Profile has an active controller. Release that controller first.");
     }
     owner = request;
     return { acquired: true, controller: status() };
   }
 
   async function run<T>(id: string, action: () => Promise<T>): Promise<T> {
-    if (!owner || owner.id !== id || releasing) throw Error("Acquire this identity before browser actions.");
+    if (!owner || owner.id !== id || releasing) throw Error("Acquire this profile before browser actions.");
     return runExclusive(action);
   }
 
@@ -43,7 +43,7 @@ export function createControllerLease(isAlive: (pid: number) => boolean = alive)
 
   async function release(id: string) {
     if (!owner) return { released: true };
-    if (owner.id !== id) throw Error("This connection does not control the identity.");
+    if (owner.id !== id) throw Error("This connection does not control the profile.");
     releasing = true;
     await tail;
     if (owner?.id === id) owner = undefined;

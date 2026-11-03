@@ -10,7 +10,7 @@ async function indexed(value?: string) {
   return new Promise<string | undefined>((resolve, reject) => {
     const transaction = database.transaction("markers", value === undefined ? "readonly" : "readwrite");
     const store = transaction.objectStore("markers");
-    const request = value === undefined ? store.get("identity") : store.put(value, "identity");
+    const request = value === undefined ? store.get("profile") : store.put(value, "profile");
     let result: string | undefined;
     request.onsuccess = () => { result = request.result as string | undefined; };
     transaction.oncomplete = () => { database.close(); resolve(result); };
@@ -19,8 +19,8 @@ async function indexed(value?: string) {
 }
 async function refresh() {
   const value = await indexed();
-  el("markers").textContent = JSON.stringify({ cookie: document.cookie, localStorage: localStorage.getItem("identity"), indexedDB: value }, null, 2);
-  el("marker-status").textContent = value && localStorage.getItem("identity") === value && document.cookie.includes(`identity=${encodeURIComponent(value)}`) ? `Storage marker: ${value}` : "Storage marker is incomplete";
+  el("markers").textContent = JSON.stringify({ cookie: document.cookie, localStorage: localStorage.getItem("profile"), indexedDB: value }, null, 2);
+  el("marker-status").textContent = value && localStorage.getItem("profile") === value && document.cookie.includes(`profile=${encodeURIComponent(value)}`) ? `Storage marker: ${value}` : "Storage marker is incomplete";
 }
 el("begin").onclick = () => { el("task").hidden = false; el<HTMLInputElement>("answer").focus(); };
 el("submit").onclick = () => {
@@ -32,8 +32,8 @@ el<HTMLFormElement>("marker-form").onsubmit = async event => {
   const value = el<HTMLInputElement>("marker").value;
   // A delayed native click after navigation must not erase the persisted test marker.
   if (!value) return;
-  document.cookie = `identity=${encodeURIComponent(value)}; Max-Age=604800; Path=/; SameSite=Lax`;
-  localStorage.setItem("identity", value); await indexed(value); await refresh();
+  document.cookie = `profile=${encodeURIComponent(value)}; Max-Age=604800; Path=/; SameSite=Lax`;
+  localStorage.setItem("profile", value); await indexed(value); await refresh();
 };
 el("human").onclick = async event => {
   el("human-result").textContent = "Human confirmation received";
