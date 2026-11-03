@@ -75,6 +75,10 @@ The toolbar badge shows the short profile label. Select the badge to read the fu
 The profile table and detail heading use the same color and label.
 Website titles and page content remain unchanged.
 
+Camofox tools call pages tabs. A tab can appear in a separate native window within the same profile.
+Use the full title prefix to identify the profile. Short badges and colors can repeat.
+The profile color identifies the profile. The status dot shows the browser phase.
+
 Select the window icon beside **Stop** to show that profile's most recent window.
 The control is disabled when the window connection is unavailable.
 Open a running profile's Overview tab to see its **Browser windows** list.
@@ -89,9 +93,15 @@ Pause the profile before manual authentication or other manual work.
 An old window selection fails if the browser restarts or the page closes.
 Refresh the list before you select the window again.
 
-After a source update, stop all profiles and run `bun run build`.
-Run `stelz setup` with the same service directory.
-Start each profile explicitly to apply the browser labels and window controls.
+After a source update, apply the browser labels and window controls:
+
+1. Stop all profiles.
+2. Run `bun run build` in the source checkout.
+3. Run `bun run setup` with the same `STELZ_HOME`.
+4. Start each profile explicitly.
+
+For an installed release, stop all profiles. Update the package.
+Run `stelz setup` with the same `STELZ_HOME`.
 For new profiles, the service creates its private add-on under `STELZ_HOME/profiles/ID/window-addon/`.
 Existing state paths remain supported. See [Compatibility](README.md#compatibility).
 The add-on communicates only with that profile's authenticated loopback service.

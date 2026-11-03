@@ -51,8 +51,35 @@ Stop the profile before you change its network or storage configuration.
 The start command rejects changes to an active profile's configuration.
 Only loopback hosts bypass a configured proxy. Proxied profiles disable WebRTC.
 Current browser policy overrides saved device data. A legacy direct-mode pin cannot re-enable WebRTC in proxy mode.
-Browser-side IP checks reject failed proxies and unexpected IP addresses. There is no direct fallback.
+Proxy policy disables direct failover and enables DNS resolution through SOCKS proxies.
+Browser-side IP checks reject failed proxies and unexpected IP addresses.
+Checks use ipify, with Cloudflare trace as an independent fallback for unavailable or invalid responses.
+A valid unexpected IP fails immediately. The service does not try another provider after an IP mismatch.
+All checks run inside the selected browser through its configured route.
 Direct mode does not require an IP check unless the profile specifies an expected IP.
+Startup, resume, and explicit recheck require a fresh check.
+Reported proxy, DNS, and connection failures invalidate cached verification and require a fresh check in the same action queue.
+The service does not replay the failed browser action.
+Other browser actions reuse a successful check for at most two minutes.
+The first action after expiry requires a fresh check. Idle browsers do not poll IP services.
+Proxy routing remains mandatory while the service caches verification. External requests fail when the proxy route fails.
+Local snapshots and tab lists can succeed during that interval without an external request.
+Status reports the last check time and the configured `verificationIntervalMs`.
+`verificationStatus` records `unverified`, `verified`, or `verification_failed`, separately from the browser phase.
+`verificationFresh` reports whether the next action can reuse the result.
+An expired result remains the last observed verdict. The next browser action must verify again.
+`verificationRequired` is false only for direct profiles without an expected IP.
+
+Set `STELZ_IP_CHECK_INTERVAL_MS` in `secrets.env` to select an integer from `0` to `120000`.
+The default is `120000`. Value `0` requires a fresh check before each browser action.
+An environment variable overrides the file value. Stop and start the profile to apply changes.
+The cache belongs to one browser lifetime. A restart never reuses a previous successful check.
+Periodic checks bound the age of observed IP evidence. They do not guarantee continuous IP stability.
+IP verification checks network health. It does not enforce proxy routing or provide a network kill switch.
+Browser proxy settings enforce the configured route.
+Host firewall or container egress rules may also be necessary for unattended use.
+Such rules must restrict browser outbound traffic to approved proxy endpoints and required local services.
+stelz does not install host firewall or container egress rules.
 After a failed check, correct the network and run `stelz recheck ID`.
 If the profile remains paused, resume it after the recheck succeeds.
 These settings do not change client LLM traffic.
@@ -100,6 +127,10 @@ If typing stops with incomplete input, read a fresh snapshot before another acti
 
 See [Use the local UI](ui.md) for UI sessions, lifecycle controls, and network edits.
 
+A profile can have several native windows. Their title prefixes, colors, and toolbar badges identify the profile.
+The UI can show a window without changing its controller.
+See [Find a profile's windows](ui.md#find-a-profiles-windows).
+
 MCP cannot implicitly start a stopped browser. Start it with the CLI or UI first.
 A disconnected client cannot stop the browser through process-group cleanup. The browser supervisor runs separately.
 An unclean service exit blocks a replacement start.
@@ -132,6 +163,7 @@ Existing state paths remain supported. See [Compatibility](#compatibility).
 - `storage/` stores cookie, localStorage, and IndexedDB checkpoints in legacy checkpoint mode only.
 - `fingerprint.json` stores generated device properties. New pins use schema 2. Schema 1 pins remain readable and are not rewritten.
 - `running.json` records the supervisor and browser service lifetime.
+- `window-addon/` contains the generated browser add-on for profile labels and window controls.
 
 A client PID identifies a controller. It never selects browser storage or fingerprint data.
 The service uses the configured ID for the upstream `userId`. It uses the stable `default` tab group.

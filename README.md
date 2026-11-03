@@ -15,6 +15,10 @@ stelz ui --open
 Create a profile in the UI. Add a proxy if necessary, then start the browser.
 Connect a client with `stelz mcp --profile YOUR-ID`.
 
+Browser windows show their profile's name and color.
+Use the UI's window icon to find a profile's window.
+See [Find a profile's windows](docs/ui.md#find-a-profiles-windows).
+
 The archive is not published to npm yet. Build it with `bun install`, `bun run build`, and `npm pack`.
 
 Each MCP connection selects one profile. One controller can act on that profile at a time.

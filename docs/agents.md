@@ -30,6 +30,11 @@ If an operation exceeds its service deadline, ask the operator to stop and start
 4. Call `profile_resume`.
 5. Read a fresh snapshot before the next action.
 
+Direct the operator to the selected profile's window icon or **Browser windows** list in the local UI.
+Ask them to check the full profile ID in the window title prefix.
+Showing a window preserves the controller. It does not pause browser actions.
+See [Find a profile's windows](ui.md#find-a-profiles-windows).
+
 Do not bypass authentication challenges.
 Do not close the reserved IP-check tab.
 
