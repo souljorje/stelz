@@ -27,8 +27,11 @@ el("submit").onclick = () => {
   const answer = el<HTMLInputElement>("answer").value;
   el("result").textContent = answer.endsWith(challenge) ? `Verified: ${answer}` : "Answer must end with the displayed challenge";
 };
-el("save").onclick = async () => {
+el<HTMLFormElement>("marker-form").onsubmit = async event => {
+  event.preventDefault();
   const value = el<HTMLInputElement>("marker").value;
+  // A delayed native click after navigation must not erase the persisted test marker.
+  if (!value) return;
   document.cookie = `identity=${encodeURIComponent(value)}; Max-Age=604800; Path=/; SameSite=Lax`;
   localStorage.setItem("identity", value); await indexed(value); await refresh();
 };
