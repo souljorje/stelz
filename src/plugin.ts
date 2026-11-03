@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { createControllerLease } from "./controller.ts";
 import { applyFingerprint, type LaunchOptions } from "./fingerprint.ts";
-import { createIpVerification, type Probe } from "./ip-verification.ts";
+import { createIpVerification, parseIpCheckInterval, type Probe } from "./ip-verification.ts";
 import { allowedBrowserTools, browserToolArguments } from "./tool-policy.ts";
 import type { Contracts } from "./upstream.ts";
 import { addProfileExtension, createProfileWindows } from "./profile-windows.ts";
@@ -48,6 +48,9 @@ type ProfileState = {
   exitIp: string | null;
   expectedIp?: string | null;
   checkedAt?: string;
+  verificationIntervalMs: number;
+  verificationStatus: "unverified" | "verified" | "verification_failed";
+  verificationRequired: boolean;
   fixedIpVerified?: boolean;
   fingerprintSha256?: string;
   engineSha256?: string;
@@ -57,19 +60,44 @@ type ProfileState = {
 
 const ACTION_TIMEOUT_MS = 60_000;
 
-export async function register(app: App, ctx: PluginContext, options: { actionTimeoutMs?: number; shutdown?: () => void } = {}) {
+function isBrowserNetworkFailure(value: unknown) {
+  let diagnostic: unknown;
+  if (value instanceof Error) {
+    diagnostic = value.message;
+    const response = /^\d{3}:\s*([\s\S]*)$/.exec(value.message);
+    if (response) {
+      try { diagnostic = (JSON.parse(response[1]!) as { error?: unknown } | null)?.error; }
+      catch { return false; }
+    }
+  } else if (value && typeof value === "object") {
+    diagnostic = (value as { error?: unknown }).error;
+  }
+  if (typeof diagnostic !== "string") return false;
+  // Inspect the diagnostic prefix, never page contents, URLs, or a Playwright call log.
+  const firstLine = diagnostic.split(/\r?\n/, 1)[0]!.replace(/^(?:\w+\.)+\w+:\s*/, "");
+  return /^(?:NS_ERROR_(?:PROXY_[A-Z_]+|UNKNOWN_PROXY_HOST|CONNECTION_REFUSED|NET_(?:RESET|INTERRUPT|TIMEOUT)|UNKNOWN_HOST|OFFLINE)|net::ERR_(?:PROXY_[A-Z_]+|TUNNEL_CONNECTION_FAILED|SOCKS_[A-Z_]+|CONNECTION_(?:RESET|REFUSED|CLOSED|ABORTED|TIMED_OUT)|NETWORK_CHANGED|NAME_NOT_RESOLVED|INTERNET_DISCONNECTED)|proxy connection\b)/i.test(firstLine);
+}
+
+export async function register(app: App, ctx: PluginContext, options: {
+  actionTimeoutMs?: number; shutdown?: () => void; ipCheckIntervalMs?: number; now?: () => number;
+} = {}) {
   const id = process.env.STELZ_PROFILE_ID!;
   const stateDir = process.env.STELZ_PROFILE_DIR!;
   if (!id || !stateDir) throw Error("local-profile requires STELZ_PROFILE_ID and STELZ_PROFILE_DIR");
   const file = join(stateDir, "status.json");
   const mode = process.env.STELZ_MODE === "proxy" ? "proxy" : "direct";
-  let state: ProfileState = { profileId: id, instanceId: randomUUID(), mode, phase: "starting", exitIp: null };
+  const interval = parseIpCheckInterval(options.ipCheckIntervalMs === undefined
+    ? process.env.STELZ_IP_CHECK_INTERVAL_MS : String(options.ipCheckIntervalMs));
+  const now = options.now ?? (() => performance.now());
+  let lastVerifiedAt: number | undefined;
+  const expected = process.env.STELZ_EXPECTED_IP || "";
+  const requiresCheck = mode === "proxy" || !!expected;
+  let state: ProfileState = { profileId: id, instanceId: randomUUID(), mode, phase: "starting", exitIp: null,
+    verificationIntervalMs: interval, verificationStatus: "unverified", verificationRequired: requiresCheck };
   const controller = createControllerLease();
   const upstream = await import(pathToFileURL(join(process.env.STELZ_UPSTREAM!, "mcp/lib/tool-contracts.mjs")).href) as Contracts;
   const browserTools = new Map(allowedBrowserTools(upstream.TOOL_DEFS).map(tool => [tool.name, tool]));
-  const expected = process.env.STELZ_EXPECTED_IP || "";
   const ipVerification = createIpVerification(ctx, id, expected);
-  const requiresCheck = mode === "proxy" || !!expected;
   const timeout = options.actionTimeoutMs ?? ACTION_TIMEOUT_MS;
   let context: Context | undefined;
   let stopping = false;
@@ -88,6 +116,7 @@ export async function register(app: App, ctx: PluginContext, options: { actionTi
   }
   function invalidate(error: string) {
     invalidated = true;
+    lastVerifiedAt = undefined;
     context = undefined;
     if (!stopping) persist({ phase: "blocked", error });
   }
@@ -116,6 +145,14 @@ export async function register(app: App, ctx: PluginContext, options: { actionTi
   function verificationFailed() {
     return state.phase === "verification_failed";
   }
+  function verificationIsFresh() {
+    if (lastVerifiedAt === undefined || invalidated || stopping || !context) return false;
+    const elapsed = now() - lastVerifiedAt;
+    return elapsed >= 0 && elapsed < interval;
+  }
+  function snapshot() {
+    return { ...state, verificationFresh: verificationIsFresh() };
+  }
   async function bounded<T>(action: () => Promise<T>): Promise<T> {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const deadline = new Promise<never>((_resolve, reject) => {
@@ -133,7 +170,7 @@ export async function register(app: App, ctx: PluginContext, options: { actionTi
 
   // All checks and browser actions use the same queue. A deadline latches a
   // terminal block because a timed-out upstream operation may still be active.
-  async function verify(explicit = false) {
+  async function ensureVerified(explicit = false) {
     if (explicit) {
       if (invalidated || stopping || !["starting", "ready", "paused", "verification_failed"].includes(state.phase)) {
         throw Error(`Cannot recheck a ${state.phase} profile.`);
@@ -144,16 +181,19 @@ export async function register(app: App, ctx: PluginContext, options: { actionTi
     const original = context;
     if (!original) throw Error("Original browser context is unavailable; explicit restart required");
     if (!requiresCheck) return;
+    if (!explicit && verificationIsFresh()) return;
     try {
       const ip = await ipVerification.check();
       if (invalidated || stopping || context !== original) throw Error("Original browser context was lost during verification");
       const phase = state.phase === "verification_failed" && explicit ? restorePhase : state.phase;
       persist({ phase, exitIp: ip, expectedIp: expected || null, checkedAt: new Date().toISOString(),
-        fixedIpVerified: mode === "proxy" && !!expected, error: null, checkFailure: null });
+        fixedIpVerified: mode === "proxy" && !!expected, verificationStatus: "verified", error: null, checkFailure: null });
+      lastVerifiedAt = now();
     } catch (error) {
+      lastVerifiedAt = undefined;
       if (!invalidated && !stopping && context === original) {
         if (state.phase !== "verification_failed") restorePhase = state.phase === "paused" ? "paused" : "ready";
-        persist({ phase: "verification_failed", exitIp: null, fixedIpVerified: false,
+        persist({ phase: "verification_failed", verificationStatus: "verification_failed", exitIp: null, fixedIpVerified: false,
           error: mode === "proxy"
             ? "Proxy exit IP verification failed. Correct the network and run stelz recheck. Direct fallback is disabled."
             : "Expected exit IP verification failed. Correct the network or expected IP and run stelz recheck.",
@@ -162,6 +202,13 @@ export async function register(app: App, ctx: PluginContext, options: { actionTi
       throw error;
     }
     if (!explicit) assertUsable();
+  }
+
+  async function recheckAfterNetworkFailure(value: unknown) {
+    if (!requiresCheck || invalidated || stopping || !context || !isBrowserNetworkFailure(value)) return;
+    lastVerifiedAt = undefined;
+    persist({ verificationStatus: "unverified", exitIp: null, fixedIpVerified: false });
+    await ensureVerified(true);
   }
 
   persist({});
@@ -203,7 +250,7 @@ export async function register(app: App, ctx: PluginContext, options: { actionTi
     for (const page of created.pages()) watchPage(page);
     created.on("page", watchPage);
     try {
-      await controller.runExclusive(() => bounded(() => verify()));
+      await controller.runExclusive(() => bounded(() => ensureVerified()));
       if (state.phase === "starting") persist({ phase: "ready" });
     } catch (error) {
       if (verificationFailed()) return;
@@ -227,7 +274,7 @@ export async function register(app: App, ctx: PluginContext, options: { actionTi
 
   app.get("/local-profile/status", ctx.auth(), (_req, res) => {
     const { available, reason } = windows.snapshot();
-    res.json({ ...state, controller: controller.status(), windowControls: { available, reason } });
+    res.json({ ...snapshot(), controller: controller.status(), windowControls: { available, reason } });
   });
   app.get("/local-profile/windows", ctx.auth(), (_req, res) => res.json(windows.snapshot()));
   app.post("/local-profile/window-bridge", ctx.auth(), (req, res) => {
@@ -245,7 +292,7 @@ export async function register(app: App, ctx: PluginContext, options: { actionTi
       if (!["ready", "paused", "verification_failed"].includes(state.phase)) throw Error(`Profile is ${state.phase}.`);
       const body = req.body || {};
       const lease = controller.acquire({ id: String(body.id || ""), pid: Number(body.pid), label: String(body.label || "MCP client") });
-      res.json({ ...state, ...lease });
+      res.json({ ...snapshot(), ...lease });
     } catch (error) {
       res.status(409).json({ error: (error as Error).message });
     }
@@ -269,14 +316,17 @@ export async function register(app: App, ctx: PluginContext, options: { actionTi
       if (!tool) throw Error("Unknown browser tool.");
       const args = browserToolArguments(tool, body.args);
       const result = await controller.run(String(body.controllerId || ""), () => bounded(async () => {
-        await verify();
+        await ensureVerified();
         try {
           const { spec, payload } = await upstream.runTool(name, args,
             { userId: id, sessionKey: "default" }, `http://127.0.0.1:${process.env.CAMOFOX_PORT}`,
             { accessKey: process.env.CAMOFOX_ACCESS_KEY, apiKey: process.env.CAMOFOX_API_KEY, cookiesDir: process.env.CAMOFOX_COOKIES_DIR });
+          await recheckAfterNetworkFailure(payload);
           return { content: upstream.adaptResponse(spec, payload) };
         } catch (error) {
-          if (/timed out|timeout/i.test((error as Error).message)) {
+          if (isBrowserNetworkFailure(error)) {
+            await recheckAfterNetworkFailure(error);
+          } else if (/timed out|timeout/i.test((error as Error).message)) {
             invalidate("A browser action timed out. Stop the profile before another browser action.");
           }
           throw error;
@@ -298,8 +348,8 @@ export async function register(app: App, ctx: PluginContext, options: { actionTi
   app.post("/local-profile/check", ctx.auth(), async (req, res) => {
     try {
       if (req.body?.controllerId && controller.status()?.id !== req.body.controllerId) throw Error("This connection does not control the profile.");
-      await controller.runExclusive(() => bounded(() => verify(true)));
-      res.json(state);
+      await controller.runExclusive(() => bounded(() => ensureVerified(true)));
+      res.json(snapshot());
     } catch (error) {
       res.status(409).json({ error: (error as Error).message });
     }
@@ -309,17 +359,17 @@ export async function register(app: App, ctx: PluginContext, options: { actionTi
     if (state.phase !== "ready") return res.status(409).json({ error: `Cannot pause ${state.phase} profile` });
     persist({ phase: "paused" });
     await controller.drain();
-    res.json(state);
+    res.json(snapshot());
   });
   app.post("/local-profile/resume", ctx.auth(), async (req, res) => {
     try {
       if (req.body?.controllerId && controller.status()?.id !== req.body.controllerId) throw Error("This connection does not control the profile.");
       await controller.runExclusive(() => bounded(async () => {
         if (state.phase !== "paused") throw Error(`Cannot resume ${state.phase} profile`);
-        await verify(true);
+        await ensureVerified(true);
         if (state.phase === "paused") persist({ phase: "ready" });
       }));
-      res.json(state);
+      res.json(snapshot());
     } catch (error) {
       res.status(409).json({ error: (error as Error).message });
     }

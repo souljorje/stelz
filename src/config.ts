@@ -6,6 +6,7 @@ import { parseEnv } from "node:util";
 import { createHash } from "node:crypto";
 import { UPSTREAM_VERSION } from "./versions.ts";
 import { parseTypingMode } from "./typing.ts";
+import { DEFAULT_IP_CHECK_INTERVAL_MS, parseIpCheckInterval } from "./ip-verification.ts";
 import { existingProfilePath, normalizeProfileId } from "./profile-compat.ts";
 export { UPSTREAM_VERSION, COMMIT } from "./versions.ts";
 
@@ -63,6 +64,7 @@ export function secret(name: string) {
 }
 export const executable = () => secret("CAMOUFOX_EXECUTABLE") || join(homedir(), "Library/Caches/camoufox/Camoufox.app/Contents/MacOS/camoufox");
 export const typingMode = () => parseTypingMode(secret("STELZ_TYPING_MODE"));
+export const ipCheckIntervalMs = () => parseIpCheckInterval(secret("STELZ_IP_CHECK_INTERVAL_MS"));
 export function entry(name: string) {
   const built = join(ROOT, "dist", `${name}.js`);
   return existsSync(built) ? built : join(ROOT, "src", `${name}.ts`);
@@ -95,7 +97,14 @@ export function validateProxy(raw: string, id = "Profile"): URL {
   try { decodeURIComponent(u.username); decodeURIComponent(u.password); } catch { throw Error(`${id}: proxy credentials have invalid percent encoding.`); }
   return u;
 }
-export const configurationHash = (p: Profile) => createHash("sha256").update(JSON.stringify({ ...p, proxy: proxyEnvironment(p), expectedIP: p.expectedIPEnv ? secret(p.expectedIPEnv) || "" : "", ...(typingMode() === "instant" ? { typingMode: "instant" } : {}) })).digest("hex");
+export function configurationHash(p: Profile) {
+  const interval = ipCheckIntervalMs(), typing = typingMode();
+  return createHash("sha256").update(JSON.stringify({ ...p, proxy: proxyEnvironment(p),
+    expectedIP: p.expectedIPEnv ? secret(p.expectedIPEnv) || "" : "",
+    ...(typing === "instant" ? { typingMode: typing } : {}),
+    ...(interval !== DEFAULT_IP_CHECK_INTERVAL_MS ? { ipCheckIntervalMs: interval } : {}),
+  })).digest("hex");
+}
 export async function control(p: Profile, method: string, action: string, body?: unknown) {
   const token = readFileSync(join(dir(p.id), "access-key"), "utf8").trim();
   const r = await fetch(`${base(p)}/local-profile/${action}`, { method, headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(120000) });

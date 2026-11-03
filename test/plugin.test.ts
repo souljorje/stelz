@@ -49,15 +49,18 @@ test("device replay preserves hardware but refreshes language, location, paths a
 });
 
 test("proxy policy wins and unrelated fresh preferences survive", () => {
-  assert.deepEqual(launchPreferences({ "media.peerconnection.enabled": true, "network.test": true, fresh: 1 }, true),
-    { "media.peerconnection.enabled": false, "network.test": true, fresh: 1 });
+  assert.deepEqual(launchPreferences({ "media.peerconnection.enabled": true, "network.proxy.failover_direct": true,
+    "network.proxy.socks_remote_dns": false, "network.proxy.socks5_remote_dns": false, "network.test": true, fresh: 1 }, true),
+    { "media.peerconnection.enabled": false, "network.proxy.failover_direct": false,
+      "network.proxy.socks_remote_dns": true, "network.proxy.socks5_remote_dns": true, "network.test": true, fresh: 1 });
   assert.deepEqual(launchPreferences({ fresh: 1 }, false), { fresh: 1 });
 });
 
 type App = Parameters<typeof register>[0];
 type Handler = Parameters<App["post"]>[1];
 async function harness(mode: "direct" | "proxy" = "direct", waitForIP?: Promise<void>,
-  fixture: { expected?: string; timeout?: number; ipError?: string; canonical?: boolean; port?: number } = {}) {
+  fixture: { expected?: string; timeout?: number; ipError?: string; canonical?: boolean; port?: number;
+    interval?: number; now?: () => number } = {}) {
   const root = mkdtempSync(join(tmpdir(), "stelz-regression-")), id = "profile-01";
   const stateDir = join(root, id), upstream = join(root, "upstream"), binary = join(root, "browser");
   mkdirSync(stateDir); mkdirSync(join(upstream, "mcp/lib"), { recursive: true });
@@ -93,9 +96,12 @@ async function harness(mode: "direct" | "proxy" = "direct", waitForIP?: Promise<
   const context = Object.assign(new EventEmitter(), { pages: () => [...pages], async newPage() { return probe; }, async close() { context.emit("close"); } });
   await register(app, { auth: () => () => {}, sessions: new Map([[id, {}]]), events,
     async createLeasedPage() { return { page: probe, lease: {} }; }, async closeLeasedPage() {} },
-    { actionTimeoutMs: fixture.timeout, shutdown: () => { shutdowns++; events.emit("server:shutdown"); } });
+    { actionTimeoutMs: fixture.timeout, ipCheckIntervalMs: fixture.interval ?? 0, now: fixture.now,
+      shutdown: () => { shutdowns++; events.emit("server:shutdown"); } });
   const emit = async (name: string, value: unknown = {}) => { await Promise.all(events.listeners(name).map(fn => fn(value))); };
-  const state = () => JSON.parse(readFileSync(join(stateDir, "status.json"), "utf8")) as { phase: string; error?: string; checkFailure?: string };
+  const state = () => JSON.parse(readFileSync(join(stateDir, "status.json"), "utf8")) as {
+    phase: string; verificationStatus: string; verificationRequired: boolean; error?: string; checkFailure?: string;
+  };
   const options = () => ({ env: { CAMOU_CONFIG_1: JSON.stringify(generated) } as Record<string, string>,
     firefoxUserPrefs: { fresh: true, "media.peerconnection.enabled": mode !== "proxy" } as Record<string, unknown>,
     ...(mode === "proxy" ? { proxy: { server: "http://127.0.0.1:9999" } } : {}) });
@@ -136,6 +142,10 @@ test("the actual launch hook keeps WebRTC disabled when a legacy direct pin is r
     const before = readFileSync(join(h.stateDir, "fingerprint.json"), "utf8");
     const options = await h.launch();
     assert.equal(options.firefoxUserPrefs["media.peerconnection.enabled"], false);
+    assert.equal(options.firefoxUserPrefs["network.proxy.failover_direct"], false);
+    assert.equal(options.firefoxUserPrefs["network.proxy.socks_remote_dns"], true);
+    assert.equal(options.firefoxUserPrefs["network.proxy.socks5_remote_dns"], true);
+    assert.equal((options.proxy as Record<string, unknown>).bypass, "127.0.0.1,localhost");
     assert.equal(options.firefoxUserPrefs.fresh, true);
     assert.equal(options.firefoxUserPrefs.stale, undefined);
     assert.equal(readFileSync(join(h.stateDir, "fingerprint.json"), "utf8"), before);
@@ -380,6 +390,216 @@ test("canonical dispatch preserves valid tool routes, arguments, and authenticat
   } finally { await fixture.close(); }
 });
 
+for (const interval of [0, 120_000]) test(`IP interval ${interval} bounds checks for 100 queued browser actions`, async () => {
+  const h = await harness("proxy", undefined, { interval, now: () => 100 });
+  try {
+    await h.launch(); await h.create(); await h.request("acquire", controller);
+    const actions = await Promise.all(Array.from({ length: 100 }, () => h.request("tool", snapshot)));
+    assert.ok(actions.every(action => action.code === 200));
+    assert.equal(h.checks(), interval === 0 ? 101 : 1);
+    assert.equal(((await h.request("status")).payload as { verificationIntervalMs: number }).verificationIntervalMs, interval);
+  } finally { await h.close(); }
+});
+
+test("expiry refreshes once for queued actions and a clock rollback forces a fresh check", async () => {
+  let clock = 100;
+  const h = await harness("proxy", undefined, { interval: 120_000, now: () => clock });
+  try {
+    await h.launch(); await h.create(); await h.request("acquire", controller);
+    clock = 120_099;
+    assert.equal((await h.request("tool", snapshot)).code, 200);
+    assert.equal(h.checks(), 1);
+    clock = 120_100;
+    const actions = await Promise.all(Array.from({ length: 5 }, () => h.request("tool", snapshot)));
+    assert.ok(actions.every(action => action.code === 200)); assert.equal(h.checks(), 2);
+    clock = 1;
+    assert.equal((await h.request("tool", snapshot)).code, 200);
+    assert.equal(h.checks(), 3);
+  } finally { await h.close(); }
+});
+
+test("verification status is separate from lifecycle phase and cache freshness", async () => {
+  let clock = 0;
+  const h = await harness("proxy", undefined, { interval: 120_000, now: () => clock });
+  try {
+    assert.equal(h.state().verificationStatus, "unverified");
+    assert.equal(h.state().verificationRequired, true);
+    await h.launch(); await h.create();
+    const verified = (await h.request("status")).payload as Record<string, unknown>;
+    assert.equal(verified.phase, "ready");
+    assert.equal(verified.verificationStatus, "verified");
+    assert.equal(verified.verificationFresh, true);
+    clock = 120_000;
+    const expired = (await h.request("status")).payload as Record<string, unknown>;
+    assert.equal(expired.verificationStatus, "verified");
+    assert.equal(expired.verificationFresh, false);
+    assert.equal(h.checks(), 1);
+    h.setIP("203.0.113.7");
+    assert.equal((await h.request("check")).code, 409);
+    const failed = (await h.request("status")).payload as Record<string, unknown>;
+    assert.equal(failed.verificationStatus, "verification_failed");
+    assert.equal(failed.verificationFresh, false);
+    h.setIP("198.51.100.10");
+    assert.equal((await h.request("check")).code, 200);
+    assert.equal(h.state().verificationStatus, "verified");
+  } finally { await h.close(); }
+});
+
+test("a mismatched exit after 100 cached actions blocks every subsequent action", async () => {
+  let clock = 0, dispatched = 0;
+  const h = await harness("proxy", undefined, { interval: 120_000, now: () => clock });
+  try {
+    await h.launch(); await h.create(); await h.request("acquire", controller);
+    h.setTool(async () => { dispatched++; return { spec: {}, payload: "ok" }; });
+    h.setIP("203.0.113.7");
+    for (let action = 0; action < 100; action++) assert.equal((await h.request("tool", snapshot)).code, 200);
+    assert.equal(h.checks(), 1); assert.equal(dispatched, 100);
+    clock = 120_000;
+    const actions = await Promise.all(Array.from({ length: 5 }, () => h.request("tool", snapshot)));
+    assert.ok(actions.every(action => action.code === 409));
+    assert.equal(h.checks(), 2); assert.equal(dispatched, 100);
+    assert.equal(h.state().verificationStatus, "verification_failed");
+    assert.equal(h.state().phase, "verification_failed");
+    assert.match(h.state().checkFailure!, /does not match/);
+    h.setIP("198.51.100.10");
+    assert.equal((await h.request("tool", snapshot)).code, 409);
+    assert.equal(h.checks(), 2);
+  } finally { await h.close(); }
+});
+
+test("recheck and resume bypass the cache and verification failure stays latched", async () => {
+  const h = await harness("proxy", undefined, { interval: 120_000, now: () => 100 });
+  try {
+    await h.launch(); await h.create(); await h.request("acquire", controller);
+    assert.equal((await h.request("check")).code, 200); assert.equal(h.checks(), 2);
+    assert.equal((await h.request("pause")).code, 200);
+    assert.equal((await h.request("tool", snapshot)).code, 409);
+    assert.equal((await h.request("resume")).code, 200); assert.equal(h.checks(), 3);
+    h.setIP("203.0.113.7");
+    assert.equal((await h.request("check")).code, 409);
+    const failedChecks = h.checks();
+    h.setIP("198.51.100.10");
+    assert.equal((await h.request("tool", snapshot)).code, 409);
+    assert.equal(h.checks(), failedChecks);
+    assert.equal((await h.request("check")).code, 200);
+    assert.equal((await h.request("tool", snapshot)).code, 200);
+    assert.equal(h.checks(), failedChecks + 1);
+  } finally { await h.close(); }
+});
+
+test("an expired failed check blocks cached browser actions until recovery", async () => {
+  let clock = 0;
+  const h = await harness("proxy", undefined, { interval: 120_000, now: () => clock });
+  try {
+    await h.launch(); await h.create(); await h.request("acquire", controller);
+    h.setIPError("offline"); clock = 119_999;
+    assert.equal((await h.request("tool", snapshot)).code, 200);
+    assert.equal(h.checks(), 1);
+    clock = 120_000;
+    assert.equal((await h.request("tool", snapshot)).code, 409);
+    assert.equal(h.state().phase, "verification_failed");
+    h.setIPError(undefined); clock = 0;
+    assert.equal((await h.request("tool", snapshot)).code, 409);
+    assert.equal((await h.request("check")).code, 200);
+  } finally { await h.close(); }
+});
+
+test("a fresh cache cannot permit actions after the original browser is lost", async () => {
+  const h = await harness("proxy", undefined, { interval: 120_000, now: () => 100 });
+  try {
+    await h.launch(); await h.create(); await h.request("acquire", controller);
+    await h.emit("session:destroying", { userId: h.id });
+    assert.equal((await h.request("tool", snapshot)).code, 409);
+    assert.equal(h.checks(), 1);
+  } finally { await h.close(); }
+});
+
+for (const diagnostic of [
+  "page.goto: NS_ERROR_PROXY_CONNECTION_REFUSED at https://example.invalid/",
+  "page.goto: NS_ERROR_UNKNOWN_HOST at https://example.invalid/",
+  "page.goto: NS_ERROR_NET_TIMEOUT at https://example.invalid/",
+  "page.goto: net::ERR_TUNNEL_CONNECTION_FAILED at https://example.invalid/",
+]) test(`a browser network failure bypasses a fresh cache and blocks a mismatched exit: ${diagnostic}`, async () => {
+  const h = await harness("proxy", undefined, { interval: 120_000, now: () => 0 });
+  let dispatched = 0;
+  try {
+    await h.launch(); await h.create(); await h.request("acquire", controller);
+    h.setIP("203.0.113.7");
+    h.setTool(async () => { dispatched++; throw Error(`500: ${JSON.stringify({ error: diagnostic, retryable: false })}`); });
+    assert.equal((await h.request("tool", snapshot)).code, 409);
+    assert.equal(h.checks(), 2); assert.equal(dispatched, 1);
+    assert.equal(h.state().verificationStatus, "verification_failed");
+    assert.equal((await h.request("tool", snapshot)).code, 409);
+    assert.equal(h.checks(), 2); assert.equal(dispatched, 1);
+  } finally { await h.close(); }
+});
+
+test("network recovery shares the action queue, exposes unverified status, and never replays an action", async () => {
+  const h = await harness("proxy", undefined, { interval: 120_000, now: () => 0 });
+  let finish!: () => void, dispatched = 0;
+  const gate = new Promise<void>(resolve => { finish = resolve; });
+  try {
+    await h.launch(); await h.create(); await h.request("acquire", controller);
+    h.setIPGate(gate);
+    h.setTool(async () => { dispatched++; throw Error("page.goto: NS_ERROR_NET_RESET at https://example.invalid/"); });
+    const failed = h.request("tool", snapshot);
+    for (let attempt = 0; h.checks() < 2 && attempt < 100; attempt++) await new Promise(resolve => setTimeout(resolve, 1));
+    assert.equal(h.checks(), 2);
+    const during = (await h.request("status")).payload as Record<string, unknown>;
+    assert.equal(during.verificationStatus, "unverified"); assert.equal(during.verificationFresh, false);
+    assert.equal(during.phase, "ready");
+    const queued = h.request("tool", snapshot);
+    assert.equal(dispatched, 1);
+    h.setTool(async () => { dispatched++; return { spec: {}, payload: "ok" }; });
+    finish();
+    assert.equal((await failed).code, 409); assert.equal((await queued).code, 200);
+    assert.equal(dispatched, 2); assert.equal(h.checks(), 2);
+    assert.equal(h.state().verificationStatus, "verified");
+  } finally { finish(); await h.close(); }
+});
+
+test("a structured network error in a successful upstream response also invalidates verification", async () => {
+  const h = await harness("proxy", undefined, { interval: 120_000, now: () => 0 });
+  try {
+    await h.launch(); await h.create(); await h.request("acquire", controller);
+    h.setTool(async () => ({ spec: {}, payload: { error: "page.goto: NS_ERROR_PROXY_BAD_GATEWAY at https://example.invalid/" } }));
+    h.setIPError("offline");
+    assert.equal((await h.request("tool", snapshot)).code, 409);
+    assert.equal(h.state().verificationStatus, "verification_failed");
+    assert.equal((await h.request("tool", snapshot)).code, 409);
+  } finally { await h.close(); }
+});
+
+test("page content, URLs, call logs, HTTP errors, and validation errors do not trigger IP checks", async () => {
+  const h = await harness("proxy", undefined, { interval: 120_000, now: () => 0 });
+  try {
+    await h.launch(); await h.create(); await h.request("acquire", controller);
+    h.setTool(async () => ({ spec: {}, payload: { snapshot: "NS_ERROR_PROXY_CONNECTION_REFUSED", url: "https://example.invalid/NS_ERROR_UNKNOWN_HOST" } }));
+    assert.equal((await h.request("tool", snapshot)).code, 200);
+    for (const message of [
+      "500: An HTML body contains NS_ERROR_PROXY_CONNECTION_REFUSED",
+      `500: ${JSON.stringify({ error: "Destination returned HTTP 503", code: "destination_unavailable" })}`,
+      "page.goto: Invalid URL https://example.invalid/NS_ERROR_UNKNOWN_HOST",
+      "Invalid selector\nCall log:\n  NS_ERROR_PROXY_CONNECTION_REFUSED",
+    ]) {
+      h.setTool(async () => { throw Error(message); });
+      assert.equal((await h.request("tool", snapshot)).code, 409);
+    }
+    assert.equal(h.checks(), 1); assert.equal(h.state().phase, "ready");
+    assert.equal(h.state().verificationStatus, "verified");
+  } finally { await h.close(); }
+});
+
+test("direct mode without an expected IP does not acquire a health-check dependency after network failure", async () => {
+  const h = await harness("direct", undefined, { interval: 120_000, expected: "" });
+  try {
+    await h.launch(); await h.create(); await h.request("acquire", controller);
+    h.setTool(async () => { throw Error("page.goto: NS_ERROR_UNKNOWN_HOST at https://example.invalid/"); });
+    assert.equal((await h.request("tool", snapshot)).code, 409);
+    assert.equal(h.checks(), 0); assert.equal(h.state().phase, "ready");
+  } finally { await h.close(); }
+});
+
 test("direct mode without an expected IP works when the IP service is unavailable", async () => {
   const h = await harness("direct", undefined, { expected: "", ipError: "offline" });
   try {
@@ -390,6 +610,8 @@ test("direct mode without an expected IP works when the IP service is unavailabl
     assert.equal((await h.request("pause")).code, 200);
     assert.equal((await h.request("resume")).code, 200);
     assert.equal(h.checks(), 0);
+    assert.equal(h.state().verificationStatus, "unverified");
+    assert.equal(h.state().verificationRequired, false);
   } finally { await h.close(); }
 });
 

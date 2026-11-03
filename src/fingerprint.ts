@@ -37,7 +37,12 @@ export function launchPreferences(current: Fingerprint | undefined, proxied: boo
   // Derive WebGL2 support from the saved GPU, not the newly sampled GPU.
   const capabilities = "webGl:parameters" in device ? { "webgl.enable-webgl2": "webGl2:parameters" in device } : {};
   // Apply the mandatory rule last, including when a direct profile switches to a proxy.
-  return { ...current, ...capabilities, ...(proxied ? { "media.peerconnection.enabled": false } : {}) };
+  return { ...current, ...capabilities, ...(proxied ? {
+    "media.peerconnection.enabled": false,
+    "network.proxy.failover_direct": false,
+    "network.proxy.socks_remote_dns": true,
+    "network.proxy.socks5_remote_dns": true,
+  } : {}) };
 }
 
 export function applyFingerprint(options: LaunchOptions, stateDir: string, binary: string, proxied: boolean) {
