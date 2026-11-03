@@ -9,12 +9,16 @@ import { createIpVerification, type Probe } from "./ip-verification.ts";
 import { allowedBrowserTools, browserToolArguments } from "./tool-policy.ts";
 import type { Contracts } from "./upstream.ts";
 
+type Page = { on(event: "close", listener: () => void): unknown };
 type Context = {
   close(): Promise<void>;
+  pages(): Page[];
   on(event: "close", listener: () => void): unknown;
+  on(event: "page", listener: (page: Page) => void): unknown;
 };
 type Events = {
   "browser:launching": { options: LaunchOptions };
+  "browser:launched": { browser: { on(event: "disconnected", listener: () => void): unknown } };
   "browser:restart": unknown;
   "browser:closed": unknown;
   "session:creating": { userId: string; contextOptions: { proxy?: Record<string, unknown> } };
@@ -50,7 +54,7 @@ type ProfileState = {
 
 const ACTION_TIMEOUT_MS = 60_000;
 
-export async function register(app: App, ctx: PluginContext, options: { actionTimeoutMs?: number } = {}) {
+export async function register(app: App, ctx: PluginContext, options: { actionTimeoutMs?: number; shutdown?: () => void } = {}) {
   const id = process.env.STELZ_PROFILE_ID!;
   const stateDir = process.env.STELZ_PROFILE_DIR!;
   if (!id || !stateDir) throw Error("local-profile requires STELZ_PROFILE_ID and STELZ_PROFILE_DIR");
@@ -80,6 +84,21 @@ export async function register(app: App, ctx: PluginContext, options: { actionTi
     invalidated = true;
     context = undefined;
     if (!stopping) persist({ phase: "blocked", error });
+  }
+  const shutdown = options.shutdown ?? (() => process.kill(process.pid, "SIGTERM"));
+  function browserClosed() {
+    if (stopping) return;
+    stopping = true;
+    invalidated = true;
+    context = undefined;
+    persist({ phase: "stopping", error: null, checkFailure: null });
+    // Closing the visible browser ends this lifetime. Drain the controller before
+    // asking upstream to perform its normal shutdown and save a clean receipt.
+    void (async () => {
+      await controller.releaseCurrent();
+      await controller.drain();
+      shutdown();
+    })();
   }
   function assertUsable() {
     if (invalidated || stopping || (state.phase !== "starting" && state.phase !== "ready")) {
@@ -129,7 +148,9 @@ export async function register(app: App, ctx: PluginContext, options: { actionTi
       if (!invalidated && !stopping && context === original) {
         if (state.phase !== "verification_failed") restorePhase = state.phase === "paused" ? "paused" : "ready";
         persist({ phase: "verification_failed", exitIp: null, fixedIpVerified: false,
-          error: "Browser exit IP verification failed. Correct the network and run stelz recheck. Direct fallback is disabled.",
+          error: mode === "proxy"
+            ? "Proxy exit IP verification failed. Correct the network and run stelz recheck. Direct fallback is disabled."
+            : "Expected exit IP verification failed. Correct the network or expected IP and run stelz recheck.",
           checkFailure: (error as Error).message.slice(0, 500) });
       }
       throw error;
@@ -140,18 +161,21 @@ export async function register(app: App, ctx: PluginContext, options: { actionTi
   persist({});
   ctx.events.on("browser:launching", ({ options: launchOptions }) => {
     if (launchAdmitted || invalidated || stopping) {
-      invalidate("Replacement browser refused; explicit stop/start is required");
-      throw Error(String(state.error));
+      const error = "Replacement browser refused; explicit stop/start is required";
+      invalidate(error);
+      throw Error(error);
     }
     launchAdmitted = true;
     const hashes = applyFingerprint(launchOptions, stateDir, process.env.CAMOUFOX_EXECUTABLE!, mode === "proxy");
     persist({ phase: "starting", ...hashes });
   });
+  ctx.events.on("browser:launched", ({ browser }) => browser.on("disconnected", browserClosed));
   ctx.events.on("session:creating", ({ userId, contextOptions }) => {
     if (userId !== id) throw Error("This runtime belongs to a different profile");
     if (!launchAdmitted || sessionAdmitted || invalidated || stopping || state.phase !== "starting") {
-      invalidate("Replacement browser context refused; explicit stop/start is required");
-      throw Error(String(state.error));
+      const error = "Replacement browser context refused; explicit stop/start is required";
+      invalidate(error);
+      throw Error(error);
     }
     sessionAdmitted = true;
     if (contextOptions.proxy) contextOptions.proxy.bypass = "127.0.0.1,localhost";
@@ -163,7 +187,14 @@ export async function register(app: App, ctx: PluginContext, options: { actionTi
       throw Error(String(state.error));
     }
     context = created;
-    created.on("close", () => invalidate("Original browser context closed; explicit stop/start is required"));
+    created.on("close", browserClosed);
+    const watchPage = (page: Page) => page.on("close", () => {
+      // Firefox on macOS can keep its process and context connected after the
+      // last window closes. That browser still has no pages left to control.
+      if (context === created && created.pages().length === 0) browserClosed();
+    });
+    for (const page of created.pages()) watchPage(page);
+    created.on("page", watchPage);
     try {
       await controller.runExclusive(() => bounded(() => verify()));
       if (state.phase === "starting") persist({ phase: "ready" });
@@ -179,7 +210,7 @@ export async function register(app: App, ctx: PluginContext, options: { actionTi
     await ipVerification.close().catch(() => {});
   });
   ctx.events.on("browser:restart", () => invalidate("Browser restart refused; explicit stop/start is required"));
-  ctx.events.on("browser:closed", () => invalidate("Original browser closed; explicit stop/start is required"));
+  ctx.events.on("browser:closed", browserClosed);
   ctx.events.on("server:shutdown", () => {
     stopping = true;
     invalidated = true;
@@ -241,7 +272,7 @@ export async function register(app: App, ctx: PluginContext, options: { actionTi
     await controller.releaseCurrent();
     await controller.drain();
     res.json({ stopping: true });
-    setTimeout(() => process.kill(process.pid, "SIGTERM"), 20);
+    setTimeout(shutdown, 20);
   });
   app.post("/local-profile/check", ctx.auth(), async (req, res) => {
     try {

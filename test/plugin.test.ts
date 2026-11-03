@@ -60,6 +60,7 @@ async function harness(mode: "direct" | "proxy" = "direct", waitForIP?: Promise<
   let ipError = fixture.ipError;
   let ip = "198.51.100.10";
   let checks = 0;
+  let shutdowns = 0;
   let runTool: (name: string, args: Record<string, unknown>) => Promise<unknown> = async () => ({ spec: {}, payload: "ok" });
   const globals = globalThis as typeof globalThis & { __stelzTool?: typeof runTool };
   const previousTool = globals.__stelzTool;
@@ -70,10 +71,11 @@ async function harness(mode: "direct" | "proxy" = "direct", waitForIP?: Promise<
     if (ipError) throw Error(ipError);
     return { ip } as T;
   } };
-  const context = Object.assign(new EventEmitter(), { async newPage() { return probe; }, async close() { context.emit("close"); } });
+  const pages = new Set<EventEmitter>([new EventEmitter()]);
+  const context = Object.assign(new EventEmitter(), { pages: () => [...pages], async newPage() { return probe; }, async close() { context.emit("close"); } });
   await register(app, { auth: () => () => {}, sessions: new Map([[id, {}]]), events,
     async createLeasedPage() { return { page: probe, lease: {} }; }, async closeLeasedPage() {} },
-    { actionTimeoutMs: fixture.timeout });
+    { actionTimeoutMs: fixture.timeout, shutdown: () => { shutdowns++; events.emit("server:shutdown"); } });
   const emit = async (name: string, value: unknown = {}) => { await Promise.all(events.listeners(name).map(fn => fn(value))); };
   const state = () => JSON.parse(readFileSync(join(stateDir, "status.json"), "utf8")) as { phase: string; error?: string; checkFailure?: string };
   const options = () => ({ env: { CAMOU_CONFIG_1: JSON.stringify(generated) } as Record<string, string>,
@@ -95,6 +97,9 @@ async function harness(mode: "direct" | "proxy" = "direct", waitForIP?: Promise<
     setIPError(value: string | undefined) { ipError = value; },
     setIP(value: string) { ip = value; },
     checks() { return checks; },
+    shutdowns() { return shutdowns; },
+    openPage() { const page = new EventEmitter(); pages.add(page); context.emit("page", page); return page; },
+    closePage(page = [...pages][0]!) { pages.delete(page); page.emit("close"); },
     setTool(value: typeof runTool) { runTool = value; },
     async close() {
       await emit("server:shutdown");
@@ -176,12 +181,57 @@ test("a second context is refused even without a destruction notification", asyn
   finally { await h.close(); }
 });
 
-test("a browser context close event blocks replacement even without an upstream lifecycle event", async () => {
+test("closing the browser context stops the lifetime once and refuses replacement", async () => {
   const h = await harness();
   try {
     await h.launch(); await h.create(); await h.context.close();
-    assert.equal(h.state().phase, "blocked");
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(h.state().phase, "stopped");
+    assert.equal(h.shutdowns(), 1);
+    await h.context.close(); await h.emit("browser:closed");
+    assert.equal(h.shutdowns(), 1);
     await assert.rejects(h.create(), /Replacement browser context refused/);
+  } finally { await h.close(); }
+});
+
+test("a browser disconnect stops the lifetime without an upstream close event", async () => {
+  const h = await harness();
+  try {
+    const browser = new EventEmitter();
+    await h.launch(); await h.emit("browser:launched", { browser }); await h.create();
+    browser.emit("disconnected");
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(h.state().phase, "stopped");
+    assert.equal(h.shutdowns(), 1);
+  } finally { await h.close(); }
+});
+
+test("closing an already blocked browser still stops the lifetime", async () => {
+  const h = await harness();
+  try {
+    await h.launch(); await h.create(); await h.emit("browser:restart");
+    assert.equal(h.state().phase, "blocked");
+    await h.context.close();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(h.state().phase, "stopped");
+    assert.equal(h.shutdowns(), 1);
+    await assert.rejects(h.launch(), /Replacement browser refused/);
+  } finally { await h.close(); }
+});
+
+test("closing the last page stops a connected Firefox context, but other pages keep it running", async () => {
+  const h = await harness();
+  try {
+    await h.launch(); await h.create();
+    const second = h.openPage();
+    h.closePage();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(h.state().phase, "ready");
+    assert.equal(h.shutdowns(), 0);
+    h.closePage(second);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(h.state().phase, "stopped");
+    assert.equal(h.shutdowns(), 1);
   } finally { await h.close(); }
 });
 
@@ -346,6 +396,36 @@ test("a failed proxy check blocks actions until an explicit successful recheck",
   } finally { await h.close(); }
 });
 
+test("direct mode checks an explicitly expected IP and reports failure without proxy fallback wording", async () => {
+  const h = await harness("direct");
+  try {
+    await h.launch(); await h.create();
+    await h.request("acquire", controller);
+    h.setIP("203.0.113.7");
+    assert.equal((await h.request("tool", snapshot)).code, 409);
+    assert.equal(h.state().phase, "verification_failed");
+    assert.match(h.state().error!, /Expected exit IP/);
+    assert.doesNotMatch(h.state().error!, /proxy|fallback/i);
+    h.setIP("198.51.100.10");
+    assert.equal((await h.request("check")).code, 200);
+    assert.equal((await h.request("tool", snapshot)).code, 200);
+  } finally { await h.close(); }
+});
+
+test("proxy mode verifies its exit even without an expected IP", async () => {
+  const h = await harness("proxy", undefined, { expected: "" });
+  try {
+    await h.launch(); await h.create();
+    assert.equal(h.checks(), 1);
+    await h.request("acquire", controller);
+    h.setIPError("offline");
+    assert.equal((await h.request("tool", snapshot)).code, 409);
+    assert.equal(h.state().phase, "verification_failed");
+    assert.match(h.state().error!, /Proxy exit IP/);
+    assert.match(h.state().error!, /Direct fallback is disabled/);
+  } finally { await h.close(); }
+});
+
 test("a startup IP failure leaves the original context available for recheck", async () => {
   const h = await harness("proxy", undefined, { ipError: "network unavailable" });
   try {
@@ -445,12 +525,6 @@ test("stop finishes when an upstream action stalls", async () => {
   let entered!: () => void;
   const started = new Promise<void>(resolve => { entered = resolve; });
   const gate = new Promise<unknown>(resolve => { finish = resolve; });
-  const originalKill = process.kill;
-  let signalled = false;
-  process.kill = ((pid: number, signal?: NodeJS.Signals | number) => {
-    if (pid === process.pid && signal === "SIGTERM") { signalled = true; return true; }
-    return originalKill(pid, signal);
-  }) as typeof process.kill;
   try {
     await h.launch();
     await h.create();
@@ -462,8 +536,8 @@ test("stop finishes when an upstream action stalls", async () => {
     assert.equal((await action).code, 409);
     assert.equal((await stop).code, 200);
     await new Promise(resolve => setTimeout(resolve, 30));
-    assert.equal(signalled, true);
-  } finally { process.kill = originalKill; finish?.({ spec: {}, payload: "done" }); await h.close(); }
+    assert.equal(h.shutdowns(), 1);
+  } finally { finish?.({ spec: {}, payload: "done" }); await h.close(); }
 });
 
 test("a stalled IP check cannot be cleared while its browser operation is outstanding", async () => {
