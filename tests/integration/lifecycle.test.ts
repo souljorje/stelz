@@ -437,28 +437,48 @@ test("lifecycle commands reject lock symlinks without overwriting configuration"
 test("a zombie server does not block recovery", async () => {
   const f = fixture();
   const library = process.platform === "darwin" ? "/usr/lib/libSystem.B.dylib" : "libc.so.6";
-  const script = `import {dlopen, FFIType} from 'bun:ffi';
-    const libc=dlopen(${JSON.stringify(library)}, {fork:{args:[],returns:FFIType.i32},_exit:{args:[FFIType.i32],returns:FFIType.void}});
-    const pid=libc.symbols.fork();
-    if(pid===0) libc.symbols._exit(0);
-    if(pid<0) throw Error('fork failed');
-    await Bun.sleep(100); console.log(pid); await Bun.sleep(10000);`;
-  const parent = Bun.spawn([bun, "-e", script], { stdout: "pipe", stderr: "pipe" });
+  // Execute the native child without returning into Bun's VM after fork.
+  const script = `import {dlopen, FFIType, ptr} from 'bun:ffi';
+    const libc=dlopen(${JSON.stringify(library)}, {
+      posix_spawn:{args:Array(6).fill(FFIType.ptr),returns:FFIType.i32},
+      waitpid:{args:[FFIType.i32,FFIType.ptr,FFIType.i32],returns:FFIType.i32}
+    });
+    const path=Buffer.from('/usr/bin/true\\0'), argv=new BigUint64Array([BigInt(ptr(path)),0n]);
+    const env=new BigUint64Array([0n]), child=new Int32Array(1);
+    const error=libc.symbols.posix_spawn(ptr(child),ptr(path),null,null,ptr(argv),ptr(env));
+    if(error) throw Error('posix_spawn failed: '+error);
+    const pid=child[0]; console.log(pid);
+    await Bun.stdin.text();
+    if(libc.symbols.waitpid(pid,null,0)!==pid) throw Error('waitpid failed');
+    libc.close();`;
+  const parent = Bun.spawn([bun, "-e", script], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
   try {
     const output = await parent.stdout.getReader().read();
     const zombie = Number(new TextDecoder().decode(output.value).trim());
     expect(zombie).toBeGreaterThan(1);
+    const deadline = Date.now() + 5000;
+    let ready = false;
+    while (Date.now() < deadline) {
+      if (process.platform === "linux") {
+        const stat = readFileSync(`/proc/${zombie}/stat`, "utf8");
+        ready = stat.slice(stat.lastIndexOf(")") + 2).startsWith("Z ");
+      } else ready = processStart(zombie) === undefined;
+      if (ready) break;
+      await Bun.sleep(10);
+    }
+    expect(ready).toBe(true);
     process.kill(zombie, 0);
     record(f, { pid: dead, supervisorStart: "dead", serverPid: zombie, serverStart: "old" });
     const report = JSON.parse((await run(f, "status", "test")).stdout);
     expect(report.ownership.server).toBe("missing");
     expect((await run(f, "recover", "test")).code).toBe(0);
   } finally {
-    parent.kill();
-    await parent.exited;
+    parent.stdin.end();
+    const code = await parent.exited;
     dispose(f);
+    expect(code).toBe(0);
   }
-});
+}, 15000);
 
 test("recheck maps to the check endpoint and initialized verification failures complete startup", async () => {
   const calls: string[] = [];

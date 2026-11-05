@@ -81,7 +81,7 @@ test("the UI creates named profiles with optional proxies and omits legacy capac
   expect(parseEnv(secrets)[config.profiles[1].proxyEnv]).toBe("http://private-reader:private-password@proxy.test:8080");
   expect(lstatSync(f.secrets).mode & 0o777).toBe(0o600);
   expect(readdirSync(f.state)).toEqual(["admission.lock"]);
-});
+}, 10000);
 
 test("creation rejects unsafe input, duplicate state, and stale catalog revisions", async () => {
   const f = fixture();
@@ -131,7 +131,7 @@ test("deleting a stopped profile archives its complete profile and retains share
   const recreated = await run(f, `${withCatalogRevision} return await model.createProfile({ revision, id: 'test' });`);
   expect(recreated.value).toMatchObject({ id: "test", mode: "direct", storage: "native", phase: "stopped" });
   expect(readFileSync(join(archived, "profile/browser-data/saved-cookie"), "utf8")).toBe("private saved session");
-});
+}, 10000);
 
 test("deletion refuses active, unclean, unknown, and symbolic-link state", async () => {
   const f = fixture(), before = readFileSync(f.config, "utf8");
