@@ -205,7 +205,6 @@ export async function createProfile(input: ProfileCreate): Promise<string> {
     revisionMatches(input.revision, config);
     if (config.profiles.some(p => p.id === input.id) || existsSync(dir(input.id)))
       throw new ProfileCatalogError(409, "This profile name already has configuration or saved state. Choose another name.");
-    if (config.profiles.length >= 1000) throw new ProfileCatalogError(409, "The saved profile limit is reached.");
     const ports = new Set(config.profiles.map(p => p.port));
     for (const entry of readdirSync(STATE, { withFileTypes: true })) {
       if (entry.isSymbolicLink()) catalogNeedsInspection();

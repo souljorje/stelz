@@ -12,7 +12,7 @@
 
 stelz is a standalone browser service. It must run without Codex, Claude Code, Hermes, or LLM credentials.
 Do not add a reasoning loop, agent framework, generic plugin framework, or fleet platform.
-Keep the tested limit at two browsers.
+Enforce one browser instance per profile. Do not add global browser or saved-profile count limits.
 
 Each MCP connection selects one profile with `stelz mcp --profile ID`. The browser service enforces one controller per profile.
 A client releases control with `profile_release`. Disconnect must preserve the browser and its open pages.

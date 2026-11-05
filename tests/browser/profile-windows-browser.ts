@@ -52,7 +52,7 @@ function freePort() {
 try {
   console.log("Profile window acceptance: " + home);
   await command("init");
-  writeFileSync(join(home, "profiles.json"), JSON.stringify({ maxActive: 2, profiles: ids.map((id, index) => ({
+  writeFileSync(join(home, "profiles.json"), JSON.stringify({ profiles: ids.map((id, index) => ({
     id, port: freePort(), mode: "direct", storage: index === 0 ? "native" : "checkpoint",
   })) }), { mode: 0o600 });
   await command("setup");

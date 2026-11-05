@@ -7,6 +7,7 @@ description: Control an existing stelz browser profile through canonical MCP too
 
 The service contains no reasoning loop. The client harness owns reasoning and conversation history.
 Each MCP connection must select one configured profile with `stelz mcp --profile ID`.
+Each profile has at most one browser instance. Multiple windows can belong to that browser.
 
 ## Procedure
 

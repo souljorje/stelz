@@ -35,7 +35,7 @@ The global CLI ignores automatic project `.env` files.
 
 ## Configuration
 
-`profiles.json` contains `maxActive` and a `profiles` array.
+`profiles.json` contains a `profiles` array.
 Each profile specifies its ID, loopback port, network mode, and storage mode.
 See [profiles.json](../examples/profiles.json) for an empty configuration.
 `secrets.env` contains proxy credentials. Keep this file private.
@@ -44,7 +44,10 @@ Init creates an empty profile list. It never overwrites existing entries.
 Use **New profile** in the UI to create a named profile with an optional proxy.
 The service assigns a free loopback port. New profiles use `storage: "native"`.
 A profile uses a direct connection unless you supply a proxy.
-The catalog permits up to 1000 saved profiles. At most two browsers can be active.
+There is no saved-profile count limit or global active-browser limit.
+Each profile has at most one browser instance. That browser can have multiple windows and subprocesses.
+Available memory, disk, and loopback ports constrain practical capacity. The service does not impose a CPU budget.
+Catalogs and their transaction journals have no fixed byte ceiling. Secret files, state files, and HTTP requests retain their size protections.
 Existing entries without a `storage` field keep `checkpoint` mode. Init never overwrites them.
 Select Proxy in the UI to configure a proxy for a stopped profile.
 For manual proxy configuration on a new profile, set `mode: "proxy"` and `proxyEnv: "PROFILE_01_PROXY_URL"`.
@@ -95,6 +98,7 @@ These settings do not change client LLM traffic.
 Existing `identities.json` files with an `identities` array and state under `identities/ID/` remain supported.
 The service does not require a move of running browser data.
 The legacy `--identity` option and `identity_*` MCP tools remain supported aliases.
+Existing `maxActive` values are ignored and preserved during edits and recovery. New catalogs omit this obsolete field.
 
 Existing IDs, such as `identity-01`, remain unchanged. Keep configured secret references unchanged.
 The `profile-01` IDs and `PROFILE_01_*` secret names in examples are suggestions for new configuration.
@@ -120,7 +124,7 @@ If typing stops with incomplete input, read a fresh snapshot before another acti
 | --- | --- |
 | `stelz ui [--port PORT] [--open]` | Serve the local profile UI. The default port is 9380. |
 | `stelz start profile-02` | Start one visible browser. |
-| `stelz start all` | Start configured profiles, subject to the active browser limit. |
+| `stelz start all` | Start configured profiles sequentially. Reuse an existing safe lifetime for each profile. |
 | `stelz status` | Read state and current controller information. |
 | `stelz doctor [ID]` | Inspect configuration, process ownership, and service status. |
 | `stelz logs ID [--lines 1-500]` | Read bounded server and supervisor logs. |

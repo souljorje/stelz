@@ -41,7 +41,7 @@ let pageServer: Awaited<ReturnType<typeof fixture>> | undefined;
 try {
   console.log("Explicit direct-development test. No LLM credentials or harness commands are used.");
   await command("init");
-  writeFileSync(join(home, "profiles.json"), JSON.stringify({ maxActive: 2, profiles: [{ id: "profile-01", port: 9471, mode: "direct" }, { id: "profile-02", port: 9472, mode: "direct" }] }));
+  writeFileSync(join(home, "profiles.json"), JSON.stringify({ profiles: [{ id: "profile-01", port: 9471, mode: "direct" }, { id: "profile-02", port: 9472, mode: "direct" }] }));
   await command("setup"); pageServer = await fixture();
   const stopped = await connect("profile-01", "stopped-client");
   await rejection(stopped.client, "profile_acquire"); await stopped.client.close();

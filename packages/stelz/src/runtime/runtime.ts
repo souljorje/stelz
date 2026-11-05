@@ -144,9 +144,6 @@ export async function start(id: string) {
     const profiles = readdirSync(STATE, { withFileTypes: true });
     if (profiles.some((item) => item.isSymbolicLink()))
       throw Error("Profile state contains a symbolic link.");
-    const active = profiles.filter((item) => item.isDirectory() && running(item.name)).length;
-    if (active >= settings().maxActive)
-      throw Error("The browser limit is reached. Stop another profile first.");
     if (!existsSync(join(dir(id), "access-key")))
       writeFileSync(join(dir(id), "access-key"), crypto.randomUUID(), { mode: 0o600, flag: "wx" });
     const instanceId = crypto.randomUUID(),

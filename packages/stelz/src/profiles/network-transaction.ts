@@ -76,7 +76,7 @@ function sameFiles(value: NetworkFiles, other: NetworkFiles) {
 }
 function files(): NetworkFiles {
   directory(HOME_DIR);
-  const config = read(configFile);
+  const config = read(configFile, false, Infinity);
   if (config === null) fail();
   return { config, secrets: read(secretsFile) };
 }
@@ -89,7 +89,7 @@ function validate(value: unknown): Transaction {
   const transaction = value as unknown as Transaction;
   const configs: Settings[] = [];
   for (const state of [transaction.before, transaction.after]) {
-    if (!keys(state, ["config", "secrets"]) || typeof state.config !== "string" || Buffer.byteLength(state.config) > LIMIT ||
+    if (!keys(state, ["config", "secrets"]) || typeof state.config !== "string" ||
         state.secrets !== null && (typeof state.secrets !== "string" || Buffer.byteLength(state.secrets) > LIMIT)) fail();
     configs.push(validateSettings(JSON.parse(state.config)));
   }
@@ -126,7 +126,8 @@ function validate(value: unknown): Transaction {
 }
 function readJournal(): Transaction | undefined {
   directory(HOME_DIR, true);
-  const text = read(NETWORK_JOURNAL, true, LIMIT * 16);
+  // The journal contains complete catalog snapshots. Only secrets and state files have byte limits.
+  const text = read(NETWORK_JOURNAL, true, Infinity);
   if (text === null) return;
   try { return validate(JSON.parse(text)); } catch { fail(); }
 }

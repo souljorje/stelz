@@ -37,7 +37,6 @@ export const shellQuote = (value: string): string => `'${value.replaceAll("'", "
 export const homeCommand = (command: string, home: string): string => `STELZ_HOME=${shellQuote(home)} stelz ${command}`;
 export const profileCommand = (command: string, id: string, home: string): string => `${homeCommand(command, home)} ${shellQuote(id)}`;
 export const mcpCommand = (id: string, home: string): string => `${homeCommand("mcp", home)} --profile ${shellQuote(id)}`;
-export const capacityUsed = (profiles: UiProfile[]) => profiles.filter(({ phase }) => phase !== "stopped" && phase !== "unclean").length;
 
 export function profileAttention(profile: UiProfile): string | null {
   if (profile.configurationError) return redact(profile.configurationError);
@@ -74,7 +73,6 @@ export function actionReason(profile: UiProfile, action: UiAction, context: Acti
       if (!context.snapshot.initialized) return "Run stelz init first.";
       if (!context.snapshot.setup) return "Run stelz setup first.";
       if (profile.configurationError) return "Correct the configuration before starting.";
-      if (capacityUsed(context.snapshot.profiles) >= context.snapshot.maxActive) return "All browser slots are occupied.";
       return null;
     case "pause": return profile.phase === "ready" ? null : "Pause is available when the browser is ready.";
     case "resume": return profile.phase === "paused" ? null : "Resume is available when the browser is paused.";

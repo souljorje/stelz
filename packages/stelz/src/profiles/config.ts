@@ -16,10 +16,10 @@ export const CONFIG_FILE = existingProfilePath(HOME_DIR, "profiles.json", "ident
 export const STATE = existingProfilePath(HOME_DIR, "profiles", "identities");
 export const UPSTREAM = join(HOME_DIR, "runtime", `camofox-${UPSTREAM_VERSION}`);
 export type Profile = { id: string; port: number; mode: "direct" | "proxy"; proxyEnv?: string; expectedIPEnv?: string; storage?: "native" | "checkpoint" };
-export type Settings = { maxActive: number; profiles: Profile[] };
+export type Settings = { profiles: Profile[] };
 export function initialize() {
   mkdirSync(STATE, { recursive: true, mode: 0o700 });
-  if (!existsSync(CONFIG_FILE)) save(CONFIG_FILE, { maxActive: 2, profiles: [] });
+  if (!existsSync(CONFIG_FILE)) save(CONFIG_FILE, { profiles: [] });
   const secrets = join(HOME_DIR, "secrets.env");
   if (!existsSync(secrets)) writeFileSync(secrets, "", { mode: 0o600, flag: "wx" });
 }
@@ -33,7 +33,8 @@ export function validateSettings(input: unknown): Settings {
   const { identities, ...current } = input as Record<string, unknown>;
   if (identities !== undefined && Object.hasOwn(current, "profiles")) throw Error("Configure one profiles list. Remove the duplicate legacy identities list.");
   const value = (identities === undefined ? current : { ...current, profiles: identities }) as Settings;
-  if (!value || typeof value !== "object" || !Number.isInteger(value.maxActive) || value.maxActive < 1 || value.maxActive > 2 || !Array.isArray(value.profiles) || value.profiles.length > 1000) throw Error("Configure at most 1000 saved profiles and two active browsers.");
+  // Preserve legacy maxActive and other catalog metadata without enforcing a count limit.
+  if (!Array.isArray(value.profiles)) throw Error("Configure a profiles array.");
   const ids = new Set<string>(), ports = new Set<number>();
   for (const p of value.profiles) {
     if (!p || typeof p !== "object" || typeof p.id !== "string" || !/^[a-z][a-z0-9-]{0,63}$/.test(p.id) || !Number.isInteger(p.port) || p.port < 1024 || p.port > 65535 || !["direct", "proxy"].includes(p.mode) || ids.has(p.id) || ports.has(p.port)) throw Error("Profile IDs and ports must be valid and unique.");

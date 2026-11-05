@@ -147,7 +147,8 @@ Run `stelz doctor ID` to inspect the failure.
 
 Profile IDs cannot be renamed after creation. Storage mode, saved device properties, and browser versions remain read-only.
 All profile state stays under `STELZ_HOME`.
-The catalog permits up to 1000 saved profiles. The tested active browser limit remains two.
+The service has no saved-profile count limit or global active-browser limit.
+Each profile has at most one browser instance. Other running profiles do not disable Start.
 
 ## Diagnostics
 

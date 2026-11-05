@@ -26,10 +26,15 @@ test("init creates an empty catalog and preserves existing profiles", async () =
   expect(readFileSync(join(home, "profiles.json"), "utf8")).toBe(config);
   expect(readFileSync(join(home, "secrets.env"), "utf8")).toBe(secrets);
 });
-test("saved profiles can exceed browser slots while the active limit remains two", () => {
-  const profiles = Array.from({ length: 3 }, (_, i) => ({ id: `browser-${i}`, port: 9475 + i, mode: "direct" as const }));
-  expect(validateSettings({ maxActive: 2, profiles }).profiles).toHaveLength(3);
-  expect(() => validateSettings({ maxActive: 3, profiles })).toThrow("two active browsers");
+test("catalogs have no profile count limit and preserve inert legacy maxActive metadata", () => {
+  const profiles = Array.from({ length: 1001 }, (_, i) => ({ id: `browser-${i}`, port: 9475 + i, mode: "direct" as const }));
+  expect(validateSettings({ profiles }).profiles).toHaveLength(1001);
+  for (const maxActive of [1, 2, 3, 0, null, "obsolete"]) {
+    const catalog = { maxActive, profiles };
+    expect(validateSettings(catalog)).toEqual(catalog);
+  }
+  expect(() => validateSettings({ profiles: {} })).toThrow("profiles array");
+  expect(() => validateSettings({ profiles: [...profiles, profiles[0]] })).toThrow("unique");
 });
 test("missing proxy rejects launch", () => { delete process.env.STELZ_UNIT_PROXY; expect(() => proxyEnvironment(p)).toThrow("Direct fallback is disabled"); });
 test("direct mode ignores proxy credentials", () => { process.env.STELZ_UNIT_PROXY = "http://secret:password@host:9999"; expect(proxyEnvironment({ ...p, mode: "direct" })).toEqual({}); });

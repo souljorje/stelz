@@ -92,7 +92,7 @@ try {
     assert(status.phase === "stopped", "The selected profile must be stopped before typing acceptance.");
   } else {
     await command("init");
-    writeFileSync(join(home, "profiles.json"), JSON.stringify({ maxActive: 2, profiles: [
+    writeFileSync(join(home, "profiles.json"), JSON.stringify({ profiles: [
       { id: profileId, port, mode: "direct", storage: "native" },
     ] }));
     await command("setup");

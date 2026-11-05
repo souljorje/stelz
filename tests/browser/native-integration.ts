@@ -199,8 +199,7 @@ try {
     report.environment.sources[name] = hash(readFileSync(join(root, name)));
   }
   await command("init");
-  writeFileSync(join(home, "profiles.json"), JSON.stringify({ maxActive: 2,
-    profiles: ids.map((id, i) => ({ id, port: 9571 + i, mode: "direct", storage: "native" })) }));
+  writeFileSync(join(home, "profiles.json"), JSON.stringify({ profiles: ids.map((id, i) => ({ id, port: 9571 + i, mode: "direct", storage: "native" })) }));
   await command("setup"); site = await fixture(9510);
   report.environment.runtimeManifest = JSON.parse(readFileSync(join(home, "runtime/versions.json"), "utf8"));
   for (let ordinal = 1; ordinal <= LIFETIMES; ordinal++) {

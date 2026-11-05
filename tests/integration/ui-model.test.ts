@@ -53,7 +53,7 @@ function tree(folder: string): unknown[] {
 const withRevision = `const revision = (await model.snapshot()).profiles[0].network.revision;`;
 const withCatalogRevision = `const revision = (await model.snapshot()).catalogRevision;`;
 
-test("the UI creates named profiles with optional proxies and more saved profiles than browser slots", async () => {
+test("the UI creates named profiles with optional proxies and omits legacy capacity metadata", async () => {
   const f = fixture([], "# keep this comment\nUNRELATED='literal # value'\n");
   const result = await run(f, `
     const initial = await model.snapshot();
@@ -65,6 +65,8 @@ test("the UI creates named profiles with optional proxies and more saved profile
   `);
   expect(result.ok).toBe(true);
   expect(result.value.initial.profiles).toEqual([]);
+  expect(result.value.initial).not.toHaveProperty("maxActive");
+  expect(result.value.snapshot).not.toHaveProperty("maxActive");
   expect(result.value.first).toMatchObject({ id: "work", phase: "stopped", mode: "direct", storage: "native", configurationError: null });
   expect(result.value.first.network).toMatchObject({ proxyConfigured: false, expectedIp: "" });
   expect(result.value.second).toMatchObject({ id: "personal", phase: "stopped", mode: "proxy", storage: "native", configurationError: null });
@@ -74,6 +76,7 @@ test("the UI creates named profiles with optional proxies and more saved profile
   expect(result.value.snapshot.catalogRevision).not.toBe(result.value.initial.catalogRevision);
   expect(JSON.stringify(result)).not.toMatch(/private-reader|private-password/);
   const config = JSON.parse(readFileSync(f.config, "utf8")), secrets = readFileSync(f.secrets, "utf8");
+  expect(config.maxActive).toBe(2);
   expect(secrets).toContain("# keep this comment\nUNRELATED='literal # value'\n");
   expect(parseEnv(secrets)[config.profiles[1].proxyEnv]).toBe("http://private-reader:private-password@proxy.test:8080");
   expect(lstatSync(f.secrets).mode & 0o777).toBe(0o600);
@@ -270,7 +273,8 @@ test("uninitialized observations do not initialize or create service state", asy
   const f = fixture([], "", false), before = tree(f.home);
   const result = await run(f, "return { snapshot: await model.snapshot(), diagnostics: await model.diagnostics() };");
   expect(result.ok).toBe(true);
-  expect(result.value.snapshot).toMatchObject({ initialized: false, setup: false, maxActive: 2, profiles: [] });
+  expect(result.value.snapshot).toMatchObject({ initialized: false, setup: false, profiles: [] });
+  expect(result.value.snapshot).not.toHaveProperty("maxActive");
   expect(result.value.diagnostics).toMatchObject({ initialized: false, profiles: [] });
   expect(tree(f.home)).toEqual(before);
 });
@@ -633,10 +637,9 @@ test("strict inputs reject bad proxies, IP addresses, extra fields, and unknown 
   expect(readFileSync(f.secrets, "utf8")).toBe(secretsBefore);
 });
 
-test("configuration limits and unsafe environment references cannot be rewritten", async () => {
+test("unsafe environment references cannot be rewritten", async () => {
   const cases = [
     [{ id: "test", port: 19471, mode: "direct", proxyEnv: "BAD\nINJECTED" }],
-    Array.from({ length: 1001 }, (_, i) => ({ id: `test-${i}`, port: 19471 + i, mode: "direct" })),
   ];
   for (const profiles of cases) {
     const f = fixture(profiles as Profile[]), before = readFileSync(f.config, "utf8");

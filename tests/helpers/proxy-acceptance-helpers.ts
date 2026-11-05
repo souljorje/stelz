@@ -72,7 +72,7 @@ export function proxyTestConfiguration(mode: "direct" | "proxy", urls: Pair<stri
     proxyEnv: `TEST_PROXY_${i + 1}_URL`, expectedIPEnv: `TEST_PROXY_${i + 1}_EXPECTED_IP`,
   }));
   const secrets = profiles.map((p, i) => `${p.proxyEnv}=${JSON.stringify(urls[i])}\n${p.expectedIPEnv}=${mode === "proxy" ? expected[i] : ""}\n`).join("");
-  return { settings: { maxActive: 2, profiles }, secrets };
+  return { settings: { profiles }, secrets };
 }
 
 export function exitIP(value: unknown): string {

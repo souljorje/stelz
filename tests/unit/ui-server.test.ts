@@ -20,7 +20,7 @@ function fixture(lifecycle?: (action: UiAction, id: string) => Promise<unknown>,
   let reads = 0;
   const calls: string[] = [];
   const snapshot: UiSnapshot = { home: "/isolated/stelz", version: "test", upstreamVersion: "test",
-    initialized: true, setup: true, maxActive: 2, catalogRevision: "a".repeat(64), profiles, updatedAt: new Date().toISOString() };
+    initialized: true, setup: true, catalogRevision: "a".repeat(64), profiles, updatedAt: new Date().toISOString() };
   const model: UiModel = {
     async snapshot() { reads++; return structuredClone(snapshot); },
     async detail(id) {

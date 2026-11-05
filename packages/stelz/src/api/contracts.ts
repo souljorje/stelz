@@ -44,7 +44,6 @@ export type UiSnapshot = {
   upstreamVersion: string;
   initialized: boolean;
   setup: boolean;
-  maxActive: number;
   catalogRevision: string;
   profiles: UiProfile[];
   updatedAt: string;

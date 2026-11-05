@@ -281,7 +281,6 @@ export function createUiModel(): UiModel {
       return {
         home: redact(HOME_DIR), version: STELZ_VERSION, upstreamVersion: UPSTREAM_VERSION,
         initialized: !!config, setup: existsSync(join(HOME_DIR, "runtime/versions.json")),
-        maxActive: config?.maxActive ?? 2,
         catalogRevision: catalogRevision(config),
         profiles: config ? config.profiles.map((p, index) => profile(config, p, observed[index]!, secrets, redact)) : [],
         updatedAt: new Date().toISOString(),

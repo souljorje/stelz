@@ -119,9 +119,9 @@ test("a new installation uses only canonical profile files and an empty catalog"
   expect(await run(home, `config.initialize(); config.initialize();
     return { config: config.CONFIG_FILE, state: config.STATE, catalog: config.settings(), journal: catalog.CATALOG_JOURNAL };`)).toEqual({
     ok: true, value: { config: join(home, "profiles.json"), state: join(home, "profiles"),
-      catalog: { maxActive: 2, profiles: [] }, journal: join(home, ".profile-transaction.json") },
+      catalog: { profiles: [] }, journal: join(home, ".profile-transaction.json") },
   });
-  expect(JSON.parse(text(join(home, "profiles.json")))).toEqual({ maxActive: 2, profiles: [] });
+  expect(JSON.parse(text(join(home, "profiles.json")))).toEqual({ profiles: [] });
   expect(readdirSync(home).sort()).toEqual(["profiles", "profiles.json", "secrets.env"]);
   expect(lstatSync(join(home, "secrets.env")).mode & 0o777).toBe(0o600);
 });

@@ -68,7 +68,7 @@ export function Settings({ snapshot, theme, onThemeChange }: { snapshot: UiSnaps
       { label: "Home", value: snapshot.home, mono: true },
       { label: "stelz", value: snapshot.version, mono: true },
       { label: "Camofox", value: snapshot.upstreamVersion, mono: true },
-      { label: "Browser limit", value: snapshot.maxActive },
+      { label: "Browsers per profile", value: 1 },
     ]} /></section>
     <section className="settings-section"><h2>MCP connections</h2><div className="mcp-list">{snapshot.profiles.map(profile => <div key={profile.id}><h3>{profile.id}</h3><CopyCommand command={mcpCommand(profile.id, snapshot.home)} label={`Copy MCP command for ${profile.id}`} /></div>)}{!snapshot.profiles.length && <p className="empty-inline">Create a profile to connect an MCP client.</p>}</div></section>
   </div>;

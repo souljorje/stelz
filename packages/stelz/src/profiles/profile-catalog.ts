@@ -71,7 +71,7 @@ function replace(path: string, value: string, check: () => void) {
 }
 function files(): Files {
   directory(HOME_DIR);
-  const config = read(configFile);
+  const config = read(configFile, false, Infinity);
   if (config === null) throw new ProfileCatalogError(409, "Run stelz init before creating profiles.");
   return { config, secrets: read(secretsFile) };
 }
@@ -81,7 +81,7 @@ function validate(value: unknown): Transaction {
       typeof value.token !== "string" || !/^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/.test(value.token)) fail();
   const t = value as unknown as Transaction;
   for (const state of [t.before, t.after]) {
-    if (!keys(state, ["config", "secrets"]) || typeof state.config !== "string" || Buffer.byteLength(state.config) > LIMIT ||
+    if (!keys(state, ["config", "secrets"]) || typeof state.config !== "string" ||
         state.secrets !== null && (typeof state.secrets !== "string" || Buffer.byteLength(state.secrets) > LIMIT)) fail();
   }
   const before = validateSettings(JSON.parse(t.before.config)), after = validateSettings(JSON.parse(t.after.config));
@@ -110,7 +110,8 @@ function validate(value: unknown): Transaction {
 }
 function journal(): Transaction | undefined {
   directory(HOME_DIR, true);
-  const text = read(CATALOG_JOURNAL, true, LIMIT * 12);
+  // The journal contains complete catalog snapshots. Only secrets and state files have byte limits.
+  const text = read(CATALOG_JOURNAL, true, Infinity);
   if (text === null) return;
   try { return validate(JSON.parse(text)); } catch { fail(); }
 }

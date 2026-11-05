@@ -80,7 +80,7 @@ for (const [index, id] of ["profile-01", "profile-02"].entries()) {
   writeFileSync(join(folder, "supervisor.log"), "Supervisor ready.\n", { mode: 0o600 });
   writeState(id, state);
 }
-writeFileSync(join(home, "profiles.json"), JSON.stringify({ maxActive: 2, profiles: profiles }), { mode: 0o600 });
+writeFileSync(join(home, "profiles.json"), JSON.stringify({ profiles: profiles }), { mode: 0o600 });
 writeFileSync(join(home, "secrets.env"), "UI_FIXTURE_PROXY_URL=http://fixture-user:fixture-password@proxy.example:8080\nUI_FIXTURE_EXPECTED_IP=203.0.113.8\n", { mode: 0o600 });
 mkdirSync(join(home, "runtime"), { mode: 0o700 });
 writeFileSync(join(home, "runtime/versions.json"), "{}", { mode: 0o600 });

@@ -1,14 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { UI_ACTIONS } from "../../packages/stelz/src/api/contracts.ts";
 import type { UiProfile, UiNetwork, UiPhase, UiSnapshot } from "../../packages/stelz/src/api/contracts.ts";
-import { actionReason, boundedLog, capacityUsed, homeCommand, mcpCommand, networkDraft, networkUpdate, proxyDisplay, redact, shellQuote } from "../../apps/ui/src/model.ts";
+import { actionReason, boundedLog, homeCommand, mcpCommand, networkDraft, networkUpdate, proxyDisplay, redact, shellQuote } from "../../apps/ui/src/model.ts";
 
 const network: UiNetwork = { revision: "revision-1", mode: "direct", proxyEnv: null, expectedIPEnv: null, proxyDisplay: null, proxyConfigured: false, expectedIp: "203.0.113.1", proxyReadOnly: false, expectedIpReadOnly: false };
 function profile(phase: UiPhase, changes: Partial<UiProfile> = {}): UiProfile {
   return { id: "profile-01", phase, port: 9340, mode: "direct", storage: "native", instanceId: null, exitIp: null, checkedAt: null, fixedIpVerified: false, windowControls: { available: false, reason: null }, controller: null, supervisorPid: null, serverPid: null, ownership: null, fingerprintSha256: null, engineSha256: null, error: null, controlError: null, configurationError: null, network, ...changes };
 }
 function context(row: UiProfile) {
-  const snapshot: UiSnapshot = { home: "/tmp/stelz", version: "0.2.0", upstreamVersion: "1.18.1", initialized: true, setup: true, maxActive: 2, catalogRevision: "a".repeat(64), profiles: [row], updatedAt: new Date().toISOString() };
+  const snapshot: UiSnapshot = { home: "/tmp/stelz", version: "0.2.0", upstreamVersion: "1.18.1", initialized: true, setup: true, catalogRevision: "a".repeat(64), profiles: [row], updatedAt: new Date().toISOString() };
   return { snapshot, connected: true, pending: false };
 }
 
@@ -27,14 +27,14 @@ describe("lifecycle guards", () => {
       for (const action of UI_ACTIONS) expect(actionReason(row, action, context(row))).not.toBeNull();
     }
   });
-  test("configuration and capacity block start", () => {
+  test("configuration blocks start but other running profiles do not", () => {
     const row = profile("stopped", { configurationError: "Proxy is missing" });
     expect(actionReason(row, "start", context(row))).toContain("configuration");
     const clean = profile("stopped");
     const full = context(clean);
-    full.snapshot.profiles.push(profile("ready"), profile("paused"));
-    expect(capacityUsed(full.snapshot.profiles)).toBe(2);
-    expect(actionReason(clean, "start", full)).toContain("slots");
+    full.snapshot.profiles.push(...["ready", "paused", "orphaned", "blocked"].map((phase, index) =>
+      profile(phase as UiPhase, { id: `other-${index}` })));
+    expect(actionReason(clean, "start", full)).toBeNull();
   });
   test("disconnected and pending states disable every mutation", () => {
     const row = profile("ready");

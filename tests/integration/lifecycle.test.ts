@@ -97,7 +97,7 @@ function ownedRecord(pid: number) {
   return start!;
 }
 
-test("an orphan is reported and blocks setup and recovery without contacting it", async () => {
+test("an orphan is reported and blocks its own startup, setup, and recovery without contacting it", async () => {
   let calls = 0;
   const service = Bun.serve({
     port: 0,
@@ -120,6 +120,7 @@ test("an orphan is reported and blocks setup and recovery without contacting it"
       `import { running } from ${JSON.stringify(runtime)}; console.log(Boolean(running('test')));`,
     );
     expect(safety.stdout.trim()).toBe("true");
+    expect((await run(f, "start", "test")).stderr).toContain("needs inspection");
     expect((await run(f, "setup")).stderr).toContain("orphaned");
     expect((await run(f, "recover", "test")).stderr).toContain("recorded process is live");
     expect((await run(f, "recheck", "test")).code).toBe(1);
@@ -370,34 +371,6 @@ test("recovery archives only safe records and keeps profile data", async () => {
     expect(existsSync(join(f.idDir, "running.json"))).toBe(true);
     writeFileSync(join(f.idDir, "running.json"), "null");
     expect((await run(f, "recover", "test")).stderr).toContain("invalid process record");
-  } finally {
-    dispose(f);
-  }
-});
-
-test("the browser limit counts live profiles removed from configuration", async () => {
-  const f = fixture();
-  try {
-    writeFileSync(join(f.home, "profiles.json"), JSON.stringify({ maxActive: 1, profiles: [f.profile] }));
-    const removed = join(f.home, "profiles", "removed");
-    mkdirSync(removed);
-    writeFileSync(
-      join(removed, "running.json"),
-      JSON.stringify({
-        version: 2,
-        pid: dead,
-        supervisorStart: "dead",
-        serverPid: process.pid,
-        serverStart: stamp,
-        serverState: "started",
-        instanceId: "removed",
-        configurationHash: "old",
-      }),
-    );
-    const result = await run(f, "start", "test");
-    expect(result.code).toBe(1);
-    expect(result.stderr).toContain("browser limit");
-    expect(existsSync(join(f.idDir, "running.json"))).toBe(false);
   } finally {
     dispose(f);
   }

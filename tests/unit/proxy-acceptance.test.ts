@@ -44,7 +44,7 @@ test("canonical duplicate routes and equal expected exits cannot pass as distinc
 test("configuration gives two fixed profiles separate relay and expected-IP references", () => {
   const urls = ["http://first-user:password@127.0.0.1:10111/", "http://second-user:password@127.0.0.1:10112/"] as const;
   const { settings, secrets } = proxyTestConfiguration("proxy", urls, exits, [10211, 10212]);
-  expect(settings.maxActive).toBe(2); expect(settings.profiles.map(p => p.id)).toEqual([...PROXY_PROFILE_IDS]);
+  expect(settings).not.toHaveProperty("maxActive"); expect(settings.profiles.map(p => p.id)).toEqual([...PROXY_PROFILE_IDS]);
   const values = parseEnv(secrets);
   settings.profiles.forEach((profile, index) => {
     expect(profile.storage).toBe("native"); expect(values[profile.proxyEnv]).toBe(urls[index]);

@@ -1,6 +1,7 @@
 # stelz
 
-stelz runs persistent Camoufox profiles through standard MCP, with up to two active browsers.
+stelz runs persistent Camoufox profiles through standard MCP, with one browser instance per profile.
+There is no global browser or saved-profile count limit.
 It needs Bun, Node.js, and Camoufox. It needs no agent harness or LLM credentials.
 
 Install the release archive globally:
