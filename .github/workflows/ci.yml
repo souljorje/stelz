@@ -36,9 +36,4 @@ jobs:
         with:
           bun-version-file: package.json
       - run: bun install --frozen-lockfile --ignore-scripts
-      - run: bun run typecheck
-      - run: bun run test
-      - run: bun run build
-      - run: bun run test:prepack --destination .state/ci-release
-      - run: bun run verify:release --archive .state/ci-release/*.tgz
-      - run: bun run verify:release --archive .state/ci-release/*.tgz --native
+      - run: bun run check

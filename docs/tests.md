@@ -6,7 +6,7 @@ Use the runtime requirements in [Use the service](README.md).
 
 ```sh
 bun install --frozen-lockfile --ignore-scripts
-bun run build
+bun run check
 bun run pack
 ```
 
@@ -22,6 +22,7 @@ See [Onboarding acceptance](onboarding-acceptance.md) for the real-agent install
 
 | Command | Coverage |
 | --- | --- |
+| `bun run check` | Build, TypeScript checks, and all browser-free tests. No release archive. |
 | `bun run typecheck` | TypeScript checks. |
 | `bun run test:ui` | UI sessions, lifecycle dispatch, profile creation and deletion, interrupted saves, safe network edits, and redaction. |
 | `bun run test:ui:browser` | Built UI in Chrome, local sessions, offline assets, forms, and responsive layouts. |
@@ -44,7 +45,8 @@ The earlier browser acceptance run passed on 2026-11-02 with macOS 26.5.2 on App
 That run used Bun 1.4.4, Node.js 24.14.0, TypeScript 5.9.3, and Camoufox 152.0.4 beta.30.
 Camofox remains pinned to npm version 1.18.1.
 
-The regression suite also runs directly with Node. It does not require a browser.
+Tests in `tests/unit` and `tests/integration` run with Bun through directory discovery.
+Tests in `tests/regression` run directly with Node. They do not require a browser.
 The plugin tests use the actual hooks with simulated browser and network interfaces.
 They cover stalled actions, failed IP checks, explicit recheck, action serialization, cache expiry, and independent provider fallback.
 One hundred queued actions require one IP check with the default cache, compared with 101 checks in strict mode.
@@ -66,10 +68,11 @@ The UI check also creates profiles with and without a proxy, checks deletion, an
 
 ## Continuous integration
 
-GitHub Actions runs frozen installation, build, TypeScript checks, regression tests, and isolated browser-free archive verification on Linux and macOS.
-Each platform packs once, then checks the same archive with scripts disabled and with ordinary native installation.
+GitHub Actions runs frozen installation and `bun run check` on Linux and macOS.
+Normal checks do not pack archives or start live browsers.
 CI and release workflows use the root `package.json` `packageManager` pin (`bun@1.4.4`), Node.js 24, and read-only repository permissions.
-Release preparation requires these checks on both platforms, then uploads one verified archive.
+Release preparation requires these checks on both platforms, then builds and uploads one candidate archive.
+Linux and macOS download that same archive and check installation with scripts disabled and with ordinary native installation.
 The workflows skip browser downloads. Browser, proxy, and human acceptance checks run locally.
 
 ## Test data

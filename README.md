@@ -48,5 +48,6 @@ See [Compatibility](docs/README.md#compatibility) before changing existing confi
 `apps/ui` contains the private React UI. `packages/stelz` contains the only publishable package.
 The package groups source under `cli`, `profiles`, `browser`, `runtime`, `mcp`, and `api`.
 Root `docs/` and `examples/` are canonical. Build stages their copies into the package.
+Run `bun run check` for build, TypeScript checks, and browser-free tests.
 Run `bun run verify:release` for browser-free archive verification.
 See [Distribution](docs/distribution.md) and [Camofox patches](docs/camofox-patches.md).
