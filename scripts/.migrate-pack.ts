@@ -16,7 +16,6 @@ const qa='tests/qa/package.ts';
 replace(qa,'import { verifyBundledDependencies','import { packRelease } from "../../scripts/pack-release.ts";\nimport { verifyBundledDependencies');
 replace(qa,'const packed = JSON.parse(await run([npm, "pack", "--json", "--ignore-scripts"], { cwd: join(root, "packages/stelz") })) as Array<{ filename: string; files: Array<{ path: string }> }>;','const packed = [await packRelease(join(root, "packages/stelz"), temp, { env, ignoreScripts: true })];');
 replace(qa,'const archive = join(root, "packages/stelz", packed[0]!.filename);','const archive = join(temp, packed[0]!.filename);');
-// Public build instructions must describe the actual packer, not npm's incompatible workspace walker.
 function docs(folder:string) {
  for(const file of readdirSync(folder,{withFileTypes:true})) {
   const path=join(folder,file.name);
@@ -28,10 +27,8 @@ function docs(folder:string) {
  }
 }
 docs('docs');
-for(const path of ['README.md','packages/stelz/README.md']) {
- const text=readFileSync(path,'utf8');
- if(text.includes('npm pack')) writeFileSync(path,text.replaceAll('npm pack','bun pm pack'));
-}
+const readme=readFileSync('README.md','utf8');
+writeFileSync('README.md',readme.replaceAll('npm pack','bun pm pack'));
 const note='\nThe packer is `bun pm pack` because it understands the pinned Bun workspace layout and bundles the dependency closure. npm 11 directory packing failed with `Exit handler never called` for this layout during validation. npm still inspects and installs the exact generated tarball. Publish the verified `.tgz`, not the workspace directory; this change does not publish anything.\n';
 writeFileSync('docs/camofox-patches.md',readFileSync('docs/camofox-patches.md','utf8')+note);
 rmSync('scripts/.migrate-pack.ts');
