@@ -32,6 +32,20 @@ export function replayFingerprint(saved: Fingerprint, generated: Fingerprint): F
   return effective;
 }
 
+/** Use the current proxy country's default language instead of resampling it on each launch. */
+export function applyProxyLocale(config: Fingerprint, proxied: boolean): Fingerprint {
+  const region = config["locale:region"];
+  if (!proxied || typeof region !== "string" || !/^[A-Z]{2}$/.test(region) || config["locale:all"]) return config;
+  const current = new Intl.Locale(`und-${region}`), maximized = current.maximize();
+  if (maximized.region !== current.region) return config;
+  const locale = maximized.minimize();
+  if (locale.language === "und") return config;
+  const effective: Fingerprint = { ...config, "locale:language": locale.language };
+  if (locale.script) effective["locale:script"] = locale.script;
+  else delete effective["locale:script"];
+  return effective;
+}
+
 export function launchPreferences(current: Fingerprint | undefined, proxied: boolean, device: Fingerprint = {}): Fingerprint {
   // Never replay old Firefox preferences. They include policy, not just profile.
   // Derive WebGL2 support from the saved GPU, not the newly sampled GPU.
@@ -72,7 +86,7 @@ export function applyFingerprint(options: LaunchOptions, stateDir: string, binar
     writeFileSync(path, JSON.stringify(pin, null, 2), { mode: 0o600, flag: "wx" });
   }
 
-  const effective = replayFingerprint(pin.config, generated);
+  const effective = applyProxyLocale(replayFingerprint(pin.config, generated), proxied);
   for (const [key] of chunks) delete env[key];
   const serialized = JSON.stringify(effective);
   for (let offset = 0; offset < serialized.length; offset += 32767) {

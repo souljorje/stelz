@@ -188,9 +188,10 @@ try {
       assert(readFileSync(profileFile(id, "fingerprint.json"), "utf8") === pins[id], "The saved device pin changed during a proxy transition or restart.");
       const comparison = compareObservations(lifetime === 1 ? before[id]! : proxied[id]!, sample);
       const differences = comparison.stableDifferences.filter(key => lifetime !== 1 || !["languages", "timezone"].includes(key));
+      report.push({ check: "Native storage and device continuity", lifetime, profile: id, sample, ...comparison,
+        result: differences.length ? "failed" : "passed" });
       assert(differences.length === 0, `Observable device drift: ${differences.join(", ")}`);
       if (lifetime === 1) proxied[id] = sample;
-      report.push({ check: "Native storage and device continuity", lifetime, profile: id, sample, ...comparison });
     }
     for (let round = 1; round <= 3; round++) {
       for (const index of [0, 1]) {
