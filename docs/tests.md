@@ -59,8 +59,9 @@ The UI check also creates profiles with and without a proxy, confirms deletion, 
 ## Continuous integration
 
 GitHub Actions runs frozen installation, build, TypeScript checks, regression tests, and isolated browser-free archive verification on Linux and macOS.
-It uses the Bun version in `package.json`, Node.js 24, and read-only repository permissions.
-The workflow skips browser downloads. Browser, proxy, and human acceptance checks run locally.
+CI and release workflows use the root `package.json` `packageManager` pin (`bun@1.4.4`), Node.js 24, and read-only repository permissions.
+The manual release workflow runs the same checks on Linux and uploads the archive as an artifact.
+Both workflows skip browser downloads. Browser, proxy, and human acceptance checks run locally.
 
 ## Test data
 

@@ -9,7 +9,6 @@ export function createUiServer(options: Options = {}) {
   const state = options.sessionState ?? createUiSessionState();
   const app = createUiApp({ ...options, sessionState: state, onShutdown: () => {
     // Wait for HTTP responses before closing every keep-alive connection.
-    // Bun 1.3.8 leaves these connections open after stop(false).
     void (async () => {
       while (server.pendingRequests) await Bun.sleep(1);
       await server.stop(true);

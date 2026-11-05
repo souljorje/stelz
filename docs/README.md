@@ -5,7 +5,7 @@ A profile has a stable browser ID. A controller is one MCP client with exclusive
 ## Requirements
 
 - macOS on Apple Silicon is the tested platform.
-- Install Bun 1.3.8 or later.
+- Install Bun 1.4.4 or later.
 - Install Node.js 24 or later.
 - Keep the existing Camoufox installation.
 
