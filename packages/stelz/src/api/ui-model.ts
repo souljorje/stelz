@@ -3,9 +3,10 @@ import { isIP } from "node:net";
 import { join } from "node:path";
 import { parseEnv } from "node:util";
 import {
-  CONFIG_FILE, HOME_DIR, STATE, dir, settings, validateProxy, type Profile, type Settings,
+  CONFIG_FILE, HOME_DIR, STATE, dir, settings, typingMode, validateProxy, type Profile, type Settings,
 } from "../profiles/config.ts";
 import { doctor, logs, reportStatus, status } from "../runtime/runtime.ts";
+import { isTypingMode } from "../browser/typing.ts";
 import {
   NetworkTransactionError, networkTransactionSecretValues, pendingNetworkTransaction,
 } from "../profiles/network-transaction.ts";
@@ -14,7 +15,7 @@ import {
 } from "../profiles/profile-catalog.ts";
 import {
   ProfileCatalogError, ProfileConfigurationError, catalogRevision, createProfile, deleteProfile,
-  updateNetwork, networkRevision,
+  updateNetwork, updateTyping, networkRevision, typingRevision,
 } from "../profiles/profile-configuration.ts";
 import { STELZ_VERSION, UPSTREAM_VERSION } from "../versions.ts";
 import type {
@@ -197,6 +198,7 @@ function ownership(value: unknown): UiProfile["ownership"] {
 function profile(config: Settings, p: Profile, raw: Data, secrets: ReturnType<typeof readSecrets>, redact: Redact): UiProfile {
   const text = (value: unknown, limit = 1000) => typeof value === "string" ? redact(value, limit).replace(/[\r\n\t]+/g, " ") || null : null;
   const currentPhase = phase(raw.phase), active = currentPhase !== "stopped";
+  const defaultTypingMode = active && isTypingMode(raw.typingModeDefault) ? raw.typingModeDefault : typingMode();
   const error = active ? [text(raw.error), text(raw.checkFailure, 500)].filter(Boolean).join(" ") || null : null;
   const controller = data(raw.controller);
   const windows = data(raw.windowControls);
@@ -218,6 +220,8 @@ function profile(config: Settings, p: Profile, raw: Data, secrets: ReturnType<ty
     fingerprintSha256: digest(raw.fingerprintSha256), engineSha256: digest(raw.engineSha256),
     error, controlError: active ? text(raw.controlError) : null, configurationError: configurationError(p, secrets),
     network: network(config, p, secrets),
+    typingMode: p.typingMode ?? defaultTypingMode,
+    typing: { revision: typingRevision(p), mode: p.typingMode ?? null, defaultMode: defaultTypingMode },
   };
 }
 
@@ -327,6 +331,11 @@ export function createUiModel(): UiModel {
     updateNetwork: (id, input) => safe(async () => {
       const result = await updateNetwork(id, input);
       return profile(result.config, result.profile, data(result.observation), result.secrets, redactor(result.config, Object.values(result.secrets.values)));
+    }),
+    updateTyping: (id, input) => safe(async () => {
+      const result = await updateTyping(id, input);
+      const raw = data(await reportStatus(id));
+      return profile(result.config, result.profile, raw, result.secrets, redactor(result.config, [data(raw.controller).id]));
     }),
   };
 }

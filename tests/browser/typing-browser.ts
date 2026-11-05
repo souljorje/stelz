@@ -1,9 +1,10 @@
-// Headed input acceptance through unchanged MCP tools. Existing profiles must be stopped.
+// Headed input acceptance through camofox_type. Existing profiles must be stopped.
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { HOME_DIR } from "../../packages/stelz/src/profiles/config.ts";
+import type { TypingMode } from "../../packages/stelz/src/browser/typing.ts";
 
 const root = resolve(import.meta.dir, "../.."), cli = join(root, "packages/stelz/dist/cli.js");
 const args = process.argv.slice(2);
@@ -12,20 +13,24 @@ if (args.length && (args.length !== 2 || args[0] !== "--profile" || !/^[a-z][a-z
 const existingProfile = args[1], profileId = existingProfile || "typing-check";
 mkdirSync(join(root, ".state"), { recursive: true });
 const output = mkdtempSync(join(root, ".state/typing-acceptance-"));
-const home = existingProfile ? HOME_DIR : output;
-const env: Record<string, string> = { STELZ_HOME: home, STELZ_TYPING_MODE: "paced" };
+const home = existingProfile ? process.env.STELZ_HOME || join(homedir(), ".local/share/stelz") : output;
+const env: Record<string, string> = { STELZ_HOME: home, STELZ_TYPING_MODE: "auto" };
 for (const name of ["PATH", "HOME", "USER", "LOGNAME", "LANG", "TMPDIR", "CAMOUFOX_EXECUTABLE"])
   if (process.env[name]) env[name] = process.env[name]!;
 type Event = { type: string; target: string; key: string; trusted: boolean; at: number };
-type Sample = { values: Record<string, string>; events: Event[]; submits: number };
+type Sample = { generation: number; sequence: number; values: Record<string, string>; events: Event[]; submits: number };
 let sample: Sample | undefined, client: Client | undefined, started = false;
+let generation = 0;
 const checks: Array<{ check: string; [key: string]: unknown }> = [];
 function assert(value: unknown, message: string): asserts value { if (!value) throw Error(message); }
 const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
   if (new URL(request.url).pathname === "/sample" && request.method === "POST") {
-    sample = await request.json() as Sample;
+    const next = await request.json() as Sample;
+    if (next.generation === generation && (!sample || next.sequence > sample.sequence)) sample = next;
     return new Response(null, { status: 204 });
   }
+  if (new URL(request.url).pathname !== "/") return new Response(null, { status: 204 });
+  generation++;
   return new Response(`<!doctype html><meta charset="utf-8"><title>stelz typing acceptance</title>
 <style>body{font:20px system-ui;padding:30px}label,div,button{display:block;margin:16px}input,textarea{font:inherit}#editable{border:1px solid;padding:10px}</style>
 <h1>Typing acceptance</h1><form><label>Message <input id="message" value="old value"></label><button>Submit message</button></form>
@@ -34,16 +39,17 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
 <label>Number <input id="number" type="number" value="1"></label>
 <label>Date <input id="date" type="date" value="2026-01-01"></label>
 <p id="status">Ready</p><script>
-const events = []; let submits = 0;
+const events = []; let submits = 0, sequence = 0, timer;
 function publish() {
   const values = Object.fromEntries(['message','multiline','editable','number','date'].map(id => {
     const el = document.getElementById(id); return [id, el.value === undefined ? el.textContent : el.value];
   }));
   document.getElementById('status').textContent = 'Submissions: ' + submits;
-  fetch('/sample', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({values,events,submits})});
+  fetch('/sample', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({generation:${generation},sequence:++sequence,values,events,submits})});
 }
-for (const type of ['input','keydown','keyup']) document.addEventListener(type, event => {
-  events.push({type,target:event.target.id,key:event.key||'',trusted:event.isTrusted,at:performance.now()}); publish();
+for (const type of ['input','beforeinput','keydown','keypress','keyup']) document.addEventListener(type, event => {
+  events.push({type,target:event.target.id,key:event.key||'',trusted:event.isTrusted,at:performance.now()});
+  clearTimeout(timer); timer = setTimeout(publish, 50);
 });
 document.querySelector('form').onsubmit = event => { event.preventDefault(); submits++; publish(); };
 publish();
@@ -81,10 +87,20 @@ async function observed(predicate: (value: Sample) => boolean) {
   }
   throw Error("The browser did not report the expected input state.");
 }
-async function type(tabId: string, selector: string, text: string, pressEnter = false) {
+async function type(tabId: string, selector: string, text: string, options: { mode?: TypingMode; pressEnter?: boolean } = {}) {
   await call("camofox_snapshot", { tabId });
-  await call("camofox_type", { tabId, selector, text, pressEnter });
+  await call("camofox_type", { tabId, selector, text, ...options });
   await call("camofox_snapshot", { tabId });
+}
+function keyboardEvents(value: Sample, text: string) {
+  const events = value.events.filter(event => event.target === "message");
+  for (const kind of ["keydown", "keypress", "keyup"]) {
+    // Clearing an existing field can also emit Delete. Check printable keys separately.
+    const keys = events.filter(event => event.type === kind && event.key.length === 1);
+    assert(keys.map(event => event.key).join("") === text, `${kind} did not match the requested ASCII text.`);
+  }
+  assert(events.every(event => event.trusted), "Input events were not browser-generated.");
+  assert(events.filter(event => event.type === "keydown" && event.key === "Enter").length === 1, "Enter was not pressed exactly once.");
 }
 try {
   if (existingProfile) {
@@ -101,16 +117,27 @@ try {
   await command("start", profileId); await connect();
   const tools = await client!.listTools();
   const schema = tools.tools.find(tool => tool.name === "camofox_type")!.inputSchema;
-  assert(!("mode" in schema.properties!) && !("delay" in schema.properties!), "The canonical MCP typing schema changed.");
+  assert(JSON.stringify((schema.properties!.mode as { enum: string[] }).enum) === JSON.stringify(["auto", "keyboard", "instant"]), "The typing mode overrides are missing.");
   const tabId = String((await call("camofox_create_tab", { url: `http://127.0.0.1:${server.port}` })).tabId);
+  const instanceId = (await call("profile_status")).instanceId;
+  async function reset() {
+    sample = undefined;
+    await call("camofox_navigate", { tabId, url: `http://127.0.0.1:${server.port}` });
+    await observed(value => value.values.message === "old value");
+  }
+  async function setDefault(mode: TypingMode) {
+    assert(!existingProfile, "Do not edit an operator's profile catalog.");
+    writeFileSync(join(home, "profiles.json"), JSON.stringify({ profiles: [
+      { id: profileId, port, mode: "direct", storage: "native", typingMode: mode },
+    ] }), { mode: 0o600 });
+  }
   const text = "Paced typing, with pauses.";
-  await type(tabId, "#message", text, true);
+  await type(tabId, "#message", text, existingProfile ? { mode: "auto", pressEnter: true } : { pressEnter: true });
   const paced = await observed(value => value.values.message === text && value.submits === 1);
   const inputs = paced.events.filter(event => event.type === "input" && event.target === "message");
   const gaps = inputs.slice(2).map((event, i) => event.at - inputs[i + 1]!.at);
   assert(inputs.length >= text.length, "Paced typing did not produce per-character input events.");
-  assert(paced.events.some(event => event.type === "keydown" && event.key === "P"), "Keyboard events are missing.");
-  assert(paced.events.every(event => event.trusted), "Input events were not browser-generated.");
+  keyboardEvents(paced, text);
   assert(Math.max(...gaps) - Math.min(...gaps) > 20, "Typing intervals did not vary.");
   assert(paced.events.filter(event => event.type === "keydown" && event.key === "Enter").length === 1, "Enter was not pressed exactly once.");
   checks.push({ check: "paced replacement, varied timing, browser-generated events, one Enter", inputEvents: inputs.length,
@@ -122,30 +149,52 @@ try {
     ["editable", "Editable words.", "Editable words."], ["number", "12.5", "12.5"], ["date", "2026-11-03", "2026-11-03"],
     ["message", "", ""],
   ] as const) {
-    await type(tabId, `#${id}`, value);
+    await type(tabId, `#${id}`, value, { mode: "auto" });
     await observed(sample => sample.values[id] === expected && sample.submits === 1);
   }
   checks.push({ check: "Unicode, single-line normalization, multiline, contenteditable, number, date, and empty input" });
-  await type(tabId, "#message", "Keep this value");
-  await call("camofox_snapshot", { tabId });
-  const tooLong = await result("camofox_type", { tabId, selector: "#message", text: "x".repeat(10_000) });
-  assert(tooLong.isError && JSON.stringify(tooLong.content).includes("typing_too_long"), "Oversized paced input did not fail before editing.");
-  assert(JSON.stringify(await call("camofox_snapshot", { tabId })).includes("Keep this value"), "Oversized input changed the field contents.");
-  assert((await call("profile_status")).phase === "ready", "A preflight length rejection blocked the browser.");
-  checks.push({ check: "oversized paced input preserves field contents and service readiness" });
-  await call("profile_release"); await client!.close(); client = undefined;
-  await command("stop", profileId); started = false;
-  env.STELZ_TYPING_MODE = "instant";
-  started = true;
-  await command("start", profileId); await connect();
-  const instantTab = String((await call("camofox_create_tab", { url: `http://127.0.0.1:${server.port}` })).tabId);
-  await observed(value => value.values.message === "old value");
-  const bulk = "Bulk text ".repeat(200);
-  await type(instantTab, "#message", bulk, true);
-  const instant = await observed(value => value.values.message === bulk && value.submits === 1);
+  await reset();
+  const bulk = "Bulk text 👋\n".repeat(1500);
+  await type(tabId, "#multiline", bulk, { mode: "auto" });
+  const automaticBulk = await observed(value => value.values.multiline === bulk);
+  assert(automaticBulk.events.filter(event => event.type === "input" && event.target === "multiline").length === 1, "Long auto input did not select bulk entry before editing.");
+  checks.push({ check: "auto enters long text with one bulk fill", characters: bulk.length });
+
+  await reset();
+  const keys = "Keyboard events without artificial pauses. ".repeat(8);
+  if (!existingProfile) await setDefault("instant");
+  await type(tabId, "#message", keys, { mode: "keyboard", pressEnter: true });
+  const keyboard = await observed(value => value.values.message === keys && value.submits === 1);
+  keyboardEvents(keyboard, keys);
+  assert(keyboard.events.filter(event => event.type === "input" && event.target === "message").length >= keys.length, "Keyboard mode did not enter text character by character.");
+  checks.push({ check: "keyboard override emits trusted keydown, keypress, keyup and input for long text, one Enter", characters: keys.length });
+
+  await reset();
+  if (!existingProfile) await setDefault("keyboard");
+  await type(tabId, "#message", "Instant short text", { mode: "instant", pressEnter: true });
+  const instant = await observed(value => value.values.message === "Instant short text" && value.submits === 1);
   const bulkInputs = instant.events.filter(event => event.type === "input" && event.target === "message");
-  assert(bulkInputs.length === 1, "The service did not forward instant mode to the browser runtime.");
-  checks.push({ check: "instant service setting preserves bulk fill and Enter", inputEvents: bulkInputs.length });
+  assert(bulkInputs.length === 1, "Instant override did not use one bulk fill.");
+  assert(instant.events.filter(event => event.type === "keydown").map(event => event.key).join("") === "Enter", "Instant entry sent character key events or duplicate Enter.");
+  checks.push({ check: "instant override enters short text in bulk, one Enter", inputEvents: bulkInputs.length });
+
+  if (!existingProfile) {
+    for (const mode of ["keyboard", "instant", "auto"] as const) {
+      await setDefault(mode); await reset();
+      await type(tabId, "#message", "Live default", { pressEnter: true });
+      const state = await observed(value => value.values.message === "Live default" && value.submits === 1);
+      const count = state.events.filter(event => event.type === "input" && event.target === "message").length;
+      assert(mode === "instant" ? count === 1 : count >= "Live default".length, `${mode} profile default did not apply live.`);
+    }
+    await setDefault("instant"); await reset();
+    await type(tabId, "#message", "Auto override", { mode: "auto", pressEnter: true });
+    const override = await observed(value => value.values.message === "Auto override" && value.submits === 1);
+    keyboardEvents(override, "Auto override");
+    checks.push({ check: "all profile defaults apply live; explicit auto overrides instant default" });
+  }
+  const final = await call("profile_status");
+  assert(final.phase === "ready" && final.instanceId === instanceId, "Typing mode changes replaced or blocked the running browser.");
+  checks.push({ check: "same browser, tab, MCP connection, and controller remain usable without restart" });
   await call("profile_release");
   console.log(JSON.stringify({ result: "passed", profileId, checks, report: join(output, "report.json") }, null, 2));
 } catch (error) {

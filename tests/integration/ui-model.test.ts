@@ -324,6 +324,77 @@ test("live observations call only authenticated status and expose no controller 
   expect(JSON.stringify(result.value)).not.toContain("lease-secret");
 });
 
+test("typing inherits the active service fallback and permits explicit auto and clearing the override", async () => {
+  const f = fixture();
+  const result = await run(f, `
+    const state = join(home, 'profiles/test'), calls = [];
+    const live = { profileId: 'test', phase: 'ready', typingModeDefault: 'instant',
+      controller: { id: 'private-lease', label: 'Existing client', pid: process.pid, activeActions: 1, releasing: false } };
+    const service = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(request) {
+      calls.push([request.method, new URL(request.url).pathname]);
+      return Response.json(live);
+    }});
+    try {
+      fs.writeFileSync(join(home, 'profiles.json'), JSON.stringify({ profiles: [{ id: 'test', port: service.port, mode: 'direct' }] }));
+      fs.writeFileSync(join(state, 'access-key'), 'status-only-key');
+      const stamp = runtime.processStart(process.pid), running = join(state, 'running.json');
+      fs.writeFileSync(running, JSON.stringify({ version: 2, pid: process.pid, supervisorStart: stamp, serverPid: process.pid,
+        serverStart: stamp, serverState: 'started', instanceId: 'existing', configurationHash: 'fixture', port: service.port }));
+      fs.writeFileSync(join(state, 'status.json'), JSON.stringify(live));
+      const lifetime = fs.readFileSync(running, 'utf8'), savedState = fs.readFileSync(join(state, 'status.json'), 'utf8');
+      const inherited = (await model.snapshot()).profiles[0], detail = (await model.detail('test')).profile;
+      const explicit = await model.updateTyping('test', { revision: inherited.typing.revision, mode: 'auto' });
+      const cleared = await model.updateTyping('test', { revision: explicit.typing.revision, mode: null });
+      const persisted = JSON.parse(fs.readFileSync(join(home, 'profiles.json'), 'utf8')).profiles[0];
+      const unchanged = lifetime === fs.readFileSync(running, 'utf8') && savedState === fs.readFileSync(join(state, 'status.json'), 'utf8');
+      delete live.typingModeDefault;
+      fs.writeFileSync(join(state, 'status.json'), JSON.stringify(live));
+      const older = (await model.snapshot()).profiles[0];
+      live.typingModeDefault = 'invalid';
+      fs.writeFileSync(join(state, 'status.json'), JSON.stringify(live));
+      const invalid = (await model.snapshot()).profiles[0];
+      live.typingModeDefault = 'instant';
+      fs.writeFileSync(join(state, 'status.json'), JSON.stringify(live));
+      fs.rmSync(running);
+      const stopped = (await model.snapshot()).profiles[0];
+      return { inherited, detail, explicit, cleared, older, invalid, stopped, persisted, unchanged, calls };
+    } finally { service.stop(true); }
+  `, { STELZ_TYPING_MODE: "auto" });
+  expect(result.ok).toBe(true);
+  const { inherited, detail, explicit, cleared, older, invalid, stopped } = result.value;
+  for (const row of [inherited, detail, cleared]) expect(row).toMatchObject({ typingMode: "instant", typing: { mode: null, defaultMode: "instant" } });
+  expect(explicit).toMatchObject({ typingMode: "auto", typing: { mode: "auto", defaultMode: "instant" } });
+  expect(explicit.typing.revision).not.toBe(inherited.typing.revision);
+  for (const row of [older, invalid, stopped]) expect(row).toMatchObject({ typingMode: "auto", typing: { mode: null, defaultMode: "auto" } });
+  expect(stopped.phase).toBe("stopped");
+  expect(result.value.persisted).not.toHaveProperty("typingMode");
+  expect(result.value.unchanged).toBe(true);
+  expect(explicit.controller).toEqual(inherited.controller);
+  expect(result.value.calls.every((call: string[]) => call[0] === "GET" && call[1] === "/local-profile/status")).toBe(true);
+});
+
+test("typing saves preserve dirty network drafts and network merges retain the current typing preference", async () => {
+  const f = fixture();
+  const result = await run(f, `
+    const { networkDraft, networkDirty, networkUpdate } = await import(${JSON.stringify(join(root, "apps/ui/src/model.ts"))});
+    const original = (await model.snapshot()).profiles[0], baseline = networkDraft(original.network);
+    const draft = { ...baseline, mode: 'proxy', proxyUrl: 'http://draft.test:8080', expectedIp: '198.51.100.10' };
+    const typed = await model.updateTyping('test', { revision: original.typing.revision, mode: 'keyboard' });
+    const dirty = networkDirty(draft, baseline);
+    const network = await model.updateNetwork('test', networkUpdate(draft, baseline, typed.network));
+    const typedAgain = await model.updateTyping('test', { revision: typed.typing.revision, mode: 'instant' });
+    return { original, typed, dirty, network, typedAgain };
+  `);
+  expect(result.ok).toBe(true);
+  const { original, typed, dirty, network, typedAgain } = result.value;
+  expect(dirty).toBe(true);
+  expect(typed.network).toEqual(original.network);
+  expect(network).toMatchObject({ typingMode: "keyboard", typing: { mode: "keyboard" }, mode: "proxy", network: { proxyDisplay: "http://draft.test:8080", expectedIp: "198.51.100.10" } });
+  expect(network.typing.revision).toBe(typed.typing.revision);
+  expect(typedAgain.network).toEqual(network.network);
+  expect(typedAgain.typingMode).toBe("instant");
+});
+
 test("window inventories redact whole values before truncation and load secrets once per response", async () => {
   const password = "sensitive-window-password".repeat(30);
   const f = fixture([{ id: "test", port: 19471, mode: "direct", proxyEnv: "WINDOW_PROXY" }],
@@ -397,7 +468,7 @@ test("all outward state, diagnostics, devices, errors, and both logs redact cred
   expect(profile.network).toMatchObject({ proxyDisplay: "http://proxy.test:8080", proxyConfigured: true, expectedIp: "198.51.100.42" });
   expect(profile.controller).toBeNull();
   expect(profile.engineSha256).toBeNull();
-  expect(Object.keys(profile).sort()).toEqual(["id", "port", "mode", "storage", "phase", "instanceId", "exitIp", "checkedAt", "fixedIpVerified", "windowControls", "controller", "supervisorPid", "serverPid", "ownership", "fingerprintSha256", "engineSha256", "error", "controlError", "configurationError", "network"].sort());
+  expect(Object.keys(profile).sort()).toEqual(["id", "port", "mode", "storage", "typingMode", "typing", "phase", "instanceId", "exitIp", "checkedAt", "fixedIpVerified", "windowControls", "controller", "supervisorPid", "serverPid", "ownership", "fingerprintSha256", "engineSha256", "error", "controlError", "configurationError", "network"].sort());
   expect(result.value.diagnostics.profiles[0].accessKeyPresent).toBe(true);
   expect(result.value.diagnostics.profiles[0]).not.toHaveProperty("accessKey");
   expect(result.value.detail.device.properties).toContainEqual({ name: "CPU cores", value: "8" });

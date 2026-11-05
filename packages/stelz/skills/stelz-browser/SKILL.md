@@ -48,6 +48,13 @@ Do not close the reserved IP-check tab.
 
 `profile_status`, `profile_acquire`, `profile_release`, `profile_pause`, `profile_resume`, and `profile_recheck` take no arguments.
 The browser tools use the upstream Camofox schemas. Read them through standard MCP `tools/list`.
+The `camofox_type` tool also accepts `mode`: `auto`, `keyboard`, or `instant`.
+Omit `mode` to use the profile default. The overall default is `auto`.
+Automatic mode uses random pauses when the estimated typing duration is at most 10 seconds.
+Longer text uses bulk entry. The service selects the method before it changes the field.
+Use `keyboard` when the page requires individual key events. This mode adds no artificial delays.
+Use `instant` to request bulk entry explicitly. An override applies only to the current call.
+The operator can change each profile's default in the UI without restarting its browser.
 Do not add profile IDs, controller tokens, or conversation IDs to browser tool arguments.
 The connection already selects the profile.
 

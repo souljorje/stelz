@@ -10,6 +10,8 @@ import { allowedBrowserTools, browserToolArguments } from "../mcp/tool-policy.ts
 import type { Contracts } from "./upstream.ts";
 import { addProfileExtension, createProfileWindows } from "./profile-windows.ts";
 import { activateProfileBrowser } from "./window-activation.ts";
+import { profileTypingMode } from "../profiles/typing-mode.ts";
+import { parseTypingMode } from "./typing.ts";
 export { typeIntoLocator } from "./typing.ts";
 
 type Page = { on(event: "close", listener: () => void): unknown };
@@ -151,7 +153,7 @@ export async function register(app: App, ctx: PluginContext, options: {
     return elapsed >= 0 && elapsed < interval;
   }
   function snapshot() {
-    return { ...state, verificationFresh: verificationIsFresh() };
+    return { ...state, verificationFresh: verificationIsFresh(), typingModeDefault: parseTypingMode(process.env.STELZ_TYPING_MODE) };
   }
   async function bounded<T>(action: () => Promise<T>): Promise<T> {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -314,9 +316,13 @@ export async function register(app: App, ctx: PluginContext, options: {
       const name = String(body.name || "");
       const tool = browserTools.get(name);
       if (!tool) throw Error("Unknown browser tool.");
-      const args = browserToolArguments(tool, body.args);
+      let args = browserToolArguments(tool, body.args);
       const result = await controller.run(String(body.controllerId || ""), () => bounded(async () => {
         await ensureVerified();
+        if (name === "camofox_type") {
+          const { mode, typingMode: _internal, ...input } = args;
+          args = { ...input, typingMode: mode ?? profileTypingMode(process.env.STELZ_HOME, id) };
+        }
         try {
           const { spec, payload } = await upstream.runTool(name, args,
             { userId: id, sessionKey: "default" }, `http://127.0.0.1:${process.env.CAMOFOX_PORT}`,

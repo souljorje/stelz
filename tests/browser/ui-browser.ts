@@ -9,8 +9,9 @@ import type { UiAction } from "../../packages/stelz/src/api/contracts.ts";
 
 const root = resolve(import.meta.dir, "../.."), home = mkdtempSync(join(tmpdir(), "stelz-ui-browser-"));
 process.env.STELZ_HOME = home;
+process.env.STELZ_TYPING_MODE = "auto";
 const { processStart } = await import("../../packages/stelz/src/runtime/runtime.ts");
-const { createUiServer } = await import("../../packages/stelz/src/api/ui-server.ts");
+const { createUiServer, createUiSessionState } = await import("../../packages/stelz/src/api/ui-server.ts");
 const reports = join(root, ".state/ui-browser");
 mkdirSync(reports, { recursive: true });
 const commands: string[] = [];
@@ -65,6 +66,7 @@ for (const [index, id] of ["profile-01", "profile-02"].entries()) {
   services.push(service);
   profiles.push({ id, port: service.port!, mode: index === 0 ? "proxy" : "direct", storage: "native", ...(index === 0 ? { proxyEnv: "UI_FIXTURE_PROXY_URL", expectedIPEnv: "UI_FIXTURE_EXPECTED_IP" } : {}) });
   const state: Record<string, unknown> = { profileId: id, instanceId: randomUUID(), phase: index === 0 ? "ready" : "stopped", mode: profiles[index]!.mode,
+    typingModeDefault: index === 0 ? "instant" : "auto",
     exitIp: index === 0 ? "203.0.113.8" : null, expectedIp: index === 0 ? "203.0.113.8" : null,
     checkedAt: index === 0 ? new Date().toISOString() : null, fixedIpVerified: index === 0,
     fingerprintSha256: digest, engineSha256: digest,
@@ -85,7 +87,8 @@ writeFileSync(join(home, "secrets.env"), "UI_FIXTURE_PROXY_URL=http://fixture-us
 mkdirSync(join(home, "runtime"), { mode: 0o700 });
 writeFileSync(join(home, "runtime/versions.json"), "{}", { mode: 0o600 });
 
-const ui = createUiServer({ port: 0, async lifecycle(action: UiAction, id: string) {
+const sessionState = createUiSessionState();
+const ui = createUiServer({ port: 0, sessionState, async lifecycle(action: UiAction, id: string) {
   commands.push(`${action}:${id}`);
   const state = states.get(id)!;
   if (action === "start") state.phase = "ready";
@@ -226,11 +229,17 @@ if (process.argv.includes("--serve")) {
     await page.getByLabel(/^Proxy URL/).fill("http://new-user:new-password@proxy.example:8081");
     await page.locator(".network-form summary").click();
     await page.getByLabel(/^Expected exit IP/).fill("198.51.100.10");
+    await page.getByRole("tab", { name: "Overview", exact: true }).click();
+    await page.getByLabel("Default typing mode", { exact: true }).selectOption("keyboard");
+    await page.getByText("Typing mode saved. Applies to future typing actions.", { exact: true }).waitFor();
+    await page.getByRole("tab", { name: /^Network/ }).click();
+    if (await page.getByRole("button", { name: "Save network", exact: true }).isDisabled()) throw Error("Saving typing preferences invalidated a dirty network form.");
     // A background observation must not overwrite an operator's unsaved form.
     await page.waitForTimeout(2300);
     if (await page.getByLabel(/^Proxy URL/).inputValue() !== "http://new-user:new-password@proxy.example:8081") throw Error("A status refresh discarded unsaved proxy edits.");
     await page.getByRole("button", { name: "Save network", exact: true }).click();
     await page.getByText("Network settings saved.", { exact: true }).waitFor();
+    if (JSON.parse(readFileSync(configFile, "utf8")).profiles.find((profile: { id: string }) => profile.id === "profile-02").typingMode !== "keyboard") throw Error("Saving a network draft overwrote the typing preference.");
     if (await page.getByLabel(/^Proxy URL/).inputValue()) throw Error("The saved proxy credential remains in the form.");
     if ((await page.locator("body").innerText()).includes("new-password")) throw Error("The UI displays a proxy password.");
     await page.getByRole("tab", { name: "Overview", exact: true }).click();
@@ -298,6 +307,26 @@ if (process.argv.includes("--serve")) {
     await page.getByRole("button", { name: "Inspect profile-01", exact: true }).click();
     const browserWindows = page.getByRole("region", { name: "Browser windows", exact: true });
     await browserWindows.getByRole("button", { name: "Show Example page in profile-01", exact: true }).waitFor();
+    const typingSelect = page.getByLabel("Default typing mode", { exact: true });
+    if (await typingSelect.inputValue() !== "inherit" || !await typingSelect.getByRole("option", { name: "Service default (instant)", exact: true }).count()) throw Error("The UI does not show the active service's inherited typing mode.");
+    sessionState.pending.set("profile-01", "stop");
+    try {
+      await page.getByRole("button", { name: "Refresh service state", exact: true }).click();
+      await page.waitForFunction(() => document.querySelector<HTMLSelectElement>('#typing-profile-01')?.disabled === true);
+      await page.getByText("Wait for the current service action to finish.", { exact: true }).waitFor();
+    } finally { sessionState.pending.delete("profile-01"); }
+    await page.getByRole("button", { name: "Refresh service state", exact: true }).click();
+    await page.waitForFunction(() => document.querySelector<HTMLSelectElement>('#typing-profile-01')?.disabled === false);
+    const beforeTyping = JSON.stringify(states.get("profile-01")), commandsBeforeTyping = commands.length;
+    for (const mode of ["auto", "keyboard", "instant", "inherit"]) {
+      const response = page.waitForResponse(response => response.url().endsWith("/api/profiles/profile-01/typing") && response.request().method() === "PUT");
+      await typingSelect.selectOption(mode);
+      if (!(await response).ok()) throw Error("The UI could not save the typing mode.");
+      await page.getByText("Typing mode saved. Applies to future typing actions.", { exact: true }).waitFor();
+      const saved = JSON.parse(readFileSync(configFile, "utf8")).profiles.find((profile: { id: string }) => profile.id === "profile-01");
+      if (saved.typingMode !== (mode === "inherit" ? undefined : mode) || await typingSelect.inputValue() !== mode) throw Error("The UI typing selection was not persisted.");
+    }
+    if (commands.length !== commandsBeforeTyping || JSON.stringify(states.get("profile-01")) !== beforeTyping) throw Error("Saving typing preferences changed the controller or browser lifetime.");
     await captureScreen("browser-windows");
     const controllerBeforeShow = JSON.stringify(states.get("profile-01")!.controller), commandsBeforeShow = commands.length;
     await browserWindows.getByRole("button", { name: "Show Example page in profile-01", exact: true }).click();

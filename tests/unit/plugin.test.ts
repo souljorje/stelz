@@ -10,10 +10,28 @@ import { pathToFileURL } from "node:url";
 import { createHash } from "node:crypto";
 import { freezeDevice, replayFingerprint, launchPreferences } from "../../packages/stelz/src/browser/fingerprint.ts";
 import { register } from "../../packages/stelz/src/browser/plugin.ts";
+import { allowedBrowserTools } from "../../packages/stelz/src/mcp/tool-policy.ts";
+import type { Tool } from "../../packages/stelz/src/browser/upstream.ts";
+import { upstreamTyping } from "../helpers/upstream-typing.ts";
 
 const contractsUrl = pathToFileURL(join(dirname(createRequire(import.meta.url).resolve("@askjo/camofox-browser/package.json")),
   "mcp/lib/tool-contracts.mjs")).href;
 const tabId = "79bed5c4-d5b8-4369-9d13-b159451ece91";
+
+test("typing advertises optional per-call modes without changing upstream definitions", async () => {
+  const { TOOL_DEFS } = await import(contractsUrl);
+  const original = structuredClone(TOOL_DEFS);
+  const tools = allowedBrowserTools<Tool>(TOOL_DEFS);
+  assert.equal(tools.length, TOOL_DEFS.length - 2);
+  const typing = tools.find((tool: { name: string }) => tool.name === "camofox_type");
+  assert.ok(typing);
+  const mode = typing.inputSchema.properties?.mode;
+  assert.ok(mode && typeof mode === "object" && "enum" in mode);
+  assert.deepEqual(mode.enum, ["auto", "keyboard", "instant"]);
+  assert.deepEqual(typing.inputSchema.required, TOOL_DEFS.find((tool: { name: string }) => tool.name === "camofox_type").inputSchema.required);
+  assert.ok(!typing.inputSchema.required?.includes("mode"));
+  assert.deepEqual(TOOL_DEFS, original);
+});
 
 const generated = { "navigator.userAgent": "test UA", "navigator.hardwareConcurrency": 8,
   "navigator.languages": ["en-US"], "screen.width": 1440, "window.history.length": 1,
@@ -64,13 +82,14 @@ async function harness(mode: "direct" | "proxy" = "direct", waitForIP?: Promise<
   const root = mkdtempSync(join(tmpdir(), "stelz-regression-")), id = "profile-01";
   const stateDir = join(root, id), upstream = join(root, "upstream"), binary = join(root, "browser");
   mkdirSync(stateDir); mkdirSync(join(upstream, "mcp/lib"), { recursive: true });
+  writeFileSync(join(root, "profiles.json"), JSON.stringify({ profiles: [{ id, typingMode: "auto" }] }));
   writeFileSync(binary, "test browser binary");
   writeFileSync(join(upstream, "mcp/lib/tool-contracts.mjs"), fixture.canonical ? `export * from ${JSON.stringify(contractsUrl)};` : `
     export { TOOL_DEFS } from ${JSON.stringify(contractsUrl)};
     export async function runTool(name, args) { return globalThis.__stelzTool(name, args); }
     export function adaptResponse(_spec, payload) { return [{ type: "text", text: JSON.stringify(payload) }]; }
   `);
-  const settings = { STELZ_PROFILE_ID: id, STELZ_PROFILE_DIR: stateDir, STELZ_UPSTREAM: upstream,
+  const settings = { STELZ_HOME: root, STELZ_PROFILE_ID: id, STELZ_PROFILE_DIR: stateDir, STELZ_UPSTREAM: upstream,
     CAMOUFOX_EXECUTABLE: binary, STELZ_MODE: mode, STELZ_EXPECTED_IP: fixture.expected ?? "198.51.100.10",
     CAMOFOX_PORT: String(fixture.port ?? 0), CAMOFOX_ACCESS_KEY: "fixture-key" };
   const previous = Object.fromEntries(Object.keys(settings).map(key => [key, process.env[key]]));
@@ -308,14 +327,18 @@ test("pausing during an IP check does not become an irreversible context-loss bl
 const controller = { id: "controller-a", pid: process.pid, label: "test" };
 const snapshot = { controllerId: controller.id, name: "camofox_snapshot", args: { tabId } };
 
-async function canonicalHarness() {
+async function canonicalHarness(options: { timeout?: number; type?: (body: Record<string, unknown>) => Promise<{ code: number; payload: unknown }> } = {}) {
   const requests: Array<{ method: string; url: string; authorization?: string; body?: Record<string, unknown> }> = [];
   const server = createServer(async (req, res) => {
     let body = "";
     for await (const chunk of req) body += chunk;
     requests.push({ method: req.method!, url: req.url!, authorization: req.headers.authorization,
       body: body ? JSON.parse(body) : undefined });
-    if (new URL(req.url!, "http://localhost").pathname.endsWith("/screenshot")) {
+    const path = new URL(req.url!, "http://localhost").pathname;
+    if (path.endsWith("/type") && options.type) {
+      const response = await options.type(JSON.parse(body));
+      res.writeHead(response.code, { "Content-Type": "application/json" }).end(JSON.stringify(response.payload));
+    } else if (path.endsWith("/screenshot")) {
       res.writeHead(200, { "Content-Type": "image/png" }).end("fixture-image");
     } else res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ ok: true }));
   });
@@ -323,7 +346,7 @@ async function canonicalHarness() {
   await once(server, "listening");
   const address = server.address();
   assert(address && typeof address !== "string");
-  const h = await harness("direct", undefined, { expected: "", canonical: true, port: address.port });
+  const h = await harness("direct", undefined, { expected: "", canonical: true, port: address.port, timeout: options.timeout });
   return { h, requests, async close() {
     try { await h.close(); }
     finally { await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); }
@@ -382,12 +405,116 @@ test("canonical dispatch preserves valid tool routes, arguments, and authenticat
       assert.equal(req.authorization, "Bearer fixture-key");
       if (method === "POST") {
         const { tabId: _tabId, ...body } = args;
-        assert.deepEqual(req.body, { ...body, userId: h.id, ...(name === "camofox_create_tab" ? { sessionKey: "default" } : {}) });
+        assert.deepEqual(req.body, { ...body, userId: h.id, ...(name === "camofox_create_tab" ? { sessionKey: "default" } : {}),
+          ...(name === "camofox_type" ? { typingMode: "auto" } : {}) });
       } else assert.equal(url.searchParams.get("userId"), h.id);
       if (name === "camofox_snapshot") assert.equal(url.searchParams.get("offset"), "10");
     }
     assert.equal(requests.length, cases.length);
   } finally { await fixture.close(); }
+});
+
+test("typing overrides reach Camofox per call and profile defaults update in the same lifetime", async () => {
+  const fixture = await canonicalHarness(), { h, requests } = fixture;
+  const catalog = join(dirname(h.stateDir), "profiles.json");
+  const configure = (typingMode: string) => writeFileSync(catalog, JSON.stringify({ profiles: [{ id: h.id, typingMode }] }));
+  try {
+    await h.launch(); await h.create(); await h.request("acquire", controller);
+    const type = (args: Record<string, unknown> = {}) => h.request("tool", { controllerId: controller.id,
+      name: "camofox_type", args: { tabId, selector: "#message", text: "hello", ...args } });
+    const lastBody = () => { const body = requests.at(-1)?.body; if (!body) throw Error("Missing request body"); return body; };
+    configure("instant");
+    for (const mode of ["auto", "keyboard", "instant"]) {
+      assert.equal((await type({ mode })).code, 200);
+      assert.equal(lastBody().typingMode, mode);
+      assert.equal(Object.hasOwn(lastBody(), "mode"), false, "Do not collide with Camofox's REST mode");
+    }
+    assert.equal((await type()).code, 200);
+    assert.equal(lastBody().typingMode, "instant", "Overrides must not persist to the next call");
+    configure("keyboard");
+    assert.equal((await type({ typingMode: "instant" })).code, 200);
+    assert.equal(lastBody().typingMode, "keyboard", "Ignore caller-supplied internal fields");
+    const count = requests.length;
+    for (const mode of ["paced", "fill", "other", null, false, 1]) assert.equal((await type({ mode })).code, 409);
+    assert.equal(requests.length, count);
+    assert.equal(h.state().phase, "ready");
+  } finally { await fixture.close(); }
+});
+
+test("the upstream typing timeout reaches the service as a terminal block", async () => {
+  const route = upstreamTyping(async () => { throw Error("Keyboard timed out after 45000ms"); });
+  const fixture = await canonicalHarness({ type: route.call }), { h, requests } = fixture;
+  try {
+    await h.launch(); await h.create(); await h.request("acquire", controller);
+    const type = { controllerId: controller.id, name: "camofox_type",
+      args: { tabId, selector: "#message", text: "hello", mode: "keyboard", pressEnter: true } };
+    const response = await h.request("tool", type);
+    assert.equal(response.code, 409);
+    assert.match(String((response.payload as { error: string }).error), /Typing timeout/);
+    assert.equal(h.state().phase, "blocked");
+    assert.equal((await h.request("tool", type)).code, 409);
+    assert.equal(requests.length, 1);
+    assert.deepEqual(route.events, []);
+    assert.equal(route.refreshes(), 0);
+  } finally { await fixture.close(); }
+});
+
+test("the service deadline prevents overlap while the upstream typing lock remains held", async () => {
+  let finish!: () => void, entered!: () => void;
+  const gate = new Promise<void>(resolve => { finish = resolve; });
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  const route = upstreamTyping(async () => { entered(); await gate; });
+  const fixture = await canonicalHarness({ type: route.call, timeout: 40 }), { h, requests } = fixture;
+  try {
+    await h.launch(); await h.create(); await h.request("acquire", controller);
+    const type = { controllerId: controller.id, name: "camofox_type",
+      args: { tabId, selector: "#message", text: "hello", mode: "keyboard" } };
+    const action = h.request("tool", type);
+    await started;
+    await route.advance(30_001);
+    assert.equal((await action).code, 409);
+    assert.equal(h.state().phase, "blocked");
+    assert.equal((await h.request("tool", type)).code, 409);
+    assert.equal(requests.length, 1);
+    finish();
+    await route.advance(0);
+    assert.equal(h.state().phase, "blocked");
+  } finally { finish(); await fixture.close(); }
+});
+
+for (const [legacy, profileMode, expected, fallback] of [
+  [undefined, undefined, "auto", "auto"],
+  ["paced", undefined, "auto", "auto"],
+  ["instant", undefined, "instant", "instant"],
+  ["keyboard", undefined, "keyboard", "keyboard"],
+  ["instant", "auto", "auto", "instant"],
+] as const) test(`typing dispatch uses ${expected} with legacy ${legacy ?? "unset"} and profile ${profileMode ?? "unset"}`, async () => {
+  const fixture = await canonicalHarness(), { h, requests } = fixture;
+  const previous = process.env.STELZ_TYPING_MODE;
+  try {
+    if (legacy === undefined) delete process.env.STELZ_TYPING_MODE;
+    else process.env.STELZ_TYPING_MODE = legacy;
+    writeFileSync(join(dirname(h.stateDir), "profiles.json"), JSON.stringify({ profiles: [
+      { id: h.id, ...(profileMode === undefined ? {} : { typingMode: profileMode }) },
+    ] }));
+    await h.launch(); await h.create(); await h.request("acquire", controller);
+    const result = await h.request("tool", { controllerId: controller.id, name: "camofox_type",
+      args: { tabId, selector: "#message", text: "hello" } });
+    assert.equal(result.code, 200);
+    assert.equal(requests.length, 1);
+    assert.deepEqual(requests[0]!.body, { selector: "#message", text: "hello", userId: h.id, typingMode: expected });
+    assert.equal(((await h.request("status")).payload as { typingModeDefault: string }).typingModeDefault, fallback);
+    const override = await h.request("tool", { controllerId: controller.id, name: "camofox_type",
+      args: { tabId, selector: "#message", text: "hello", mode: "keyboard" } });
+    assert.equal(override.code, 200);
+    assert.equal(requests.length, 2);
+    assert.equal(requests[1]!.body?.typingMode, "keyboard");
+    assert.equal(((await h.request("status")).payload as { typingModeDefault: string }).typingModeDefault, fallback);
+  } finally {
+    if (previous === undefined) delete process.env.STELZ_TYPING_MODE;
+    else process.env.STELZ_TYPING_MODE = previous;
+    await fixture.close();
+  }
 });
 
 for (const interval of [0, 120_000]) test(`IP interval ${interval} bounds checks for 100 queued browser actions`, async () => {

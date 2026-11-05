@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { UiAction, UiProfile, UiNetworkUpdate } from "../../../packages/stelz/src/api/contracts.ts";
+import type { UiAction, UiProfile, UiNetworkUpdate, UiTypingUpdate } from "../../../packages/stelz/src/api/contracts.ts";
 import { errorMessage } from "./api.ts";
 import { ConfirmAction, CopyCommand, Icon, Mark, Modal, Notice } from "./components";
 import { ProfileDetail } from "./ProfileDetail";
@@ -72,6 +72,7 @@ export function App({ session }: { session: Promise<void> }) {
     void service.showWindow(id, selection).catch(cause => setFeedback(errorMessage(cause)));
   };
   const saveNetwork = useCallback((id: string, update: UiNetworkUpdate) => service.mutate(id, "save", update), [service.mutate]);
+  const saveTyping = useCallback((id: string, update: UiTypingUpdate) => service.mutate(id, "typing", update), [service.mutate]);
   const turnOff = async () => {
     setRestartCommand(snapshot ? homeCommand("ui", snapshot.home) : "stelz ui");
     try { await service.endSession(); setConfirmShutdown(false); }
@@ -98,10 +99,10 @@ export function App({ session }: { session: Promise<void> }) {
         {service.connection === "unauthorized" && <Notice kind="warning"><span>Open a fresh local URL from <code>stelz ui</code> to connect. An existing valid session works across tabs.</span><CopyCommand command="stelz ui" /></Notice>}
         {(service.connection === "offline" || stale) && <Notice kind="warning"><span>{service.connection === "offline" ? service.error || "The local service is disconnected." : "The state is stale."} {snapshot ? `Last service update: ${dateTime(snapshot.updatedAt)}. Existing values remain visible. Changes are disabled until state refreshes.` : "Start the local UI with stelz ui."}</span><button type="button" className="text-button" onClick={() => void service.refresh()} disabled={service.refreshing}>{service.refreshing ? "Connecting…" : "Retry connection"}</button></Notice>}
         {feedback && <Notice kind="error" alert><span>{feedback}</span><button type="button" className="icon-button" aria-label="Dismiss message" onClick={() => setFeedback(null)}><Icon name="close" /></button></Notice>}
-        {service.pending && <Notice><span>Waiting for {service.pending.id}: {service.pending.action === "show" ? "show window" : service.pending.action === "save" ? "save network" : service.pending.action === "create" || service.pending.action === "delete" ? service.pending.action : actionLabels[service.pending.action].toLowerCase()}. Start and stop can take up to 90 seconds.</span></Notice>}
+        {service.pending && <Notice><span>Waiting for {service.pending.id}: {service.pending.action === "typing" ? "save typing mode" : service.pending.action === "show" ? "show window" : service.pending.action === "save" ? "save network" : service.pending.action === "create" || service.pending.action === "delete" ? service.pending.action : actionLabels[service.pending.action].toLowerCase()}. Start and stop can take up to 90 seconds.</span></Notice>}
         {!snapshot && service.connection === "connecting" && <div className="loading-console" role="status"><div className="loading-labels"><span>Profile</span><span>Browser phase</span><span>Controller</span></div><div className="loading-row" /><div className="loading-row" /><p>Connecting to the local service…</p></div>}
         {snapshot && context && <>
-          {route.page === "profiles" && (!snapshot.initialized ? <FirstRun snapshot={snapshot} /> : route.profileId ? selected ? <ProfileDetail key={selected.id} profile={selected} snapshot={snapshot} context={context} mutationVersion={service.mutationVersion} onAction={requestAction} onShow={showWindow} onSave={saveNetwork} onBack={() => navigate({ page: "profiles" })} onDirtyChange={setDirty} onDelete={setDeletion} /> : <div className="empty-inline"><p>This profile is no longer configured.</p><button type="button" className="button" onClick={() => navigate({ page: "profiles" })}>All profiles</button></div> : <>{!snapshot.setup && <FirstRun snapshot={snapshot} />}<Profiles snapshot={snapshot} context={context} onInspect={(id) => navigate({ page: "profiles", profileId: id })} onAction={requestAction} onShow={showWindow} /></>)}
+          {route.page === "profiles" && (!snapshot.initialized ? <FirstRun snapshot={snapshot} /> : route.profileId ? selected ? <ProfileDetail key={selected.id} profile={selected} snapshot={snapshot} context={context} mutationVersion={service.mutationVersion} onAction={requestAction} onShow={showWindow} onSave={saveNetwork} onTypingSave={saveTyping} onBack={() => navigate({ page: "profiles" })} onDirtyChange={setDirty} onDelete={setDeletion} /> : <div className="empty-inline"><p>This profile is no longer configured.</p><button type="button" className="button" onClick={() => navigate({ page: "profiles" })}>All profiles</button></div> : <>{!snapshot.setup && <FirstRun snapshot={snapshot} />}<Profiles snapshot={snapshot} context={context} onInspect={(id) => navigate({ page: "profiles", profileId: id })} onAction={requestAction} onShow={showWindow} /></>)}
           {route.page === "diagnostics" && <Diagnostics snapshot={snapshot} mutationVersion={service.mutationVersion} />}
           {route.page === "settings" && <Settings snapshot={snapshot} theme={theme.preference} onThemeChange={theme.change} />}
         </>}

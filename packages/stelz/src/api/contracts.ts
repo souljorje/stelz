@@ -1,3 +1,6 @@
+import type { TypingMode } from "../browser/typing.ts";
+export type { TypingMode } from "../browser/typing.ts";
+
 export const UI_ACTIONS = ["start", "stop", "pause", "resume", "release", "recheck"] as const;
 export type UiAction = (typeof UI_ACTIONS)[number];
 export type UiPhase = "starting" | "ready" | "paused" | "verification_failed" | "blocked" | "stopping" | "stopped" | "orphaned" | "ownership_unknown" | "unclean";
@@ -14,11 +17,19 @@ export type UiNetwork = {
   expectedIpReadOnly: boolean;
 };
 
+export type UiTyping = {
+  revision: string;
+  mode: TypingMode | null;
+  defaultMode: TypingMode;
+};
+
 export type UiProfile = {
   id: string;
   port: number;
   mode: "direct" | "proxy";
   storage: "native" | "checkpoint";
+  typingMode: TypingMode;
+  typing: UiTyping;
   phase: UiPhase;
   instanceId: string | null;
   exitIp: string | null;
@@ -35,7 +46,7 @@ export type UiProfile = {
   controlError: string | null;
   configurationError: string | null;
   network: UiNetwork;
-  pendingAction?: UiAction | "save" | "delete" | "show";
+  pendingAction?: UiAction | "save" | "typing" | "delete" | "show";
 };
 
 export type UiSnapshot = {
@@ -75,6 +86,8 @@ export type UiDiagnostics = {
 };
 
 export type { NetworkUpdate as UiNetworkUpdate, ProfileCreate as UiProfileCreate } from "../profiles/profile-configuration-types.ts";
+export type { TypingUpdate as UiTypingUpdate } from "../profiles/profile-configuration-types.ts";
+import type { TypingUpdate } from "../profiles/profile-configuration-types.ts";
 import type { NetworkUpdate as UiNetworkUpdate, ProfileCreate as UiProfileCreate } from "../profiles/profile-configuration-types.ts";
 
 export type UiModel = {
@@ -82,6 +95,7 @@ export type UiModel = {
   detail(id: string): Promise<UiProfileDetail>;
   diagnostics(): Promise<UiDiagnostics>;
   updateNetwork(id: string, update: UiNetworkUpdate): Promise<UiProfile>;
+  updateTyping(id: string, update: TypingUpdate): Promise<UiProfile>;
   createProfile(input: UiProfileCreate): Promise<UiProfile>;
   deleteProfile(id: string, revision: string): Promise<void>;
 };

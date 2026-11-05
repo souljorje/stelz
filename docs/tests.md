@@ -190,13 +190,17 @@ Run `bun run build`, then `bun run test:typing` with a browser slot available.
 The check starts one headed browser in a separate service directory. It does not change existing profiles.
 The check uses standard MCP tools and a local page that records input events.
 It checks variable timing, replacement, Unicode, multiline text, editable content, numeric and date inputs, and Enter submission.
-It also checks that oversized paced input preserves existing text and that instant mode enters bulk text.
+It checks all three `camofox_type` modes in the same browser, tab, and MCP connection.
+Long automatic input uses one bulk fill. Keyboard mode sends trusted `keydown`, `keypress`, `keyup`, and input events.
+Instant mode uses bulk entry even for short text. Enter submits exactly once.
+The isolated run also checks live profile defaults and per-call overrides without restarting the browser.
 The check explicitly stops its browser. Results are in `.state/typing-acceptance-*/report.json`.
 The default test command checks typing logic and runtime setup without starting a browser.
+It executes the upstream type route and tab lock with virtual timers to check long input, terminal timeouts, and action serialization.
 
 To use an existing stopped profile, run `bun run test:typing --profile ID`.
 Its service must already contain the current typing runtime.
-This mode starts and stops the selected profile twice. Typing mode overrides apply only to the test processes.
+This mode starts and stops the selected profile once. It tests per-call overrides and skips profile default changes.
 The profile catalog and secrets file remain unchanged.
 
 ## Diagnostics

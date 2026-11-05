@@ -24,6 +24,7 @@ const domain = await import(${JSON.stringify(join(root, "packages/stelz/src/prof
 const { settings } = await import(${JSON.stringify(join(root, "packages/stelz/src/profiles/config.ts"))});
 const home = process.env.STELZ_HOME;
 const revision = () => { const config = settings(); return domain.networkRevision(config, config.profiles[0], { values: readValues() }); };
+const typingRevision = () => domain.typingRevision(settings().profiles[0]);
 function readValues() { return parseEnv(fs.readFileSync(join(home, 'secrets.env'), 'utf8')); }
 const { parseEnv } = await import('node:util');
 try { console.log(JSON.stringify({ ok: true, value: await (async () => { ${body} })() })); }
@@ -55,6 +56,67 @@ test("domain operations create, edit, and archive profiles without a UI model", 
   expect(secrets).toContain("OTHER='line one\nline two'\n");
   expect(parseEnv(secrets).DOMAIN_IP).toBe("");
   expect(parseEnv(secrets).DOMAIN_PROXY).toBe("http://new.test:8080");
+});
+
+test("typing defaults save live without changing launch state, secrets, or profile data", async () => {
+  const home = fixture();
+  const secrets = readFileSync(join(home, "secrets.env"), "utf8");
+  const record = '{"phase":"ready","controller":"existing-controller"}';
+  writeFileSync(join(home, "profiles/test/running.json"), record);
+  writeFileSync(join(home, "profiles/test/profile-data"), "existing browser data");
+  const result = await run(home, `
+    const { configurationHash } = await import(${JSON.stringify(join(root, "packages/stelz/src/profiles/config.ts"))});
+    const before = settings().profiles[0], hash = configurationHash(before);
+    const stale = typingRevision();
+    for (const mode of ['keyboard', 'instant', 'auto']) {
+      await domain.updateTyping('test', { revision: typingRevision(), mode });
+      if (settings().profiles[0].typingMode !== mode) throw Error('Typing preference was not persisted');
+      if (configurationHash(settings().profiles[0]) !== hash) throw Error('Typing changed launch state');
+    }
+    let conflict = false;
+    try { await domain.updateTyping('test', { revision: stale, mode: 'keyboard' }); } catch (error) { conflict = error.status === 409; }
+    return { before, after: settings().profiles[0], conflict };
+  `);
+  expect(result.ok).toBe(true);
+  expect(result.value.conflict).toBe(true);
+  expect(result.value.after).toEqual({ ...result.value.before, typingMode: "auto" });
+  expect(readFileSync(join(home, "secrets.env"), "utf8")).toBe(secrets);
+  expect(readFileSync(join(home, "profiles/test/running.json"), "utf8")).toBe(record);
+  expect(readFileSync(join(home, "profiles/test/profile-data"), "utf8")).toBe("existing browser data");
+});
+
+test("typing updates reject invalid modes, extra fields, and malformed revisions", async () => {
+  const home = fixture();
+  const config = readFileSync(join(home, "profiles.json"), "utf8");
+  for (const input of [{ mode: "paced" }, { mode: "auto", other: true }, {}, { mode: "inherit" }, { mode: "keyboard", revision: "invalid" }]) {
+    const result = await run(home, `await domain.updateTyping('test', { revision: typingRevision(), ...${JSON.stringify(input)} });`);
+    expect(result.ok).toBe(false); expect(result.status).toBe(400);
+  }
+  expect(readFileSync(join(home, "profiles.json"), "utf8")).toBe(config);
+});
+
+test("concurrent network and typing edits merge while competing typing edits conflict", async () => {
+  const home = fixture();
+  const result = await run(home, `
+    const networkBefore = revision(), typingBefore = typingRevision();
+    await Promise.all([
+      domain.updateTyping('test', { revision: typingBefore, mode: 'keyboard' }),
+      domain.updateNetwork('test', { revision: networkBefore, mode: 'proxy', proxyUrl: 'http://merged.test:8080' }),
+    ]);
+    const merged = settings().profiles[0];
+    const current = typingRevision();
+    const competing = await Promise.allSettled(['instant', 'auto'].map(mode => domain.updateTyping('test', { revision: current, mode })));
+    const networkAfter = revision();
+    await domain.updateTyping('test', { revision: typingRevision(), mode: null });
+    return { merged, competing: competing.map(result => result.status === 'fulfilled' ? 200 : result.reason.status),
+      inherited: settings().profiles[0], networkUnchanged: networkAfter === revision() };
+  `);
+  expect(result.ok).toBe(true);
+  expect(result.value.merged).toMatchObject({ mode: "proxy", typingMode: "keyboard" });
+  expect(result.value.competing.sort()).toEqual([200, 409]);
+  expect(result.value.inherited).not.toHaveProperty("typingMode");
+  expect(result.value.networkUnchanged).toBe(true);
+  expect(parseEnv(readFileSync(join(home, "secrets.env"), "utf8")).DOMAIN_PROXY).toBe("http://merged.test:8080");
 });
 
 test("a stale domain revision cannot overwrite a completed edit", async () => {

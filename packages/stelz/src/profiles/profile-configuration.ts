@@ -3,7 +3,8 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync } from "nod
 import { createServer, isIP } from "node:net";
 import { join } from "node:path";
 import { parseEnv } from "node:util";
-import { CONFIG_FILE, HOME_DIR, STATE, dir, settings, serializeSettings, validateProxy, validateSettings, type Profile, type Settings } from "./config.ts";
+import { CONFIG_FILE, HOME_DIR, STATE, dir, save, settings, serializeSettings, validateProxy, validateSettings, type Profile, type Settings } from "./config.ts";
+import { isTypingMode } from "../browser/typing.ts";
 import { assertStoppedProfile, lock, observe, observeStatus, running } from "../runtime/profile-process.ts";
 import {
   ProfileCatalogError, recoverProfileCatalog, readCatalogFiles, checkCatalogDirectory,
@@ -13,7 +14,7 @@ import {
   NetworkTransactionError, networkTransactionProfile, pendingNetworkTransaction,
   recoverNetworkTransaction, saveNetworkTransaction,
 } from "./network-transaction.ts";
-import type { ProfileCreate, NetworkUpdate } from "./profile-configuration-types.ts";
+import type { ProfileCreate, NetworkUpdate, TypingUpdate } from "./profile-configuration-types.ts";
 export type { ProfileCreate, NetworkUpdate } from "./profile-configuration-types.ts";
 export { ProfileCatalogError, recoverProfileCatalog } from "./profile-catalog.ts";
 
@@ -68,10 +69,13 @@ function referencedElsewhere(config: Settings, p: Profile, name?: string) {
 
 export function networkRevision(config: Settings, p: Profile, secrets: Pick<ReturnType<typeof readSecrets>, "values">): string {
   return createHash("sha256").update(JSON.stringify({
-    config,
+    config: { ...config, profiles: config.profiles.map(({ typingMode: _typingMode, ...profile }) => profile) },
     proxy: p.proxyEnv ? [secrets.values[p.proxyEnv] ?? null, process.env[p.proxyEnv] ?? null] : null,
     expected: p.expectedIPEnv ? [secrets.values[p.expectedIPEnv] ?? null, process.env[p.expectedIPEnv] ?? null] : null,
   })).digest("hex");
+}
+export function typingRevision(p: Profile): string {
+  return createHash("sha256").update(JSON.stringify({ id: p.id, typingMode: p.typingMode ?? null })).digest("hex");
 }
 function validateUpdate(value: NetworkUpdate): NetworkUpdate {
   const item = data(value);
@@ -311,5 +315,24 @@ export async function updateNetwork(id: string, input: NetworkUpdate) {
       saveNetworkTransaction(id, before, { config: serializeSettings(candidate, previousConfig), secrets: updates.size ? changedSecrets : before.secrets });
       return { config: candidate, profile: next, secrets: candidateSecrets, observation };
     });
+  });
+}
+
+export async function updateTyping(id: string, input: TypingUpdate) {
+  const value = data(input);
+  if (!validId(id) || !input || Object.keys(value).some(key => !["revision", "mode"].includes(key)) ||
+      typeof value.revision !== "string" || !/^[a-f\d]{64}$/.test(value.revision) || value.mode !== null && !isTypingMode(value.mode))
+    throw new ProfileConfigurationError(400, "Supply the current typing revision and auto, keyboard, instant, or null for the service default.");
+  return prepareProfileConfiguration(async () => {
+    const config = readSettings()!, p = findProfile(config, id), secrets = readSecrets();
+    if (input.revision !== typingRevision(p))
+      throw new ProfileConfigurationError(409, "Typing settings changed. Refresh before saving the typing mode.");
+    const candidate = structuredClone(config), next = candidate.profiles.find(item => item.id === id)!;
+    if (input.mode === null) delete next.typingMode;
+    else next.typingMode = input.mode;
+    validateSettings(candidate);
+    // A single atomic catalog replacement needs no secrets-file transaction.
+    save(configFile, JSON.parse(serializeSettings(candidate, readFileSync(configFile, "utf8"))));
+    return { config: candidate, profile: next, secrets };
   });
 }

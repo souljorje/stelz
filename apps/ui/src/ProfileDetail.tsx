@@ -1,9 +1,10 @@
 import { useCallback, useState } from "react";
 import type { KeyboardEvent } from "react";
-import type { UiAction, UiProfile, UiProfileDetail, UiNetworkUpdate, UiSnapshot } from "../../../packages/stelz/src/api/contracts.ts";
+import type { UiAction, UiProfile, UiProfileDetail, UiNetworkUpdate, UiTypingUpdate, UiSnapshot } from "../../../packages/stelz/src/api/contracts.ts";
 import { profilePath } from "./api.ts";
 import { ActionButton, CopyCommand, Icon, KeyValues, Notice, Phase } from "./components";
 import { NetworkForm } from "./NetworkForm";
+import { TypingForm } from "./TypingForm";
 import { actionReason, boundedLog, dateTime, deleteReason, profileAttention, profileCommand, mcpCommand, proxyDisplay, redact } from "./model.ts";
 import type { ActionContext } from "./model.ts";
 import { useResource } from "./use-service.ts";
@@ -12,10 +13,11 @@ import { ProfileWindows, type ShowWindow } from "./ProfileWindows";
 const tabs = ["Overview", "Network", "Device", "Logs"] as const;
 type Tab = typeof tabs[number];
 
-export function ProfileDetail({ profile, snapshot, context, mutationVersion, onAction, onSave, onBack, onDirtyChange, onDelete, onShow }: {
+export function ProfileDetail({ profile, snapshot, context, mutationVersion, onAction, onSave, onTypingSave, onBack, onDirtyChange, onDelete, onShow }: {
   profile: UiProfile; snapshot: UiSnapshot; context: ActionContext; mutationVersion: number;
   onAction: (profile: UiProfile, action: UiAction) => void;
   onSave: (id: string, update: UiNetworkUpdate) => Promise<UiProfile>;
+  onTypingSave: (id: string, update: UiTypingUpdate) => Promise<UiProfile>;
   onDelete: (profile: UiProfile) => void;
   onBack: () => void; onDirtyChange: (dirty: boolean) => void;
   onShow: ShowWindow;
@@ -55,6 +57,7 @@ export function ProfileDetail({ profile, snapshot, context, mutationVersion, onA
         { label: "Connection", value: profile.mode === "proxy" ? proxyDisplay(profile.network.proxyDisplay) : "Direct" },
         ...(profile.exitIp ? [{ label: "Exit IP", value: profile.exitIp, mono: true }] : []),
       ]} />
+      <TypingForm profile={profile} connected={context.connected} busy={context.pending} onSave={onTypingSave} />
       {tab === "Overview" && ["ready", "paused", "verification_failed"].includes(profile.phase) && <ProfileWindows profile={profile} context={context} mutationVersion={mutationVersion} onShow={onShow} />}
       <details className="disclosure"><summary>Connect via MCP</summary><CopyCommand command={redact(detail.data?.mcpCommand ?? mcpCommand(profile.id, snapshot.home))} label={`Copy MCP command for ${profile.id}`} /></details>
       <details className="disclosure"><summary>Technical details</summary><KeyValues rows={[

@@ -6,7 +6,7 @@ export { ROOT, entry } from "../paths.ts";
 import { parseEnv } from "node:util";
 import { createHash } from "node:crypto";
 import { UPSTREAM_VERSION } from "../versions.ts";
-import { parseTypingMode } from "../browser/typing.ts";
+import { isTypingMode, parseTypingMode, type TypingMode } from "../browser/typing.ts";
 import { DEFAULT_IP_CHECK_INTERVAL_MS, parseIpCheckInterval } from "../browser/ip-verification.ts";
 import { existingProfilePath, normalizeProfileId } from "./profile-compat.ts";
 export { UPSTREAM_VERSION, COMMIT } from "../versions.ts";
@@ -15,7 +15,7 @@ export const HOME_DIR = resolve(process.env.STELZ_HOME || join(homedir(), ".loca
 export const CONFIG_FILE = existingProfilePath(HOME_DIR, "profiles.json", "identities.json");
 export const STATE = existingProfilePath(HOME_DIR, "profiles", "identities");
 export const UPSTREAM = join(HOME_DIR, "runtime", `camofox-${UPSTREAM_VERSION}`);
-export type Profile = { id: string; port: number; mode: "direct" | "proxy"; proxyEnv?: string; expectedIPEnv?: string; storage?: "native" | "checkpoint" };
+export type Profile = { id: string; port: number; mode: "direct" | "proxy"; proxyEnv?: string; expectedIPEnv?: string; storage?: "native" | "checkpoint"; typingMode?: TypingMode };
 export type Settings = { profiles: Profile[] };
 export function initialize() {
   mkdirSync(STATE, { recursive: true, mode: 0o700 });
@@ -39,6 +39,7 @@ export function validateSettings(input: unknown): Settings {
   for (const p of value.profiles) {
     if (!p || typeof p !== "object" || typeof p.id !== "string" || !/^[a-z][a-z0-9-]{0,63}$/.test(p.id) || !Number.isInteger(p.port) || p.port < 1024 || p.port > 65535 || !["direct", "proxy"].includes(p.mode) || ids.has(p.id) || ports.has(p.port)) throw Error("Profile IDs and ports must be valid and unique.");
     if (p.storage !== undefined && !["native", "checkpoint"].includes(p.storage)) throw Error("Storage must be native or checkpoint.");
+    if (p.typingMode !== undefined && !isTypingMode(p.typingMode)) throw Error("Typing mode must be auto, keyboard, or instant.");
     for (const name of [p.proxyEnv, p.expectedIPEnv]) {
       if (name !== undefined && (typeof name !== "string" || !/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(name))) throw Error("Environment variable names must be valid.");
     }
@@ -64,7 +65,7 @@ export function secret(name: string) {
   return process.env[name] ?? (existsSync(file) ? parseEnv(readFileSync(file, "utf8"))[name] : undefined);
 }
 export const executable = () => secret("CAMOUFOX_EXECUTABLE") || join(homedir(), "Library/Caches/camoufox/Camoufox.app/Contents/MacOS/camoufox");
-export const typingMode = () => parseTypingMode(secret("STELZ_TYPING_MODE"));
+export const typingMode = (p?: Profile) => p?.typingMode ?? parseTypingMode(secret("STELZ_TYPING_MODE"));
 export const ipCheckIntervalMs = () => parseIpCheckInterval(secret("STELZ_IP_CHECK_INTERVAL_MS"));
 
 export function json<T>(file: string): T | undefined {
@@ -96,8 +97,10 @@ export function validateProxy(raw: string, id = "Profile"): URL {
   return u;
 }
 export function configurationHash(p: Profile) {
+  // Typing is an action preference, read on each call, rather than launch state.
+  const { typingMode: _typingMode, ...launchProfile } = p;
   const interval = ipCheckIntervalMs(), typing = typingMode();
-  return createHash("sha256").update(JSON.stringify({ ...p, proxy: proxyEnvironment(p),
+  return createHash("sha256").update(JSON.stringify({ ...launchProfile, proxy: proxyEnvironment(p),
     expectedIP: p.expectedIPEnv ? secret(p.expectedIPEnv) || "" : "",
     ...(typing === "instant" ? { typingMode: typing } : {}),
     ...(interval !== DEFAULT_IP_CHECK_INTERVAL_MS ? { ipCheckIntervalMs: interval } : {}),

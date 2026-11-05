@@ -68,6 +68,19 @@ A failed IP check keeps actions blocked.
 An operation timeout can require an explicit stop and start.
 See [Use the service](README.md) for process inspection and recovery procedures.
 
+## Typing mode
+
+Open a profile's Overview tab. Select **Default typing mode** under **Typing**:
+
+- **Service default** inherits the service setting. Its label shows the inherited mode.
+- **Automatic** uses random pauses for text with an estimated typing duration of at most 10 seconds. Longer text uses bulk entry.
+- **Keyboard input** sends individual keystrokes without artificial delays.
+- **Instant input** enters the complete text at once.
+
+Changes save automatically and apply to future typing actions without a browser restart.
+Typing changes preserve unsaved network edits. Pending profile operations temporarily disable the selector.
+The setting applies only to the selected profile. Each agent can override it with the `camofox_type` tool's `mode` argument.
+
 ## Find a profile's windows
 
 Each browser window uses its profile's color and a title prefix, such as `[profile-02]`.

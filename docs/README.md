@@ -107,17 +107,25 @@ The `profile-01` IDs and `PROFILE_01_*` secret names in examples are suggestions
 
 ## Typing
 
-The `camofox_type` tool enters text one character at a time by default, with variable timing and short pauses.
-The service enters the exact requested text. It does not add deliberate errors.
-Typing replaces existing field contents. Empty text clears the field.
-Date and similar controls keep their specialized input behavior.
-All MCP clients use the same service setting. Their tool arguments do not change.
+The `camofox_type` tool accepts an optional `mode` for each call:
 
-For bulk entry, set `STELZ_TYPING_MODE=instant` in the service's `secrets.env` file.
-The default value is `paced`. An environment variable overrides the file value.
-Stop the profile before you change this setting. Start it again to apply the setting.
-Paced input rejects text that requires more than 30 seconds of planned typing before it changes the field.
-Use instant mode for larger inputs. The existing 60-second browser action limit still applies.
+- `auto` uses variable timing and random pauses when the estimated typing duration is at most 10 seconds.
+  Longer text uses bulk entry. The service selects the method before it changes the field.
+- `keyboard` sends individual keystrokes without artificial delays, including `keydown`, `keypress`, and `keyup` for ordinary characters.
+- `instant` enters the complete text with Playwright's `fill()` method.
+
+The default is `auto`. Open a profile's Overview tab in the UI to change its **Default typing mode**.
+The UI saves the profile's `typingMode` in `profiles.json`. Changes apply to future calls without a browser restart.
+Select **Service default** to remove the profile override. The UI shows the running service's inherited mode.
+A call's explicit `mode` overrides the profile default. The override applies only to that call.
+If the profile has no default, the service uses `STELZ_TYPING_MODE` from its environment or `secrets.env`, then `auto`.
+The legacy service value `paced` selects `auto`. Service environment changes still require a stop and start.
+
+Typing replaces existing field contents. Empty text clears the field.
+The service preserves Unicode text and native newline normalization. It does not add deliberate errors.
+Date and similar controls keep their specialized input behavior.
+The existing 60-second browser action limit still applies.
+Typing retains its tab lock until the operation finishes. A timeout blocks further actions and requires a profile restart.
 If typing stops with incomplete input, read a fresh snapshot before another action. The service does not replay the text.
 
 ## Commands

@@ -2,6 +2,9 @@
 
 Bun applies these eight compatibility changes to pinned Camofox 1.18.1 and camoufox-js 0.11.5 during workspace installation.
 The root `patchedDependencies` field selects the committed files under `patches/`.
+The typing change includes the helper and route changes for per-call modes.
+Stelz typing keeps the tab lock until input finishes. The service deadline blocks subsequent actions after a timeout.
+Typing timeouts return a terminal error without a retry instruction.
 The release archive bundles both prepared packages and their transitive JavaScript dependencies.
 Setup checks the prepared files without rewriting dependency source.
 Setup rejects missing, duplicate, or changed matches before atomic activation.
@@ -10,7 +13,7 @@ Setup retains symlink rejection, stopped-profile checks, process ownership, admi
 
 | Patch | Reason | Removal criterion |
 | --- | --- | --- |
-| Locator fill | Route text through the configured paced or instant typing helper. | Upstream supplies the same configurable typing behavior. |
+| Locator fill and type route | Forward each call's typing mode to the helper. Support automatic pacing, keyboard events, and bulk entry. | Upstream supplies the same configurable typing behavior. |
 | Executable resource link | Prevent changes to an installed macOS app bundle. | Upstream reads app resources without writing symlinks. |
 | camoufox-js properties path | Read macOS properties from Contents/Resources. | The pinned library resolves that resource path itself. |
 | Window and screen bounds | Preserve the existing desktop window and screen selection policy. | Upstream supports equivalent explicit bounds through configuration. |

@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { UiAction, UiProfile, UiProfileCreate, UiNetworkUpdate, UiSnapshot } from "../../../packages/stelz/src/api/contracts.ts";
+import type { UiAction, UiProfile, UiProfileCreate, UiNetworkUpdate, UiTypingUpdate, UiSnapshot } from "../../../packages/stelz/src/api/contracts.ts";
 import { ApiError, errorMessage, profilePath, request } from "./api.ts";
 import { actionReason } from "./model.ts";
 import type { ShowProfileWindow } from "../../../packages/stelz/src/api/contracts.ts";
 
 export type Connection = "connecting" | "connected" | "offline" | "unauthorized" | "ending" | "ended";
-export type Pending = { id: string; action: UiAction | "save" | "create" | "delete" | "show" } | null;
+export type Pending = { id: string; action: UiAction | "save" | "typing" | "create" | "delete" | "show" } | null;
 export const FRESH_FOR = 10_000;
 
 export function useService(session: Promise<void>) {
@@ -143,17 +143,19 @@ export function useService(session: Promise<void>) {
     }
   }, [markConnection, refresh]);
 
-  const mutate = useCallback(async (id: string, action: UiAction | "save", update?: UiNetworkUpdate): Promise<UiProfile> => {
+  const mutate = useCallback(async (id: string, action: UiAction | "save" | "typing", update?: UiNetworkUpdate | UiTypingUpdate): Promise<UiProfile> => {
     const state = latest.current, profile = state.snapshot?.profiles.find(row => row.id === id);
     if (!profile || !state.snapshot) throw new ApiError(409, "This profile is no longer in the current state. Refresh before continuing.");
-    const reason = action === "save"
+    const reason = profile.pendingAction ? "Wait for the current service action to finish." : action === "save"
       ? profile.phase !== "stopped" ? "Stop this profile before editing its network." : null
-      : actionReason(profile, action, { snapshot: state.snapshot, connected: true, pending: mutationLock.current });
+      : action === "typing" ? null : actionReason(profile, action, { snapshot: state.snapshot, connected: true, pending: mutationLock.current });
     if (reason) throw new ApiError(409, reason);
     if (action === "save" && !update) throw new ApiError(400, "Network settings are missing.");
+    if (action === "typing" && !update) throw new ApiError(400, "Typing settings are missing.");
     return runMutation(id, action, async () => {
-      const result = await request<{ profile: UiProfile }>(`${profilePath(id)}/${action === "save" ? "network" : "actions"}`, {
-        method: action === "save" ? "PUT" : "POST", body: action === "save" ? update : { action }, timeout: 120_000,
+      const preference = action === "save" || action === "typing";
+      const result = await request<{ profile: UiProfile }>(`${profilePath(id)}/${action === "save" ? "network" : action === "typing" ? "typing" : "actions"}`, {
+        method: preference ? "PUT" : "POST", body: preference ? update : { action }, timeout: 120_000,
       });
       if (mounted.current && latest.current.snapshot) {
         const next = { ...latest.current.snapshot, profiles: latest.current.snapshot.profiles.map(row => row.id === id ? result.profile : row) };

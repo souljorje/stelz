@@ -1,11 +1,14 @@
 import { describe, expect, test } from "bun:test";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { TypingForm } from "../../apps/ui/src/TypingForm.tsx";
 import { UI_ACTIONS } from "../../packages/stelz/src/api/contracts.ts";
 import type { UiProfile, UiNetwork, UiPhase, UiSnapshot } from "../../packages/stelz/src/api/contracts.ts";
 import { actionReason, boundedLog, homeCommand, mcpCommand, networkDraft, networkUpdate, proxyDisplay, redact, shellQuote } from "../../apps/ui/src/model.ts";
 
 const network: UiNetwork = { revision: "revision-1", mode: "direct", proxyEnv: null, expectedIPEnv: null, proxyDisplay: null, proxyConfigured: false, expectedIp: "203.0.113.1", proxyReadOnly: false, expectedIpReadOnly: false };
 function profile(phase: UiPhase, changes: Partial<UiProfile> = {}): UiProfile {
-  return { id: "profile-01", phase, port: 9340, mode: "direct", storage: "native", instanceId: null, exitIp: null, checkedAt: null, fixedIpVerified: false, windowControls: { available: false, reason: null }, controller: null, supervisorPid: null, serverPid: null, ownership: null, fingerprintSha256: null, engineSha256: null, error: null, controlError: null, configurationError: null, network, ...changes };
+  return { id: "profile-01", phase, port: 9340, mode: "direct", storage: "native", typingMode: "auto", typing: { revision: "typing-revision-1", mode: null, defaultMode: "auto" }, instanceId: null, exitIp: null, checkedAt: null, fixedIpVerified: false, windowControls: { available: false, reason: null }, controller: null, supervisorPid: null, serverPid: null, ownership: null, fingerprintSha256: null, engineSha256: null, error: null, controlError: null, configurationError: null, network, ...changes };
 }
 function context(row: UiProfile) {
   const snapshot: UiSnapshot = { home: "/tmp/stelz", version: "0.2.0", upstreamVersion: "1.18.1", initialized: true, setup: true, catalogRevision: "a".repeat(64), profiles: [row], updatedAt: new Date().toISOString() };
@@ -69,6 +72,29 @@ describe("network updates", () => {
   test("read-only references never receive override values", () => {
     const baseline = networkDraft(network);
     expect(networkUpdate({ ...baseline, mode: "proxy", proxyUrl: "http://new:secret@proxy.example", expectedIp: "" }, baseline, { ...network, proxyReadOnly: true, expectedIpReadOnly: true })).toEqual({ revision: "revision-1", mode: "proxy" });
+  });
+});
+
+describe("typing preferences", () => {
+  const render = (row: UiProfile, connected = true, busy = false) => renderToStaticMarkup(createElement(TypingForm, {
+    profile: row, connected, busy, onSave: async () => { throw Error("Rendering must not save preferences."); },
+  }));
+  test("inherited defaults remain distinct from an explicit Automatic selection", () => {
+    const row = profile("ready");
+    expect(render(row)).toContain('value="inherit" selected=""');
+    expect(render(row)).toContain('<option value="auto">Automatic</option>');
+    expect(render(row)).toContain("Service default (auto)");
+    const inheritedInstant = { ...row, typingMode: "instant" as const, typing: { ...row.typing, defaultMode: "instant" as const } };
+    expect(render(inheritedInstant)).toContain("Service default (instant)");
+    expect(render(inheritedInstant)).toContain("Enter the complete text at once.");
+    expect(render({ ...inheritedInstant, typingMode: "auto", typing: { ...inheritedInstant.typing, mode: "auto" } })).toContain('value="auto" selected=""');
+  });
+  test("offline, local pending, and another tab's pending operation disable typing", () => {
+    const row = profile("ready");
+    expect(render(row)).not.toMatch(/<select[^>]*disabled/);
+    for (const html of [render(row, false), render(row, true, true), render({ ...row, pendingAction: "stop" }), render({ ...row, pendingAction: "typing" })])
+      expect(html).toMatch(/<select[^>]*disabled/);
+    expect(render({ ...row, pendingAction: "stop" })).toContain("Wait for the current service action to finish.");
   });
 });
 

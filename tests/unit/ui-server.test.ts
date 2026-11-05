@@ -5,7 +5,8 @@ import type { UiAction, UiProfile, UiModel, UiSnapshot } from "../../packages/st
 
 function profile(id = "profile-02"): UiProfile {
   return {
-    id, port: 9378, mode: "direct", storage: "native", phase: "stopped", instanceId: null,
+    id, port: 9378, mode: "direct", storage: "native", typingMode: "auto", phase: "stopped", instanceId: null,
+    typing: { revision: "typing-revision-1", mode: null, defaultMode: "auto" },
     exitIp: null, checkedAt: null, fixedIpVerified: false, controller: null,
     windowControls: { available: false, reason: null },
     supervisorPid: null, serverPid: null, ownership: null, fingerprintSha256: null,
@@ -34,6 +35,13 @@ function fixture(lifecycle?: (action: UiAction, id: string) => Promise<unknown>,
       if (update.revision !== "revision-1") throw Object.assign(Error("Configuration changed. Reload before saving."), { status: 409 });
       calls.push(`save:${id}`);
       return { ...profile(id), mode: update.mode };
+    },
+    async updateTyping(id, update) {
+      if (update.revision !== "typing-revision-1" || update.mode !== null && !["auto", "keyboard", "instant"].includes(update.mode))
+        throw Object.assign(Error("Typing input is invalid."), { status: 400 });
+      calls.push(`typing:${id}`);
+      const row = profile(id);
+      return { ...row, typingMode: update.mode ?? row.typing.defaultMode, typing: { ...row.typing, mode: update.mode } };
     },
     async createProfile(input) {
       calls.push(`create:${input.id}`);
@@ -86,6 +94,22 @@ test("profile creation and deletion require a same-origin session and bounded re
   expect(await deleted.json()).toEqual({ deleted: true });
   expect(f.calls).toEqual(["create:work", "delete:work"]);
   expect((await f.request("/api/profiles/work", { headers: auth })).status).toBe(404);
+});
+
+test("typing preferences use an authenticated same-origin PUT and expose the saved mode", async () => {
+  const f = fixture(), auth = await f.authenticate();
+  const path = "/api/profiles/profile-02/typing", body = JSON.stringify({ revision: "typing-revision-1", mode: "keyboard" });
+  expect((await f.request(path, { method: "PUT", headers: { Origin: f.url, "Content-Type": "application/json" }, body })).status).toBe(401);
+  expect((await f.request(path, { method: "PUT", headers: { ...auth, Origin: "https://other.test" }, body })).status).toBe(403);
+  expect((await f.request(path, { headers: auth })).status).toBe(405);
+  expect((await f.request(path, { method: "PUT", headers: auth, body: JSON.stringify({ revision: "typing-revision-1", mode: "invalid" }) })).status).toBe(400);
+  const response = await f.request(path, { method: "PUT", headers: auth, body });
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({ profile: { typingMode: "keyboard" } });
+  const inherited = await f.request(path, { method: "PUT", headers: auth, body: JSON.stringify({ revision: "typing-revision-1", mode: null }) });
+  expect(inherited.status).toBe(200);
+  expect(await inherited.json()).toMatchObject({ profile: { typingMode: "auto", typing: { mode: null } } });
+  expect(f.calls).toEqual(["typing:profile-02", "typing:profile-02"]);
 });
 
 describe("local UI session boundary", () => {
@@ -371,6 +395,10 @@ describe("local UI lifecycle", () => {
       expect(state.profiles[1].pendingAction).toBe("start");
       const duplicate = await f.request("/api/profiles/profile-02/actions", { method: "POST", headers: auth, body: '{"action":"start"}' });
       expect(duplicate.status).toBe(409);
+      const typing = await f.request("/api/profiles/profile-02/typing", { method: "PUT", headers: auth,
+        body: JSON.stringify({ revision: "typing-revision-1", mode: "keyboard" }) });
+      expect(typing.status).toBe(409);
+      expect(f.calls).not.toContain("typing:profile-02");
       expect(calls).toBe(1);
     } finally { finish(); }
     expect((await first).status).toBe(200);
