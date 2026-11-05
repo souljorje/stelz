@@ -6,6 +6,7 @@ import { join, resolve } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { fixture } from "../helpers/fixture.ts";
+import { unusedPorts } from "../helpers/ports.ts";
 import { STABLE_OBSERVATIONS, VARIABLE_OBSERVATIONS, summarizeStability, type Observation, type StabilitySample } from "../helpers/observations.ts";
 
 const LIFETIMES = 3, DOCUMENTS = 2, SAMPLES = 3;
@@ -33,7 +34,7 @@ const profiles: ProfileEvidence[] = ids.map(profile => ({ profile, configuration
 const report = {
   schema: 2, result: "incomplete", startedAt: new Date().toISOString(), completedAt: "", evidence: home,
   experiment: { lifetimesPerProfile: LIFETIMES, documentsPerLifetime: DOCUMENTS, samplesPerDocument: SAMPLES,
-    maximumActiveBrowsers: 2, policy, origin: "http://127.0.0.1:9510",
+    maximumActiveBrowsers: 2, policy, origin: "",
     expectedStableFields: STABLE_OBSERVATIONS, variableRenderingFields: VARIABLE_OBSERVATIONS,
     sampling: "Each sample uses fresh canvas, WebGL, and offline audio resources. Fresh documents share a tab within each lifetime.",
     comparisons: "All unordered pairs with equal policy labels. Within-document pairs also count as within-session pairs.",
@@ -134,7 +135,7 @@ async function capture(profile: ProfileEvidence, client: Client, lifetime: Lifet
   let tabId: string | undefined;
   if (lifetime.ordinal === 1) {
     const capture = `storage-${id}`;
-    const tab = await call(client, "camofox_create_tab", { url: `http://127.0.0.1:9510/?capture=${capture}` });
+    const tab = await call(client, "camofox_create_tab", { url: `${site!.url}/?capture=${capture}` });
     tabId = String(tab.tabId);
     profile.initialStorageProbe = await observation(capture);
     assert(storageMatches(profile.initialStorageProbe, null), `${id}: a new native profile contains another profile's storage`);
@@ -146,7 +147,7 @@ async function capture(profile: ProfileEvidence, client: Client, lifetime: Lifet
   }
   for (let document = 1; document <= DOCUMENTS; document++) {
     const key = `${id}-lifetime-${lifetime.ordinal}-document-${document}`;
-    const url = `http://127.0.0.1:9510/?capture=${key}&samples=${SAMPLES}`;
+    const url = `${site!.url}/?capture=${key}&samples=${SAMPLES}`;
     if (tabId) {
       await call(client, "camofox_snapshot", { tabId });
       await call(client, "camofox_navigate", { tabId, url });
@@ -203,8 +204,10 @@ try {
     report.environment.sources[name] = hash(readFileSync(join(root, name)));
   }
   await command("init");
-  writeFileSync(join(home, "profiles.json"), JSON.stringify({ profiles: ids.map((id, i) => ({ id, port: 9571 + i, storage: "native" })) }));
-  await command("setup"); site = await fixture(9510);
+  const ports = await unusedPorts(ids.length + 1);
+  writeFileSync(join(home, "profiles.json"), JSON.stringify({ profiles: ids.map((id, i) => ({ id, port: ports[i]!, storage: "native" })) }));
+  await command("setup"); site = await fixture(ports[ids.length]!);
+  report.experiment.origin = site.url;
   report.environment.runtimeManifest = JSON.parse(readFileSync(join(home, "runtime/versions.json"), "utf8"));
   for (let ordinal = 1; ordinal <= LIFETIMES; ordinal++) {
     for (const id of ids) { started.add(id); await command("start", id); }

@@ -4,6 +4,7 @@ import { resolve, join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { fixture } from "../helpers/fixture.ts";
+import { unusedPorts } from "../helpers/ports.ts";
 import { assertTestHome, createTestHome } from "../helpers/test-home.ts";
 const root = resolve(import.meta.dir, "../..");
 const home = process.env.STELZ_TEST_HOME ? assertTestHome(process.env.STELZ_TEST_HOME)
@@ -44,8 +45,9 @@ let pageServer: Awaited<ReturnType<typeof fixture>> | undefined;
 try {
   console.log("Explicit direct-development test. No LLM credentials or harness commands are used.");
   await command("init");
-  writeFileSync(join(home, "profiles.json"), JSON.stringify({ profiles: [{ id: "profile-01", port: 9471 }, { id: "profile-02", port: 9472 }] }));
-  await command("setup"); pageServer = await fixture();
+  const ports = await unusedPorts(3);
+  writeFileSync(join(home, "profiles.json"), JSON.stringify({ profiles: ["profile-01", "profile-02"].map((id, index) => ({ id, port: ports[index]! })) }));
+  await command("setup"); pageServer = await fixture(ports[2]!);
   const stopped = await connect("profile-01", "stopped-client");
   await rejection(stopped.client, "profile_acquire"); await stopped.client.close();
   report.push({ check: "MCP cannot implicitly start a stopped browser", result: "passed" });
@@ -56,7 +58,7 @@ try {
   await rejection(b.client, "profile_acquire");
   const tabs: Record<string, string> = {};
   for (const [id, client] of [["profile-01", a.client], ["profile-02", second.client]] as const) {
-    const tab = await call(client, "camofox_create_tab", { url: `http://127.0.0.1:9410/?profile=${id}` }); tabs[id] = String(tab.tabId);
+    const tab = await call(client, "camofox_create_tab", { url: `${pageServer.url}/?profile=${id}` }); tabs[id] = String(tab.tabId);
     await call(client, "camofox_type", { tabId: tabs[id], selector: "#marker", text: id });
     await call(client, "camofox_click", { tabId: tabs[id], selector: "#save" });
     const snapshot = await call(client, "camofox_snapshot", { tabId: tabs[id] });
@@ -79,7 +81,7 @@ try {
   const c = await connect("profile-01", "sdk-client-c-after-disconnect");
   await call(c.client, "profile_acquire"); await checkSamePage(c.client);
   report.push({ check: "Disconnect and reconnect preserve the same running browser", result: "passed" });
-  const pendingAction = call(c.client, "camofox_navigate", { tabId: tabs["profile-01"], url: "http://127.0.0.1:9410/slow" }).catch(() => undefined);
+  const pendingAction = call(c.client, "camofox_navigate", { tabId: tabs["profile-01"], url: `${pageServer.url}/slow` }).catch(() => undefined);
   for (let n = 0; n < 30; n++) {
     const s = await call(c.client, "profile_status");
     if ((s.controller as { activeActions?: number } | undefined)?.activeActions) break;
@@ -99,6 +101,7 @@ try {
   await call(d.client, "profile_pause");
   await rejection(d.client, "camofox_click", { tabId: tabs["profile-01"], selector: "#human" });
   await call(d.client, "profile_resume");
+  await call(d.client, "camofox_snapshot", { tabId: tabs["profile-01"] });
   await call(d.client, "camofox_scroll", { tabId: tabs["profile-01"], direction: "down", amount: 100 });
   await checkSamePage(d.client);
   report.push({ check: "Pause and resume keep the selected browser", result: "passed" });
@@ -108,7 +111,7 @@ try {
   await command("stop", "all"); await command("start", "all");
   for (const id of ["profile-01", "profile-02"]) {
     const next = await connect(id, `restart-${id}`); await call(next.client, "profile_acquire");
-    const tab = await call(next.client, "camofox_create_tab", { url: "http://127.0.0.1:9410" });
+    const tab = await call(next.client, "camofox_create_tab", { url: pageServer.url });
     const snapshot = await call(next.client, "camofox_snapshot", { tabId: tab.tabId });
     assert(String(snapshot.snapshot).includes(`Storage marker: ${id}`), "Storage did not survive restart");
     assert(pin(id) === pins[id as keyof typeof pins], "Restart changed a saved fingerprint"); await next.client.close();
