@@ -234,8 +234,10 @@ export async function stop(id: string) {
       } catch (e) {
         const current = observe(id),
           error = e as Error;
+        // Bun 1.3 reports refused connections with code ConnectionRefused.
         const unavailable =
-          error instanceof TypeError || error.name === "TimeoutError" || error.name === "AbortError";
+          error instanceof TypeError || error.name === "TimeoutError" || error.name === "AbortError" ||
+          (error as NodeJS.ErrnoException).code === "ConnectionRefused";
         if (
           unavailable &&
           current.record?.instanceId === o.record.instanceId &&

@@ -558,7 +558,7 @@ test("stop signals only a reverified unresponsive orphan and recovery remains ex
       serverStart: ownedRecord(child.pid),
     });
     const result = await run(f, "stop", "test");
-    expect(result.code).toBe(0);
+    expect(result).toMatchObject({ code: 0, stderr: "" });
     expect(readFileSync(marker, "utf8")).toBe("term");
     expect(JSON.parse(result.stdout).phase).toBe("unclean");
     expect(existsSync(join(f.idDir, "running.json"))).toBe(true);
@@ -569,6 +569,27 @@ test("stop signals only a reverified unresponsive orphan and recovery remains ex
     dispose(f);
   }
 }, 20000);
+
+for (const httpStatus of [401, 500]) test(`an HTTP ${httpStatus} error cannot authorize signalling an orphan`, async () => {
+  const service = Bun.serve({ hostname: "127.0.0.1", port: 0,
+    fetch: () => Response.json({ error: "ConnectionRefused", code: "ConnectionRefused" }, { status: httpStatus }) });
+  const f = fixture(service.port!);
+  const marker = join(f.home, "term");
+  const script = `const {writeFileSync}=require('node:fs'); process.on('SIGTERM',()=>{writeFileSync(${JSON.stringify(marker)},'term'); process.exit(0)}); console.log('ready'); setInterval(()=>{},1000);`;
+  const child = Bun.spawn([bun, "-e", script], { stdout: "pipe", stderr: "pipe" });
+  try {
+    await child.stdout.getReader().read();
+    record(f, { pid: dead, supervisorStart: "dead", serverPid: child.pid, serverStart: ownedRecord(child.pid) });
+    const result = await run(f, "stop", "test");
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("stop request failed");
+    expect(existsSync(marker)).toBe(false);
+    expect(processStart(child.pid)).toBeTruthy();
+    expect(existsSync(join(f.idDir, "running.json"))).toBe(true);
+  } finally {
+    child.kill(); await child.exited; service.stop(true); dispose(f);
+  }
+});
 
 test("doctor and logs provide bounded operational output", async () => {
   const f = fixture();
