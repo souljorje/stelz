@@ -1,4 +1,5 @@
 import { verifyBundledDependencies, verifyBundledArchive } from "./verify-bundled-dependencies.ts";
+import { packRelease } from "./pack-release.ts";
 import { checkMarkdownLinks } from "./markdown-links.ts";
 import { mkdtempSync, mkdirSync, symlinkSync, readFileSync, writeFileSync, readdirSync, lstatSync, realpathSync, rmSync, existsSync, chmodSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -17,14 +18,14 @@ async function run(args: string[], options: { cwd?: string; env?: Record<string,
   const [out, err, code] = await Promise.all([new Response(p.stdout as ReadableStream).text(), new Response(p.stderr as ReadableStream).text(), p.exited]);
   if (code) throw Error(err || out); return out;
 }
-console.log("Verify npm pack lifecycle and isolated browser-free installation.");
+console.log("Verify Bun pack lifecycle and isolated npm browser-free installation.");
 try {
 const product = join(root, "packages/stelz");
-// Removing generated artifacts proves that the real npm prepack lifecycle builds them.
+// Removing generated artifacts proves that the pack lifecycle builds them.
 rmSync(join(product, "dist"), { recursive: true, force: true });
-const lifecycle = JSON.parse(await run([npm, "pack", "--json", "--pack-destination", temp], { cwd: product })) as Array<{ filename: string; files: Array<{ path: string }> }>;
-if (!existsSync(join(product, "dist/cli.js"))) throw Error("npm prepack did not build the CLI.");
-const packed = JSON.parse(await run([npm, "pack", "--json", "--ignore-scripts", "--pack-destination", temp], { cwd: join(root, "packages/stelz") })) as Array<{ filename: string; files: Array<{ path: string }> }>;
+const lifecycle = [await packRelease(product, temp, { env })];
+if (!existsSync(join(product, "dist/cli.js"))) throw Error("The prepack lifecycle did not build the CLI.");
+const packed = [await packRelease(product, temp, { env, ignoreScripts: true })];
 const archive = join(temp, packed[0]!.filename);
 for (const file of packed[0]!.files) if (/^(src|test|\.git|\.codex|\.state|sessions)\//.test(file.path)) throw Error(`Unexpected archive file: ${file.path}`);
 const uiFiles = packed[0]!.files.filter(file => file.path.startsWith("dist/ui/"));

@@ -7,7 +7,7 @@ Use the runtime requirements in [Use the service](README.md).
 ```sh
 bun install --frozen-lockfile
 bun run build
-npm pack ./packages/stelz
+bun pm pack ./packages/stelz
 ```
 
 Build regenerates `packages/stelz/dist/` from source.
@@ -29,7 +29,7 @@ The diagnostic client runs from source. The archive excludes source files, tests
 | `bun run test:proxy` | Two distinct proxy exits, three browser lifetimes, expected IP pins, and isolated route failures during cached verification. |
 | `bun run test:manual` | Human interaction while paused, followed by MCP resume in the same browser and tab. |
 | `bun run test:public --profile ID` | Four public fingerprint checks in an existing Camoufox profile, with screenshots and verdict reports. |
-| `bun run verify:release` | npm pack lifecycle, archive contents, isolated install, CLI, HTTP UI, and staged setup validation with a fake executable. No browser. |
+| `bun run verify:release` | bun pm pack lifecycle, archive contents, isolated install, CLI, HTTP UI, and staged setup validation with a fake executable. No browser. |
 | `bun run test:package` | Archive installation in an isolated npm prefix, an empty working directory, and browser acceptance. |
 
 The earlier browser acceptance run passed on 2026-11-02 with macOS 26.5.2 on Apple Silicon.

@@ -28,3 +28,5 @@ The Stelz npm archive includes the prepared Camofox and camoufox-js packages, wi
 `bun run verify:release` installs the actual tarball with `npm install --ignore-scripts` outside the checkout. It checks both Stelz's launcher and the launcher Camofox resolves, compares the modified files with the tested build, and runs browser-free setup. `bun run test:package` performs the installed real-browser acceptance separately on a supported desktop. Neither check proves browser behavior merely because patch markers exist.
 
 Stop profiles before a package upgrade, install the new Stelz release, run setup, then restart explicitly. Bundling does not make active package upgrades safe. Upstream version changes and browser-version migration remain separate changes.
+
+The packer is `bun pm pack` because it understands the pinned Bun workspace layout and bundles the dependency closure. npm 11 directory packing failed with `Exit handler never called` for this layout during validation. npm still inspects and installs the exact generated tarball. Publish the verified `.tgz`, not the workspace directory; this change does not publish anything.

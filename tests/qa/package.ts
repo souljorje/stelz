@@ -1,3 +1,4 @@
+import { packRelease } from "../../scripts/pack-release.ts";
 import { verifyBundledDependencies, verifyBundledArchive } from "../../scripts/verify-bundled-dependencies.ts";
 import { mkdtempSync, mkdirSync, symlinkSync, readFileSync, writeFileSync, readdirSync, lstatSync, realpathSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -18,8 +19,8 @@ async function run(args: string[], options: { cwd?: string; env?: Record<string,
 }
 console.log("Pack and install the release archive into an isolated global prefix.");
 await run([bun, "run", "build"]);
-const packed = JSON.parse(await run([npm, "pack", "--json", "--ignore-scripts"], { cwd: join(root, "packages/stelz") })) as Array<{ filename: string; files: Array<{ path: string }> }>;
-const archive = join(root, "packages/stelz", packed[0]!.filename);
+const packed = [await packRelease(join(root, "packages/stelz"), temp, { env, ignoreScripts: true })];
+const archive = join(temp, packed[0]!.filename);
 for (const file of packed[0]!.files) if (/^(src|test|\.git|\.codex|\.state|sessions)\//.test(file.path)) throw Error(`Unexpected archive file: ${file.path}`);
 const uiFiles = packed[0]!.files.filter(file => file.path.startsWith("dist/ui/"));
 if (!uiFiles.some(file => file.path === "dist/ui/index.html") || !uiFiles.some(file => file.path.endsWith(".js")) || !uiFiles.some(file => file.path.endsWith(".woff2"))) throw Error("The archive is missing built UI assets.");

@@ -24,7 +24,7 @@ Setup stages and checks the complete runtime before it replaces the active runti
 See [Camofox adapter patches](camofox-patches.md) for the eight pinned compatibility changes.
 
 For a source installation, run `bun install --frozen-lockfile` and `bun run build` at the workspace root.
-Run `npm pack ./packages/stelz` to create the release archive.
+Run `bun pm pack ./packages/stelz` to create the release archive.
 Only `packages/stelz` is publishable. The UI workspace is private.
 See [Distribution](distribution.md) for archive verification and the manual workflow.
 

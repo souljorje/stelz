@@ -9,7 +9,7 @@ No npm publication workflow is configured.
 3. Run `bun run test`.
 4. Run `bun run build`.
 5. Run `bun run verify:release`.
-6. Run `npm pack ./packages/stelz` to create a local archive.
+6. Run `bun pm pack ./packages/stelz` to create a local archive.
 
 The package prepack hook builds artifacts from the workspace. It never calls pack recursively.
 Packing requires the source workspace and its development dependencies. Installing the archive does not require that workspace.
