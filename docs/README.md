@@ -31,7 +31,7 @@ Setup stages and checks the complete runtime before it replaces the active runti
 See [Camofox adapter patches](camofox-patches.md) for the eight pinned compatibility changes.
 
 For a source installation, run `bun install --frozen-lockfile --ignore-scripts` and `bun run build` at the workspace root.
-Run `bun run pack` to create the release archive.
+Run `bun run pack` to save the release archive in `release-artifacts/`.
 The root package includes the compiled service and bundled UI.
 See [Distribution](distribution.md) for archive verification and the manual workflow.
 
