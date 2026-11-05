@@ -33,7 +33,7 @@ See [Onboarding acceptance](onboarding-acceptance.md) for the real-agent install
 | `bun run test:windows` | Native profile labels, window focus, unchanged website titles, and controller preservation in two isolated Camoufox profiles. |
 | `bun run test:proxy` | Two distinct proxy exits, three browser lifetimes, expected IP pins, and isolated route failures during cached verification. |
 | `bun run test:manual` | Human interaction while paused, followed by MCP resume in the same browser and tab. |
-| `bun run test:public --profile ID` | Four public fingerprint checks in an existing Camoufox profile, with screenshots and verdict reports. |
+| `bun run test:public` | Four public fingerprint checks in a disposable native profile, with screenshots and verdict reports. |
 | `bun run verify:release` | Pack lifecycle, archive contents, installed dependency checks, CLI, HTTP UI, and staged setup validation with a fake executable. No browser. |
 | `bun run test:package` | Archive installation in an isolated npm prefix, an empty working directory, and browser acceptance. |
 | `bun run test:package --archive FILE --native --proxy --manual` | Full supported-platform acceptance against one unchanged release candidate, including a real human action. |
@@ -60,7 +60,7 @@ That check uses the actual UI API and isolated service files with simulated life
 It does not start Camoufox profiles.
 It uses installed Chrome on macOS. Set `STELZ_UI_CHROME` to select another Chrome or Chromium executable.
 Screenshots and its report are in `.state/ui-browser/`.
-The UI check also creates profiles with and without a proxy, confirms deletion, and checks profile archives.
+The UI check also creates profiles with and without a proxy, checks deletion, and checks profile archives.
 
 ## Continuous integration
 
@@ -72,11 +72,14 @@ The workflows skip browser downloads. Browser, proxy, and human acceptance check
 ## Test data
 
 Browser checks use independent MCP SDK clients. Most checks use two profiles. `test:concurrency` uses three native profiles simultaneously.
+Routine tests use temporary catalogs and mocked browser or service interfaces.
+Live browser checks create disposable profiles in separate service directories. They never select an operator's saved profile.
 Checkpoint, native, and manual checks use explicit direct development mode. Proxy acceptance requires two supplied HTTP proxies.
 The isolated acceptance checks stop their test browsers. The public-site check saves its artifacts, then stops its selected browser.
 These checks require no model credentials.
 
-- `test:integration` uses `.state/standalone-acceptance/`. Set `STELZ_TEST_HOME` to select another test directory.
+- `test:integration` creates a fresh `.state/standalone-acceptance-*` directory.
+  `STELZ_TEST_HOME` can select only a directory created by `tests/helpers/test-home.ts`.
 - `test:native` creates a fresh `.state/native-acceptance-*` directory.
 - `test:windows` creates a fresh `.state/profile-windows-*` directory with native and checkpoint profiles.
 - `test:package` uses temporary install and service directories. Its report is `.state/package-test/report.json`.
@@ -133,11 +136,11 @@ Window acceptance passed on 2026-11-03 with both storage modes.
 
 ## Public fingerprint checks
 
-Start the selected Camoufox profile before this check. Use the same `STELZ_HOME` as the service.
+Build the service before this check:
 
 ```sh
-bun run start profile-02
-bun run test:public --profile profile-02
+bun run build
+bun run test:public
 ```
 
 The suite uses stelz MCP tools to visit these sites in order:
@@ -158,12 +161,11 @@ The suite does not request location permission or trigger Rebrowser's scripted p
 Rebrowser reports each native probe separately. Skipped and untriggered probes do not count as passed checks.
 Its overall result describes the applicable checks and states the remaining coverage limits.
 
-The suite acquires one running profile and creates four tabs sequentially.
-It keeps existing tabs during the checks. After saving its artifacts, it runs `stelz stop ID` to close that profile's windows.
-Cleanup also runs after failed or interrupted checks. Saved profile data remains available for the next explicit start.
-Cleanup applies only after successful acquisition. A controller conflict leaves the browser running.
-The suite does not start browsers. Other profiles remain unchanged.
-An active controller prevents acquisition. Release that controller before you retry.
+The suite creates its own native profile and starts one browser. It creates four tabs sequentially.
+After saving its artifacts, it stops that disposable profile. Cleanup also runs after failed or interrupted checks.
+The suite rejects `--profile` and ignores the operator's `STELZ_HOME`.
+To test a proxy route, set `PROXY_TEST_ENV` to a private file with `PROXY_TEST_URL` and optional `PROXY_TEST_EXPECTED_IP`.
+The suite copies these inputs into its temporary service directory and removes that credential copy after cleanup.
 
 The suite checks each page every two seconds for up to 120 seconds, excluding human authentication time.
 It waits for each MCP operation to finish. A service deadline blocks further browser actions and requires an explicit stop and start.
@@ -171,7 +173,7 @@ Individual site errors do not prevent later checks when the profile remains usab
 
 Authentication pauses the profile. Complete authentication in the same Camoufox window, then type `done` in the terminal.
 Without an interactive terminal, the suite records an incomplete result and stops the browser during cleanup.
-Cancelling authentication also ends the run and stops the browser. Start the profile before the next run.
+Cancelling authentication also ends the run and stops the browser. The next run creates another disposable profile.
 
 Artifacts are in `.state/public-sites/<run>/`. Each run creates `report.json` and `report.md`.
 Visited sites also have a PNG screenshot and a snapshot JSON file when capture succeeds.
@@ -205,10 +207,7 @@ The check explicitly stops its browser. Results are in `.state/typing-acceptance
 The default test command checks typing logic and runtime setup without starting a browser.
 It executes the upstream type route and tab lock with virtual timers to check long input, terminal timeouts, and action serialization.
 
-To use an existing stopped profile, run `bun run test:typing --profile ID`.
-Its service must already contain the current typing runtime.
-This mode starts and stops the selected profile once. It tests per-call overrides and skips profile default changes.
-The profile catalog and secrets file remain unchanged.
+The check rejects `--profile`. Every run creates a disposable profile.
 
 ## Diagnostics
 

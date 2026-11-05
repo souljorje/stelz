@@ -1,19 +1,19 @@
-// Headed input acceptance through camofox_type. Existing profiles must be stopped.
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
+// Headed input acceptance through camofox_type in a disposable profile.
+import { writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import type { TypingMode } from "../../packages/stelz/src/browser/typing.ts";
+import { assertTestHome, createTestHome } from "../helpers/test-home.ts";
 
 const root = resolve(import.meta.dir, "../.."), cli = join(root, "packages/stelz/dist/cli.js");
 const args = process.argv.slice(2);
-if (args.length && (args.length !== 2 || args[0] !== "--profile" || !/^[a-z][a-z0-9-]{0,63}$/.test(args[1]!)))
-  throw Error("Usage: bun run test:typing [--profile STOPPED-PROFILE]");
-const existingProfile = args[1], profileId = existingProfile || "typing-check";
-mkdirSync(join(root, ".state"), { recursive: true });
-const output = mkdtempSync(join(root, ".state/typing-acceptance-"));
-const home = existingProfile ? process.env.STELZ_HOME || join(homedir(), ".local/share/stelz") : output;
+if (args.length === 1 && ["--help", "-h"].includes(args[0]!)) {
+  console.log("Use: bun run test:typing\nThe check creates and stops its own temporary profile.");
+  process.exit(0);
+}
+if (args.length) throw Error("Use: bun run test:typing. Existing profiles are not supported.");
+const profileId = "typing-check", output = createTestHome("typing-acceptance", join(root, ".state")), home = output;
 const env: Record<string, string> = { STELZ_HOME: home, STELZ_TYPING_MODE: "auto" };
 for (const name of ["PATH", "HOME", "USER", "LOGNAME", "LANG", "TMPDIR", "CAMOUFOX_EXECUTABLE"])
   if (process.env[name]) env[name] = process.env[name]!;
@@ -59,6 +59,7 @@ const reservation = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new
 const port = reservation.port;
 reservation.stop(true);
 async function command(...args: string[]) {
+  assertTestHome(home);
   const child = Bun.spawn([process.execPath, "--no-env-file", cli, ...args], { env, stdout: "pipe", stderr: "pipe" });
   const [out, err, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   if (code) throw Error(`${args[0]}: ${err || out}`);
@@ -103,16 +104,11 @@ function keyboardEvents(value: Sample, text: string) {
   assert(events.filter(event => event.type === "keydown" && event.key === "Enter").length === 1, "Enter was not pressed exactly once.");
 }
 try {
-  if (existingProfile) {
-    const status = JSON.parse(await command("status", profileId));
-    assert(status.phase === "stopped", "The selected profile must be stopped before typing acceptance.");
-  } else {
-    await command("init");
-    writeFileSync(join(home, "profiles.json"), JSON.stringify({ profiles: [
-      { id: profileId, port, storage: "native" },
-    ] }));
-    await command("setup");
-  }
+  await command("init");
+  writeFileSync(join(home, "profiles.json"), JSON.stringify({ profiles: [
+    { id: profileId, port, storage: "native" },
+  ] }));
+  await command("setup");
   started = true;
   await command("start", profileId); await connect();
   const tools = await client!.listTools();
@@ -126,13 +122,13 @@ try {
     await observed(value => value.values.message === "old value");
   }
   async function setDefault(mode: TypingMode) {
-    assert(!existingProfile, "Do not edit an operator's profile catalog.");
+    assertTestHome(home);
     writeFileSync(join(home, "profiles.json"), JSON.stringify({ profiles: [
       { id: profileId, port, storage: "native", typingMode: mode },
     ] }), { mode: 0o600 });
   }
   const text = "Paced typing, with pauses.";
-  await type(tabId, "#message", text, existingProfile ? { mode: "auto", pressEnter: true } : { pressEnter: true });
+  await type(tabId, "#message", text, { pressEnter: true });
   const paced = await observed(value => value.values.message === text && value.submits === 1);
   const inputs = paced.events.filter(event => event.type === "input" && event.target === "message");
   const gaps = inputs.slice(2).map((event, i) => event.at - inputs[i + 1]!.at);
@@ -162,7 +158,7 @@ try {
 
   await reset();
   const keys = "Keyboard events without artificial pauses. ".repeat(8);
-  if (!existingProfile) await setDefault("instant");
+  await setDefault("instant");
   await type(tabId, "#message", keys, { mode: "keyboard", pressEnter: true });
   const keyboard = await observed(value => value.values.message === keys && value.submits === 1);
   keyboardEvents(keyboard, keys);
@@ -170,7 +166,7 @@ try {
   checks.push({ check: "keyboard override emits trusted keydown, keypress, keyup and input for long text, one Enter", characters: keys.length });
 
   await reset();
-  if (!existingProfile) await setDefault("keyboard");
+  await setDefault("keyboard");
   await type(tabId, "#message", "Instant short text", { mode: "instant", pressEnter: true });
   const instant = await observed(value => value.values.message === "Instant short text" && value.submits === 1);
   const bulkInputs = instant.events.filter(event => event.type === "input" && event.target === "message");
@@ -178,20 +174,18 @@ try {
   assert(instant.events.filter(event => event.type === "keydown").map(event => event.key).join("") === "Enter", "Instant entry sent character key events or duplicate Enter.");
   checks.push({ check: "instant override enters short text in bulk, one Enter", inputEvents: bulkInputs.length });
 
-  if (!existingProfile) {
-    for (const mode of ["keyboard", "instant", "auto"] as const) {
-      await setDefault(mode); await reset();
-      await type(tabId, "#message", "Live default", { pressEnter: true });
-      const state = await observed(value => value.values.message === "Live default" && value.submits === 1);
-      const count = state.events.filter(event => event.type === "input" && event.target === "message").length;
-      assert(mode === "instant" ? count === 1 : count >= "Live default".length, `${mode} profile default did not apply live.`);
-    }
-    await setDefault("instant"); await reset();
-    await type(tabId, "#message", "Auto override", { mode: "auto", pressEnter: true });
-    const override = await observed(value => value.values.message === "Auto override" && value.submits === 1);
-    keyboardEvents(override, "Auto override");
-    checks.push({ check: "all profile defaults apply live; explicit auto overrides instant default" });
+  for (const mode of ["keyboard", "instant", "auto"] as const) {
+    await setDefault(mode); await reset();
+    await type(tabId, "#message", "Live default", { pressEnter: true });
+    const state = await observed(value => value.values.message === "Live default" && value.submits === 1);
+    const count = state.events.filter(event => event.type === "input" && event.target === "message").length;
+    assert(mode === "instant" ? count === 1 : count >= "Live default".length, `${mode} profile default did not apply live.`);
   }
+  await setDefault("instant"); await reset();
+  await type(tabId, "#message", "Auto override", { mode: "auto", pressEnter: true });
+  const override = await observed(value => value.values.message === "Auto override" && value.submits === 1);
+  keyboardEvents(override, "Auto override");
+  checks.push({ check: "all profile defaults apply live; explicit auto overrides instant default" });
   const final = await call("profile_status");
   assert(final.phase === "ready" && final.instanceId === instanceId, "Typing mode changes replaced or blocked the running browser.");
   checks.push({ check: "same browser, tab, MCP connection, and controller remain usable without restart" });

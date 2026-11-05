@@ -1,11 +1,13 @@
 // Harness-independent acceptance. Both profiles use direct connections without proxy references.
-import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
+import { writeFileSync, readFileSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { fixture } from "../helpers/fixture.ts";
-const root = resolve(import.meta.dir, "../.."), home = process.env.STELZ_TEST_HOME || join(root, ".state/standalone-acceptance");
-mkdirSync(home, { recursive: true, mode: 0o700 });
+import { assertTestHome, createTestHome } from "../helpers/test-home.ts";
+const root = resolve(import.meta.dir, "../..");
+const home = process.env.STELZ_TEST_HOME ? assertTestHome(process.env.STELZ_TEST_HOME)
+  : createTestHome("standalone-acceptance", join(root, ".state"));
 const cli = process.env.STELZ_TEST_CLI || join(root, "packages/stelz/dist/cli.js");
 // Child processes receive runtime paths and browser configuration, not model credentials.
 const env: Record<string, string> = { STELZ_HOME: home };
@@ -13,6 +15,7 @@ for (const key of ["PATH", "HOME", "LANG", "TMPDIR", "CAMOUFOX_EXECUTABLE"]) if 
 const report: Record<string, unknown>[] = [], clients: Client[] = [];
 function assert(value: unknown, message: string): asserts value { if (!value) throw Error(message); }
 async function command(...args: string[]) {
+  assertTestHome(home);
   const process = Bun.spawn([Bun.which("bun")!, "--no-env-file", cli, ...args], { env, stdout: "pipe", stderr: "pipe" });
   const [out, err, code] = await Promise.all([new Response(process.stdout).text(), new Response(process.stderr).text(), process.exited]);
   if (code) throw Error(`${args.join(" ")}: ${err || out}`); return out;

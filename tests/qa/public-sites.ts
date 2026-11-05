@@ -1,12 +1,14 @@
 // Opt-in live checks through the same MCP connection used by browser clients.
-import { mkdirSync, mkdtempSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
+import { parseEnv } from "node:util";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { HOME_DIR } from "../../packages/stelz/src/profiles/config.ts";
 import { STELZ_VERSION } from "../../packages/stelz/src/versions.ts";
 import { assessSite, detectHumanChallenge, type Assessment, type SiteId, type Verdict } from "../helpers/public-site-verdicts.ts";
+import { assertTestHome, createTestHome } from "../helpers/test-home.ts";
+import { proxyRedactor } from "../helpers/proxy-acceptance-helpers.ts";
 const ROOT = resolve(import.meta.dir, "../..");
 
 export const PUBLIC_SITES: ReadonlyArray<{ id: SiteId; name: string; url: string; screenshotHeading?: string; screenshotControl?: string }> = [
@@ -37,7 +39,7 @@ export type PublicReport = {
   results: SiteResult[]; errors: string[];
 };
 type RunOptions = {
-  profile: string; home?: string; outputDir?: string; signal?: AbortSignal;
+  profile: string; home: string; outputDir?: string; signal?: AbortSignal;
   connect?: () => Promise<PublicConnection>;
   stop?: (profile: string, home: string) => Promise<void>;
   confirmHuman?: (site: SiteResult, prompt: string, signal?: AbortSignal) => Promise<boolean>;
@@ -124,7 +126,7 @@ export function publicRunPassed(report: PublicReport): boolean {
 }
 
 function serviceEnvironment(home: string): Record<string, string> {
-  const env: Record<string, string> = { STELZ_HOME: home };
+  const env: Record<string, string> = { STELZ_HOME: assertTestHome(home) };
   for (const key of ["PATH", "HOME", "LANG", "LC_ALL", "LC_CTYPE", "TMPDIR", "CAMOUFOX_EXECUTABLE"]) {
     if (process.env[key]) env[key] = process.env[key]!;
   }
@@ -174,11 +176,11 @@ async function confirmHuman(site: SiteResult, prompt: string, signal?: AbortSign
 }
 
 export async function runPublicSites(options: RunOptions): Promise<PublicReport> {
-  if (!/^[a-z][a-z0-9-]{0,63}$/.test(options.profile)) throw Error("Select a valid profile with --profile ID.");
+  if (!/^[a-z][a-z0-9-]{0,63}$/.test(options.profile)) throw Error("Select a valid disposable test profile ID.");
   const now = options.now ?? Date.now, stamp = () => new Date(now()).toISOString();
   const timeout = options.timeoutMs ?? 120_000, poll = options.pollMs ?? 2_000;
   const wait = options.sleep ?? sleep, signal = options.signal, log = options.log ?? console.log;
-  const home = resolve(options.home ?? HOME_DIR);
+  const home = assertTestHome(options.home);
   const parent = join(ROOT, ".state/public-sites");
   if (!options.outputDir) mkdirSync(parent, { recursive: true, mode: 0o700 });
   const outputDir = resolve(options.outputDir ?? mkdtempSync(join(parent, stamp().replace(/[:.]/g, "-") + "-")));
@@ -383,32 +385,60 @@ export async function runPublicSites(options: RunOptions): Promise<PublicReport>
   return report;
 }
 
-export function parsePublicArgs(args: string[]): { profile?: string; help: boolean } {
-  let profile: string | undefined, help = false;
-  for (let index = 0; index < args.length; index++) {
-    const argument = args[index];
-    if (argument === "--") continue;
-    if (argument === "--help" || argument === "-h") help = true;
-    else if (argument === "--profile" && !profile && /^[a-z][a-z0-9-]{0,63}$/.test(args[index + 1] ?? "")) profile = args[++index];
-    else throw Error("Use: bun run test:public --profile ID");
-  }
-  if (!help && !profile) throw Error("Select an existing running Camoufox profile: bun run test:public --profile ID");
-  return { profile, help };
+export function parsePublicArgs(args: string[]): { help: boolean } {
+  const flags = args.filter(argument => argument !== "--");
+  if (!flags.length) return { help: false };
+  if (flags.length === 1 && ["--help", "-h"].includes(flags[0]!)) return { help: true };
+  throw Error("Use: bun run test:public. Existing profiles are not supported.");
 }
 
 if (import.meta.main) {
   try {
     const args = parsePublicArgs(process.argv.slice(2));
-    if (args.help) console.log("Use: bun run test:public --profile ID\nUse the same STELZ_HOME as the running Camoufox profile. The suite saves its report and stops the selected browser after the run.");
+    if (args.help) console.log("Use: bun run test:public\nThe check creates and stops its own temporary native profile. PROXY_TEST_ENV can supply a private proxy input file.");
     else {
+      const home = createTestHome("public-profile", join(ROOT, ".state")), profile = "public-check";
+      let started = false;
+      let proxy: string | undefined, expected: string | undefined;
+      if (process.env.PROXY_TEST_ENV) {
+        const input = parseEnv(readFileSync(process.env.PROXY_TEST_ENV, "utf8"));
+        proxy = input.PROXY_TEST_URL; expected = input.PROXY_TEST_EXPECTED_IP;
+        if (!proxy) throw Error("PROXY_TEST_ENV must contain PROXY_TEST_URL.");
+      }
+      const redact = proxyRedactor([proxy]), env = serviceEnvironment(home);
+      async function command(...args: string[]) {
+        assertTestHome(home);
+        const child = Bun.spawn([process.execPath, "--no-env-file", join(ROOT, "packages/stelz/src/cli/cli.ts"), ...args], {
+          cwd: ROOT, env, stdout: "pipe", stderr: "pipe",
+        });
+        const [out, err, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+        if (code) throw Error(redact(err || out || "The disposable profile command failed."));
+      }
       const abort = new AbortController(), onInt = () => abort.abort("SIGINT"), onTerm = () => abort.abort("SIGTERM");
       process.once("SIGINT", onInt); process.once("SIGTERM", onTerm);
       try {
-        const report = await runPublicSites({ profile: args.profile!, signal: abort.signal });
+        await command("init");
+        const reservation = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() });
+        const port = reservation.port; reservation.stop(true);
+        writeFileSync(join(home, "profiles.json"), JSON.stringify({ profiles: [{ id: profile, port, storage: "native",
+          mode: proxy ? "proxy" : "direct", ...(proxy ? { proxyEnv: "PUBLIC_TEST_PROXY_URL" } : {}),
+          ...(expected ? { expectedIPEnv: "PUBLIC_TEST_EXPECTED_IP" } : {}) }] }), { mode: 0o600 });
+        if (proxy) writeFileSync(join(home, "secrets.env"), `PUBLIC_TEST_PROXY_URL=${JSON.stringify(proxy)}\n`
+          + (expected ? `PUBLIC_TEST_EXPECTED_IP=${JSON.stringify(expected)}\n` : ""), { mode: 0o600 });
+        await command("setup"); started = true; await command("start", profile);
+        const report = await runPublicSites({ profile, home, signal: abort.signal });
+        started = !report.stopped;
         for (const error of report.errors) console.error(error);
         console.log("Report: " + join(report.outputDir, "report.md"));
         process.exitCode = report.interrupted ? 130 : publicRunPassed(report) ? 0 : 1;
-      } finally { process.off("SIGINT", onInt); process.off("SIGTERM", onTerm); }
+      } finally {
+        if (started) {
+          try { await command("stop", profile); started = false; }
+          catch (error) { console.error(message(error)); process.exitCode = 1; }
+        }
+        if (!started) rmSync(join(home, "secrets.env"), { force: true });
+        process.off("SIGINT", onInt); process.off("SIGTERM", onTerm);
+      }
     }
   } catch (error) { console.error(message(error)); process.exitCode = 1; }
 }

@@ -5,9 +5,10 @@ import { mkdtempSync, mkdirSync, symlinkSync, readFileSync, writeFileSync, readd
 import { join, resolve, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { STELZ_VERSION } from "../../packages/stelz/src/versions.ts";
+import { createTestHome } from "../helpers/test-home.ts";
 const root = resolve(import.meta.dir, "../.."), temp = mkdtempSync(join(tmpdir(), "stelz-package-"));
 const input = releaseArguments(process.argv.slice(2), ["--native", "--proxy", "--manual"]);
-const prefix = join(temp, "global"), cwd = join(temp, "empty"), home = join(temp, "data"), bin = join(temp, "bin");
+const prefix = join(temp, "global"), cwd = join(temp, "empty"), home = createTestHome("data", temp), bin = join(temp, "bin");
 for (const path of [cwd, bin]) mkdirSync(path, { recursive: true });
 const npm = Bun.which("npm")!, node = Bun.which("node")!, bun = Bun.which("bun")!;
 symlinkSync(node, join(bin, "node")); symlinkSync(bun, join(bin, "bun"));

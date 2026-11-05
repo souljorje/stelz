@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs"
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { PUBLIC_SITES, parsePublicArgs, publicRunPassed, runPublicSites, type PublicConnection, type PublicReport, type ToolReply } from "../qa/public-sites.ts";
+import { createTestHome } from "../helpers/test-home.ts";
 
 const directories: string[] = [];
 afterEach(() => { for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true }); });
@@ -64,7 +65,8 @@ function mockConnection(override?: Override) {
 function run(mock: ReturnType<typeof mockConnection>, options: Partial<Parameters<typeof runPublicSites>[0]> = {}) {
   let clock = 0;
   const { stop, ...rest } = options;
-  return runPublicSites({ profile: "test", outputDir: outputDir(), connect: async () => mock.connection, log: () => {},
+  const output = options.outputDir ?? outputDir(), home = options.home ?? createTestHome("service", output);
+  return runPublicSites({ profile: "test", home, outputDir: output, connect: async () => mock.connection, log: () => {},
     now: () => clock, sleep: async ms => { clock += ms; }, timeoutMs: 2, pollMs: 1, ...rest,
     stop: async (profile, home) => {
       mock.state.stops.push({ profile, home }); mock.state.events.push("stop");
@@ -106,7 +108,7 @@ test("all four sites use one Camoufox controller and produce private PNGs and co
 });
 
 test("cleanup saves readable evidence before stopping the selected profile and home with its controller held", async () => {
-  const directory = outputDir(), home = directory + "/nested/../service-home", mock = mockConnection();
+  const directory = outputDir(), home = createTestHome("service-home", directory) + "/nested/..", mock = mockConnection();
   mock.state.profileId = "selected-profile";
   const report = await run(mock, { profile: "selected-profile", home, outputDir: directory,
     connect: async () => {
@@ -555,10 +557,17 @@ test("disappeared original tabs fail the run before shutdown", async () => {
   expect(publicRunPassed(report)).toBe(false);
 });
 
-test("CLI arguments require one explicit profile", () => {
-  expect(parsePublicArgs(["--profile", "profile-02"])).toEqual({ profile: "profile-02", help: false });
+test("CLI arguments cannot select an operator's profile", () => {
+  expect(parsePublicArgs([])).toEqual({ help: false });
   expect(parsePublicArgs(["--help"]).help).toBe(true);
-  for (const args of [[], ["--profile"], ["--profile", "../bad"], ["--profile", "first", "--profile", "second"], ["--unknown"]]) {
+  for (const args of [["--profile", "profile-02"], ["--profile"], ["--profile", "../bad"], ["--profile", "first", "--profile", "second"], ["--unknown"]]) {
     expect(() => parsePublicArgs(args)).toThrow();
   }
+});
+
+test("unowned service directories fail before connecting or running cleanup", async () => {
+  const home = outputDir(), mock = mockConnection();
+  await expect(run(mock, { home })).rejects.toThrow("unowned service directory");
+  expect(mock.state.calls).toEqual([]);
+  expect(mock.state.stops).toEqual([]);
 });
