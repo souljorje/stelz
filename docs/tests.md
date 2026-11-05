@@ -35,10 +35,10 @@ See [Onboarding acceptance](onboarding-acceptance.md) for the real-agent install
 | `bun run test:proxy` | Two distinct proxy exits, three browser lifetimes, expected IP pins, and isolated route failures during cached verification. |
 | `bun run test:manual` | Human interaction while paused, followed by MCP resume in the same browser and tab. |
 | `bun run test:public` | Four public fingerprint checks in a disposable native profile, with screenshots and verdict reports. |
-| `bun run verify:release` | Pack lifecycle, archive contents, installed dependency checks, CLI, HTTP UI, and staged setup validation with a fake executable. No browser. |
-| `bun run test:prepack --destination DIRECTORY` | Remove compiled output and produce one archive through the prepack lifecycle. |
+| `bun run pack` | Build once and save one release archive with its hash and source metadata in `release-artifacts/`. |
+| `bun run verify:release` | Check the saved archive, installed dependencies, CLI, HTTP UI, and staged setup with a fake executable. No browser or rebuild. |
 | `bun run verify:release --archive FILE --native` | Ordinary isolated npm installation, SQLite queries, and Impit construction from the installed package and staged runtime. No browser. |
-| `bun run test:package` | Archive installation in an isolated npm prefix, an empty working directory, and checkpoint plus native browser acceptance. |
+| `bun run test:package` | Install the saved archive in an isolated npm prefix. Run checkpoint and native browser acceptance. |
 | `bun run test:package --archive FILE --native --proxy --manual` | Full supported-platform acceptance against one unchanged release candidate, including a real human action. |
 
 The earlier browser acceptance run passed on 2026-11-02 with macOS 26.5.2 on Apple Silicon.

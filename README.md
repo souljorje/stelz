@@ -49,5 +49,6 @@ See [Compatibility](docs/README.md#compatibility) before changing existing confi
 The root manifest defines the published package and development commands.
 Build uses `docs/`, `examples/`, and `skills/` directly. It does not copy documentation.
 Run `bun run check` for build, TypeScript checks, and browser-free tests.
-Run `bun run verify:release` for browser-free archive verification.
+Run `bun run pack` to create `release-artifacts/stelz-0.2.1.tgz`.
+Run `bun run verify:release` to check that saved archive without a browser or rebuild.
 See [Distribution](docs/distribution.md) and [Camofox patches](docs/camofox-patches.md).

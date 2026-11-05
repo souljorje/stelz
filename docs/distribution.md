@@ -6,13 +6,15 @@ Release preparation and npm publication use separate workflows.
 
 1. Run `bun install --frozen-lockfile --ignore-scripts` in a clean workspace.
 2. Run `bun run check`.
-3. Run `bun run pack --destination .state/release-candidate` once.
-4. Run `bun run verify:release --archive .state/release-candidate/stelz-0.2.1.tgz`.
-5. Run `bun run verify:release --archive .state/release-candidate/stelz-0.2.1.tgz --native`.
+3. Run `bun run pack` once.
+4. Run `bun run verify:release`.
+5. Run `bun run verify:release --native`.
 
-The package prepack hook builds artifacts from the workspace.
-Release preparation uses Bun to resolve installed dependency links, then packs a temporary standalone tree with npm.
-The internal preparation steps disable lifecycle scripts to prevent recursion.
+`pack` builds once and saves the archive, hash, and source metadata in `release-artifacts/`.
+It uses npm's file inventory to prepare a physical release directory, then creates one archive with npm.
+The preparation steps disable lifecycle scripts. There is no implicit prepack build.
+Verification uses the saved archive. It does not build or pack another archive.
+Use `--destination DIRECTORY` for another output directory. Verification then requires `--archive FILE`.
 Packing requires the source workspace and its development dependencies. Installing the archive does not require that workspace.
 The archive uses canonical documentation and examples directly.
 The archive includes the optional browser skill, third-party notices, and UI font and library licenses.
@@ -32,7 +34,6 @@ The packaging check does not establish browser execution with lifecycle scripts 
 The browser-free `--native` check uses ordinary installation and the staged runtime.
 It executes SQLite queries and constructs Impit clients through each relevant dependency resolution path.
 Release preparation requires both installation modes on Linux and macOS against the same archive.
-The separate `test:prepack` command removes compiled output, then checks that packing rebuilds it.
 Run `bun run test:package` on every supported target before release.
 
 ## Prepare the release candidate
