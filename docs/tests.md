@@ -11,6 +11,8 @@ bun run pack
 ```
 
 Build regenerates `dist/` from source.
+Bun builds the CLI, supervisor, browser plugin, and early theme script. Vite builds the UI and emits local font files.
+The theme script runs before the first page frame. The build preserves the bundled UI licenses.
 The archive contains the CLI, supervisor, browser plugin, built local UI, documentation, client examples, and third-party notices.
 The diagnostic client runs from source. The archive excludes Stelz source files, tests, and browser state.
 It includes the prepared Camofox and camoufox-js dependencies. See [Distribution](distribution.md).
