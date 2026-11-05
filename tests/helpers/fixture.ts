@@ -33,6 +33,6 @@ export async function fixture(port = 9410) {
 <section><h2>Manual intervention</h2><button id="human">Human confirmation</button><p id="human-result">Waiting for human</p></section>
 <section><h2>Observable fingerprint</h2><pre id="observations">Loading</pre></section><script type="module" src="/fixture.js"></script></html>`, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
   } });
-  return { observations, manualConfirmations, stop: () => server.stop() };
+  return { url: `http://127.0.0.1:${server.port}`, observations, manualConfirmations, stop: () => server.stop() };
 }
 if (import.meta.main) { await fixture(); console.log("Fixture: http://127.0.0.1:9410 (keep this terminal running)"); }

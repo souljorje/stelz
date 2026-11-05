@@ -23,6 +23,7 @@ The diagnostic client runs from source. The archive excludes source files, tests
 | `bun run test:ui:browser` | Built UI in Chrome, local sessions, offline assets, forms, and responsive layouts. |
 | `bun run test` | Controller, lifecycle, setup, proxy, plugin, native storage, and observation tests. |
 | `bun run test:integration` | Two checkpoint profiles, exclusive control, handoff, disconnect, client crash, pause, and restart. |
+| `bun run test:concurrency` | Three temporary native profiles, simultaneous starts, isolated storage, duplicate starts, and controller handoff on a local fixture. |
 | `bun run test:native` | Two native profiles, storage isolation, and repeated fingerprint samples across three browser lifetimes. |
 | `bun run test:window-close` | Close one isolated test window when prompted. Check clean shutdown, Stopped UI state, and explicit restart. |
 | `bun run test:windows` | Native profile labels, window focus, unchanged website titles, and controller preservation in two isolated Camoufox profiles. |
@@ -65,7 +66,7 @@ Both workflows skip browser downloads. Browser, proxy, and human acceptance chec
 
 ## Test data
 
-Browser checks use independent MCP SDK clients and at most two profiles.
+Browser checks use independent MCP SDK clients. Most checks use two profiles. `test:concurrency` uses three native profiles simultaneously.
 Checkpoint, native, and manual checks use explicit direct development mode. Proxy acceptance requires two supplied HTTP proxies.
 The isolated acceptance checks stop their test browsers. The public-site check saves its artifacts, then stops its selected browser.
 These checks require no model credentials.
@@ -74,6 +75,8 @@ These checks require no model credentials.
 - `test:native` creates a fresh `.state/native-acceptance-*` directory.
 - `test:windows` creates a fresh `.state/profile-windows-*` directory with native and checkpoint profiles.
 - `test:package` uses temporary install and service directories. Its report is `.state/package-test/report.json`.
+- `test:concurrency` uses a fresh temporary service directory and reports to `.state/concurrency-acceptance/report.json`.
+  It stops only its test profiles. It removes their directory after success and preserves it for inspection after failure.
 
 Reports, screenshots, and test profiles are disposable. Keep actual profile data in the configured `STELZ_HOME`.
 
@@ -99,7 +102,7 @@ The test then resumes MCP control and checks the original browser and tab.
 
 ## Window acceptance
 
-Keep two browser slots available. Run these commands from the source checkout:
+These checks start two browsers. Run these commands from the source checkout:
 
 ```sh
 bun run build
