@@ -203,10 +203,33 @@ function portAvailable(port: number): Promise<boolean> {
   });
 }
 export async function createProfile(input: ProfileCreate): Promise<string> {
+  return (await createOrReuseProfile(input, false)).profile.id;
+}
+export async function ensureProfile(input: Omit<ProfileCreate, "revision"> & { direct?: boolean }) {
+  const { direct, ...create } = input;
+  if (direct !== undefined && typeof direct !== "boolean" || direct && create.proxyUrl !== undefined)
+    throw new ProfileCatalogError(400, "Choose direct networking or a proxy, not both.");
+  return createOrReuseProfile({ ...create, revision: "" }, true, direct);
+}
+async function createOrReuseProfile(input: ProfileCreate, reuse: boolean, direct = false): Promise<{ profile: Profile; created: boolean }> {
   validateInput(input);
   return prepareProfileConfiguration(async () => {
     const before = readCatalogFiles(), config = validateSettings(JSON.parse(before.config));
-    revisionMatches(input.revision, config);
+    if (!reuse) revisionMatches(input.revision, config);
+    const existing = config.profiles.find(p => p.id === input.id);
+    if (reuse && existing) {
+      const values = parseEnv(before.secrets || "");
+      const value = (name?: string) => name ? process.env[name] ?? values[name] ?? "" : "";
+      const proxy = hasProxy(existing), proxyUrl = value(existing.proxyEnv);
+      if (proxy) {
+        try { validateProxy(proxyUrl); }
+        catch { throw new ProfileCatalogError(409, "The existing profile needs valid proxy credentials. Preserve its reference and correct the configured secret."); }
+      }
+      if (direct && proxy || input.proxyUrl !== undefined && (!proxy || new URL(input.proxyUrl).href !== new URL(proxyUrl).href) ||
+          input.expectedIp !== undefined && input.expectedIp !== value(existing.expectedIPEnv))
+        throw new ProfileCatalogError(409, "The existing profile conflicts with the requested network settings. Its configuration is unchanged.");
+      return { profile: existing, created: false };
+    }
     if (config.profiles.some(p => p.id === input.id) || existsSync(dir(input.id)))
       throw new ProfileCatalogError(409, "This profile name already has configuration or saved state. Choose another name.");
     const ports = new Set(config.profiles.map(p => p.port));
@@ -237,7 +260,7 @@ export async function createProfile(input: ProfileCreate): Promise<string> {
     const next = validateSettings({ ...config, profiles: [...config.profiles, p] });
     commitCatalogTransaction({ version: 1, operation: "create", id: p.id, token: randomUUID(), before,
       after: { config: serializeSettings(next, before.config), secrets: nextSecrets } });
-    return p.id;
+    return { profile: p, created: true };
   });
 }
 export async function deleteProfile(id: string, revision: string): Promise<void> {

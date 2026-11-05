@@ -1,19 +1,21 @@
 #!/usr/bin/env -S bun --no-env-file
-import { HOME_DIR, initialize, settings } from "../profiles/config.ts";
-import { recover, doctor, logs } from "../runtime/runtime.ts";
-import { runLifecycle } from "../runtime/operations.ts";
 import type { UiAction } from "../api/contracts.ts";
-import { setup } from "../browser/setup.ts";
-import { runMcp } from "../mcp/mcp.ts";
 import { STELZ_VERSION } from "../versions.ts";
 
 const [command = "help", ...args] = process.argv.slice(2);
 try {
+  // Configuration paths can fail during module initialization. Keep CLI errors structured too.
+  const { HOME_DIR, initialize, settings } = await import("../profiles/config.ts");
+  const { recover, doctor, logs } = await import("../runtime/runtime.ts");
+  const { runLifecycle } = await import("../runtime/operations.ts");
+  const { setup } = await import("../browser/setup.ts");
+  const { runMcp } = await import("../mcp/mcp.ts");
   if (command === "--version" || command === "version") console.log(STELZ_VERSION);
   else if (command === "help" || command === "--help")
     console.log(
-      `stelz ${STELZ_VERSION}\n\nstelz init\nstelz setup\nstelz ui [--port 1024-65535] [--open]\nstelz start ID|all\nstelz status [ID|all]\nstelz doctor [ID|all]\nstelz logs ID [--lines 1-500]\nstelz recover ID\nstelz stop ID|all\nstelz pause ID\nstelz resume ID\nstelz recheck ID\nstelz release ID\nstelz mcp --profile ID\n\nSTELZ_HOME selects the service data directory. Default: ${HOME_DIR}`,
+      `stelz ${STELZ_VERSION}\n\nstelz init\nstelz setup\nstelz profile create ID [--direct | --proxy-url URL | --proxy-env NAME] [--expected-ip IP | --expected-ip-env NAME] [--json]\nstelz ui [--port 1024-65535] [--open]\nstelz start ID|all\nstelz status [ID|all]\nstelz doctor [ID|all]\nstelz logs ID [--lines 1-500]\nstelz recover ID\nstelz stop ID|all\nstelz pause ID\nstelz resume ID\nstelz recheck ID\nstelz release ID\nstelz mcp --profile ID\n\nSTELZ_HOME selects the service data directory. Default: ${HOME_DIR}`,
     );
+  else if (command === "profile") await (await import("./profile.ts")).runProfile(args);
   else if (command === "init") {
     initialize();
     console.log(HOME_DIR);
@@ -50,6 +52,8 @@ try {
     }
   } else throw Error(`Unknown command: ${command}`);
 } catch (e) {
-  console.error((e as Error).message);
+  console.error(command === "profile" && args.includes("--json")
+    ? JSON.stringify({ ok: false, error: { code: "profile_unavailable", message: "Cannot open the service configuration. Run stelz doctor and inspect the service files." } })
+    : (e as Error).message);
   process.exitCode = 1;
 }
