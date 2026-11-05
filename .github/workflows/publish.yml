@@ -71,4 +71,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
       - run: bun run verify:release --archive release-artifacts/*.tgz
-      - run: npm publish release-artifacts/*.tgz --ignore-scripts --access public --tag "$RELEASE_DIST_TAG"
+      - run: npm publish ./release-artifacts/*.tgz --ignore-scripts --access public --tag "$RELEASE_DIST_TAG"
