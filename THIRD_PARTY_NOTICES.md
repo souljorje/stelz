@@ -1,6 +1,8 @@
 # Third-party notices
 
 The local HTTP API uses Hono under the MIT License.
+Profile ZIP archives use yazl and yauzl under the MIT License.
+Checkpoint validation uses stream-json under the BSD 3-Clause License.
 
 The bundled local UI includes React, React DOM, and Scheduler under the MIT License.
 It includes IBM Plex Sans and IBM Plex Mono under the SIL Open Font License 1.1.

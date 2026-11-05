@@ -21,6 +21,7 @@ import { assertRuntimePlugin } from "./runtime-plugin.ts";
 import {
   pendingNetworkTransaction,
 } from "../profiles/network-transaction.ts";
+import { pendingProfileImport } from "../profiles/profile-import-transaction.ts";
 import {
   HOME_DIR,
   CONFIG_FILE,
@@ -124,7 +125,6 @@ export async function reportStatus(id: string) {
 }
 
 export async function start(id: string) {
-  settings();
   await prepareProfileConfiguration(async () => {
     const p = profile(id), configHash = configurationHash(p);
     initDir(id);
@@ -331,6 +331,7 @@ export function logs(id: string, lines = 100) {
 }
 export async function doctor(target?: string) {
   const pending = pendingNetworkTransaction();
+  const importing = pendingProfileImport();
   const result: Record<string, unknown> = {
     home: HOME_DIR,
     initialized: existsSync(CONFIG_FILE),
@@ -338,6 +339,7 @@ export async function doctor(target?: string) {
     node: !!Bun.which("node"),
     browserExecutable: existsSync(executable()),
     ...(pending ? { networkRecovery: pending.message } : {}),
+    ...(importing ? { profileImportRecovery: importing } : {}),
   };
   if (!result.initialized) return result;
   const ids = target && target !== "all" ? [target] : settings().profiles.map((p) => p.id);
@@ -351,6 +353,7 @@ export async function doctor(target?: string) {
         configuration = (e as Error).message;
       }
       if (pending && (!pending.profileId || pending.profileId === id)) configuration = pending.message;
+      if (importing) configuration = importing;
       return {
         ...(await reportStatus(id)),
         configuration,

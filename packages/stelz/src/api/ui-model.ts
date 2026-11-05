@@ -14,6 +14,7 @@ import {
 import {
   catalogSecretValues, pendingProfileCatalog,
 } from "../profiles/profile-catalog.ts";
+import { pendingProfileImport, profileImportSecretValues, ProfileImportTransactionError } from "../profiles/profile-import-transaction.ts";
 import {
   ProfileCatalogError, ProfileConfigurationError, catalogRevision, createProfile, deleteProfile,
   updateNetwork, updateTyping, renameProfile, networkRevision, typingRevision,
@@ -61,9 +62,13 @@ function readSettings(): Settings | undefined {
   try {
     localEntry(HOME_DIR, "directory");
     if (localEntry(configFile, "file")) return settings();
+    const importing = pendingProfileImport();
+    if (importing) throw new UiModelError(409, importing);
     const pending = pendingNetworkTransaction();
     if (pending) throw new UiModelError(409, pending.message);
   } catch (error) {
+    const importing = pendingProfileImport();
+    if (importing) throw new UiModelError(409, importing);
     const pending = pendingNetworkTransaction();
     if (pending) throw new UiModelError(409, pending.message);
     throw error;
@@ -115,6 +120,7 @@ function redactor(config?: Settings, extra: unknown[] = []): Redact {
   for (const value of extra) add(value);
   for (const value of networkTransactionSecretValues()) add(value);
   for (const value of catalogSecretValues()) add(value);
+  for (const value of profileImportSecretValues()) add(value);
   for (const value of [...hidden]) {
     hidden.add(encodeURIComponent(value));
     hidden.add(JSON.stringify(value).slice(1, -1));
@@ -181,6 +187,8 @@ function network(config: Settings, p: Profile, secrets: ReturnType<typeof readSe
   };
 }
 function configurationError(p: Profile, secrets: ReturnType<typeof readSecrets>): string | null {
+  const importing = pendingProfileImport();
+  if (importing) return importing;
   const catalog = pendingProfileCatalog();
   if (catalog) return catalog;
   const pending = pendingNetworkTransaction();
@@ -272,6 +280,7 @@ async function safe<T>(action: () => Promise<T>): Promise<T> {
     if (error instanceof UiModelError) throw error;
     if (error instanceof ProfileCatalogError || error instanceof ProfileConfigurationError) throw new UiModelError(error.status, error.message);
     if (error instanceof NetworkTransactionError) throw new UiModelError(409, error.message);
+    if (error instanceof ProfileImportTransactionError) throw new UiModelError(409, error.message);
     throw new UiModelError(409, "Cannot read or update service state. Inspect the service files before continuing.");
   }
 }

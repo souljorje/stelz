@@ -45,7 +45,7 @@ export type UiProfile = {
   controlError: string | null;
   configurationError: string | null;
   network: UiNetwork;
-  pendingAction?: UiAction | "save" | "typing" | "rename" | "delete" | "show";
+  pendingAction?: UiAction | "save" | "typing" | "rename" | "delete" | "show" | "export";
 };
 
 export type UiSnapshot = {

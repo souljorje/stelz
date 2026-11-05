@@ -9,12 +9,14 @@ import { createUiModel, redactUiText } from "./ui-model.ts";
 import { UI_ACTIONS, type UiAction, type UiProfileCreate, type UiProfileRename, type UiModel, type UiNetworkUpdate, type UiTypingUpdate } from "./contracts.ts";
 import { createWindowModel, type WindowModel } from "./window-model.ts";
 import type { ShowProfileWindow } from "../api/contracts.ts";
+import { createProfileTransferManager, type ProfileTransferManager } from "./profile-transfers.ts";
+import type { UiTransferCreate, UiTransferImport } from "./transfer-contracts.ts";
 
 type Asset = { body: string | Uint8Array<ArrayBuffer>; type: string };
 export type UiSessionState = {
   bootstrapToken: string | null;
   session: string;
-  pending: Map<string, UiAction | "save" | "typing" | "rename" | "delete" | "show">;
+  pending: Map<string, UiAction | "save" | "typing" | "rename" | "delete" | "show" | "export">;
   activeMutations: number;
   ended: boolean;
 };
@@ -25,6 +27,7 @@ export type UiAppOptions = {
   model?: UiModel;
   windows?: WindowModel;
   lifecycle?: (action: UiAction, id: string) => Promise<unknown>;
+  transfers?: ProfileTransferManager;
   onShutdown?: () => void;
 };
 
@@ -68,11 +71,10 @@ function loadAssets(root: string): Record<string, Asset> {
   return assets;
 }
 
-async function readJson(request: Request): Promise<Record<string, unknown>> {
+async function readJson(request: Request, limit = 16_384): Promise<Record<string, unknown>> {
   if (request.headers.get("content-type")?.split(";")[0]?.trim() !== "application/json") {
     throw new UiHttpError("Send application/json.", 415);
   }
-  const limit = 16_384;
   if (Number(request.headers.get("content-length")) > limit) throw new UiHttpError("The request is too large.", 413);
   const chunks: Uint8Array[] = [];
   let length = 0;
@@ -121,6 +123,15 @@ export function createUiApp(options: UiAppOptions = {}) {
   const lifecycle = options.lifecycle ?? runLifecycle;
   const assets = options.assets ?? loadAssets(options.assetsDir ?? join(ROOT, "dist", "ui"));
   const state = options.sessionState ?? createUiSessionState(), pending = state.pending;
+  const transfers = options.transfers ?? createProfileTransferManager({
+    busy: delta => { state.activeMutations += delta; },
+    reserve: ids => {
+      if (ids.some(id => pending.has(id))) throw new UiHttpError("Wait for the selected profiles' current operations before exporting.", 409);
+      for (const id of ids) pending.set(id, "export");
+    },
+    release: ids => { for (const id of ids) if (pending.get(id) === "export") pending.delete(id); },
+    redact: redactUiText,
+  });
   // Keep the exact URL paths used by the asset map and profile ID validation.
   const app = new Hono<UiEnvironment>({ getPath: request => new URL(request.url).pathname });
 
@@ -178,6 +189,21 @@ export function createUiApp(options: UiAppOptions = {}) {
     return c.json({ stopped: true });
   });
   app.all("/api/shutdown", c => methodNotAllowed(c, "POST"));
+
+  const transferPath = "/api/profile-transfers/:transfer{[a-f0-9-]{36}}";
+  // Bulk metadata has a separate bound. Ordinary JSON requests retain their 16 KiB limit.
+  app.post("/api/profile-transfers", async c => c.json({ transfer: await transfers.create(await readJson(c.req.raw, 16 * 1024 ** 2) as UiTransferCreate) }, 202));
+  app.get("/api/profile-transfers", c => c.req.method === "GET" ? c.json({ transfers: transfers.list() }) : notFound(c));
+  app.all("/api/profile-transfers", c => methodNotAllowed(c, "GET, POST"));
+  app.get(transferPath, c => c.req.method === "GET" ? c.json({ transfer: transfers.status(c.req.param("transfer")) }) : notFound(c));
+  app.delete(transferPath, async c => c.json({ transfer: await transfers.cancel(c.req.param("transfer")) }));
+  app.all(transferPath, c => methodNotAllowed(c, "GET, DELETE"));
+  app.put(`${transferPath}/archive`, async c => c.json({ transfer: await transfers.upload(c.req.param("transfer"), c.req.raw) }, 202));
+  app.all(`${transferPath}/archive`, c => methodNotAllowed(c, "PUT"));
+  app.post(`${transferPath}/import`, async c => c.json({ transfer: await transfers.commit(c.req.param("transfer"), await readJson(c.req.raw, 16 * 1024 ** 2) as UiTransferImport) }, 202));
+  app.all(`${transferPath}/import`, c => methodNotAllowed(c, "POST"));
+  app.get(`${transferPath}/download`, async c => c.req.method === "GET" ? transfers.download(c.req.param("transfer")) : notFound(c));
+  app.all(`${transferPath}/download`, c => methodNotAllowed(c, "GET"));
 
   app.get("/api/state", async c => {
     if (c.req.method !== "GET") return notFound(c);

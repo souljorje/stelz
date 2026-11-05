@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { CONFIG_FILE, HOME_DIR, STATE } from "../profiles/config.ts";
 import { ensureProfile, ProfileCatalogError, ProfileConfigurationError } from "../profiles/profile-configuration.ts";
 import { hasProxy } from "../profiles/network-compat.ts";
+import { runProfileTransfer, transferUsage } from "./profile-transfer.ts";
 
 const usage = "stelz profile create ID [--direct | --proxy-url URL | --proxy-env NAME] [--expected-ip IP | --expected-ip-env NAME] [--json]";
 function invalid(): never { throw new ProfileCatalogError(400, `Use: ${usage}`); }
@@ -31,10 +32,11 @@ function options(args: string[]) {
 }
 
 export async function runProfile(args: string[]) {
+  if (args[0] === "import" || args[0] === "export") return runProfileTransfer(args);
   const json = args.includes("--json");
   try {
     if (args.length === 1 && args[0] === "--help" || args.length === 2 && args[0] === "create" && args[1] === "--help") {
-      console.log(usage); return;
+      console.log(args[0] === "--help" ? usage + "\n" + transferUsage : usage); return;
     }
     const input = options(args);
     if (!existsSync(CONFIG_FILE) || !existsSync(STATE)) {

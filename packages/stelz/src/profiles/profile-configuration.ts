@@ -16,6 +16,7 @@ import {
 } from "./network-transaction.ts";
 import type { ProfileCreate, ProfileRename, NetworkUpdate, TypingUpdate } from "./profile-configuration-types.ts";
 import { hasProxy, withoutLegacyConnectionMode } from "./network-compat.ts";
+import { recoverProfileImportTransaction } from "./profile-import-transaction.ts";
 export type { ProfileCreate, ProfileRename, NetworkUpdate } from "./profile-configuration-types.ts";
 export { ProfileCatalogError, recoverProfileCatalog } from "./profile-catalog.ts";
 
@@ -186,10 +187,11 @@ function validateInput(value: ProfileCreate) {
   if (value.expectedIp !== undefined && (typeof value.expectedIp !== "string" || value.expectedIp && (!isIP(value.expectedIp) || value.expectedIp.includes("%"))))
     throw new ProfileCatalogError(400, "Expected IP must be empty or an IPv4 or IPv6 address.");
 }
-// Complete both journals before the callback. Keep admission held until the callback returns.
+// Complete all journals before the callback. Keep admission held until the callback returns.
 export async function prepareProfileConfiguration<T>(action: () => Promise<T>) {
   checkCatalogDirectory(HOME_DIR); checkCatalogDirectory(STATE);
   return lock(join(STATE, "admission.lock"), async () => {
+    recoverProfileImportTransaction();
     await recoverProfileCatalog();
     await recoverNetworkConfiguration();
     return action();

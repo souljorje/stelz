@@ -1,4 +1,5 @@
 import { createUiApp, createUiSessionState, type UiAppOptions } from "./ui-app.ts";
+import { transferLimits } from "../profiles/profile-transfer-types.ts";
 export { createUiApp, createUiSessionState, UiHttpError, type UiSessionState } from "./ui-app.ts";
 
 type Options = UiAppOptions & { port?: number };
@@ -16,7 +17,7 @@ export function createUiServer(options: Options = {}) {
     })();
   } });
   const server = Bun.serve({
-    hostname: "127.0.0.1", port, idleTimeout: 255,
+    hostname: "127.0.0.1", port, idleTimeout: 255, maxRequestBodySize: Math.max(16 * 1024 ** 2, transferLimits().archiveBytes),
     fetch: (request): Response | Promise<Response> => app.fetch(request, { origin: `http://127.0.0.1:${server.port}` }),
   });
   const url = `http://127.0.0.1:${server.port}`;

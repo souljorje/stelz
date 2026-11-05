@@ -4,7 +4,9 @@
   "description": "Standalone persistent Camoufox profiles with exclusive MCP control",
   "license": "MIT",
   "homepage": "https://github.com/souljorje/stelz#readme",
-  "bugs": { "url": "https://github.com/souljorje/stelz/issues" },
+  "bugs": {
+    "url": "https://github.com/souljorje/stelz/issues"
+  },
   "keywords": ["browser", "automation", "camoufox", "playwright", "mcp", "persistent-profiles"],
   "bin": {
     "stelz": "dist/cli.js"
@@ -30,7 +32,10 @@
     "url": "https://github.com/souljorje/stelz.git",
     "directory": "packages/stelz"
   },
-  "publishConfig": { "access": "public", "registry": "https://registry.npmjs.org" },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  },
   "type": "module",
   "packageManager": "bun@1.4.4",
   "scripts": {
@@ -40,11 +45,14 @@
   "dependencies": {
     "@askjo/camofox-browser": "1.18.1",
     "@modelcontextprotocol/sdk": "1.30.0",
+    "better-sqlite3": "13.0.1",
     "camoufox-js": "0.11.5",
     "hono": "4.13.16",
+    "impit": "0.14.8",
     "playwright-core": "1.62.1",
-    "better-sqlite3": "13.0.1",
-    "impit": "0.14.8"
+    "stream-json": "3.8.0",
+    "yauzl": "3.4.0",
+    "yazl": "3.3.1"
   },
   "bundleDependencies": [
     "@askjo/camofox-browser",
