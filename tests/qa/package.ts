@@ -1,13 +1,17 @@
 import { inspectBundledDependencies } from "../../scripts/bundled-dependencies.ts";
 import { releaseArguments, inspectReleaseCandidate, assertCandidateUnchanged } from "../../scripts/release-candidate.ts";
 import { nativeSmoke } from "../../scripts/native-smoke.ts";
+import { MANUAL_WAIVER } from "../../scripts/check-publication.ts";
 import { mkdtempSync, mkdirSync, symlinkSync, readFileSync, writeFileSync, readdirSync, lstatSync, realpathSync, existsSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { STELZ_VERSION } from "../../src/versions.ts";
 import { createTestHome } from "../helpers/test-home.ts";
 const root = resolve(import.meta.dir, "../.."), temp = mkdtempSync(join(tmpdir(), "stelz-package-"));
-const input = releaseArguments(process.argv.slice(2), ["--native", "--proxy", "--manual"]);
+const input = releaseArguments(process.argv.slice(2), ["--native", "--proxy", "--manual", "--waive-manual"]);
+const manualWaiver = input.flags.has("--waive-manual") ? MANUAL_WAIVER.approval : undefined;
+if (manualWaiver && (STELZ_VERSION !== MANUAL_WAIVER.version || input.flags.has("--manual")))
+  throw Error("The owner-approved manual waiver applies only to 0.2.1. Do not combine it with --manual.");
 const prefix = join(temp, "global"), cwd = join(temp, "empty"), home = createTestHome("data", temp), bin = join(temp, "bin");
 for (const path of [cwd, bin]) mkdirSync(path, { recursive: true });
 const npm = Bun.which("npm")!, node = Bun.which("node")!, bun = Bun.which("bun")!;
@@ -86,13 +90,14 @@ const nativeCheck = await nativeSmoke(node, join(prefix, "lib/node_modules/stelz
   join(home, "runtime", `camofox-${versions.upstreamVersion}`), { cwd, env: cleanEnv });
 const installedCli = join(prefix, "lib/node_modules/stelz/dist/cli.js");
 await run([bun, join(root, "tests/browser/integration.ts")], { cwd, env: { ...cleanEnv, STELZ_TEST_HOME: home, STELZ_TEST_CLI: installedCli }, inherit: true });
-const acceptance = { integration: true, native: false, proxy: false, manual: false };
+const acceptance = { integration: true, native: false, transfer: false, proxy: false, manual: false };
 for (const [flag, script, suite] of [
   ["--native", "tests/browser/native-integration.ts", "native"],
+  ["--transfer", "tests/browser/profile-transfer.ts", "transfer"],
   ["--proxy", "tests/browser/proxy-integration.ts", "proxy"],
   ["--manual", "tests/qa/manual-integration.ts", "manual"],
 ] as const) {
-  if (suite !== "native" && !input.flags.has(flag)) continue;
+  if (suite !== "native" && suite !== "transfer" && !input.flags.has(flag)) continue;
   assertCandidateUnchanged(candidate);
   await run([bun, "--no-env-file", join(root, script)], { cwd, env: { ...cleanEnv, STELZ_TEST_CLI: installedCli,
     ...(suite === "proxy" && process.env.PROXY_TEST_ENV ? { PROXY_TEST_ENV: process.env.PROXY_TEST_ENV } : {}) }, inherit: true });
@@ -108,16 +113,17 @@ function checkLinks(folder: string) {
 }
 checkLinks(join(home, "runtime"));
 assertCandidateUnchanged(candidate);
-const evidence = { result: "passed", archive, sha256: candidate.sha256, version, acceptance, nativeCheck, globalPrefix: prefix, cwd, serviceHome: home, bundledUiChecked: uiChecked, harnessExecutablesRequired: false, llmCredentialsProvided: false, runtimeLinksReferToSourceCheckout: false, browserChecks: JSON.parse(readFileSync(join(home, "report.json"), "utf8")) };
+const evidence = { result: "passed", archive, sha256: candidate.sha256, version, acceptance, ...(manualWaiver ? { manualWaiver } : {}), nativeCheck, globalPrefix: prefix, cwd, serviceHome: home, bundledUiChecked: uiChecked, harnessExecutablesRequired: false, llmCredentialsProvided: false, runtimeLinksReferToSourceCheckout: false, browserChecks: JSON.parse(readFileSync(join(home, "report.json"), "utf8")) };
 mkdirSync(join(root, ".state/package-test"), { recursive: true, mode: 0o700 });
 writeFileSync(join(root, ".state/package-test/report.json"), JSON.stringify(evidence, null, 2), { mode: 0o600 });
-if (Object.values(acceptance).every(Boolean) && /^\d+$/.test(process.env.STELZ_RELEASE_CANDIDATE_RUN || "")) {
+if (acceptance.integration && acceptance.native && acceptance.transfer && acceptance.proxy && uiChecked
+  && (acceptance.manual || manualWaiver) && /^\d+$/.test(process.env.STELZ_RELEASE_CANDIDATE_RUN || "")) {
   const metadata = JSON.parse(readFileSync(join(dirname(archive), "candidate.json"), "utf8"));
   if (metadata.sha256 !== candidate.sha256 || metadata.version !== version || !/^[a-f\d]{40}$/.test(metadata.sourceCommit)) throw Error("The candidate metadata does not match the tested release.");
   mkdirSync(join(root, "release"), { recursive: true });
   writeFileSync(join(root, "release", `acceptance-${version}.json`), JSON.stringify({ result: "passed", version,
     sha256: candidate.sha256, candidateRunId: process.env.STELZ_RELEASE_CANDIDATE_RUN, candidateSourceCommit: metadata.sourceCommit,
     platform: process.platform, arch: process.arch, bun: Bun.version, node: nativeCheck.node,
-    checks: { ...acceptance, ui: uiChecked } }, null, 2) + "\n");
+    checks: { ...acceptance, ui: uiChecked }, ...(manualWaiver ? { manualWaiver } : {}) }, null, 2) + "\n");
 }
 console.log(JSON.stringify({ result: evidence.result, archive, globalPrefix: prefix, serviceHome: home, cwd }, null, 2));

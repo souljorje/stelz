@@ -56,10 +56,12 @@ PROXY_TEST_ENV=/private/path/proxies.env STELZ_RELEASE_CANDIDATE_RUN=RUN_ID \
 ```
 
 The second command uses ordinary npm installation outside the repository.
-It checks native addons, the bundled UI, MCP control, native persistence, proxy routing, and human takeover.
+It checks native addons, the bundled UI, MCP control, native persistence, profile transfers, proxy routing, and human takeover.
 Each suite controls the installed CLI. No suite rebuilds the supplied archive.
 Supply two distinct private proxy routes as described in [testing](tests.md#proxy-acceptance).
 Complete the human action in the paused browser when prompted.
+For `0.2.1`, the release owner waived this check. Use `--waive-manual` instead of `--manual` for that release.
+The acceptance record keeps `manual: false` and records the owner-approved waiver. Other versions still require the human check.
 
 Successful complete acceptance writes `release/acceptance-0.2.1.json`.
 This public record contains the archive hash, workflow run, source commit, platform, and check results.

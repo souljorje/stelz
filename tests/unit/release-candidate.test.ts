@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, appendFileSync, rmSync } from "n
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { releaseArguments, inspectReleaseCandidate, assertCandidateUnchanged } from "../../scripts/release-candidate.ts";
-import { validatePublication } from "../../scripts/check-publication.ts";
+import { MANUAL_WAIVER, validatePublication } from "../../scripts/check-publication.ts";
 
 test("candidate acceptance accepts an explicit archive and rejects ambiguous arguments", () => {
   expect(releaseArguments(["--archive", "candidate.tgz", "--native"], ["--native"]).flags.has("--native")).toBe(true);
@@ -33,12 +33,27 @@ test("publication requires the exact candidate and every supported-platform acce
   const sha256 = "a".repeat(64), candidate = { sha256, manifest: { version: "0.2.0" } };
   const input = { version: "0.2.0", sha256, run: "123", tag: "latest" };
   const evidence = { version: "0.2.0", sha256, candidateRunId: "123", candidateSourceCommit: "b".repeat(40),
-    platform: "darwin", arch: "arm64", result: "passed", checks: { integration: true, native: true, proxy: true, manual: true, ui: true } };
+    platform: "darwin", arch: "arm64", result: "passed", checks: { integration: true, native: true, proxy: true, transfer: true, manual: true, ui: true } };
   expect(() => validatePublication(candidate, evidence, input)).not.toThrow();
-  for (const key of ["integration", "native", "proxy", "manual", "ui"] as const)
+  for (const key of ["integration", "native", "proxy", "transfer", "manual", "ui"] as const)
     expect(() => validatePublication(candidate, { ...evidence, checks: { ...evidence.checks, [key]: false } }, input)).toThrow("Complete macOS");
   expect(() => validatePublication(candidate, evidence, { ...input, sha256: "c".repeat(64) })).toThrow("does not match");
   expect(() => validatePublication(candidate, { ...evidence, candidateRunId: "456" }, input)).toThrow("does not match");
   expect(() => validatePublication(candidate, { ...evidence, platform: "linux" }, input)).toThrow("Complete macOS");
   expect(() => validatePublication(candidate, evidence, { ...input, version: "../../wrong" })).toThrow("Supply");
+});
+
+test("the owner's manual waiver applies only to 0.2.1 and preserves every other gate", () => {
+  const sha256 = "a".repeat(64), version = "0.2.1";
+  const candidate = { sha256, manifest: { version } }, input = { version, sha256, run: "123", tag: "latest" };
+  const evidence = { version, sha256, candidateRunId: "123", candidateSourceCommit: "b".repeat(40),
+    platform: "darwin", arch: "arm64", result: "passed", manualWaiver: MANUAL_WAIVER.approval,
+    checks: { integration: true, native: true, proxy: true, transfer: true, manual: false, ui: true } };
+  expect(() => validatePublication(candidate, evidence, input)).not.toThrow();
+  expect(() => validatePublication(candidate, { ...evidence, manualWaiver: undefined }, input)).toThrow("Complete macOS");
+  for (const key of ["integration", "native", "proxy", "transfer", "ui"] as const)
+    expect(() => validatePublication(candidate, { ...evidence, checks: { ...evidence.checks, [key]: false } }, input)).toThrow("Complete macOS");
+  for (const version of ["0.2.0", "0.2.2", "0.3.0"])
+    expect(() => validatePublication({ ...candidate, manifest: { version } }, { ...evidence, version }, { ...input, version })).toThrow("Complete macOS");
+  expect(() => validatePublication(candidate, evidence, { ...input, sha256: "c".repeat(64) })).toThrow("does not match");
 });

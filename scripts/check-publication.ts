@@ -2,10 +2,12 @@ import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { releaseArguments, inspectReleaseCandidate } from "./release-candidate.ts";
 
+export const MANUAL_WAIVER = { version: "0.2.1", approval: "release-owner-approved" } as const;
 type Acceptance = {
   version: string; sha256: string; candidateRunId: string; candidateSourceCommit: string;
   platform: string; arch: string; result: string;
-  checks: { integration: boolean; native: boolean; proxy: boolean; manual: boolean; ui: boolean };
+  checks: { integration: boolean; native: boolean; proxy: boolean; transfer: boolean; manual: boolean; ui: boolean };
+  manualWaiver?: string;
 };
 export function validatePublication(candidate: { sha256: string; manifest: { version: string } }, evidence: Acceptance,
   input: { version?: string; sha256?: string; run?: string; tag?: string }) {
@@ -15,10 +17,13 @@ export function validatePublication(candidate: { sha256: string; manifest: { ver
   if (candidate.sha256 !== input.sha256 || candidate.manifest.version !== input.version
     || evidence.sha256 !== input.sha256 || evidence.version !== input.version || evidence.candidateRunId !== input.run)
     throw Error("The requested release does not match the tested candidate.");
+  const manualAccepted = evidence.checks?.manual === true || evidence.version === MANUAL_WAIVER.version
+    && evidence.manualWaiver === MANUAL_WAIVER.approval;
   if (evidence.result !== "passed" || evidence.platform !== "darwin" || evidence.arch !== "arm64"
     || !/^[a-f\d]{40}$/.test(evidence.candidateSourceCommit)
-    || !["integration", "native", "proxy", "manual", "ui"].every(check => evidence.checks?.[check as keyof Acceptance["checks"]] === true))
-    throw Error("Complete macOS browser, native-profile, proxy, human-takeover, and UI acceptance for this exact archive.");
+    || !["integration", "native", "proxy", "transfer", "ui"].every(check => evidence.checks?.[check as keyof Acceptance["checks"]] === true)
+    || !manualAccepted)
+    throw Error("Complete macOS browser, native-profile, proxy, profile-transfer, and UI acceptance for this archive. Human takeover requires a pass or the approved 0.2.1 waiver.");
 }
 
 if (import.meta.main) {
