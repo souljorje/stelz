@@ -1,6 +1,6 @@
 ---
 name: stelz-browser
-description: Control an existing stelz browser profile through canonical MCP tools, with exclusive control and human authentication.
+description: Set up Stelz, create or reuse a persistent browser profile, connect the current agent, and control the browser through MCP with exclusive control and human authentication.
 ---
 
 # Instructions for agents
@@ -11,14 +11,18 @@ Each profile has at most one browser instance. Multiple windows can belong to th
 
 ## Procedure
 
+For installation, a missing profile, or missing tools, read [Onboarding](references/bootstrap.md).
+Use the authorized CLI setup and start commands when available. Reuse existing state and client settings.
+Do not treat MCP registration as proof that tools are available in this session.
+
 1. Call `profile_status`.
-2. Ask the operator to create an unknown profile in the UI. Ask them to start a stopped profile with `stelz start ID`.
+2. If the profile is missing or stopped, follow onboarding and run `stelz profile create ID --json` or `stelz start ID` as needed.
 3. Call `profile_acquire`.
 4. Read the open tabs with `camofox_list_tabs`.
 5. Read a fresh `camofox_snapshot` before you select an action.
 6. Use the returned element references for clicks and typing.
 7. Check the result with a fresh snapshot.
-8. Call `profile_release` when another client needs control.
+8. Call `profile_release` when the task is complete or another client needs control. Keep the browser available.
 
 An active controller causes another acquisition to fail. Wait for deliberate release or operator handoff.
 Do not start another browser to avoid a controller conflict.

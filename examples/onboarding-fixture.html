@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Stelz onboarding check</title>
+<h1>Stelz onboarding check</h1>
+<p>This page contains only local test data.</p>
+<button id="verify" type="button">Verify Stelz</button>
+<p id="result" role="status">Not verified</p>
+<p id="count"></p>
+<script>
+const count = document.getElementById("count");
+const saved = Number(localStorage.getItem("stelz-onboarding-count") || 0);
+let checks = Number.isSafeInteger(saved) && saved >= 0 ? saved : 0;
+count.textContent = `Persistent check count: ${checks}`;
+document.getElementById("verify").onclick = () => {
+  checks++;
+  localStorage.setItem("stelz-onboarding-count", String(checks));
+  document.getElementById("result").textContent = "Stelz verified";
+  count.textContent = `Persistent check count: ${checks}`;
+};
+</script>
+</html>

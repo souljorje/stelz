@@ -39,6 +39,8 @@ checkBundledArchive(packed[0]!.files);
 const uiFiles = packed[0]!.files.filter(file => file.path.startsWith("dist/ui/"));
 if (!uiFiles.some(file => file.path === "dist/ui/index.html") || !uiFiles.some(file => file.path.endsWith(".js")) || !uiFiles.some(file => file.path.endsWith(".woff2"))) throw Error("The archive is missing built UI assets.");
 const paths = packed[0]!.files.map(file => file.path).sort();
+for (const path of ["docs/bootstrap.md", "docs/onboarding-acceptance.md", "examples/onboarding-fixture.html", "skills/stelz-browser/references/bootstrap.md"])
+  if (!paths.includes(path)) throw Error("Archive is missing " + path);
 for (const path of ["dist/cli.js", "dist/supervisor.js", "dist/plugin.js", "dist/ui/index.html", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md", "docs/agents.md", "examples/profiles.json", "skills/stelz-browser/SKILL.md", "skills/stelz-browser/references/recovery.md", ...["react", "react-dom", "scheduler", "ibm-plex-mono", "ibm-plex-sans"].map(name => "dist/ui/licenses/" + name + ".txt")]) {
   if (!paths.includes(path)) throw Error("Archive is missing " + path);
 }
@@ -112,6 +114,14 @@ try {
   await ui.exited;
 }
 // Setup validates the complete installed runtime without launching a browser.
+const created = JSON.parse(await run([executable, "profile", "create", "work", "--direct", "--json"], { cwd, env: cleanEnv }));
+if (!created.ok || !created.created || created.profile.id !== "work" || created.profile.storage !== "native")
+  throw Error("The installed CLI did not create a native profile.");
+const configBeforeReuse = readFileSync(join(home, "profiles.json"), "utf8"), secretsBeforeReuse = readFileSync(join(home, "secrets.env"), "utf8");
+const reused = JSON.parse(await run([executable, "profile", "create", "work", "--json"], { cwd, env: cleanEnv }));
+if (!reused.ok || reused.created || reused.profile.port !== created.profile.port ||
+    readFileSync(join(home, "profiles.json"), "utf8") !== configBeforeReuse || readFileSync(join(home, "secrets.env"), "utf8") !== secretsBeforeReuse)
+  throw Error("The installed CLI changed an existing profile.");
 const fakeBrowser = join(temp, "fake-browser"), launched = join(temp, "browser-was-launched");
 writeFileSync(fakeBrowser, `#!/usr/bin/env bun\nawait Bun.write(${JSON.stringify(launched)}, "unexpected launch");\nprocess.exit(99);\n`);
 chmodSync(fakeBrowser, 0o755);

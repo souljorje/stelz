@@ -11,6 +11,8 @@ A profile has a stable browser ID. A controller is one MCP client with exclusive
 
 ## Install
 
+For installation through a local coding agent, use [Bootstrap](bootstrap.md).
+
 1. Run `npm install --global stelz`.
 2. Run `stelz init`.
 3. Run `stelz setup`.
@@ -48,6 +50,9 @@ See [profiles.json](../examples/profiles.json) for an empty configuration.
 
 Init creates an empty profile list. It never overwrites existing entries.
 Use **New profile** in the UI to create a named profile with an optional proxy.
+Agents can use `stelz profile create work --json`.
+This command reuses a compatible profile without rewriting it. Conflicting network settings fail without changing the profile.
+See [Bootstrap](bootstrap.md#3-initialize-and-create-or-reuse-the-profile) for proxy and expected-IP inputs.
 The service assigns a free loopback port. New profiles use `storage: "native"`.
 A profile uses a direct connection unless you supply a proxy.
 There is no saved-profile count limit or global active-browser limit.

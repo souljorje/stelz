@@ -17,6 +17,9 @@ It includes the prepared Camofox and camoufox-js dependencies. See [Distribution
 
 ## Checks
 
+See [Onboarding acceptance](onboarding-acceptance.md) for the real-agent installation, restart, and browser-control check.
+`tests/integration/profile-cli.test.ts` checks profile creation, safe reuse, conflicts, and interrupted transactions through the CLI.
+
 | Command | Coverage |
 | --- | --- |
 | `bun run typecheck` | TypeScript checks. |

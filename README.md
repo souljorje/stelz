@@ -6,6 +6,9 @@ stelz runs persistent Camoufox profiles through standard MCP, with one browser i
 There is no global browser or saved-profile count limit.
 It needs Bun, Node.js, and Camoufox. It needs no agent harness or LLM credentials.
 
+To let a local coding agent complete installation, give it the [bootstrap instructions](docs/bootstrap.md).
+The procedure creates or reuses a persistent profile and verifies control through the agent's tools.
+
 Install Stelz globally:
 
 ```sh
