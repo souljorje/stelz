@@ -81,12 +81,12 @@ Browser window title prefixes continue to show the stable profile ID.
 
 Open a profile's Overview tab. Select **Default typing mode** under **Typing**:
 
-- **Service default** inherits the service setting. Its label shows the inherited mode.
 - **Automatic** uses random pauses for text with an estimated typing duration of at most 10 seconds. Longer text uses bulk entry.
 - **Keyboard input** sends individual keystrokes without artificial delays.
 - **Instant input** enters the complete text at once.
 
 Changes save automatically and apply to future typing actions without a browser restart.
+The selector shows the profile's effective mode. Profiles without an override use the service setting until you choose another mode.
 Typing changes preserve unsaved network edits. Pending profile operations temporarily disable the selector.
 The setting applies only to the selected profile. Each agent can override it with the `camofox_type` tool's `mode` argument.
 

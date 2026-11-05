@@ -122,7 +122,7 @@ The `camofox_type` tool accepts an optional `mode` for each call:
 
 The default is `auto`. Open a profile's Overview tab in the UI to change its **Default typing mode**.
 The UI saves the profile's `typingMode` in `profiles.json`. Changes apply to future calls without a browser restart.
-Select **Service default** to remove the profile override. The UI shows the running service's inherited mode.
+The UI shows one of three effective modes. Profiles without an override inherit the service setting until you choose another mode.
 A call's explicit `mode` overrides the profile default. The override applies only to that call.
 If the profile has no default, the service uses `STELZ_TYPING_MODE` from its environment or `secrets.env`, then `auto`.
 The legacy service value `paced` selects `auto`. Service environment changes still require a stop and start.

@@ -1,11 +1,12 @@
 import { useEffect, useId, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import type { ComponentProps, ReactNode } from "react";
 import type { UiAction, UiProfile, UiPhase } from "../../../packages/stelz/src/api/contracts.ts";
 import type { ActionContext } from "./model.ts";
 import { actionLabels, actionReason, phaseLabels, redact } from "./model.ts";
 
-type IconName = "refresh" | "play" | "stop" | "back" | "copy" | "close" | "menu" | "pause" | "power" | "window" | "edit" | "check";
+type IconName = "refresh" | "play" | "stop" | "back" | "copy" | "close" | "menu" | "pause" | "power" | "window" | "edit" | "check" | "chevron-down";
 const paths: Record<IconName, ReactNode> = {
+  "chevron-down": <path d="m6 9 6 6 6-6" />,
   edit: <><path d="m15 4 5 5M4 20l5-1L21 7a2.1 2.1 0 0 0-4-4L5 15z" /></>,
   check: <path d="m5 12 4 4L19 6" />,
   window: <><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 9h18M7 6.5h.01M10 6.5h.01" /></>,
@@ -22,6 +23,10 @@ const paths: Record<IconName, ReactNode> = {
 
 export function Icon({ name, className = "" }: { name: IconName; className?: string }) {
   return <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={`icon ${className}`}>{paths[name]}</svg>;
+}
+
+export function Select({ className = "", children, ...props }: ComponentProps<"select">) {
+  return <div className={`select-control ${className}`}><select {...props}>{children}</select><Icon name="chevron-down" /></div>;
 }
 
 export function Mark() {

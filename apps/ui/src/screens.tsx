@@ -1,5 +1,5 @@
 import type { UiAction, UiDiagnostics, UiProfile, UiSnapshot } from "../../../packages/stelz/src/api/contracts.ts";
-import { ActionButton, CopyCommand, Icon, KeyValues, Notice, Phase } from "./components";
+import { ActionButton, CopyCommand, Icon, KeyValues, Notice, Phase, Select } from "./components";
 import { actionReason, hasProxy, homeCommand, profileAttention, profileCommand, mcpCommand, proxyDisplay, redact } from "./model.ts";
 import type { ActionContext } from "./model.ts";
 import { useResource } from "./use-service.ts";
@@ -63,7 +63,7 @@ function Check({ ok, yes, no }: { ok: boolean; yes: string; no: string }) { retu
 
 export function Settings({ snapshot, theme, onThemeChange }: { snapshot: UiSnapshot; theme: ThemePreference; onThemeChange: (theme: ThemePreference) => void }) {
   return <div className="page-content settings-view">
-    <section className="settings-section"><h2 id="theme-label">Theme</h2><select className="theme-select" aria-labelledby="theme-label" value={theme} onChange={event => onThemeChange(event.target.value as ThemePreference)}><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></section>
+    <section className="settings-section"><h2 id="theme-label">Theme</h2><Select className="theme-select" aria-labelledby="theme-label" value={theme} onChange={event => onThemeChange(event.target.value as ThemePreference)}><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></Select></section>
     <section className="settings-section"><h2>Service</h2><KeyValues rows={[
       { label: "Home", value: snapshot.home, mono: true },
       { label: "stelz", value: snapshot.version, mono: true },

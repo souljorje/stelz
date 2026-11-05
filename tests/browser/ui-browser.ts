@@ -341,7 +341,7 @@ if (process.argv.includes("--serve")) {
     const browserWindows = page.getByRole("region", { name: "Browser windows", exact: true });
     await browserWindows.getByRole("button", { name: "Show Example page in profile-01", exact: true }).waitFor();
     const typingSelect = page.getByLabel("Default typing mode", { exact: true });
-    if (await typingSelect.inputValue() !== "inherit" || !await typingSelect.getByRole("option", { name: "Service default (instant)", exact: true }).count()) throw Error("The UI does not show the active service's inherited typing mode.");
+    if (await typingSelect.inputValue() !== "instant" || await typingSelect.getByRole("option").count() !== 3) throw Error("The UI does not show exactly three modes with the active inherited mode selected.");
     sessionState.pending.set("profile-01", "stop");
     try {
       await page.getByRole("button", { name: "Refresh service state", exact: true }).click();
@@ -351,13 +351,13 @@ if (process.argv.includes("--serve")) {
     await page.getByRole("button", { name: "Refresh service state", exact: true }).click();
     await page.waitForFunction(() => document.querySelector<HTMLSelectElement>('#typing-profile-01')?.disabled === false);
     const beforeTyping = JSON.stringify(states.get("profile-01")), commandsBeforeTyping = commands.length;
-    for (const mode of ["auto", "keyboard", "instant", "inherit"]) {
+    for (const mode of ["auto", "keyboard", "instant"]) {
       const response = page.waitForResponse(response => response.url().endsWith("/api/profiles/profile-01/typing") && response.request().method() === "PUT");
       await typingSelect.selectOption(mode);
       if (!(await response).ok()) throw Error("The UI could not save the typing mode.");
       await page.getByText("Typing mode saved. Applies to future typing actions.", { exact: true }).waitFor();
       const saved = JSON.parse(readFileSync(configFile, "utf8")).profiles.find((profile: { id: string }) => profile.id === "profile-01");
-      if (saved.typingMode !== (mode === "inherit" ? undefined : mode) || await typingSelect.inputValue() !== mode) throw Error("The UI typing selection was not persisted.");
+      if (saved.typingMode !== mode || await typingSelect.inputValue() !== mode) throw Error("The UI typing selection was not persisted.");
     }
     if (commands.length !== commandsBeforeTyping || JSON.stringify(states.get("profile-01")) !== beforeTyping) throw Error("Saving typing preferences changed the controller or browser lifetime.");
     await captureScreen("browser-windows");

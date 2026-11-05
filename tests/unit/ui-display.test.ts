@@ -113,13 +113,14 @@ describe("typing preferences", () => {
   const render = (row: UiProfile, connected = true, busy = false) => renderToStaticMarkup(createElement(TypingForm, {
     profile: row, connected, busy, onSave: async () => { throw Error("Rendering must not save preferences."); },
   }));
-  test("inherited defaults remain distinct from an explicit Automatic selection", () => {
+  test("the three typing choices show the effective inherited or explicit mode", () => {
     const row = profile("ready");
-    expect(render(row)).toContain('value="inherit" selected=""');
-    expect(render(row)).toContain('<option value="auto">Automatic</option>');
-    expect(render(row)).toContain("Service default (auto)");
+    expect(render(row)).toContain('value="auto" selected=""');
+    expect(render(row).match(/<option /g)).toHaveLength(3);
+    expect(render(row)).not.toContain("Service default");
+    expect(render(row)).not.toContain('value="inherit"');
     const inheritedInstant = { ...row, typingMode: "instant" as const, typing: { ...row.typing, defaultMode: "instant" as const } };
-    expect(render(inheritedInstant)).toContain("Service default (instant)");
+    expect(render(inheritedInstant)).toContain('value="instant" selected=""');
     expect(render(inheritedInstant)).toContain("Enter the complete text at once.");
     expect(render({ ...inheritedInstant, typingMode: "auto", typing: { ...inheritedInstant.typing, mode: "auto" } })).toContain('value="auto" selected=""');
   });
