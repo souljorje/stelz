@@ -31,7 +31,7 @@
     },
     "packages/stelz": {
       "name": "stelz",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "bin": {
         "stelz": "dist/cli.js",
       },

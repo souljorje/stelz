@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { cpSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
+import { STELZ_VERSION } from "../../packages/stelz/src/versions.ts";
 
 test("unbuilt source resolves the package and supervisor from an empty cwd", () => {
   const temp = mkdtempSync(join(tmpdir(), "stelz-source-paths-"));
@@ -16,7 +17,7 @@ import { STELZ_VERSION } from "./versions.ts";
 console.log(JSON.stringify({ root: ROOT, home: HOME_DIR, supervisor: entry("supervisor"), cli: entry("cli"), version: STELZ_VERSION }));`);
     const result = Bun.spawnSync([process.execPath, "--no-env-file", driver], { cwd, env: { ...process.env, STELZ_HOME: home } });
     expect(result.exitCode).toBe(0);
-    expect(JSON.parse(result.stdout.toString())).toEqual({ root: product + "/", home, supervisor: join(product, "src/runtime/supervisor.ts"), cli: join(product, "src/cli/cli.ts"), version: "0.2.0" });
+    expect(JSON.parse(result.stdout.toString())).toEqual({ root: product + "/", home, supervisor: join(product, "src/runtime/supervisor.ts"), cli: join(product, "src/cli/cli.ts"), version: STELZ_VERSION });
     mkdirSync(home);
     writeFileSync(join(home, "profiles.json"), JSON.stringify({ maxActive: 2, profiles: [{ id: "source", port: 9876 }] }));
     const supervisor = Bun.spawnSync([process.execPath, "--no-env-file", JSON.parse(result.stdout.toString()).supervisor, "source"], { cwd, env: { ...process.env, STELZ_HOME: home } });

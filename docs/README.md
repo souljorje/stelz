@@ -19,7 +19,7 @@ For installation through a local coding agent, use [Bootstrap](bootstrap.md).
 4. Run `stelz ui --open`.
 5. Create a profile. Configure a proxy if necessary, then start it.
 
-For a release candidate, install its archive with `npm install --global ./stelz-0.2.0.tgz`.
+For a release candidate, install its archive with `npm install --global ./stelz-0.2.1.tgz`.
 
 The release archive contains the prepared Camofox and camoufox-js dependencies.
 Setup copies them into the service directory and checks the prepared source without rewriting it.
@@ -73,6 +73,10 @@ Only loopback hosts bypass a configured proxy. Proxied profiles disable WebRTC.
 Current browser policy overrides saved device data. A legacy direct-mode pin cannot re-enable WebRTC in proxy mode.
 Proxy policy disables direct failover and enables DNS resolution through SOCKS proxies.
 Browser-side IP checks reject failed proxies and unexpected IP addresses.
+Proxy profiles use the current GeoIP country's default language from Unicode CLDR.
+This policy keeps the language stable across restarts.
+The current country's language policy, timezone, and geolocation remain independent of saved device pins.
+An explicit upstream locale list takes precedence over this default.
 Checks use ipify, with Cloudflare trace as an independent fallback for unavailable or invalid responses.
 A valid unexpected IP fails immediately. The service does not try another provider after an IP mismatch.
 All checks run inside the selected browser through its configured route.

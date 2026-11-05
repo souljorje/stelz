@@ -35,7 +35,9 @@ See [Onboarding acceptance](onboarding-acceptance.md) for the real-agent install
 | `bun run test:manual` | Human interaction while paused, followed by MCP resume in the same browser and tab. |
 | `bun run test:public` | Four public fingerprint checks in a disposable native profile, with screenshots and verdict reports. |
 | `bun run verify:release` | Pack lifecycle, archive contents, installed dependency checks, CLI, HTTP UI, and staged setup validation with a fake executable. No browser. |
-| `bun run test:package` | Archive installation in an isolated npm prefix, an empty working directory, and browser acceptance. |
+| `bun run test:prepack --destination DIRECTORY` | Remove compiled output and produce one archive through the prepack lifecycle. |
+| `bun run verify:release --archive FILE --native` | Ordinary isolated npm installation, SQLite queries, and Impit construction from the installed package and staged runtime. No browser. |
+| `bun run test:package` | Archive installation in an isolated npm prefix, an empty working directory, and checkpoint plus native browser acceptance. |
 | `bun run test:package --archive FILE --native --proxy --manual` | Full supported-platform acceptance against one unchanged release candidate, including a real human action. |
 
 The earlier browser acceptance run passed on 2026-11-02 with macOS 26.5.2 on Apple Silicon.
@@ -65,6 +67,7 @@ The UI check also creates profiles with and without a proxy, checks deletion, an
 ## Continuous integration
 
 GitHub Actions runs frozen installation, build, TypeScript checks, regression tests, and isolated browser-free archive verification on Linux and macOS.
+Each platform packs once, then checks the same archive with scripts disabled and with ordinary native installation.
 CI and release workflows use the root `package.json` `packageManager` pin (`bun@1.4.4`), Node.js 24, and read-only repository permissions.
 Release preparation requires these checks on both platforms, then uploads one verified archive.
 The workflows skip browser downloads. Browser, proxy, and human acceptance checks run locally.

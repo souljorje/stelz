@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createHash } from "node:crypto";
-import { freezeDevice, replayFingerprint, launchPreferences } from "../../packages/stelz/src/browser/fingerprint.ts";
+import { freezeDevice, replayFingerprint, launchPreferences, applyProxyLocale } from "../../packages/stelz/src/browser/fingerprint.ts";
 import { register } from "../../packages/stelz/src/browser/plugin.ts";
 import { allowedBrowserTools } from "../../packages/stelz/src/mcp/tool-policy.ts";
 import type { Tool } from "../../packages/stelz/src/browser/upstream.ts";
@@ -108,6 +108,30 @@ test("proxy host controls verification and security policy independently of lega
   }
 });
 
+test("proxy language stays stable for the current country across resampled launch locales", () => {
+  for (const sampled of ["en", "it", "es"]) {
+    const fresh = { "locale:region": "US", "locale:language": sampled, "locale:script": "Latn",
+      timezone: "America/Chicago", "geolocation:latitude": 41, "geolocation:longitude": -87 };
+    const normalized = applyProxyLocale(fresh, true);
+    assert.equal(normalized["locale:language"], "en");
+    assert.equal(normalized["locale:script"], undefined);
+    assert.equal(normalized.timezone, fresh.timezone);
+    assert.equal(normalized["geolocation:latitude"], fresh["geolocation:latitude"]);
+    assert.equal(normalized["geolocation:longitude"], fresh["geolocation:longitude"]);
+    assert.equal(fresh["locale:language"], sampled);
+  }
+});
+
+test("proxy language follows a new country while explicit lists and direct policy remain current", () => {
+  const country = { "locale:region": "GE", "locale:language": "ru", timezone: "Asia/Tbilisi" };
+  assert.equal(applyProxyLocale(country, true)["locale:language"], "ka");
+  assert.deepEqual(applyProxyLocale(country, false), country);
+  const explicit = { ...country, "locale:all": "ru-GE, ru" };
+  assert.deepEqual(applyProxyLocale(explicit, true), explicit);
+  for (const config of [{ "locale:language": "fr" }, { "locale:region": "ZZ", "locale:language": "fr" }])
+    assert.deepEqual(applyProxyLocale(config, true), config);
+});
+
 type App = Parameters<typeof register>[0];
 type Handler = Parameters<App["post"]>[1];
 async function harness(mode: "direct" | "proxy" = "direct", waitForIP?: Promise<void>,
@@ -202,6 +226,24 @@ test("the actual launch hook keeps WebRTC disabled when a legacy direct pin is r
     assert.equal(options.firefoxUserPrefs.fresh, true);
     assert.equal(options.firefoxUserPrefs.stale, undefined);
     assert.equal(readFileSync(join(h.stateDir, "fingerprint.json"), "utf8"), before);
+  } finally { await h.close(); }
+});
+
+test("the launch hook applies current-country language without changing an existing device pin", async () => {
+  const h = await harness("proxy");
+  try {
+    const pin = { version: 2, engineSha256: createHash("sha256").update(readFileSync(h.binary)).digest("hex"), config: generated };
+    const before = JSON.stringify(pin);
+    writeFileSync(join(h.stateDir, "fingerprint.json"), before);
+    const options = h.options();
+    options.env.CAMOU_CONFIG_1 = JSON.stringify({ ...generated, "locale:region": "US", "locale:language": "it" });
+    await h.emit("browser:launching", { options });
+    const effective = JSON.parse(options.env.CAMOU_CONFIG_1!);
+    assert.equal(effective["locale:language"], "en");
+    assert.equal(effective["locale:region"], "US");
+    assert.equal(effective.timezone, generated.timezone);
+    assert.equal(readFileSync(join(h.stateDir, "fingerprint.json"), "utf8"), before);
+    assert.equal(options.firefoxUserPrefs["media.peerconnection.enabled"], false);
   } finally { await h.close(); }
 });
 
