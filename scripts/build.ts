@@ -1,9 +1,11 @@
 import { mkdirSync, chmodSync, rmSync, cpSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { checkMarkdownLinks } from "./markdown-links.ts";
+import { verifyBundledDependencies } from "./verify-bundled-dependencies.ts";
 const root = join(import.meta.dir, "..");
 const product = join(root, "packages/stelz");
 const dist = join(product, "dist");
+verifyBundledDependencies(product);
 rmSync(dist, { recursive: true, force: true });
 mkdirSync(dist, { recursive: true });
 for (const [name, domain, target] of [["cli", "cli", "bun"], ["supervisor", "runtime", "bun"], ["plugin", "browser", "node"]] as const) {

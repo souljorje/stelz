@@ -17,7 +17,7 @@ A profile has a stable browser ID. A controller is one MCP client with exclusive
 4. Run `stelz ui --open`.
 5. Create a profile. Configure a proxy if necessary, then start it.
 
-Setup copies the published Camofox package into the service directory. It does not clone a repository.
+Setup copies the prepared Camofox package bundled with Stelz into the service directory. It does not clone a repository.
 Setup does not change the installed Camoufox app.
 Stop all profiles before setup after a code update.
 Setup stages and checks the complete runtime before it replaces the active runtime.

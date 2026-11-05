@@ -1,4 +1,4 @@
-import { applyPatches } from "./camofox-adapter.ts";
+import { assertPatchedDependencies } from "./camofox-adapter.ts";
 import {
   copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync,
   readFileSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync,
@@ -185,7 +185,7 @@ function stageRuntime(stage: string, source: string, browser: string, plugin: st
     copy(join(source, name), join(upstream, name));
   }
   const dependencies = copyDependencies(source, upstream);
-  applyPatches(upstream);
+  assertPatchedDependencies(upstream, join(upstream, "node_modules/camoufox-js"));
 
   const output = join(upstream, "plugins/local-profile/index.js");
   mkdirSync(dirname(output), { recursive: true });

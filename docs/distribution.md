@@ -20,3 +20,9 @@ It excludes source, tests, browser state, and installed dependencies.
 The manual `Prepare release archive` workflow verifies and uploads an archive when an operator selects `workflow_dispatch`.
 It has read-only repository permissions. It does not publish to npm, create releases, or require publication secrets.
 Full `test:package` acceptance requires Camoufox and remains an explicit local command.
+
+## Prepared browser dependencies
+
+The release bundles the patched Camofox and camoufox-js packages. Consumers do not apply patches or run dependency install scripts to obtain the fixes. Run `stelz setup` explicitly after installation.
+
+Source builds require `bun install --frozen-lockfile` at the workspace root. See [Camofox patches](camofox-patches.md) for the patch workflow and verification. Stop profiles before upgrading, then run setup and restart them explicitly. Bundling does not provide live-upgrade safety.

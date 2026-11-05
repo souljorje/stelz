@@ -25,25 +25,15 @@ else await start(process.argv[3]!);
   file(join(project, "dist/plugin.js"), "export function register() {}\nexport function launchProfileBrowser() {}\nexport function claimProfileContext() {}\nexport function typeIntoLocator() {}\n");
   const upstream = join(project, "node_modules/@askjo/camofox-browser");
   file(join(upstream, "package.json"), JSON.stringify({ name: "@askjo/camofox-browser", version: "1.18.1", type: "module", dependencies: { "camoufox-js": "0.11.5", "playwright-core": "1.62.1" } }));
-  file(join(upstream, "server.js"), `async function fillLocator(locator, text) {
-  await locator.fill(text, { timeout: 10000 });
-}
-const options = { os: hostOS,
-        humanize: true, proxy: launchProxy,
-        geoip: !!launchProxy, };
-async function launch() {
-  candidateBrowser = await firefox.launch(options);
-  const context = await b.newContext(contextOptions);
-}
-`);
+  file(join(upstream, "server.js"), "async function fillLocator(locator, text) {\n  await (await import('./plugins/local-profile/index.js')).typeIntoLocator(locator, text);\n}\nconst options = { os: hostOS,\n        window: [1200, 800],\n        screen: { minWidth: 1280, minHeight: 900, maxWidth: 1920, maxHeight: 1200 },\n        humanize: true, proxy: launchProxy,\n        block_webrtc: !!launchProxy,\n        geoip: !!launchProxy, };\nasync function launch() {\n  candidateBrowser = await (await import('./plugins/local-profile/index.js')).launchProfileBrowser(firefox, options, { viewport: null, ...contextIdentityOptions({ hasProxy: !!proxyPool, directIdentity: CONFIG.directIdentity }) });\n  const context = await (await import('./plugins/local-profile/index.js')).claimProfileContext(b, contextOptions);\n}\n");
   file(join(upstream, "LICENSE"), "fixture license");
-  file(join(upstream, "lib/camoufox-executable.js"), "if (!existsSync(executableProperties)) ensureSymlink(realpathSync(resourceProperties), executableProperties);\n");
+  file(join(upstream, "lib/camoufox-executable.js"), "// stelz: read macOS resources without changing the installed app bundle.\n");
   file(join(upstream, "mcp/server.mjs"), "export {};\n");
   file(join(upstream, "mcp/lib/tool-contracts.mjs"), "export const TOOL_DEFS = [];\nexport function runTool() {}\nexport function adaptResponse() {}\n");
-  file(join(upstream, "plugins/persistence/index.js"), "export async function register(app, ctx, pluginConfig = {}) {\n}\n");
+  file(join(upstream, "plugins/persistence/index.js"), "export async function register(app, ctx, pluginConfig = {}) {\n  if (process.env.STELZ_STORAGE_MODE === 'native') return; // Native Firefox profile owns storage.\n}\n");
   const camoufox = join(project, "node_modules/camoufox-js");
   file(join(camoufox, "package.json"), JSON.stringify({ name: "camoufox-js", version: "0.11.5", dependencies: {} }));
-  file(join(camoufox, "dist/utils.js"), 'propFile = path.join(path.dirname(filePath), "properties.json");\n');
+  file(join(camoufox, "dist/utils.js"), "propFile = process.platform === \"darwin\" && filePath.includes(\".app/Contents/MacOS/\") ? path.join(path.dirname(filePath), \"../Resources/properties.json\") : path.join(path.dirname(filePath), \"properties.json\");\n");
   for (const [name, version] of [["playwright-core", "1.62.1"], ["@modelcontextprotocol/sdk", "1.30.0"]]) {
     file(join(project, "node_modules", name!, "package.json"), JSON.stringify({ name, version }));
   }
@@ -292,5 +282,27 @@ test("symlinks in runtime, lock, profile state, and setup sources cannot be foll
     expect(result.code).not.toBe(0);
     expect(readFileSync(outside, "utf8")).toBe("untouched");
     if (kind === "source") oldRuntime(f);
+  }
+});
+
+
+test("unpatched dependency files are rejected without rewriting sources or replacing the runtime", async () => {
+  for (const item of [
+    { path: "server.js", marker: "typeIntoLocator(locator, text)" },
+    { path: "lib/camoufox-executable.js", marker: "// stelz: read macOS resources without changing the installed app bundle." },
+    { path: "plugins/persistence/index.js", marker: "if (process.env.STELZ_STORAGE_MODE === 'native') return;" },
+    { path: "../camoufox-js/dist/utils.js", marker: "process.platform === \"darwin\"" },
+  ]) {
+    const f = fixture(); legacy(f);
+    const source = item.path.startsWith("../") ? join(f.project, "node_modules/camoufox-js/dist/utils.js") : join(f.upstream, item.path);
+    const original = readFileSync(source, "utf8");
+    expect(original).toContain(item.marker);
+    const unpatched = original.replace(item.marker, "/* missing patch */");
+    writeFileSync(source, unpatched);
+    const result = await finish(launch(f));
+    expect(result.code).not.toBe(0);
+    expect(result.stderr).toContain("not prepared for Stelz");
+    expect(readFileSync(source, "utf8")).toBe(unpatched);
+    oldRuntime(f);
   }
 });

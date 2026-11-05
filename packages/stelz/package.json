@@ -37,5 +37,9 @@
     "camoufox-js": "0.11.5",
     "hono": "4.13.16",
     "playwright-core": "1.62.1"
-  }
+  },
+  "bundleDependencies": [
+    "@askjo/camofox-browser",
+    "camoufox-js"
+  ]
 }

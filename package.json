@@ -51,5 +51,9 @@
     "@modelcontextprotocol/sdk": "1.30.0",
     "playwright-core": "1.62.1",
     "@askjo/camofox-browser": "1.18.1"
+  },
+  "patchedDependencies": {
+    "@askjo/camofox-browser@1.18.1": "patches/@askjo%2Fcamofox-browser@1.18.1.patch",
+    "camoufox-js@0.11.5": "patches/camoufox-js@0.11.5.patch"
   }
 }

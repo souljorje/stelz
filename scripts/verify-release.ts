@@ -1,3 +1,4 @@
+import { verifyBundledDependencies, verifyBundledArchive } from "./verify-bundled-dependencies.ts";
 import { checkMarkdownLinks } from "./markdown-links.ts";
 import { mkdtempSync, mkdirSync, symlinkSync, readFileSync, writeFileSync, readdirSync, lstatSync, realpathSync, rmSync, existsSync, chmodSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -25,7 +26,7 @@ const lifecycle = JSON.parse(await run([npm, "pack", "--json", "--pack-destinati
 if (!existsSync(join(product, "dist/cli.js"))) throw Error("npm prepack did not build the CLI.");
 const packed = JSON.parse(await run([npm, "pack", "--json", "--ignore-scripts", "--pack-destination", temp], { cwd: join(root, "packages/stelz") })) as Array<{ filename: string; files: Array<{ path: string }> }>;
 const archive = join(temp, packed[0]!.filename);
-for (const file of packed[0]!.files) if (/^(src|test|node_modules|\.git|\.codex|\.state|sessions)\//.test(file.path)) throw Error(`Unexpected archive file: ${file.path}`);
+for (const file of packed[0]!.files) if (/^(src|test|\.git|\.codex|\.state|sessions)\//.test(file.path)) throw Error(`Unexpected archive file: ${file.path}`);
 const uiFiles = packed[0]!.files.filter(file => file.path.startsWith("dist/ui/"));
 if (!uiFiles.some(file => file.path === "dist/ui/index.html") || !uiFiles.some(file => file.path.endsWith(".js")) || !uiFiles.some(file => file.path.endsWith(".woff2"))) throw Error("The archive is missing built UI assets.");
 const paths = packed[0]!.files.map(file => file.path).sort();
@@ -33,8 +34,10 @@ if (JSON.stringify(paths) !== JSON.stringify(lifecycle[0]!.files.map(file => fil
 for (const path of ["dist/cli.js", "dist/supervisor.js", "dist/plugin.js", "dist/ui/index.html", "README.md", "THIRD_PARTY_NOTICES.md", "docs/agents.md", "examples/profiles.json", "skills/stelz-browser/SKILL.md", "skills/stelz-browser/references/recovery.md", ...["react", "react-dom", "scheduler", "ibm-plex-mono", "ibm-plex-sans"].map(name => "dist/ui/licenses/" + name + ".txt")]) {
   if (!paths.includes(path)) throw Error("Archive is missing " + path);
 }
-for (const path of paths) if (!/^(?:dist\/|docs\/|examples\/|skills\/|package.json$|README.md$|THIRD_PARTY_NOTICES.md$)/.test(path)) throw Error("Unexpected archive path: " + path);
-await run([npm, "install", "--global", "--prefix", prefix, archive]);
+for (const path of paths) if (!/^(?:node_modules\/|dist\/|docs\/|examples\/|skills\/|package.json$|README.md$|THIRD_PARTY_NOTICES.md$)/.test(path)) throw Error("Unexpected archive path: " + path);
+verifyBundledArchive(packed[0]!.files.map(file => file.path));
+await run([npm, "install", "--ignore-scripts", "--global", "--prefix", prefix, archive]);
+verifyBundledDependencies(join(prefix, "lib/node_modules/stelz"), join(root, "packages/stelz"));
 const installed = join(prefix, "lib/node_modules/stelz");
 const manifest = JSON.parse(readFileSync(join(installed, "package.json"), "utf8"));
 if (manifest.name !== "stelz" || manifest.version !== STELZ_VERSION || manifest.private || manifest.license !== "UNLICENSED") throw Error("Invalid release manifest.");

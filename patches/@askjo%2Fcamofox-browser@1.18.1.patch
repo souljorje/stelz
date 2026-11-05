@@ -1,0 +1,69 @@
+diff --git a/lib/camoufox-executable.js b/lib/camoufox-executable.js
+index e5d47544327a2b4b49e872fa35a0055be4dd11e1..c620fa8985b95dc2275612d6ee5d37189108c800 100644
+--- a/lib/camoufox-executable.js
++++ b/lib/camoufox-executable.js
+@@ -193,7 +193,7 @@ function ensureMacCamoufoxJsCompatibility(executablePath, resourceDir, cacheDir)
+     mkdirSync(cacheDir, { recursive: true });
+     writeFileSync(cacheVersion, readFileSync(bundledVersion));
+   }
+-  if (!existsSync(executableProperties)) ensureSymlink(realpathSync(resourceProperties), executableProperties);
++  // stelz: read macOS resources without changing the installed app bundle.
+ }
+ 
+ export function prepareExternalCamoufoxExecutable(executablePath, { cacheDir } = {}) {
+diff --git a/plugins/persistence/index.js b/plugins/persistence/index.js
+index 7c5199d3b00c39325b660699581f4298a334808e..bc26fcdd5b5d76747d12329a9b986c97cddcf4e8 100644
+--- a/plugins/persistence/index.js
++++ b/plugins/persistence/index.js
+@@ -47,6 +47,7 @@ async function removeIfExists(p) {
+ }
+ 
+ export async function register(app, ctx, pluginConfig = {}) {
++  if (process.env.STELZ_STORAGE_MODE === 'native') return; // Native Firefox profile owns storage.
+   const { events, config, log } = ctx;
+ 
+   // Resolve profileDir: env var > plugin config > global config default (~/.camofox/profiles)
+diff --git a/server.js b/server.js
+index 4a737caba128a8f6a22f789ab9682167660a0589..1f1fd2144a1f86354930caba2c6051a78c597cf4 100644
+--- a/server.js
++++ b/server.js
+@@ -278,7 +278,7 @@ async function assertLocatorFillable(locator) {
+ 
+ async function fillLocator(locator, text) {
+   await assertLocatorFillable(locator);
+-  await locator.fill(text, { timeout: 10000 });
++  await (await import('./plugins/local-profile/index.js')).typeIntoLocator(locator, text);
+ }
+ 
+ function safeError(err) {
+@@ -1172,9 +1172,12 @@ async function launchBrowserInstance() {
+         executable_path: externalCamoufox?.executablePath,
+         headless: useVirtualDisplay ? false : !useDesktopWindow,
+         os: hostOS,
++        window: [1200, 800],
++        screen: { minWidth: 1280, minHeight: 900, maxWidth: 1920, maxHeight: 1200 },
+         humanize: true,
+         enable_cache: true,
+         proxy: launchProxy,
++        block_webrtc: !!launchProxy,
+         geoip: !!launchProxy,
+         locale: launchLocale({ hasProxy: !!proxyPool, directIdentity: CONFIG.directIdentity }),
+         virtual_display: vdDisplay,
+@@ -1196,7 +1199,7 @@ async function launchBrowserInstance() {
+       options.handleSIGHUP = false;
+       await pluginEvents.emitAsync('browser:launching', { options });
+ 
+-      candidateBrowser = await firefox.launch(options);
++      candidateBrowser = await (await import('./plugins/local-profile/index.js')).launchProfileBrowser(firefox, options, { viewport: null, ...contextIdentityOptions({ hasProxy: !!proxyPool, directIdentity: CONFIG.directIdentity }) });
+ 
+       if (proxyPool?.canRotateSessions) {
+         const probe = await probeGoogleSearch(candidateBrowser);
+@@ -1408,7 +1411,7 @@ async function getSession(userId, { trace = false } = {}) {
+         log('info', 'session proxy assigned', { userId: key, proxy: sessionProxy.server });
+       }
+       await pluginEvents.emitAsync('session:creating', { userId: key, contextOptions });
+-      const context = await b.newContext(contextOptions);
++      const context = await (await import('./plugins/local-profile/index.js')).claimProfileContext(b, contextOptions);
+ 
+       let tracePath = null;
+       if (trace) {

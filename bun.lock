@@ -44,6 +44,10 @@
       },
     },
   },
+  "patchedDependencies": {
+    "@askjo/camofox-browser@1.18.1": "patches/@askjo%2Fcamofox-browser@1.18.1.patch",
+    "camoufox-js@0.11.5": "patches/camoufox-js@0.11.5.patch",
+  },
   "packages": {
     "@apidevtools/json-schema-ref-parser": ["@apidevtools/json-schema-ref-parser@14.0.1", "", { "dependencies": { "@types/json-schema": "^7.0.15", "js-yaml": "^4.1.0" } }, "sha512-Oc96zvmxx1fqoSEdUmfmvvb59/KDOnUoJ7s2t7bISyAn0XEz57LCCw8k2Y4Pf3mwKaZLMciESALORLgfe2frCw=="],
 
