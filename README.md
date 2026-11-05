@@ -37,6 +37,7 @@ Legacy configuration, data paths, CLI options, and MCP names remain supported.
 See [Compatibility](docs/README.md#compatibility) before changing existing configuration.
 
 - [Use the local UI](docs/ui.md)
+- [Import and export profiles](docs/profile-transfer.md)
 - [Use the service](docs/README.md)
 - [Connect a client](docs/clients.md)
 - [Instructions for agents](docs/agents.md)

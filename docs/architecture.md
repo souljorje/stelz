@@ -84,6 +84,25 @@ A changed executable or invalid fingerprint record blocks startup.
 Saved fingerprint configuration does not guarantee identical observable output. Earlier acceptance tests recorded varying canvas hashes.
 See [persistent state](README.md#persistent-state) for the file layout and migration restrictions.
 
+## Profile transfers
+
+The CLI and local UI transfer profiles through versioned ZIP archives.
+The manifest records profile settings, source compatibility, file sizes, and SHA-256 hashes.
+Streaming reads and writes support ZIP64 without loading browser data into memory.
+
+Export snapshots cleanly stopped profiles under the admission lock and selected lifecycle locks, acquired in profile ID order.
+It releases those locks before compression. Export never stops a browser automatically.
+
+Import checks private staging data before it changes the catalog.
+It assigns unused IDs, ports, and secret references, then installs the selected batch through a durable journal.
+One catalog replacement publishes the complete batch. Configuration changes and explicit starts complete pending recovery first.
+Imported profiles remain stopped. Existing profile data and secret references stay unchanged.
+
+The UI uses background transfer jobs with its existing session and origin checks.
+Uploads and downloads stream through separate endpoints. An active transfer prevents UI shutdown.
+Profile transfer adds no MCP tools.
+See [Import and export profiles](profile-transfer.md) for compatibility, content, limits, and recovery.
+
 ## MCP tool contracts
 
 Camofox's HTTP routes and MCP tools are separate interfaces.
@@ -103,6 +122,38 @@ See [typing](README.md#typing) for modes and defaults.
 New browser controls must pass through the same controller, action queue, network checks, and time limit.
 An upstream HTTP endpoint alone does not establish Stelz MCP support.
 Extensions need checks for their contract and browser behavior while preserving existing tool calls.
+
+### Planned browser controls
+
+Status: planned for later implementation. These controls are not currently available through Stelz MCP.
+The inventory uses the [pinned Camofox 1.18.1 server](https://github.com/jo-inc/camofox-browser/blob/39c82094013480b373df6600d44c7f036f58356e/server.js).
+Each addition still requires Stelz integration and browser checks. Final tool names and arguments remain undecided.
+
+| Planned capability | Existing upstream handler |
+| --- | --- |
+| Double-click | `POST /act` with `kind: "click"` and `doubleClick: true`. The current MCP click route ignores this argument. |
+| Hover | `POST /act` with `kind: "hover"`. |
+| Keyboard keys and shortcuts | `POST /tabs/:tabId/press`. |
+| Native dropdown selection | `POST /tabs/:tabId/select`. |
+| File upload | `POST /tabs/:tabId/upload`, using files inside the configured upload directory. |
+| Download retrieval | `GET /tabs/:tabId/downloads`, with optional file contents. |
+| Save the current PDF | `POST /tabs/:tabId/fetch-current-resource`. |
+| Back, forward, and reload | `POST /tabs/:tabId/back`, `POST /tabs/:tabId/forward`, and `POST /tabs/:tabId/refresh`. |
+| Wait for page readiness, text, or load state | `POST /tabs/:tabId/wait` and `POST /act` with `kind: "wait"`. |
+| Scroll an element into view | `POST /act` with `kind: "scrollIntoView"`. |
+| Viewport resizing | `POST /tabs/:tabId/viewport`. |
+| Read links and images | `GET /tabs/:tabId/links` and `GET /tabs/:tabId/images`. |
+| Structured extraction from snapshot references | `POST /tabs/:tabId/extract`. |
+| Read tab statistics and session traces | `GET /tabs/:tabId/stats` and the session trace routes. |
+
+Right-click and drag/drop are also planned. Camofox 1.18.1 has no handlers for these actions.
+They require server implementation and MCP support.
+
+Reuse existing upstream handlers where available. Preserve existing tool names, arguments, and behavior when adding optional controls.
+All additions must use the controller, action queue, network checks, and time limit described above.
+File operations must enforce configured path boundaries, profile ownership, and transfer size limits.
+Before release, check MCP contracts, controller isolation, pause/resume, timeout behavior, and actions in a headed browser.
+This plan keeps JavaScript evaluation and cookie import excluded. Human authentication continues in the same browser window.
 
 ## Failure handling and network policy
 
@@ -145,11 +196,11 @@ In the source workspace, `packages/stelz/src/` separates responsibilities by dir
 | Directory | Responsibility |
 | --- | --- |
 | `cli/` | Command parsing and user-facing operations. |
-| `profiles/` | Configuration, compatibility, catalog changes, and secret references. |
+| `profiles/` | Configuration, profile archives, catalog transactions, compatibility, and secret references. |
 | `runtime/` | Process ownership, locks, lifecycle operations, and supervision. |
 | `mcp/` | MCP transport, tool policy, and controller ownership. |
 | `browser/` | Camofox integration, persistent contexts, fingerprints, typing, and IP checks. |
-| `api/` | Local UI endpoints and service models. |
+| `api/` | Local UI endpoints, service models, and transfer jobs. |
 
 Offline tests check contracts and state transitions. Headed acceptance tests check actual browser behavior.
 A build or mock test alone cannot establish persistence, proxy routing, or human takeover behavior.

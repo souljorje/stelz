@@ -149,6 +149,8 @@ If typing stops with incomplete input, read a fresh snapshot before another acti
 | --- | --- |
 | `stelz ui [--port PORT] [--open]` | Serve the local profile UI. The default port is 9380. |
 | `stelz profile create ID [--direct] [--json]` | Create a native profile or reuse a compatible profile. Run `stelz profile create --help` for network options. |
+| `stelz profile export ID... --output FILE [--json]` | Export cleanly stopped profiles as a ZIP archive. Use `--all` instead of IDs to export the full catalog. |
+| `stelz profile import FILE [--json]` | Import profiles from a ZIP archive. Existing IDs produce copies. |
 | `stelz start profile-02` | Start one visible browser. |
 | `stelz start all` | Start configured profiles sequentially. Reuse an existing safe lifetime for each profile. |
 | `stelz status` | Read state and current controller information. |
@@ -162,6 +164,7 @@ If typing stops with incomplete input, read a fresh snapshot before another acti
 | `stelz recover profile-02` | Archive an unclean lifetime after its recorded processes exit. |
 
 See [Use the local UI](ui.md) for UI sessions, lifecycle controls, and network edits.
+See [Import and export profiles](profile-transfer.md) for selection, compatibility, and archive limits.
 
 A profile can have several native windows. Their title prefixes, colors, and toolbar badges identify the profile.
 The UI can show a window without changing its controller.

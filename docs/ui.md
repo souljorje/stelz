@@ -77,6 +77,13 @@ The name updates in the profile list and heading. It can change while the browse
 The profile ID, saved data, proxy references, and MCP commands remain unchanged.
 Browser window title prefixes continue to show the stable profile ID.
 
+## Import and export
+
+Use **Import** or **Export** in the Profiles heading to transfer one or more profiles as a ZIP archive.
+Export requires cleanly stopped profiles. Import previews destination IDs and display names before saving the selected batch.
+The archive includes saved logins and available proxy credentials. Keep it private.
+See [Import and export profiles](profile-transfer.md) for compatibility requirements and CLI commands.
+
 ## Typing mode
 
 Open a profile's Overview tab. Select **Default typing mode** under **Typing**:

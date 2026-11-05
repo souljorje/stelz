@@ -17,6 +17,7 @@ Release preparation uses Bun to resolve workspace links, then packs a temporary 
 The internal preparation steps disable lifecycle scripts to prevent recursion.
 Packing requires the source workspace and its development dependencies. Installing the archive does not require that workspace.
 Build copies canonical documentation and examples. Do not edit generated package copies.
+For profile data archives, see [Import and export profiles](profile-transfer.md).
 The archive includes the optional browser skill, third-party notices, and UI font and library licenses.
 It excludes Stelz source, tests, browser state, and credentials.
 It bundles the prepared Camofox and camoufox-js packages, including transitive JavaScript sources and licenses.
@@ -28,6 +29,7 @@ The native packages `better-sqlite3` and `impit` remain separate direct dependen
 The temporary release tree moves their declarations from the bundled manifests to Stelz's manifest.
 This prevents npm from treating missing native packages as bundled dependencies.
 Their JavaScript and native binaries come from ordinary npm dependency installation on the target machine.
+The ZIP libraries `yazl` and `yauzl` and checkpoint parser `stream-json` also install as ordinary runtime dependencies.
 Setup links these native packages from the installed Stelz package into the staged runtime.
 Native addon execution requires separate checks after ordinary package installation.
 The packaging check does not establish browser execution with lifecycle scripts disabled.

@@ -29,6 +29,7 @@ See [Onboarding acceptance](onboarding-acceptance.md) for the real-agent install
 | `bun run test:integration` | Two checkpoint profiles, exclusive control, handoff, disconnect, client crash, pause, and restart. |
 | `bun run test:concurrency` | Three temporary native profiles, simultaneous starts, isolated storage, duplicate starts, and controller handoff on a local fixture. |
 | `bun run test:native` | Two native profiles, storage isolation, and repeated fingerprint samples across three browser lifetimes. |
+| `bun run test:transfer` | Native ZIP export/import, batch copies, saved sessions, fingerprint bytes, fresh access keys, and copied-profile window controls. |
 | `bun run test:window-close` | Close one isolated test window when prompted. Check clean shutdown, Stopped UI state, and explicit restart. |
 | `bun run test:windows` | Native profile labels, window focus, unchanged website titles, and controller preservation in two isolated Camoufox profiles. |
 | `bun run test:proxy` | Two distinct proxy exits, three browser lifetimes, expected IP pins, and isolated route failures during cached verification. |
@@ -62,7 +63,36 @@ That check uses the actual UI API and isolated service files with simulated life
 It does not start Camoufox profiles.
 It uses installed Chrome on macOS. Set `STELZ_UI_CHROME` to select another Chrome or Chromium executable.
 Screenshots and its report are in `.state/ui-browser/`.
-The UI check also creates profiles with and without a proxy, checks deletion, and checks profile archives.
+The UI check also creates profiles with and without a proxy and checks deletion archives.
+
+## Profile transfer acceptance
+
+The default test command includes ZIP format, transfer API, CLI, and import transaction checks.
+They cover ZIP64, unsafe paths and links, checksum failures, size limits, cancellation, credential redaction, conflicts, and crash recovery.
+
+Build the service, then run the native transfer check:
+
+```sh
+bun run build
+bun run test:transfer
+```
+
+This check requires desktop access for Camoufox.
+It creates a fresh `.state/transfer-native-*` service directory and uses synthetic data on a local fixture.
+It verifies cookies, localStorage, IndexedDB, fingerprint bytes, a fresh access key, and window controls after import.
+Its report is `.state/profile-transfer/report.json`. Cleanup stops only its test profiles.
+Native transfer acceptance passed on macOS arm64 on 2026-11-05.
+
+To check ZIP commands in an installed release without starting browsers, run this from the source checkout:
+
+```sh
+STELZ_TEST_CLI=/absolute/path/to/installed/stelz \
+  bun test tests/integration/profile-transfer-cli.test.ts
+```
+
+These tests use disposable service directories and a synthetic executable for compatibility hashes.
+They check batch copies, credentials, explicit destination IDs, output-file protection, mismatched engines, and unclean lifetimes.
+See [Import and export profiles](profile-transfer.md) for the supported behavior.
 
 ## Continuous integration
 
@@ -257,14 +287,21 @@ Claude Code was not installed, so that client remains untested.
 Browser executable changes require an explicit migration.
 No test establishes that websites cannot detect automation.
 
+Broader validation on 2026-11-05 found a 30-second `camofox_scroll` timeout with one set of saved fingerprints.
+The same fingerprints reproduced the timeout on the pre-transfer baseline.
+The current version passed with the baseline fingerprints. Successful ZIP transfer checks do not establish complete browser acceptance.
+
 ## Source layout
 
-- `tests/unit/`: offline logic and verdict tests, including Node regression tests.
+- `tests/unit/`: offline logic, archive format, UI API, and verdict tests.
+- `tests/regression/`: browser plugin and persistence tests that run directly with Node.
 - `tests/integration/`: offline process, setup, catalog, and transaction checks.
 - `tests/browser/`: explicit browser acceptance commands.
 - `tests/qa/`: package, public-site, and human acceptance commands.
 - `tests/helpers/`: shared fixtures and verdict readers.
 - `scripts/call.ts`: development MCP diagnostic client.
 
-UI source is in `apps/ui/src/`. Its browser imports use only `packages/stelz/src/api/contracts.ts`.
-The contract contains no Node, Bun, or server imports. It is not a public package API.
+UI source is in `apps/ui/src/`.
+It shares profile and transfer types through `api/contracts.ts` and `api/transfer-contracts.ts` under `packages/stelz/src/`.
+Server types use type-only imports. Server runtime modules stay on the backend.
+These contracts are not a public package API.
