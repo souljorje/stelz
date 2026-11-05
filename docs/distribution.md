@@ -13,6 +13,7 @@ Release preparation and npm publication use separate workflows.
 `pack` builds once and saves the archive, hash, and source metadata in `release-artifacts/`.
 It uses npm's file inventory to prepare a physical release directory, then creates one archive with npm.
 The preparation steps disable lifecycle scripts. There is no implicit prepack build.
+`bunfig.toml` selects a flat dependency layout so npm includes the complete bundled dependency tree.
 Verification uses the saved archive. It does not build or pack another archive.
 Use `--destination DIRECTORY` for another output directory. Verification then requires `--archive FILE`.
 Packing requires the source workspace and its development dependencies. Installing the archive does not require that workspace.

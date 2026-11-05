@@ -50,6 +50,8 @@ export function externalizeNativeDependencies(product: string) {
 export async function packRelease(product: string, destination: string, options: {
   env?: Record<string, string>;
 } = {}): Promise<PackResult> {
+  for (const name of preparedPackages) if (lstatSync(join(product, "node_modules", name)).isSymbolicLink())
+    throw Error("Run bun install before packing. Bundled dependencies require the configured hoisted layout.");
   const temporary = mkdtempSync(join(tmpdir(), "stelz-release-tree-"));
   const env = { ...(options.env ?? process.env), npm_config_cache: join(temporary, "npm-cache") };
   async function run(command: string[], cwd: string) {
