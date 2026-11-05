@@ -227,7 +227,7 @@ if (process.argv.includes("--serve")) {
     await page.getByLabel(/^Expected exit IP/).fill("198.51.100.10");
     if (!await page.getByRole("button", { name: "Start profile-02", exact: true }).isDisabled()) throw Error("Start ignores unsaved network changes.");
     await page.getByRole("tab", { name: "Device", exact: true }).click();
-    await page.getByRole("tab", { name: "Overview", exact: true }).click();
+    await page.getByRole("tab", { name: "Overview Unsaved network changes", exact: true }).click();
     await page.getByLabel("Default typing mode", { exact: true }).selectOption("keyboard");
     await page.getByText("Typing mode saved. Applies to future typing actions.", { exact: true }).waitFor();
     if (await page.getByRole("button", { name: "Save network", exact: true }).isDisabled()) throw Error("Saving typing preferences invalidated a dirty network form.");
@@ -271,7 +271,7 @@ if (process.argv.includes("--serve")) {
     await page.reload();
     await page.getByRole("button", { name: "Inspect Work browser", exact: true }).click();
     await page.getByRole("heading", { name: "Work browser", exact: true }).waitFor();
-    if (!(await page.getByLabel("Command", { exact: true }).innerText()).includes("--profile profile-02")) throw Error("Renaming changed the MCP profile ID.");
+    if (!/--profile (?:profile-02|'profile-02')(?=\s|$)/.test(await page.getByLabel("Command", { exact: true }).innerText())) throw Error("Renaming changed the MCP profile ID.");
     await page.getByRole("button", { name: "Rename profile", exact: true }).click();
     await page.getByRole("textbox", { name: "Profile name", exact: true }).fill("profile-02");
     await page.getByRole("button", { name: "Save profile name", exact: true }).click();
