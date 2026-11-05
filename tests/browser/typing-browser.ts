@@ -3,10 +3,10 @@ import { writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import type { TypingMode } from "../../packages/stelz/src/browser/typing.ts";
+import type { TypingMode } from "../../src/browser/typing.ts";
 import { assertTestHome, createTestHome } from "../helpers/test-home.ts";
 
-const root = resolve(import.meta.dir, "../.."), cli = join(root, "packages/stelz/dist/cli.js");
+const root = resolve(import.meta.dir, "../.."), cli = join(root, "dist/cli.js");
 const args = process.argv.slice(2);
 if (args.length === 1 && ["--help", "-h"].includes(args[0]!)) {
   console.log("Use: bun run test:typing\nThe check creates and stops its own temporary profile.");

@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { ApiError, bootstrapSession, takeSessionToken } from "../../apps/ui/src/api.ts";
+import { ApiError, bootstrapSession, takeSessionToken } from "../../ui/src/api.ts";
 
 const originalFetch = globalThis.fetch;
 const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");

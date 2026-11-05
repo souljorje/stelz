@@ -1,6 +1,6 @@
 # Distribution
 
-The workspace root and React UI are private packages. Only `packages/stelz` can produce a release archive.
+The repository contains one package. Its root manifest defines the release archive and development dependencies.
 The package remains `stelz` version `0.2.1`, with the MIT license.
 Release preparation and npm publication use separate workflows.
 
@@ -11,10 +11,10 @@ Release preparation and npm publication use separate workflows.
 5. Run `bun run verify:release --archive .state/release-candidate/stelz-0.2.1.tgz --native`.
 
 The package prepack hook builds artifacts from the workspace.
-Release preparation uses Bun to resolve workspace links, then packs a temporary standalone tree with npm.
+Release preparation uses Bun to resolve installed dependency links, then packs a temporary standalone tree with npm.
 The internal preparation steps disable lifecycle scripts to prevent recursion.
 Packing requires the source workspace and its development dependencies. Installing the archive does not require that workspace.
-Build copies canonical documentation and examples. Do not edit generated package copies.
+The archive uses canonical documentation and examples directly.
 The archive includes the optional browser skill, third-party notices, and UI font and library licenses.
 It excludes Stelz source, tests, browser state, and credentials.
 It bundles the prepared Camofox and camoufox-js packages, including transitive JavaScript sources and licenses.

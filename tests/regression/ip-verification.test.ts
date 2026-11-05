@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { runInNewContext } from "node:vm";
-import { createIpVerification, DEFAULT_IP_CHECK_INTERVAL_MS, parseIpCheckInterval, type Probe } from "../../packages/stelz/src/browser/ip-verification.ts";
+import { createIpVerification, DEFAULT_IP_CHECK_INTERVAL_MS, parseIpCheckInterval, type Probe } from "../../src/browser/ip-verification.ts";
 
 test("IP verification intervals default to two minutes and reject unbounded or invalid values", () => {
   assert.equal(parseIpCheckInterval(undefined), DEFAULT_IP_CHECK_INTERVAL_MS);

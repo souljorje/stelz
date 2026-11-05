@@ -14,7 +14,7 @@ const required = [
 ].map(path => ({ path }));
 
 test("the installed Camofox and both launcher resolution paths contain the committed patches", () => {
-  const files = inspectBundledDependencies(resolve(import.meta.dir, "../../packages/stelz"));
+  const files = inspectBundledDependencies(resolve(import.meta.dir, "../.."));
   expect(Object.keys(files)).toHaveLength(4);
   expect(files["@askjo/camofox-browser/server.js"]).toContain("launchProfileBrowser");
   expect(files["camoufox-js/dist/utils.js"]).toContain("../Resources/properties.json");

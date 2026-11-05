@@ -10,7 +10,7 @@ bun run check
 bun run pack
 ```
 
-Build regenerates `packages/stelz/dist/` from source.
+Build regenerates `dist/` from source.
 The archive contains the CLI, supervisor, browser plugin, built local UI, documentation, client examples, and third-party notices.
 The diagnostic client runs from source. The archive excludes Stelz source files, tests, and browser state.
 It includes the prepared Camofox and camoufox-js dependencies. See [Distribution](distribution.md).
@@ -269,5 +269,5 @@ No test establishes that websites cannot detect automation.
 - `tests/helpers/`: shared fixtures and verdict readers.
 - `scripts/call.ts`: development MCP diagnostic client.
 
-UI source is in `apps/ui/src/`. Its browser imports use only `packages/stelz/src/api/contracts.ts`.
+UI source is in `ui/src/`. Its browser imports use only `src/api/contracts.ts`.
 The contract contains no Node, Bun, or server imports. It is not a public package API.

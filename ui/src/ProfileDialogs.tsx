@@ -1,6 +1,6 @@
 import { useId, useState } from "react";
 import type { FormEvent } from "react";
-import type { UiProfile, UiProfileCreate, UiSnapshot } from "../../../packages/stelz/src/api/contracts.ts";
+import type { UiProfile, UiProfileCreate, UiSnapshot } from "../../src/api/contracts.ts";
 import { errorMessage } from "./api.ts";
 import { Modal, Notice } from "./components";
 import { deleteReason, type ActionContext } from "./model.ts";

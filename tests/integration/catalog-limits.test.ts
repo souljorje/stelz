@@ -22,8 +22,8 @@ afterEach(() => { for (const home of homes.splice(0)) rmSync(home, { recursive: 
 async function run(home: string, body: string, prelude = "") {
   const script = `import * as fs from 'node:fs'; import { join } from 'node:path'; import { parseEnv } from 'node:util';
 ${prelude}
-const domain = await import(${JSON.stringify(join(root, "packages/stelz/src/profiles/profile-configuration.ts"))});
-const config = await import(${JSON.stringify(join(root, "packages/stelz/src/profiles/config.ts"))});
+const domain = await import(${JSON.stringify(join(root, "src/profiles/profile-configuration.ts"))});
+const config = await import(${JSON.stringify(join(root, "src/profiles/config.ts"))});
 const home = process.env.STELZ_HOME;
 const revision = () => { const value = config.settings(); return domain.networkRevision(value, value.profiles[0], { values: parseEnv(fs.readFileSync(join(home, 'secrets.env'), 'utf8')) }); };
 try { console.log(JSON.stringify({ ok: true, value: await (async () => { ${body} })() })); }

@@ -43,11 +43,11 @@ See [Compatibility](docs/README.md#compatibility) before changing existing confi
 - [Architecture and design decisions](docs/architecture.md)
 - [Development and testing](docs/tests.md)
 
-## Workspace
+## Development
 
-`apps/ui` contains the private React UI. `packages/stelz` contains the only publishable package.
-The package groups source under `cli`, `profiles`, `browser`, `runtime`, `mcp`, and `api`.
-Root `docs/` and `examples/` are canonical. Build stages their copies into the package.
+`src/` contains the service. `ui/` contains the bundled React UI.
+The root manifest defines the published package and development commands.
+Build uses `docs/`, `examples/`, and `skills/` directly. It does not copy documentation.
 Run `bun run check` for build, TypeScript checks, and browser-free tests.
 Run `bun run verify:release` for browser-free archive verification.
 See [Distribution](docs/distribution.md) and [Camofox patches](docs/camofox-patches.md).

@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import type { ComponentProps, ReactNode } from "react";
-import type { UiAction, UiProfile, UiPhase } from "../../../packages/stelz/src/api/contracts.ts";
+import type { UiAction, UiProfile, UiPhase } from "../../src/api/contracts.ts";
 import type { ActionContext } from "./model.ts";
 import { actionLabels, actionReason, phaseLabels, redact } from "./model.ts";
 

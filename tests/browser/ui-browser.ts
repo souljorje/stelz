@@ -5,13 +5,13 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { chromium } from "playwright-core";
-import type { UiAction } from "../../packages/stelz/src/api/contracts.ts";
+import type { UiAction } from "../../src/api/contracts.ts";
 
 const root = resolve(import.meta.dir, "../.."), home = mkdtempSync(join(tmpdir(), "stelz-ui-browser-"));
 process.env.STELZ_HOME = home;
 process.env.STELZ_TYPING_MODE = "auto";
-const { processStart } = await import("../../packages/stelz/src/runtime/runtime.ts");
-const { createUiServer, createUiSessionState } = await import("../../packages/stelz/src/api/ui-server.ts");
+const { processStart } = await import("../../src/runtime/runtime.ts");
+const { createUiServer, createUiSessionState } = await import("../../src/api/ui-server.ts");
 const reports = join(root, ".state/ui-browser");
 mkdirSync(reports, { recursive: true });
 const commands: string[] = [];

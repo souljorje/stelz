@@ -3,7 +3,7 @@
 - Be brief. Use TypeScript and Bun for custom code.
 - Prefix shell commands with `rtk`.
 - Read `docs/README.md` for service operations.
-- Read `packages/stelz/skills/stelz-browser/SKILL.md` for the MCP control protocol.
+- Read `skills/stelz-browser/SKILL.md` for the MCP control protocol.
 - Use the installed ASD-STE100 skill for documentation.
 - Preserve global harness configuration and approval protections.
 - For short-lived subagents, use `fork_turns: "none"` where the host supports it. Use `fork_context: false` otherwise.

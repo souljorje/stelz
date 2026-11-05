@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, writeFileSync, readdirSync, rmSync, lstatSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { checkBundledArchive } from "./bundled-dependencies.ts";
-import { NATIVE_DEPENDENCIES } from "../packages/stelz/src/browser/native-dependencies.ts";
+import { NATIVE_DEPENDENCIES } from "../src/browser/native-dependencies.ts";
 
 type PackResult = { filename: string; files: Array<{ path: string }>; size: number; shasum: string; integrity: string };
 const nativePackages = NATIVE_DEPENDENCIES;

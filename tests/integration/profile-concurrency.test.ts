@@ -2,8 +2,8 @@ import { expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { processStart, type Running } from "../../packages/stelz/src/runtime/profile-process.ts";
-import { UPSTREAM_VERSION } from "../../packages/stelz/src/versions.ts";
+import { processStart, type Running } from "../../src/runtime/profile-process.ts";
+import { UPSTREAM_VERSION } from "../../src/versions.ts";
 import { createMockPackage } from "../helpers/mock-package.ts";
 
 function fixture(legacy = false) {

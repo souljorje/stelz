@@ -8,9 +8,9 @@ import { join, resolve } from "node:path";
 import { parseEnv } from "node:util";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { normalizeProfileId } from "../../packages/stelz/src/profiles/profile-compat.ts";
-import { UPSTREAM_VERSION } from "../../packages/stelz/src/versions.ts";
-import type { Profile } from "../../packages/stelz/src/profiles/config.ts";
+import { normalizeProfileId } from "../../src/profiles/profile-compat.ts";
+import { UPSTREAM_VERSION } from "../../src/versions.ts";
+import type { Profile } from "../../src/profiles/config.ts";
 
 const root = resolve(import.meta.dir, "../.."), homes: string[] = [];
 type LegacyProfile = Profile & { mode: "direct" | "proxy" };
@@ -67,11 +67,11 @@ async function run(home: string, body: string) {
   const script = `import * as fs from 'node:fs';
 import { join } from 'node:path';
 try {
-  const config = await import(${JSON.stringify(join(root, "packages/stelz/src/profiles/config.ts"))});
-  const runtime = await import(${JSON.stringify(join(root, "packages/stelz/src/runtime/runtime.ts"))});
-  const catalog = await import(${JSON.stringify(join(root, "packages/stelz/src/profiles/profile-catalog.ts"))});
-  const network = await import(${JSON.stringify(join(root, "packages/stelz/src/profiles/network-transaction.ts"))});
-  const { createUiModel } = await import(${JSON.stringify(join(root, "packages/stelz/src/api/ui-model.ts"))});
+  const config = await import(${JSON.stringify(join(root, "src/profiles/config.ts"))});
+  const runtime = await import(${JSON.stringify(join(root, "src/runtime/runtime.ts"))});
+  const catalog = await import(${JSON.stringify(join(root, "src/profiles/profile-catalog.ts"))});
+  const network = await import(${JSON.stringify(join(root, "src/profiles/network-transaction.ts"))});
+  const { createUiModel } = await import(${JSON.stringify(join(root, "src/api/ui-model.ts"))});
   const home = process.env.STELZ_HOME, model = createUiModel();
   const value = await (async () => { ${body} })();
   console.log(JSON.stringify({ ok: true, value }));
@@ -318,7 +318,7 @@ test("CLI --identity and cached identity MCP tools work while advertised names s
   const env = Object.fromEntries(Object.entries(environment(f.home)).filter((entry): entry is [string, string] => entry[1] !== undefined));
   try {
     await client.connect(new StdioClientTransport({ command: process.execPath,
-      args: ["--no-env-file", join(root, "packages/stelz/src/cli/cli.ts"), "mcp", "--identity", legacyProfile.id], env, stderr: "pipe" }));
+      args: ["--no-env-file", join(root, "src/cli/cli.ts"), "mcp", "--identity", legacyProfile.id], env, stderr: "pipe" }));
     const actions = ["status", "acquire", "release", "pause", "resume", "recheck"];
     expect((await client.listTools()).tools.map(tool => tool.name)).toEqual(actions.map(action => `profile_${action}`));
     const canonical = await client.callTool({ name: "profile_status", arguments: {} });
@@ -351,7 +351,7 @@ for (const mode of ["direct", "proxy"] as const) test(`legacy ${mode} launch has
     delete process.env.STELZ_TYPING_MODE;
     delete process.env.STELZ_IP_CHECK_INTERVAL_MS;
     const { createHash } = await import('node:crypto');
-    const domain = await import(${JSON.stringify(join(root, "packages/stelz/src/profiles/profile-configuration.ts"))});
+    const domain = await import(${JSON.stringify(join(root, "src/profiles/profile-configuration.ts"))});
     const before = config.settings().profiles[0];
     const proxy = ${JSON.stringify(mode === "direct" ? {} : {
       PROXY_STRATEGY: "round_robin", PROXY_PROTOCOL: "http", PROXY_HOST: "old.test", PROXY_PORT: "8080", PROXY_USERNAME: "old-user", PROXY_PASSWORD: "old-password",

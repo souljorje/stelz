@@ -2,15 +2,15 @@ import { test, expect, afterAll } from "bun:test";
 import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { proxyEnvironment, validateSettings, type Profile } from "../../packages/stelz/src/profiles/config.ts";
-import { lock } from "../../packages/stelz/src/runtime/runtime.ts";
-import { createControllerLease } from "../../packages/stelz/src/mcp/controller.ts";
+import { proxyEnvironment, validateSettings, type Profile } from "../../src/profiles/config.ts";
+import { lock } from "../../src/runtime/runtime.ts";
+import { createControllerLease } from "../../src/mcp/controller.ts";
 const p: Profile = { id: "unit", port: 9471, proxyEnv: "STELZ_UNIT_PROXY" };
 const folder = mkdtempSync(join(tmpdir(), "stelz-unit-"));
 afterAll(() => { delete process.env.STELZ_UNIT_PROXY; rmSync(folder, { recursive: true, force: true }); });
 test("init creates an empty catalog and preserves existing profiles", async () => {
   const home = join(folder, "defaults");
-  const script = `import { initialize, settings, proxyEnvironment } from ${JSON.stringify(join(import.meta.dir, "../../packages/stelz/src/profiles/config.ts"))}; initialize(); console.log(JSON.stringify(settings().profiles.map(p => ({storage:p.storage,proxy:proxyEnvironment(p)}))));`;
+  const script = `import { initialize, settings, proxyEnvironment } from ${JSON.stringify(join(import.meta.dir, "../../src/profiles/config.ts"))}; initialize(); console.log(JSON.stringify(settings().profiles.map(p => ({storage:p.storage,proxy:proxyEnvironment(p)}))));`;
   const initialize = async () => {
     const child = Bun.spawn([process.execPath, "--no-env-file", "-e", script], { env: { ...process.env, STELZ_HOME: home }, stdout: "pipe", stderr: "pipe" });
     const [output, error, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);

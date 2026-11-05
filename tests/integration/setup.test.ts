@@ -15,7 +15,7 @@ function fixture() {
   const base = mkdtempSync(join(tmpdir(), "stelz-setup-test-")); temporary.push(base);
   const project = join(base, "project"), home = join(base, "home"), browser = join(base, "browser");
   mkdirSync(project); mkdirSync(home);
-  cpSync(join(root, "packages/stelz/src"), join(project, "src"), { recursive: true });
+  cpSync(join(root, "src"), join(project, "src"), { recursive: true });
   file(join(project, "src/setup-driver.ts"), `import { setup } from "./browser/setup.ts";
 import { start } from "./runtime/runtime.ts";
 if (process.argv[2] === "setup") await setup();

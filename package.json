@@ -1,28 +1,61 @@
 {
-  "name": "stelz-workspace",
-  "private": true,
-  "type": "module",
+  "name": "stelz",
+  "version": "0.2.1",
+  "description": "Standalone persistent Camoufox profiles with exclusive MCP control",
   "license": "MIT",
-  "packageManager": "bun@1.4.4",
+  "homepage": "https://github.com/souljorje/stelz#readme",
+  "bugs": {
+    "url": "https://github.com/souljorje/stelz/issues"
+  },
+  "keywords": [
+    "browser",
+    "automation",
+    "camoufox",
+    "playwright",
+    "mcp",
+    "persistent-profiles"
+  ],
+  "bin": {
+    "stelz": "dist/cli.js"
+  },
+  "files": [
+    "dist/cli.js",
+    "dist/supervisor.js",
+    "dist/plugin.js",
+    "dist/ui/",
+    "docs/",
+    "examples/",
+    "README.md",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
+    "skills/"
+  ],
   "engines": {
+    "node": ">=24",
     "bun": ">=1.4.4"
   },
-  "workspaces": [
-    "apps/*",
-    "packages/*"
-  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/souljorje/stelz.git"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  },
+  "type": "module",
+  "packageManager": "bun@1.4.4",
   "scripts": {
     "build": "bun scripts/build.ts",
     "pack": "bun scripts/pack.ts",
     "test:prepack": "bun scripts/pack.ts --check-prepack",
-    "setup": "bun packages/stelz/src/cli/cli.ts setup",
-    "start": "bun packages/stelz/src/cli/cli.ts start",
-    "status": "bun packages/stelz/src/cli/cli.ts status",
-    "stop": "bun packages/stelz/src/cli/cli.ts stop",
-    "pause": "bun packages/stelz/src/cli/cli.ts pause",
-    "resume": "bun packages/stelz/src/cli/cli.ts resume",
-    "mcp": "bun packages/stelz/src/cli/cli.ts mcp",
-    "ui": "bun --no-env-file packages/stelz/src/cli/cli.ts ui",
+    "setup": "bun src/cli/cli.ts setup",
+    "start": "bun src/cli/cli.ts start",
+    "status": "bun src/cli/cli.ts status",
+    "stop": "bun src/cli/cli.ts stop",
+    "pause": "bun src/cli/cli.ts pause",
+    "resume": "bun src/cli/cli.ts resume",
+    "mcp": "bun src/cli/cli.ts mcp",
+    "ui": "bun --no-env-file src/cli/cli.ts ui",
     "browser": "bun scripts/call.ts",
     "fixture": "bun tests/helpers/fixture.ts",
     "test": "bun test ./tests/unit ./tests/integration && bun run test:regression",
@@ -38,11 +71,25 @@
     "test:typing": "bun --no-env-file tests/browser/typing-browser.ts",
     "test:public": "bun --no-env-file tests/qa/public-sites.ts",
     "test:package": "bun tests/qa/package.ts",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p apps/ui",
+    "typecheck": "tsc --noEmit",
     "verify:release": "bun scripts/verify-release.ts",
     "test:concurrency": "bun --no-env-file tests/browser/concurrency.ts",
-    "check": "bun run build && bun run typecheck && bun run test"
+    "check": "bun run build && bun run typecheck && bun run test",
+    "prepack": "bun run build"
   },
+  "dependencies": {
+    "@askjo/camofox-browser": "1.18.1",
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "camoufox-js": "0.11.5",
+    "hono": "4.13.16",
+    "playwright-core": "1.62.1",
+    "better-sqlite3": "13.0.1",
+    "impit": "0.14.8"
+  },
+  "bundleDependencies": [
+    "@askjo/camofox-browser",
+    "camoufox-js"
+  ],
   "devDependencies": {
     "@fontsource/ibm-plex-mono": "5.3.0",
     "@fontsource/ibm-plex-sans": "5.3.0",
@@ -51,10 +98,7 @@
     "@types/react-dom": "19.3.0",
     "react": "19.3.1",
     "react-dom": "19.3.1",
-    "typescript": "5.9.3",
-    "@modelcontextprotocol/sdk": "1.30.0",
-    "playwright-core": "1.62.1",
-    "@askjo/camofox-browser": "1.18.1"
+    "typescript": "5.9.3"
   },
   "patchedDependencies": {
     "@askjo/camofox-browser@1.18.1": "patches/@askjo%2Fcamofox-browser@1.18.1.patch",

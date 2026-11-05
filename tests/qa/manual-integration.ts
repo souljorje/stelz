@@ -5,7 +5,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { fixture } from "../helpers/fixture.ts";
 const root = resolve(import.meta.dir, "../.."); mkdirSync(join(root, ".state"), { recursive: true });
-const home = mkdtempSync(join(root, ".state/manual-acceptance-")), cli = process.env.STELZ_TEST_CLI || join(root, "packages/stelz/dist/cli.js"), id = "manual-01";
+const home = mkdtempSync(join(root, ".state/manual-acceptance-")), cli = process.env.STELZ_TEST_CLI || join(root, "dist/cli.js"), id = "manual-01";
 const env: Record<string, string> = { STELZ_HOME: home };
 for (const key of ["PATH", "HOME", "LANG", "TMPDIR", "CAMOUFOX_EXECUTABLE"]) if (process.env[key]) env[key] = process.env[key]!;
 const report: unknown[] = [], client = new Client({ name: "manual-acceptance", version: "1.0.0" });

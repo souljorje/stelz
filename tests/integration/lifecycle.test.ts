@@ -13,11 +13,11 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { configurationHash, type Profile } from "../../packages/stelz/src/profiles/config.ts";
-import { lock, processStart } from "../../packages/stelz/src/runtime/runtime.ts";
+import { configurationHash, type Profile } from "../../src/profiles/config.ts";
+import { lock, processStart } from "../../src/runtime/runtime.ts";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { UPSTREAM_VERSION } from "../../packages/stelz/src/versions.ts";
+import { UPSTREAM_VERSION } from "../../src/versions.ts";
 import { createMockPackage } from "../helpers/mock-package.ts";
 
 const bun = Bun.which("bun")!,

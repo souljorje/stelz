@@ -5,7 +5,7 @@ import { nativeSmoke } from "../../scripts/native-smoke.ts";
 import { mkdtempSync, mkdirSync, symlinkSync, readFileSync, writeFileSync, readdirSync, lstatSync, realpathSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { tmpdir } from "node:os";
-import { STELZ_VERSION } from "../../packages/stelz/src/versions.ts";
+import { STELZ_VERSION } from "../../src/versions.ts";
 import { createTestHome } from "../helpers/test-home.ts";
 const root = resolve(import.meta.dir, "../.."), temp = mkdtempSync(join(tmpdir(), "stelz-package-"));
 const input = releaseArguments(process.argv.slice(2), ["--native", "--proxy", "--manual"]);
@@ -24,7 +24,7 @@ async function run(args: string[], options: { cwd?: string; env?: Record<string,
 console.log("Install the release archive into an isolated global prefix.");
 let archive = input.archive;
 if (!archive) {
-  const packed = await packRelease(join(root, "packages/stelz"), temp, { env });
+  const packed = await packRelease(root, temp, { env });
   archive = join(temp, packed.filename);
 }
 const candidate = inspectReleaseCandidate(archive), packed = [candidate];

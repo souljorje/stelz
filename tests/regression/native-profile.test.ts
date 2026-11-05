@@ -6,7 +6,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { launchProfileBrowser, claimProfileContext } from "../../packages/stelz/src/browser/native-profile.ts";
+import { launchProfileBrowser, claimProfileContext } from "../../src/browser/native-profile.ts";
 
 function fixture() {
   const directory = mkdtempSync(join(tmpdir(), "stelz-native-"));

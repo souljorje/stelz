@@ -1,4 +1,4 @@
-import type { UiAction, UiDiagnostics, UiProfile, UiSnapshot } from "../../../packages/stelz/src/api/contracts.ts";
+import type { UiAction, UiDiagnostics, UiProfile, UiSnapshot } from "../../src/api/contracts.ts";
 import { ActionButton, CopyCommand, Icon, KeyValues, Notice, Phase, Select } from "./components";
 import { actionReason, hasProxy, homeCommand, profileAttention, profileCommand, mcpCommand, proxyDisplay, redact } from "./model.ts";
 import type { ActionContext } from "./model.ts";

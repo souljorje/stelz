@@ -32,7 +32,7 @@ See [Camofox adapter patches](camofox-patches.md) for the eight pinned compatibi
 
 For a source installation, run `bun install --frozen-lockfile --ignore-scripts` and `bun run build` at the workspace root.
 Run `bun run pack` to create the release archive.
-Only `packages/stelz` is publishable. The UI workspace is private.
+The root package includes the compiled service and bundled UI.
 See [Distribution](distribution.md) for archive verification and the manual workflow.
 
 The default service directory is `~/.local/share/stelz`.

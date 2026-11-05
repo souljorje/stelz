@@ -6,7 +6,7 @@ import { nativeSmoke } from "./native-smoke.ts";
 import { mkdtempSync, mkdirSync, symlinkSync, readFileSync, writeFileSync, readdirSync, lstatSync, realpathSync, rmSync, existsSync, chmodSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
-import { STELZ_VERSION } from "../packages/stelz/src/versions.ts";
+import { STELZ_VERSION } from "../src/versions.ts";
 const root = resolve(import.meta.dir, ".."), temp = mkdtempSync(join(tmpdir(), "stelz-package-"));
 const input = releaseArguments(process.argv.slice(2), ["--native"]);
 const prefix = join(temp, "global"), cwd = join(temp, "empty"), home = join(temp, "data"), bin = join(temp, "bin");
@@ -23,7 +23,7 @@ async function run(args: string[], options: { cwd?: string; env?: Record<string,
 }
 console.log(`Verify isolated browser-free installation (${input.flags.has("--native") ? "ordinary native installation" : "lifecycle scripts disabled"}).`);
 try {
-const product = join(root, "packages/stelz");
+const product = root;
 const preparedDependencies = inspectBundledDependencies(product);
 let archive = input.archive;
 if (!archive) {
@@ -53,7 +53,7 @@ if (JSON.stringify(installedDependencies) !== JSON.stringify(preparedDependencie
   throw Error("The installed archive changed the patched dependency files.");
 const manifest = JSON.parse(readFileSync(join(installed, "package.json"), "utf8"));
 if (manifest.name !== "stelz" || manifest.version !== STELZ_VERSION || manifest.private || manifest.license !== "MIT") throw Error("Invalid release manifest.");
-checkMarkdownLinks([join(root, "README.md"), join(root, "docs"), join(root, "examples"), join(root, "packages/stelz/skills")]);
+checkMarkdownLinks([join(root, "README.md"), join(root, "docs"), join(root, "examples"), join(root, "skills")]);
 checkMarkdownLinks([join(installed, "README.md"), join(installed, "docs"), join(installed, "examples"), join(installed, "skills")]);
 for (const file of ["cli.js", "supervisor.js", "plugin.js"]) if (readFileSync(join(installed, "dist", file), "utf8").includes(root)) throw Error("Bundle contains a checkout path: " + file);
 const cleanEnv: Record<string, string> = { PATH: `${join(prefix, "bin")}:${bin}:/usr/bin:/bin`, HOME: env.HOME!, STELZ_HOME: home };

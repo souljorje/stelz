@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { UiAction, UiProfile, UiProfileCreate, UiProfileRename, UiNetworkUpdate, UiTypingUpdate, UiSnapshot } from "../../../packages/stelz/src/api/contracts.ts";
+import type { UiAction, UiProfile, UiProfileCreate, UiProfileRename, UiNetworkUpdate, UiTypingUpdate, UiSnapshot } from "../../src/api/contracts.ts";
 import { ApiError, errorMessage, profilePath, request } from "./api.ts";
 import { actionReason } from "./model.ts";
-import type { ShowProfileWindow } from "../../../packages/stelz/src/api/contracts.ts";
+import type { ShowProfileWindow } from "../../src/api/contracts.ts";
 
 export type Connection = "connecting" | "connected" | "offline" | "unauthorized" | "ending" | "ended";
 export type Pending = { id: string; action: UiAction | "save" | "typing" | "rename" | "create" | "delete" | "show" } | null;

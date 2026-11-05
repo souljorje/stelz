@@ -1,6 +1,6 @@
 import { useEffect, useId, useState } from "react";
 import type { FormEvent } from "react";
-import type { UiProfile, UiProfileRename } from "../../../packages/stelz/src/api/contracts.ts";
+import type { UiProfile, UiProfileRename } from "../../src/api/contracts.ts";
 import { ApiError, errorMessage } from "./api.ts";
 import { Icon, Notice } from "./components";
 

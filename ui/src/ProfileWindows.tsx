@@ -1,5 +1,5 @@
-import type { UiProfile } from "../../../packages/stelz/src/api/contracts.ts";
-import type { ProfileWindows as Windows, ShowProfileWindow } from "../../../packages/stelz/src/api/contracts.ts";
+import type { UiProfile } from "../../src/api/contracts.ts";
+import type { ProfileWindows as Windows, ShowProfileWindow } from "../../src/api/contracts.ts";
 import type { ActionContext } from "./model.ts";
 import { profilePath } from "./api.ts";
 import { Icon, Notice } from "./components";

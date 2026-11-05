@@ -2,15 +2,15 @@ import { expect, test } from "bun:test";
 import { cpSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
-import { STELZ_VERSION } from "../../packages/stelz/src/versions.ts";
+import { STELZ_VERSION } from "../../src/versions.ts";
 
 test("unbuilt source resolves the package and supervisor from an empty cwd", () => {
   const temp = mkdtempSync(join(tmpdir(), "stelz-source-paths-"));
   try {
     const product = join(realpathSync(temp), "product"), cwd = join(temp, "empty"), home = join(realpathSync(temp), "home");
     mkdirSync(cwd); mkdirSync(product);
-    cpSync(resolve(import.meta.dir, "../../packages/stelz/src"), join(product, "src"), { recursive: true });
-    cpSync(resolve(import.meta.dir, "../../packages/stelz/package.json"), join(product, "package.json"));
+    cpSync(resolve(import.meta.dir, "../../src"), join(product, "src"), { recursive: true });
+    cpSync(resolve(import.meta.dir, "../../package.json"), join(product, "package.json"));
     const driver = join(product, "src/paths-driver.ts");
     writeFileSync(driver, `import { ROOT, entry, HOME_DIR } from "./profiles/config.ts";
 import { STELZ_VERSION } from "./versions.ts";
@@ -32,7 +32,7 @@ console.log(JSON.stringify({ root: ROOT, home: HOME_DIR, supervisor: entry("supe
 });
 
 test("UI contract can bundle for a browser without server dependencies", async () => {
-  const contract = resolve(import.meta.dir, "../../packages/stelz/src/api/contracts.ts");
+  const contract = resolve(import.meta.dir, "../../src/api/contracts.ts");
   const result = await Bun.build({ entrypoints: [contract], target: "browser" });
   expect(result.success).toBe(true);
   const code = await result.outputs[0]!.text();

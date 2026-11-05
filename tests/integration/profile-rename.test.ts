@@ -22,8 +22,8 @@ async function run(f: ReturnType<typeof fixture>, body: string, prelude = "", ex
   const script = `import * as fs from 'node:fs';
 import { join } from 'node:path';
 ${prelude}
-const domain = await import(${JSON.stringify(join(root, "packages/stelz/src/profiles/profile-configuration.ts"))});
-const config = await import(${JSON.stringify(join(root, "packages/stelz/src/profiles/config.ts"))});
+const domain = await import(${JSON.stringify(join(root, "src/profiles/profile-configuration.ts"))});
+const config = await import(${JSON.stringify(join(root, "src/profiles/config.ts"))});
 const home = process.env.STELZ_HOME, id = ${JSON.stringify(f.id)};
 const revision = () => domain.catalogRevision(config.settings());
 try { console.log(JSON.stringify({ ok: true, value: await (async () => { ${body} })() })); }

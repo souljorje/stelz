@@ -20,8 +20,8 @@ async function run(home: string, body: string, prelude = "", expectedCode = 0) {
   const script = `import * as fs from 'node:fs';
 import { join } from 'node:path';
 ${prelude}
-const domain = await import(${JSON.stringify(join(root, "packages/stelz/src/profiles/profile-configuration.ts"))});
-const { settings } = await import(${JSON.stringify(join(root, "packages/stelz/src/profiles/config.ts"))});
+const domain = await import(${JSON.stringify(join(root, "src/profiles/profile-configuration.ts"))});
+const { settings } = await import(${JSON.stringify(join(root, "src/profiles/config.ts"))});
 const home = process.env.STELZ_HOME;
 const revision = () => { const config = settings(); return domain.networkRevision(config, config.profiles[0], { values: readValues() }); };
 const typingRevision = () => domain.typingRevision(settings().profiles[0]);
@@ -65,7 +65,7 @@ test("typing defaults save live without changing launch state, secrets, or profi
   writeFileSync(join(home, "profiles/test/running.json"), record);
   writeFileSync(join(home, "profiles/test/profile-data"), "existing browser data");
   const result = await run(home, `
-    const { configurationHash } = await import(${JSON.stringify(join(root, "packages/stelz/src/profiles/config.ts"))});
+    const { configurationHash } = await import(${JSON.stringify(join(root, "src/profiles/config.ts"))});
     const before = settings().profiles[0], hash = configurationHash(before);
     const stale = typingRevision();
     for (const mode of ['keyboard', 'instant', 'auto']) {

@@ -8,7 +8,7 @@ import { assertTestHome, createTestHome } from "../helpers/test-home.ts";
 const root = resolve(import.meta.dir, "../..");
 const home = process.env.STELZ_TEST_HOME ? assertTestHome(process.env.STELZ_TEST_HOME)
   : createTestHome("standalone-acceptance", join(root, ".state"));
-const cli = process.env.STELZ_TEST_CLI || join(root, "packages/stelz/dist/cli.js");
+const cli = process.env.STELZ_TEST_CLI || join(root, "dist/cli.js");
 // Child processes receive runtime paths and browser configuration, not model credentials.
 const env: Record<string, string> = { STELZ_HOME: home };
 for (const key of ["PATH", "HOME", "LANG", "TMPDIR", "CAMOUFOX_EXECUTABLE"]) if (process.env[key]) env[key] = process.env[key]!;

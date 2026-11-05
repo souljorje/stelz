@@ -1,7 +1,7 @@
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { readFileSync, existsSync } from "node:fs";
-import { assertBundledPatches } from "../packages/stelz/src/browser/camofox-adapter.ts";
+import { assertBundledPatches } from "../src/browser/camofox-adapter.ts";
 
 const serverName = "@askjo/camofox-browser";
 const launcherName = "camoufox-js";

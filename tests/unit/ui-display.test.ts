@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { TypingForm } from "../../apps/ui/src/TypingForm.tsx";
-import { NetworkForm } from "../../apps/ui/src/NetworkForm.tsx";
-import { UI_ACTIONS } from "../../packages/stelz/src/api/contracts.ts";
-import type { UiProfile, UiNetwork, UiPhase, UiSnapshot } from "../../packages/stelz/src/api/contracts.ts";
-import { actionReason, boundedLog, hasProxy, homeCommand, mcpCommand, networkDirty, networkDraft, networkUpdate, proxyDisplay, redact, shellQuote } from "../../apps/ui/src/model.ts";
+import { TypingForm } from "../../ui/src/TypingForm.tsx";
+import { NetworkForm } from "../../ui/src/NetworkForm.tsx";
+import { UI_ACTIONS } from "../../src/api/contracts.ts";
+import type { UiProfile, UiNetwork, UiPhase, UiSnapshot } from "../../src/api/contracts.ts";
+import { actionReason, boundedLog, hasProxy, homeCommand, mcpCommand, networkDirty, networkDraft, networkUpdate, proxyDisplay, redact, shellQuote } from "../../ui/src/model.ts";
 
 const network: UiNetwork = { revision: "revision-1", proxyEnv: null, expectedIPEnv: null, proxyDisplay: null, proxyConfigured: false, expectedIp: "203.0.113.1", proxyReadOnly: false, expectedIpReadOnly: false };
 function profile(phase: UiPhase, changes: Partial<UiProfile> = {}): UiProfile {

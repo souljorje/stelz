@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { connect } from "node:net";
-import { createUiApp, createUiServer, createUiSessionState } from "../../packages/stelz/src/api/ui-server.ts";
-import type { UiAction, UiProfile, UiModel, UiSnapshot } from "../../packages/stelz/src/api/contracts.ts";
+import { createUiApp, createUiServer, createUiSessionState } from "../../src/api/ui-server.ts";
+import type { UiAction, UiProfile, UiModel, UiSnapshot } from "../../src/api/contracts.ts";
 
 function profile(id = "profile-02"): UiProfile {
   return {
