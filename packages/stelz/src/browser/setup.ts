@@ -1,4 +1,5 @@
-import { applyPatches } from "./camofox-adapter.ts";
+import { assertBundledPatches } from "./camofox-adapter.ts";
+import { NATIVE_DEPENDENCIES } from "./native-dependencies.ts";
 import {
   copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync,
   readFileSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync,
@@ -101,9 +102,12 @@ function copyDependencies(source: string, upstream: string) {
   const modules = join(upstream, "node_modules");
   mkdirSync(modules, { recursive: true });
   const camoufox = packagePath("camoufox-js", ROOT);
+  const productDependencies = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).dependencies;
+  const nativeDependencies = Object.fromEntries(NATIVE_DEPENDENCIES.filter(name => productDependencies[name]).map(name => [name, productDependencies[name]]));
   const dependencies = {
     ...JSON.parse(readFileSync(join(source, "package.json"), "utf8")).dependencies,
     ...JSON.parse(readFileSync(join(camoufox, "package.json"), "utf8")).dependencies,
+    ...nativeDependencies,
     "@modelcontextprotocol/sdk": MCP_SDK_VERSION,
   };
   const paths = new Map<string, string>();
@@ -113,7 +117,7 @@ function copyDependencies(source: string, upstream: string) {
     }
     const target = join(modules, name);
     mkdirSync(dirname(target), { recursive: true });
-    const dependency = name === "camoufox-js" ? camoufox : packagePath(name, source);
+    const dependency = name === "camoufox-js" ? camoufox : packagePath(name, name in nativeDependencies ? ROOT : source);
     paths.set(name, dependency);
     if (name === "camoufox-js") {
       copy(dependency, target, true);
@@ -185,7 +189,7 @@ function stageRuntime(stage: string, source: string, browser: string, plugin: st
     copy(join(source, name), join(upstream, name));
   }
   const dependencies = copyDependencies(source, upstream);
-  applyPatches(upstream);
+  assertBundledPatches(upstream);
 
   const output = join(upstream, "plugins/local-profile/index.js");
   mkdirSync(dirname(output), { recursive: true });

@@ -1,0 +1,13 @@
+diff --git a/dist/utils.js b/dist/utils.js
+index 8ec24782345213cd68457a27bb67a850f14cb9d3..72afb433fecb3fa775e17e06510e0ca9ba12aee1 100644
+--- a/dist/utils.js
++++ b/dist/utils.js
+@@ -62,7 +62,7 @@ function loadProperties(filePath) {
+     let propFile;
+     filePath = filePath?.toString();
+     if (filePath) {
+-        propFile = path.join(path.dirname(filePath), "properties.json");
++        propFile = process.platform === "darwin" && filePath.includes(".app/Contents/MacOS/") ? path.join(path.dirname(filePath), "../Resources/properties.json") : path.join(path.dirname(filePath), "properties.json");
+     }
+     else {
+         propFile = getPath("properties.json");

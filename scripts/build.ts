@@ -1,8 +1,10 @@
+import { inspectBundledDependencies } from "./bundled-dependencies.ts";
 import { mkdirSync, chmodSync, rmSync, cpSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { checkMarkdownLinks } from "./markdown-links.ts";
 const root = join(import.meta.dir, "..");
 const product = join(root, "packages/stelz");
+inspectBundledDependencies(product);
 const dist = join(product, "dist");
 rmSync(dist, { recursive: true, force: true });
 mkdirSync(dist, { recursive: true });

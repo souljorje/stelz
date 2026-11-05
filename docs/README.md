@@ -17,14 +17,16 @@ A profile has a stable browser ID. A controller is one MCP client with exclusive
 4. Run `stelz ui --open`.
 5. Create a profile. Configure a proxy if necessary, then start it.
 
-Setup copies the published Camofox package into the service directory. It does not clone a repository.
+The release archive contains the prepared Camofox and camoufox-js dependencies.
+Setup copies them into the service directory and checks the prepared source without rewriting it.
+Setup does not clone a repository or apply patches.
 Setup does not change the installed Camoufox app.
 Stop all profiles before setup after a code update.
 Setup stages and checks the complete runtime before it replaces the active runtime.
 See [Camofox adapter patches](camofox-patches.md) for the eight pinned compatibility changes.
 
-For a source installation, run `bun install --frozen-lockfile` and `bun run build` at the workspace root.
-Run `npm pack ./packages/stelz` to create the release archive.
+For a source installation, run `bun install --frozen-lockfile --ignore-scripts` and `bun run build` at the workspace root.
+Run `bun run pack` to create the release archive.
 Only `packages/stelz` is publishable. The UI workspace is private.
 See [Distribution](distribution.md) for archive verification and the manual workflow.
 

@@ -13,6 +13,7 @@
   ],
   "scripts": {
     "build": "bun scripts/build.ts",
+    "pack": "bun scripts/pack.ts",
     "setup": "bun packages/stelz/src/cli/cli.ts setup",
     "start": "bun packages/stelz/src/cli/cli.ts start",
     "status": "bun packages/stelz/src/cli/cli.ts status",
@@ -23,7 +24,7 @@
     "ui": "bun --no-env-file packages/stelz/src/cli/cli.ts ui",
     "browser": "bun scripts/call.ts",
     "fixture": "bun tests/helpers/fixture.ts",
-    "test": "bun test tests/integration/profile-concurrency.test.ts tests/integration/catalog-limits.test.ts tests/unit/paths.test.ts tests/integration/profile-compat.test.ts tests/unit/profile-windows.test.ts tests/unit/unit.test.ts tests/unit/typing.test.ts tests/unit/ip-configuration.test.ts tests/unit/proxy-acceptance.test.ts tests/integration/lifecycle.test.ts tests/integration/setup.test.ts tests/unit/ui-server.test.ts tests/integration/ui-model.test.ts tests/integration/profile-configuration.test.ts tests/unit/public-site-verdicts.test.ts tests/unit/rebrowser-verdict.test.ts tests/unit/public-sites.test.ts tests/unit/ui-api.test.ts tests/unit/ui-display.test.ts && bun run test:regression",
+    "test": "bun test tests/unit/bundled-dependencies.test.ts tests/integration/profile-concurrency.test.ts tests/integration/catalog-limits.test.ts tests/unit/paths.test.ts tests/integration/profile-compat.test.ts tests/unit/profile-windows.test.ts tests/unit/unit.test.ts tests/unit/typing.test.ts tests/unit/ip-configuration.test.ts tests/unit/proxy-acceptance.test.ts tests/integration/lifecycle.test.ts tests/integration/setup.test.ts tests/unit/ui-server.test.ts tests/integration/ui-model.test.ts tests/integration/profile-configuration.test.ts tests/unit/public-site-verdicts.test.ts tests/unit/rebrowser-verdict.test.ts tests/unit/public-sites.test.ts tests/unit/ui-api.test.ts tests/unit/ui-display.test.ts && bun run test:regression",
     "test:ui": "bun test tests/integration/catalog-limits.test.ts tests/unit/profile-windows.test.ts tests/unit/ui-server.test.ts tests/integration/ui-model.test.ts tests/integration/profile-configuration.test.ts tests/unit/ui-api.test.ts tests/unit/ui-display.test.ts",
     "test:ui:browser": "bun tests/browser/ui-browser.ts",
     "test:regression": "node --experimental-transform-types --test tests/unit/plugin.test.ts tests/unit/ip-verification.test.ts tests/unit/native-profile.test.ts tests/unit/observations.test.ts",
@@ -52,5 +53,9 @@
     "@modelcontextprotocol/sdk": "1.30.0",
     "playwright-core": "1.62.1",
     "@askjo/camofox-browser": "1.18.1"
+  },
+  "patchedDependencies": {
+    "@askjo/camofox-browser@1.18.1": "patches/@askjo%2Fcamofox-browser@1.18.1.patch",
+    "camoufox-js@0.11.5": "patches/camoufox-js@0.11.5.patch"
   }
 }

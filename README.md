@@ -20,7 +20,7 @@ Browser windows show their profile's name and color.
 Use the UI's window icon to find a profile's window.
 See [Find a profile's windows](docs/ui.md#find-a-profiles-windows).
 
-The archive is not published to npm yet. Build it with `bun install`, `bun run build`, and `npm pack ./packages/stelz`.
+The archive is not published to npm yet. Build it with `bun install --ignore-scripts` and `bun run pack`.
 
 Each MCP connection selects one profile. One controller can act on that profile at a time.
 Client disconnect releases control. The browser and its pages remain open.

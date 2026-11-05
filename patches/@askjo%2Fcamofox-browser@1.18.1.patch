@@ -1,0 +1,124 @@
+diff --git a/lib/camoufox-executable.js b/lib/camoufox-executable.js
+index e5d47544327a2b4b49e872fa35a0055be4dd11e1..c620fa8985b95dc2275612d6ee5d37189108c800 100644
+--- a/lib/camoufox-executable.js
++++ b/lib/camoufox-executable.js
+@@ -193,7 +193,7 @@ function ensureMacCamoufoxJsCompatibility(executablePath, resourceDir, cacheDir)
+     mkdirSync(cacheDir, { recursive: true });
+     writeFileSync(cacheVersion, readFileSync(bundledVersion));
+   }
+-  if (!existsSync(executableProperties)) ensureSymlink(realpathSync(resourceProperties), executableProperties);
++  // stelz: read macOS resources without changing the installed app bundle.
+ }
+ 
+ export function prepareExternalCamoufoxExecutable(executablePath, { cacheDir } = {}) {
+diff --git a/plugins/persistence/index.js b/plugins/persistence/index.js
+index 7c5199d3b00c39325b660699581f4298a334808e..bc26fcdd5b5d76747d12329a9b986c97cddcf4e8 100644
+--- a/plugins/persistence/index.js
++++ b/plugins/persistence/index.js
+@@ -47,6 +47,7 @@ async function removeIfExists(p) {
+ }
+ 
+ export async function register(app, ctx, pluginConfig = {}) {
++  if (process.env.STELZ_STORAGE_MODE === 'native') return; // Native Firefox profile owns storage.
+   const { events, config, log } = ctx;
+ 
+   // Resolve profileDir: env var > plugin config > global config default (~/.camofox/profiles)
+diff --git a/server.js b/server.js
+index 4a737caba128a8f6a22f789ab9682167660a0589..cd37a168598856dd6fd7d7d7e200294f57d6cb33 100644
+--- a/server.js
++++ b/server.js
+@@ -276,9 +276,9 @@ async function assertLocatorFillable(locator) {
+   });
+ }
+ 
+-async function fillLocator(locator, text) {
++async function fillLocator(locator, text, typingMode) {
+   await assertLocatorFillable(locator);
+-  await locator.fill(text, { timeout: 10000 });
++  await (await import('./plugins/local-profile/index.js')).typeIntoLocator(locator, text, typingMode);
+ }
+ 
+ function safeError(err) {
+@@ -579,7 +579,8 @@ async function withTabLock(tabId, operation, timeoutMs = HANDLER_TIMEOUT_MS, onT
+   const lock = getTabLock(tabId);
+   await lock.acquire(TAB_LOCK_TIMEOUT_MS);
+   try {
+-    return await withTimeout(operation(), timeoutMs, 'action');
++    // Stelz owns the deadline for typing. Keep its tab lock until input settles.
++    return await (timeoutMs === null ? operation() : withTimeout(operation(), timeoutMs, 'action'));
+   } catch (err) {
+     if (onTimeout && isTimeoutError(err)) {
+       await onTimeout();
+@@ -1172,9 +1173,12 @@ async function launchBrowserInstance() {
+         executable_path: externalCamoufox?.executablePath,
+         headless: useVirtualDisplay ? false : !useDesktopWindow,
+         os: hostOS,
++        window: [1200, 800],
++        screen: { minWidth: 1280, minHeight: 900, maxWidth: 1920, maxHeight: 1200 },
+         humanize: true,
+         enable_cache: true,
+         proxy: launchProxy,
++        block_webrtc: !!launchProxy,
+         geoip: !!launchProxy,
+         locale: launchLocale({ hasProxy: !!proxyPool, directIdentity: CONFIG.directIdentity }),
+         virtual_display: vdDisplay,
+@@ -1196,7 +1200,7 @@ async function launchBrowserInstance() {
+       options.handleSIGHUP = false;
+       await pluginEvents.emitAsync('browser:launching', { options });
+ 
+-      candidateBrowser = await firefox.launch(options);
++      candidateBrowser = await (await import('./plugins/local-profile/index.js')).launchProfileBrowser(firefox, options, { viewport: null, ...contextIdentityOptions({ hasProxy: !!proxyPool, directIdentity: CONFIG.directIdentity }) });
+ 
+       if (proxyPool?.canRotateSessions) {
+         const probe = await probeGoogleSearch(candidateBrowser);
+@@ -1408,7 +1412,7 @@ async function getSession(userId, { trace = false } = {}) {
+         log('info', 'session proxy assigned', { userId: key, proxy: sessionProxy.server });
+       }
+       await pluginEvents.emitAsync('session:creating', { userId: key, contextOptions });
+-      const context = await b.newContext(contextOptions);
++      const context = await (await import('./plugins/local-profile/index.js')).claimProfileContext(b, contextOptions);
+ 
+       let tracePath = null;
+       if (trace) {
+@@ -4371,7 +4375,7 @@ app.post('/tabs/:tabId/type', async (req, res) => {
+   const tabId = req.params.tabId;
+   
+   try {
+-    const { userId, ref, selector, text, mode = 'fill', delay = 30, submit = false, pressEnter = false } = req.body;
++    const { userId, ref, selector, text, typingMode, mode = 'fill', delay = 30, submit = false, pressEnter = false } = req.body;
+     const session = sessions.get(normalizeUserId(userId));
+     const found = session && findTab(session, tabId);
+     if (!found) return tabNotFoundResponse(res, req.params.tabId || req.body?.tabId);
+@@ -4409,9 +4413,9 @@ app.post('/tabs/:tabId/type', async (req, res) => {
+       
+       if (mode === 'fill') {
+         if (locator) {
+-          await fillLocator(locator, text);
++          await fillLocator(locator, text, typingMode);
+         } else {
+-          await fillLocator(tabState.page.locator(selector), text);
++          await fillLocator(tabState.page.locator(selector), text, typingMode);
+         }
+       } else {
+         // keyboard mode -- char-by-char real key events (required for Ember/contenteditable)
+@@ -4423,12 +4427,19 @@ app.post('/tabs/:tabId/type', async (req, res) => {
+         await tabState.page.keyboard.type(text, { delay });
+       }
+       if (shouldSubmit) await tabState.page.keyboard.press('Enter');
+-    });
++    }, typingMode === undefined ? HANDLER_TIMEOUT_MS : null);
+     
+     pluginEvents.emit('tab:type', typeEventPayload({ userId: req.body.userId, tabId, text: req.body.text, ref: req.body.ref, mode: req.body.mode }));
+     res.json({ ok: true });
+   } catch (err) {
+     log('error', 'type failed', { reqId: req.reqId, error: err.message });
++    if (req.body.typingMode !== undefined && /timed out|timeout/i.test(err.message || '')) {
++      return res.status(409).json({
++        error: 'Typing timeout. Input may be incomplete. Stop and start the profile before another browser action.',
++        code: 'typing_timeout',
++        retryable: false,
++      });
++    }
+     if (err.message?.includes('timed out') || err.message?.includes('not an <input>')) {
+       try {
+         const session = sessions.get(normalizeUserId(req.body.userId));

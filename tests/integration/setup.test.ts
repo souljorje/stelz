@@ -21,30 +21,63 @@ import { start } from "./runtime/runtime.ts";
 if (process.argv[2] === "setup") await setup();
 else await start(process.argv[3]!);
 `);
-  file(join(project, "package.json"), JSON.stringify({ type: "module", version: "0.2.0", dependencies: { "@askjo/camofox-browser": "1.18.1", "@modelcontextprotocol/sdk": "1.30.0" } }));
+  file(join(project, "package.json"), JSON.stringify({ type: "module", version: "0.2.0", dependencies: { "@askjo/camofox-browser": "1.18.1", "@modelcontextprotocol/sdk": "1.30.0", "better-sqlite3": "13.0.1", impit: "0.14.8" } }));
   file(join(project, "dist/plugin.js"), "export function register() {}\nexport function launchProfileBrowser() {}\nexport function claimProfileContext() {}\nexport function typeIntoLocator() {}\n");
   const upstream = join(project, "node_modules/@askjo/camofox-browser");
   file(join(upstream, "package.json"), JSON.stringify({ name: "@askjo/camofox-browser", version: "1.18.1", type: "module", dependencies: { "camoufox-js": "0.11.5", "playwright-core": "1.62.1" } }));
-  file(join(upstream, "server.js"), `async function fillLocator(locator, text) {
-  await locator.fill(text, { timeout: 10000 });
+  file(join(upstream, "server.js"), `async function fillLocator(locator, text, typingMode) {
+  await (await import('./plugins/local-profile/index.js')).typeIntoLocator(locator, text, typingMode);
+}
+async function withTabLock(tabId, operation, timeoutMs) {
+    // Stelz owns the deadline for typing. Keep its tab lock until input settles.
+    return await (timeoutMs === null ? operation() : withTimeout(operation(), timeoutMs, 'action'));
 }
 const options = { os: hostOS,
+        window: [1200, 800],
+        screen: { minWidth: 1280, minHeight: 900, maxWidth: 1920, maxHeight: 1200 },
         humanize: true, proxy: launchProxy,
+        block_webrtc: !!launchProxy,
         geoip: !!launchProxy, };
 async function launch() {
-  candidateBrowser = await firefox.launch(options);
-  const context = await b.newContext(contextOptions);
+  candidateBrowser = await (await import('./plugins/local-profile/index.js')).launchProfileBrowser(firefox, options, { viewport: null, ...contextIdentityOptions({ hasProxy: !!proxyPool, directIdentity: CONFIG.directIdentity }) });
+  const context = await (await import('./plugins/local-profile/index.js')).claimProfileContext(b, contextOptions);
+}
+async function typeRoute(req, locator, tabState, selector, text, mode) {
+  try {
+    const { userId, ref, selector, text, typingMode, mode = 'fill', delay = 30, submit = false, pressEnter = false } = req.body;
+    await withTabLock(tabId, async () => {
+      if (mode === 'fill') {
+        if (locator) {
+          await fillLocator(locator, text, typingMode);
+        } else {
+          await fillLocator(tabState.page.locator(selector), text, typingMode);
+        }
+      }
+      if (shouldSubmit) await tabState.page.keyboard.press('Enter');
+    }, typingMode === undefined ? HANDLER_TIMEOUT_MS : null);
+  } catch (err) {
+    if (req.body.typingMode !== undefined && /timed out|timeout/i.test(err.message || '')) {
+      return res.status(409).json({
+        error: 'Typing timeout. Input may be incomplete. Stop and start the profile before another browser action.',
+        code: 'typing_timeout',
+        retryable: false,
+      });
+    }
+    if (err.message?.includes('timed out') || err.message?.includes('not an <input>')) {
+      throw err;
+    }
+  }
 }
 `);
   file(join(upstream, "LICENSE"), "fixture license");
-  file(join(upstream, "lib/camoufox-executable.js"), "if (!existsSync(executableProperties)) ensureSymlink(realpathSync(resourceProperties), executableProperties);\n");
+  file(join(upstream, "lib/camoufox-executable.js"), "// stelz: read macOS resources without changing the installed app bundle.\n");
   file(join(upstream, "mcp/server.mjs"), "export {};\n");
   file(join(upstream, "mcp/lib/tool-contracts.mjs"), "export const TOOL_DEFS = [];\nexport function runTool() {}\nexport function adaptResponse() {}\n");
-  file(join(upstream, "plugins/persistence/index.js"), "export async function register(app, ctx, pluginConfig = {}) {\n}\n");
+  file(join(upstream, "plugins/persistence/index.js"), "export async function register(app, ctx, pluginConfig = {}) {\n  if (process.env.STELZ_STORAGE_MODE === 'native') return; // Native Firefox profile owns storage.\n}\n");
   const camoufox = join(project, "node_modules/camoufox-js");
   file(join(camoufox, "package.json"), JSON.stringify({ name: "camoufox-js", version: "0.11.5", dependencies: {} }));
-  file(join(camoufox, "dist/utils.js"), 'propFile = path.join(path.dirname(filePath), "properties.json");\n');
-  for (const [name, version] of [["playwright-core", "1.62.1"], ["@modelcontextprotocol/sdk", "1.30.0"]]) {
+  file(join(camoufox, "dist/utils.js"), 'propFile = process.platform === "darwin" && filePath.includes(".app/Contents/MacOS/") ? path.join(path.dirname(filePath), "../Resources/properties.json") : path.join(path.dirname(filePath), "properties.json");\n');
+  for (const [name, version] of [["playwright-core", "1.62.1"], ["@modelcontextprotocol/sdk", "1.30.0"], ["better-sqlite3", "13.0.1"], ["impit", "0.14.8"]]) {
     file(join(project, "node_modules", name!, "package.json"), JSON.stringify({ name, version }));
   }
   file(browser, "browser executable fixture");
@@ -108,8 +141,9 @@ test("activates a complete runtime and manifest, including legacy replacement", 
     const server = readFileSync(join(f.home, "runtime/camofox-1.18.1/server.js"), "utf8");
     expect(server).toContain("launchProfileBrowser");
     expect(server).toContain("block_webrtc: !!launchProxy");
-    expect(server).toContain("typeIntoLocator(locator, text)");
+    expect(server).toContain("typeIntoLocator(locator, text, typingMode)");
     expect(existsSync(join(f.home, "runtime/camofox-1.18.1/plugins/local-profile/index.js"))).toBe(true);
+    for (const name of ["better-sqlite3", "impit"]) expect(existsSync(join(f.home, "runtime/camofox-1.18.1/node_modules", name, "package.json"))).toBe(true);
   }
   expect(readdirSync(f.home).filter(name => name.startsWith(".runtime-setup-"))).toEqual([]);
 }, 30000);
@@ -293,4 +327,18 @@ test("symlinks in runtime, lock, profile state, and setup sources cannot be foll
     expect(readFileSync(outside, "utf8")).toBe("untouched");
     if (kind === "source") oldRuntime(f);
   }
+});
+
+test("unpatched dependencies are rejected without rewriting the installed package or old runtime", async () => {
+  const f = fixture(); legacy(f);
+  const path = join(f.upstream, "server.js");
+  const before = readFileSync(path, "utf8").replace(
+    "await (await import('./plugins/local-profile/index.js')).typeIntoLocator(locator, text, typingMode);",
+    "await locator.fill(text, { timeout: 10000 });");
+  writeFileSync(path, before);
+  const result = await finish(launch(f));
+  expect(result.code).not.toBe(0);
+  expect(result.stderr).toContain("missing a required Stelz patch");
+  expect(readFileSync(path, "utf8")).toBe(before);
+  oldRuntime(f);
 });

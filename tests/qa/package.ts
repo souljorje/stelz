@@ -1,3 +1,5 @@
+import { checkBundledArchive, inspectBundledDependencies } from "../../scripts/bundled-dependencies.ts";
+import { packRelease } from "../../scripts/release-archive.ts";
 import { mkdtempSync, mkdirSync, symlinkSync, readFileSync, writeFileSync, readdirSync, lstatSync, realpathSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
@@ -17,16 +19,27 @@ async function run(args: string[], options: { cwd?: string; env?: Record<string,
 }
 console.log("Pack and install the release archive into an isolated global prefix.");
 await run([bun, "run", "build"]);
-const packed = JSON.parse(await run([npm, "pack", "--json", "--ignore-scripts"], { cwd: join(root, "packages/stelz") })) as Array<{ filename: string; files: Array<{ path: string }> }>;
+const packed = [await packRelease(join(root, "packages/stelz"), join(root, "packages/stelz"), { env, ignoreScripts: true })];
 const archive = join(root, "packages/stelz", packed[0]!.filename);
-for (const file of packed[0]!.files) if (/^(src|test|node_modules|\.git|\.codex|\.state|sessions)\//.test(file.path)) throw Error(`Unexpected archive file: ${file.path}`);
+for (const file of packed[0]!.files) if (/^(src|test|\.git|\.codex|\.state|sessions)\//.test(file.path)) throw Error(`Unexpected archive file: ${file.path}`);
+checkBundledArchive(packed[0]!.files);
 const uiFiles = packed[0]!.files.filter(file => file.path.startsWith("dist/ui/"));
 if (!uiFiles.some(file => file.path === "dist/ui/index.html") || !uiFiles.some(file => file.path.endsWith(".js")) || !uiFiles.some(file => file.path.endsWith(".woff2"))) throw Error("The archive is missing built UI assets.");
 await run([npm, "install", "--global", "--prefix", prefix, archive]);
+inspectBundledDependencies(join(prefix, "lib/node_modules/stelz"));
 const cleanEnv: Record<string, string> = { PATH: `${join(prefix, "bin")}:${bin}:/usr/bin:/bin`, HOME: env.HOME!, STELZ_HOME: home };
 if (env.TMPDIR) cleanEnv.TMPDIR = env.TMPDIR;
 for (const harness of ["codex", "claude", "hermes"]) if (Bun.which(harness, { PATH: cleanEnv.PATH })) throw Error(`Unexpected harness command in isolated PATH: ${harness}`);
 const executable = join(prefix, "bin/stelz");
+const nativeCheck = JSON.parse(await run([node, "--input-type=module", "-e", `
+  import { createRequire } from "node:module";
+  const own = createRequire(process.argv[1]), server = createRequire(own.resolve("@askjo/camofox-browser/package.json"));
+  const Sqlite = server("better-sqlite3"), db = new Sqlite(":memory:");
+  try { if (db.prepare("select 1 as ok").get().ok !== 1) throw Error("SQLite execution failed."); }
+  finally { db.close(); }
+  if (typeof own("impit").Impit !== "function") throw Error("The target Impit addon is unavailable.");
+  console.log(JSON.stringify({ sqlite: server("better-sqlite3/package.json").version, impit: own("impit/package.json").version }));
+`, join(prefix, "lib/node_modules/stelz/package.json")], { cwd, env: cleanEnv }));
 const poisonHome = join(temp, "wrong-project-home");
 writeFileSync(join(cwd, ".env"), `STELZ_HOME=${poisonHome}\n`);
 const defaultEnv = { ...cleanEnv }; delete defaultEnv.STELZ_HOME;
@@ -86,7 +99,7 @@ function checkLinks(folder: string) {
   }
 }
 checkLinks(join(home, "runtime"));
-const evidence = { result: "passed", archive, version, globalPrefix: prefix, cwd, serviceHome: home, bundledUiChecked: uiChecked, harnessExecutablesRequired: false, llmCredentialsProvided: false, runtimeLinksReferToSourceCheckout: false, browserChecks: JSON.parse(readFileSync(join(home, "report.json"), "utf8")) };
+const evidence = { result: "passed", archive, version, nativeCheck, globalPrefix: prefix, cwd, serviceHome: home, bundledUiChecked: uiChecked, harnessExecutablesRequired: false, llmCredentialsProvided: false, runtimeLinksReferToSourceCheckout: false, browserChecks: JSON.parse(readFileSync(join(home, "report.json"), "utf8")) };
 mkdirSync(join(root, ".state/package-test"), { recursive: true, mode: 0o700 });
 writeFileSync(join(root, ".state/package-test/report.json"), JSON.stringify(evidence, null, 2), { mode: 0o600 });
 console.log(JSON.stringify({ result: evidence.result, archive, globalPrefix: prefix, serviceHome: home, cwd }, null, 2));
