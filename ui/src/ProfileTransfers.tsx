@@ -1,7 +1,7 @@
 import { useId, useRef, useState } from "react";
 import type { FormEvent } from "react";
-import type { UiSnapshot } from "../../../packages/stelz/src/api/contracts.ts";
-import type { ProfileImportPreview, UiTransfer, UiTransferImport } from "../../../packages/stelz/src/api/transfer-contracts.ts";
+import type { UiSnapshot } from "../../src/api/contracts.ts";
+import type { ProfileImportPreview, UiTransfer, UiTransferImport } from "../../src/api/transfer-contracts.ts";
 import { Modal, Notice } from "./components";
 import { proxyDisplay, redact } from "./model.ts";
 import { ProfileMark } from "./ProfileMark";

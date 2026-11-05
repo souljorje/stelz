@@ -19,9 +19,9 @@
     ]
   },
   "include": [
-    "packages/**/*.ts",
-    "apps/**/*.ts",
-    "apps/**/*.tsx",
+    "src/**/*.ts",
+    "ui/**/*.ts",
+    "ui/**/*.tsx",
     "tests/**/*.ts",
     "scripts/**/*.ts"
   ]

@@ -5,7 +5,7 @@ import { createInterface } from "node:readline/promises";
 import { parseEnv } from "node:util";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { STELZ_VERSION } from "../../packages/stelz/src/versions.ts";
+import { STELZ_VERSION } from "../../src/versions.ts";
 import { assessSite, detectHumanChallenge, type Assessment, type SiteId, type Verdict } from "../helpers/public-site-verdicts.ts";
 import { assertTestHome, createTestHome } from "../helpers/test-home.ts";
 import { proxyRedactor } from "../helpers/proxy-acceptance-helpers.ts";
@@ -134,7 +134,7 @@ function serviceEnvironment(home: string): Record<string, string> {
 }
 
 async function stopProfile(profile: string, home: string): Promise<void> {
-  const child = Bun.spawn([process.execPath, "--no-env-file", join(ROOT, "packages/stelz/src/cli/cli.ts"), "stop", profile], {
+  const child = Bun.spawn([process.execPath, "--no-env-file", join(ROOT, "src/cli/cli.ts"), "stop", profile], {
     cwd: ROOT, env: serviceEnvironment(home), stdout: "pipe", stderr: "pipe",
   });
   const [out, error, code] = await Promise.all([
@@ -149,7 +149,7 @@ async function connectMcp(profile: string, home: string): Promise<PublicConnecti
   const client = new Client({ name: "stelz-public-sites", version: STELZ_VERSION });
   try {
     await client.connect(new StdioClientTransport({ command: process.execPath,
-      args: ["--no-env-file", join(ROOT, "packages/stelz/src/cli/cli.ts"), "mcp", "--profile", profile], env: serviceEnvironment(home), stderr: "inherit" }));
+      args: ["--no-env-file", join(ROOT, "src/cli/cli.ts"), "mcp", "--profile", profile], env: serviceEnvironment(home), stderr: "inherit" }));
   } catch (error) { await client.close().catch(() => {}); throw error; }
   return {
     call: async (name, args) => await client.callTool({ name, arguments: args }, undefined, { timeout: 180_000 }) as ToolReply,
@@ -408,7 +408,7 @@ if (import.meta.main) {
       const redact = proxyRedactor([proxy]), env = serviceEnvironment(home);
       async function command(...args: string[]) {
         assertTestHome(home);
-        const child = Bun.spawn([process.execPath, "--no-env-file", join(ROOT, "packages/stelz/src/cli/cli.ts"), ...args], {
+        const child = Bun.spawn([process.execPath, "--no-env-file", join(ROOT, "src/cli/cli.ts"), ...args], {
           cwd: ROOT, env, stdout: "pipe", stderr: "pipe",
         });
         const [out, err, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);

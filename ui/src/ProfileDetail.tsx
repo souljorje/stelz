@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 import type { KeyboardEvent } from "react";
-import type { UiAction, UiProfile, UiProfileDetail, UiNetworkUpdate, UiTypingUpdate, UiSnapshot } from "../../../packages/stelz/src/api/contracts.ts";
+import type { UiAction, UiProfile, UiProfileDetail, UiNetworkUpdate, UiTypingUpdate, UiSnapshot } from "../../src/api/contracts.ts";
 import { profilePath } from "./api.ts";
 import { ActionButton, CopyCommand, Icon, KeyValues, Notice, Phase } from "./components";
 import { NetworkForm } from "./NetworkForm";

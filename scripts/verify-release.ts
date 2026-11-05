@@ -1,12 +1,11 @@
-import { checkBundledArchive, inspectBundledDependencies } from "./bundled-dependencies.ts";
-import { packRelease } from "./release-archive.ts";
+import { inspectBundledDependencies } from "./bundled-dependencies.ts";
 import { releaseArguments, inspectReleaseCandidate, assertCandidateUnchanged } from "./release-candidate.ts";
 import { checkMarkdownLinks } from "./markdown-links.ts";
 import { nativeSmoke } from "./native-smoke.ts";
 import { mkdtempSync, mkdirSync, symlinkSync, readFileSync, writeFileSync, readdirSync, lstatSync, realpathSync, rmSync, existsSync, chmodSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
-import { STELZ_VERSION } from "../packages/stelz/src/versions.ts";
+import { STELZ_VERSION } from "../src/versions.ts";
 const root = resolve(import.meta.dir, ".."), temp = mkdtempSync(join(tmpdir(), "stelz-package-"));
 const input = releaseArguments(process.argv.slice(2), ["--native"]);
 const prefix = join(temp, "global"), cwd = join(temp, "empty"), home = join(temp, "data"), bin = join(temp, "bin");
@@ -23,23 +22,15 @@ async function run(args: string[], options: { cwd?: string; env?: Record<string,
 }
 console.log(`Verify isolated browser-free installation (${input.flags.has("--native") ? "ordinary native installation" : "lifecycle scripts disabled"}).`);
 try {
-const product = join(root, "packages/stelz");
+const product = root;
 const preparedDependencies = inspectBundledDependencies(product);
-let archive = input.archive;
-if (!archive) {
-  // Prove the prepack hook builds missing artifacts before creating one candidate.
-  rmSync(join(product, "dist"), { recursive: true, force: true });
-  const packed = await packRelease(product, temp, { env });
-  if (!existsSync(join(product, "dist/cli.js"))) throw Error("Prepack did not build the CLI.");
-  archive = join(temp, packed.filename);
-}
+const archive = input.archive ?? join(root, "release-artifacts", `stelz-${STELZ_VERSION}.tgz`);
+if (!existsSync(archive)) throw Error("Release archive not found. Run bun run pack first, or supply --archive FILE.");
 const candidate = inspectReleaseCandidate(archive);
-const packed = [candidate];
-for (const file of packed[0]!.files) if (/^(src|test|\.git|\.codex|\.state|sessions)\//.test(file.path)) throw Error(`Unexpected archive file: ${file.path}`);
-checkBundledArchive(packed[0]!.files);
-const uiFiles = packed[0]!.files.filter(file => file.path.startsWith("dist/ui/"));
+for (const file of candidate.files) if (/^(src|test|\.git|\.codex|\.state|sessions)\//.test(file.path)) throw Error(`Unexpected archive file: ${file.path}`);
+const uiFiles = candidate.files.filter(file => file.path.startsWith("dist/ui/"));
 if (!uiFiles.some(file => file.path === "dist/ui/index.html") || !uiFiles.some(file => file.path.endsWith(".js")) || !uiFiles.some(file => file.path.endsWith(".woff2"))) throw Error("The archive is missing built UI assets.");
-const paths = packed[0]!.files.map(file => file.path).sort();
+const paths = candidate.files.map(file => file.path).sort();
 for (const path of ["docs/bootstrap.md", "docs/onboarding-acceptance.md", "examples/onboarding-fixture.html", "skills/stelz-browser/references/bootstrap.md"])
   if (!paths.includes(path)) throw Error("Archive is missing " + path);
 for (const path of ["dist/cli.js", "dist/supervisor.js", "dist/plugin.js", "dist/ui/index.html", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md", "docs/agents.md", "examples/profiles.json", "skills/stelz-browser/SKILL.md", "skills/stelz-browser/references/recovery.md", ...["react", "react-dom", "scheduler", "ibm-plex-mono", "ibm-plex-sans"].map(name => "dist/ui/licenses/" + name + ".txt")]) {
@@ -53,7 +44,7 @@ if (JSON.stringify(installedDependencies) !== JSON.stringify(preparedDependencie
   throw Error("The installed archive changed the patched dependency files.");
 const manifest = JSON.parse(readFileSync(join(installed, "package.json"), "utf8"));
 if (manifest.name !== "stelz" || manifest.version !== STELZ_VERSION || manifest.private || manifest.license !== "MIT") throw Error("Invalid release manifest.");
-checkMarkdownLinks([join(root, "README.md"), join(root, "docs"), join(root, "examples"), join(root, "packages/stelz/skills")]);
+checkMarkdownLinks([join(root, "README.md"), join(root, "docs"), join(root, "examples"), join(root, "skills")]);
 checkMarkdownLinks([join(installed, "README.md"), join(installed, "docs"), join(installed, "examples"), join(installed, "skills")]);
 for (const file of ["cli.js", "supervisor.js", "plugin.js"]) if (readFileSync(join(installed, "dist", file), "utf8").includes(root)) throw Error("Bundle contains a checkout path: " + file);
 const cleanEnv: Record<string, string> = { PATH: `${join(prefix, "bin")}:${bin}:/usr/bin:/bin`, HOME: env.HOME!, STELZ_HOME: home };

@@ -8,10 +8,10 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createHash } from "node:crypto";
-import { freezeDevice, replayFingerprint, launchPreferences, applyProxyLocale } from "../../packages/stelz/src/browser/fingerprint.ts";
-import { register } from "../../packages/stelz/src/browser/plugin.ts";
-import { allowedBrowserTools } from "../../packages/stelz/src/mcp/tool-policy.ts";
-import type { Tool } from "../../packages/stelz/src/browser/upstream.ts";
+import { freezeDevice, replayFingerprint, launchPreferences, applyProxyLocale } from "../../src/browser/fingerprint.ts";
+import { register } from "../../src/browser/plugin.ts";
+import { allowedBrowserTools } from "../../src/mcp/tool-policy.ts";
+import type { Tool } from "../../src/browser/upstream.ts";
 import { upstreamTyping } from "../helpers/upstream-typing.ts";
 
 const contractsUrl = pathToFileURL(join(dirname(createRequire(import.meta.url).resolve("@askjo/camofox-browser/package.json")),

@@ -2,8 +2,8 @@
 // Generic MCP diagnostic client. No model or harness is required.
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { entry, HOME_DIR } from "../packages/stelz/src/profiles/config.ts";
-import { STELZ_VERSION } from "../packages/stelz/src/versions.ts";
+import { entry, HOME_DIR } from "../src/profiles/config.ts";
+import { STELZ_VERSION } from "../src/versions.ts";
 const [id, name = "profile_status", input = "{}"] = process.argv.slice(2);
 if (!id) throw Error("Select a profile: bun scripts/call.ts ID [TOOL] [JSON]");
 const client = new Client({ name: "stelz-diagnostic", version: STELZ_VERSION });

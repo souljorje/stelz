@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { parseTypingMode, typeIntoLocator } from "../../packages/stelz/src/browser/typing.ts";
+import { parseTypingMode, typeIntoLocator } from "../../src/browser/typing.ts";
 
 function field(tag = "input", type = "text") {
   let value = "old value", now = 0, call = 0;
@@ -152,7 +152,7 @@ test("a typing deadline prevents further characters", async () => {
 
 test("service secrets select the typing mode and include overrides in the configuration hash", async () => {
   const home = mkdtempSync(join(tmpdir(), "stelz-typing-config-"));
-  const script = `import { typingMode, configurationHash } from ${JSON.stringify(join(import.meta.dir, "../../packages/stelz/src/profiles/config.ts"))};
+  const script = `import { typingMode, configurationHash } from ${JSON.stringify(join(import.meta.dir, "../../src/profiles/config.ts"))};
 console.log(JSON.stringify({mode:typingMode(),hash:configurationHash({id:"typing",port:9479,mode:"direct"})}));`;
   const env: NodeJS.ProcessEnv = { ...process.env, STELZ_HOME: home };
   delete env.STELZ_TYPING_MODE;

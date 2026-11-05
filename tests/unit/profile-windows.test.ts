@@ -3,11 +3,11 @@ import { mkdtempSync, readFileSync, rmSync, statSync, symlinkSync } from "node:f
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runInNewContext } from "node:vm";
-import { profileAppearance } from "../../packages/stelz/src/api/contracts.ts";
-import { addProfileExtension, createProfileWindows } from "../../packages/stelz/src/browser/profile-windows.ts";
-import { createUiApp, createUiSessionState } from "../../packages/stelz/src/api/ui-server.ts";
-import type { UiModel, UiSnapshot } from "../../packages/stelz/src/api/contracts.ts";
-import { profileBrowserPid } from "../../packages/stelz/src/browser/window-activation.ts";
+import { profileAppearance } from "../../src/api/contracts.ts";
+import { addProfileExtension, createProfileWindows } from "../../src/browser/profile-windows.ts";
+import { createUiApp, createUiSessionState } from "../../src/api/ui-server.ts";
+import type { UiModel, UiSnapshot } from "../../src/api/contracts.ts";
+import { profileBrowserPid } from "../../src/browser/window-activation.ts";
 
 const folders: string[] = [];
 afterEach(() => { for (const folder of folders.splice(0)) rmSync(folder, { recursive: true, force: true }); });

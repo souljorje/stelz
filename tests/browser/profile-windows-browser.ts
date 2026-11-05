@@ -4,15 +4,15 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { profileAppearance, type ProfileWindows } from "../../packages/stelz/src/api/contracts.ts";
+import { profileAppearance, type ProfileWindows } from "../../src/api/contracts.ts";
 
 const root = resolve(import.meta.dir, "../..");
 mkdirSync(join(root, ".state"), { recursive: true });
 const home = mkdtempSync(join(root, ".state/profile-windows-"));
 process.env.STELZ_HOME = home;
-const { createWindowModel } = await import("../../packages/stelz/src/api/window-model.ts");
+const { createWindowModel } = await import("../../src/api/window-model.ts");
 const windows = createWindowModel();
-const cli = join(root, "packages/stelz/dist/cli.js"), bun = Bun.which("bun")!;
+const cli = join(root, "dist/cli.js"), bun = Bun.which("bun")!;
 const env: Record<string, string> = { STELZ_HOME: home };
 for (const key of ["PATH", "HOME", "LANG", "TMPDIR", "CAMOUFOX_EXECUTABLE"]) if (process.env[key]) env[key] = process.env[key]!;
 const ids = ["window-check-01", "window-check-02"];
@@ -108,7 +108,7 @@ try {
   report.result = foregroundLimits.length ? "incomplete" : "passed";
   if (foregroundLimits.length) { report.foregroundLimits = foregroundLimits; process.exitCode = 1; }
   if (process.argv.includes("--inspect")) {
-    const { createUiServer } = await import("../../packages/stelz/src/api/ui-server.ts");
+    const { createUiServer } = await import("../../src/api/ui-server.ts");
     const preview = createUiServer({ port: 0 }); ui = preview;
     console.log("Review the running profiles for 45 seconds: " + preview.launchUrl);
     await Bun.sleep(45_000);

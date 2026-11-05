@@ -1,4 +1,4 @@
-import type { UiAction, UiProfile, UiNetwork, UiNetworkUpdate, UiPhase, UiSnapshot } from "../../../packages/stelz/src/api/contracts.ts";
+import type { UiAction, UiProfile, UiNetwork, UiNetworkUpdate, UiPhase, UiSnapshot } from "../../src/api/contracts.ts";
 
 export const phaseLabels: Record<UiPhase, string> = {
   starting: "Starting", ready: "Ready", paused: "Paused", verification_failed: "IP check failed",

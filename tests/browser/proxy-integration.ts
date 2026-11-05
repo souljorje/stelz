@@ -11,9 +11,10 @@ import {
   proxyEndpoints, proxyRedactor, proxyTestConfiguration, PROXY_PROFILE_IDS as ids,
   type Pair, type ProbeResult, type ProxyLifetime,
 } from "../helpers/proxy-acceptance-helpers.ts";
-import { assertRelayTraffic, networkProbe, probeExit, proxyRelay, unusedPorts } from "../helpers/proxy-network-fixture.ts";
+import { assertRelayTraffic, networkProbe, probeExit, proxyRelay } from "../helpers/proxy-network-fixture.ts";
+import { unusedPorts } from "../helpers/ports.ts";
 
-const root = resolve(import.meta.dir, "../.."), cli = process.env.STELZ_TEST_CLI || join(root, "packages/stelz/dist/cli.js");
+const root = resolve(import.meta.dir, "../.."), cli = process.env.STELZ_TEST_CLI || join(root, "dist/cli.js");
 const CACHE_MS = 120_000;
 const clients: Client[] = [], owned = new Set<string>(), report: unknown[] = [];
 const relays: ReturnType<typeof proxyRelay>[] = [];

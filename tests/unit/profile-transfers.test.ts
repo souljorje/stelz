@@ -2,10 +2,10 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createProfileTransferManager } from "../../packages/stelz/src/api/profile-transfers.ts";
-import { createUiApp, createUiSessionState } from "../../packages/stelz/src/api/ui-app.ts";
-import type { UiModel } from "../../packages/stelz/src/api/contracts.ts";
-import type { ProfileArchiveManifest } from "../../packages/stelz/src/profiles/profile-transfer-types.ts";
+import { createProfileTransferManager } from "../../src/api/profile-transfers.ts";
+import { createUiApp, createUiSessionState } from "../../src/api/ui-app.ts";
+import type { UiModel } from "../../src/api/contracts.ts";
+import type { ProfileArchiveManifest } from "../../src/profiles/profile-transfer-types.ts";
 
 const cleanups: (() => Promise<unknown>)[] = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });

@@ -26,7 +26,7 @@ Use the UI's window icon to find a profile's window.
 See [Find a profile's windows](docs/ui.md#find-a-profiles-windows).
 
 Build a release archive with `bun install --ignore-scripts` and `bun run pack`.
-Install a tested archive with `npm install --global ./stelz-0.2.1.tgz`.
+Install a tested archive with `npm install --global ./release-artifacts/stelz-0.2.1.tgz`.
 
 Each MCP connection selects one profile. One controller can act on that profile at a time.
 Client disconnect releases control. The browser and its pages remain open.
@@ -44,10 +44,12 @@ See [Compatibility](docs/README.md#compatibility) before changing existing confi
 - [Architecture and design decisions](docs/architecture.md)
 - [Development and testing](docs/tests.md)
 
-## Workspace
+## Development
 
-`apps/ui` contains the private React UI. `packages/stelz` contains the only publishable package.
-The package groups source under `cli`, `profiles`, `browser`, `runtime`, `mcp`, and `api`.
-Root `docs/` and `examples/` are canonical. Build stages their copies into the package.
-Run `bun run verify:release` for browser-free archive verification.
+`src/` contains the service. `ui/` contains the bundled React UI.
+The root manifest defines the published package and development commands.
+Build uses `docs/`, `examples/`, and `skills/` directly. It does not copy documentation.
+Run `bun run check` for build, TypeScript checks, and browser-free tests.
+Run `bun run pack` to create `release-artifacts/stelz-0.2.1.tgz`.
+Run `bun run verify:release` to check that saved archive without a browser or rebuild.
 See [Distribution](docs/distribution.md) and [Camofox patches](docs/camofox-patches.md).

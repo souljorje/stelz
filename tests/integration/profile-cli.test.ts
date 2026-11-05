@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseEnv } from "node:util";
 
-const cli = resolve(import.meta.dir, "../../packages/stelz/src/cli/cli.ts"), homes: string[] = [];
+const cli = resolve(import.meta.dir, "../../src/cli/cli.ts"), homes: string[] = [];
 function home() { const value = mkdtempSync(join(tmpdir(), "stelz-profile-cli-")); homes.push(value); return value; }
 afterEach(() => { for (const dir of homes.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 async function run(dir: string, args: string[], extra: Record<string, string> = {}) {
@@ -94,7 +94,7 @@ test("parallel CLI creates allocate exactly one profile and one credential refer
 
 test("CLI resumes an interrupted creation using the existing journal", async () => {
   const dir = home(); await run(dir, ["init"]);
-  const domain = resolve(import.meta.dir, "../../packages/stelz/src/profiles/profile-configuration.ts");
+  const domain = resolve(import.meta.dir, "../../src/profiles/profile-configuration.ts");
   const child = Bun.spawn([process.execPath, "--no-env-file", "-e", `
 import * as fs from 'node:fs'; import { mock } from 'bun:test';
 const original = { ...fs };

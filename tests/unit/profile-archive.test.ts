@@ -11,13 +11,13 @@ import { dirname, join } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { deflateRawSync } from "node:zlib";
-import { readProfileArchive, writeProfileArchive } from "../../packages/stelz/src/profiles/profile-archive.ts";
+import { readProfileArchive, writeProfileArchive } from "../../src/profiles/profile-archive.ts";
 import {
   ProfileTransferError, type ArchiveMetadata, type ProfileArchiveManifest, type TransferProgress,
-} from "../../packages/stelz/src/profiles/profile-transfer-types.ts";
+} from "../../src/profiles/profile-transfer-types.ts";
 
 // The runtime dependencies belong to the publishable workspace package.
-const { ZipFile } = createRequire(new URL("../../packages/stelz/package.json", import.meta.url))("yazl") as typeof import("yazl");
+const { ZipFile } = createRequire(new URL("../../package.json", import.meta.url))("yazl") as typeof import("yazl");
 const temporary = new Set<string>();
 afterEach(() => { for (const path of temporary) rmSync(path, { recursive: true, force: true }); temporary.clear(); });
 function workspace() { const path = mkdtempSync(join(tmpdir(), "stelz-archive-")); temporary.add(path); return path; }

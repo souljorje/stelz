@@ -6,10 +6,10 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseEnv } from "node:util";
-import type { Profile } from "../../packages/stelz/src/profiles/config.ts";
+import type { Profile } from "../../src/profiles/config.ts";
 
 const root = resolve(import.meta.dir, "../.."), homes: string[] = [];
-const modelPath = join(root, "packages/stelz/src/api/ui-model.ts"), runtimePath = join(root, "packages/stelz/src/runtime/runtime.ts");
+const modelPath = join(root, "src/api/ui-model.ts"), runtimePath = join(root, "src/runtime/runtime.ts");
 type SavedProfile = Profile & { mode?: "direct" | "proxy" };
 type Fixture = { home: string; state: string; config: string; secrets: string; profiles: SavedProfile[] };
 function fixture(profiles: SavedProfile[] = [{ id: "test", port: 19471, storage: "native" }], secrets = "# private configuration\n", initialized = true): Fixture {
@@ -387,8 +387,8 @@ test("renaming a running profile refreshes its display name without changing its
   writeFileSync(join(f.state, "test/profile-data"), "existing profile data");
   const secrets = readFileSync(f.secrets, "utf8"), inode = lstatSync(join(f.state, "test")).ino;
   const result = await run(f, `
-    const config = await import(${JSON.stringify(join(root, "packages/stelz/src/profiles/config.ts"))});
-    const { profileAppearance } = await import(${JSON.stringify(join(root, "packages/stelz/src/api/contracts.ts"))});
+    const config = await import(${JSON.stringify(join(root, "src/profiles/config.ts"))});
+    const { profileAppearance } = await import(${JSON.stringify(join(root, "src/api/contracts.ts"))});
     const state = join(home, 'profiles/test'), calls = [];
     const live = { profileId: 'test', name: 'Ignore service display metadata', phase: 'ready', instanceId: 'existing',
       typingModeDefault: 'instant', controller: { id: 'private-rename-lease', label: 'Existing client', pid: process.pid, activeActions: 1, releasing: false } };
@@ -466,7 +466,7 @@ test("display names and rename validation errors use the existing UI sanitizatio
 test("typing saves preserve dirty network drafts and network merges retain the current typing preference", async () => {
   const f = fixture();
   const result = await run(f, `
-    const { networkDraft, networkDirty, networkUpdate } = await import(${JSON.stringify(join(root, "apps/ui/src/model.ts"))});
+    const { networkDraft, networkDirty, networkUpdate } = await import(${JSON.stringify(join(root, "ui/src/model.ts"))});
     const original = (await model.snapshot()).profiles[0], baseline = networkDraft(original.network);
     const draft = { ...baseline, proxyUrl: 'http://draft.test:8080', expectedIp: '198.51.100.10' };
     const typed = await model.updateTyping('test', { revision: original.typing.revision, mode: 'keyboard' });
@@ -492,7 +492,7 @@ test("window inventories redact whole values before truncation and load secrets 
   const f = fixture([{ id: "test", port: 19471, mode: "direct", proxyEnv: "WINDOW_PROXY" }],
     `WINDOW_PROXY=http://window-user:${password}@proxy.test:8080\n`);
   const result = await run(f, `
-    const { createWindowModel } = await import(${JSON.stringify(join(root, "packages/stelz/src/api/window-model.ts"))});
+    const { createWindowModel } = await import(${JSON.stringify(join(root, "src/api/window-model.ts"))});
     const password = ${JSON.stringify(password)}, state = join(home, 'profiles/test');
     let unsupported = false;
     const service = Bun.serve({ port: 0, fetch(request) {
@@ -659,7 +659,7 @@ test("null clears a proxy reference without changing credentials, IDs, paths, or
     const f = fixture([original], oldNetworkSecrets), inode = lstatSync(join(f.state, "test")).ino;
     const result = await run(f, `${withRevision}
       const saved = await model.updateNetwork('test', { revision, proxyUrl: null });
-      const config = await import(${JSON.stringify(join(root, "packages/stelz/src/profiles/config.ts"))});
+      const config = await import(${JSON.stringify(join(root, "src/profiles/config.ts"))});
       return { saved, proxy: config.proxyEnvironment(config.settings().profiles[0]) };`);
     expect(result.ok).toBe(true);
     expect(result.value.saved).toMatchObject({ id: "test", name: "Saved display name", typingMode: "keyboard", configurationError: null,
@@ -679,7 +679,7 @@ test("legacy direct references stay dormant during IP saves and require an expli
     const before = (await model.snapshot()).profiles[0];
     const saved = await model.updateNetwork('test', { revision: before.network.revision, expectedIp: '198.51.100.77' });
     const raw = JSON.parse(fs.readFileSync(join(home, 'profiles.json'), 'utf8')).profiles[0];
-    const config = await import(${JSON.stringify(join(root, "packages/stelz/src/profiles/config.ts"))});
+    const config = await import(${JSON.stringify(join(root, "src/profiles/config.ts"))});
     const proxy = config.proxyEnvironment(config.settings().profiles[0]);
     const replaced = await model.updateNetwork('test', { revision: saved.network.revision, proxyUrl: 'http://new-user:new-password@new.test:8181' });
     return { before, saved, raw, proxy, replaced };`);
@@ -970,7 +970,7 @@ for (const direction of ["commit", "rollback"]) test(`an interrupted proxy unlin
   expect(observed.ok).toBe(true);
   expect(observed.value.profiles[0].configurationError).toContain("Network save is pending");
   const result = await run(f, `
-    const domain = await import(${JSON.stringify(join(root, "packages/stelz/src/profiles/profile-configuration.ts"))});
+    const domain = await import(${JSON.stringify(join(root, "src/profiles/profile-configuration.ts"))});
     await domain.prepareProfileConfiguration(async () => {});
     return await model.snapshot();`);
   expect(result.ok).toBe(true);

@@ -1,6 +1,6 @@
 import { copyFileSync, cpSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { ROOT } from "../../packages/stelz/src/paths.ts";
+import { ROOT } from "../../src/paths.ts";
 
 /** Exercise the real source CLI against a fixture package with a mock compiled plugin. */
 export function createMockPackage(parent: string) {

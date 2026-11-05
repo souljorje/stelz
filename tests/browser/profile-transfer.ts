@@ -5,9 +5,10 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { fixture } from "../helpers/fixture.ts";
 import { assertTestHome, createTestHome } from "../helpers/test-home.ts";
+import { unusedPorts } from "../helpers/ports.ts";
 
 const root = resolve(import.meta.dir, "../.."), home = createTestHome("transfer-native", join(root, ".state"));
-const cli = process.env.STELZ_TEST_CLI || join(root, "packages/stelz/dist/cli.js");
+const cli = process.env.STELZ_TEST_CLI || join(root, "dist/cli.js");
 const env: Record<string, string> = { STELZ_HOME: home };
 for (const key of ["PATH", "HOME", "LANG", "TMPDIR", "CAMOUFOX_EXECUTABLE"]) if (process.env[key]) env[key] = process.env[key]!;
 const clients = new Set<Client>(), active = new Set<string>();
@@ -69,7 +70,7 @@ try {
   const cookieBytes = readFileSync(profilePath(source, "browser-data/cookies.sqlite"));
   const checkpointId = "transfer-checkpoint";
   const config = JSON.parse(readFileSync(join(home, "profiles.json"), "utf8"));
-  config.profiles.push({ id: checkpointId, port: 19_701, storage: "checkpoint" });
+  config.profiles.push({ id: checkpointId, port: (await unusedPorts(1))[0]!, storage: "checkpoint" });
   writeFileSync(join(home, "profiles.json"), JSON.stringify(config));
   const archive = join(home, "roundtrip.stelz-profiles.zip");
   await command("profile", "export", source, checkpointId, "--output", archive, "--json");

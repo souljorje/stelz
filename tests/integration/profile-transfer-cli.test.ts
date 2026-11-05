@@ -5,7 +5,7 @@ import { parseEnv } from "node:util";
 import { createHash } from "node:crypto";
 import { createTestHome } from "../helpers/test-home.ts";
 
-const cli = process.env.STELZ_TEST_CLI || resolve(import.meta.dir, "../../packages/stelz/src/cli/cli.ts"), homes: string[] = [];
+const cli = process.env.STELZ_TEST_CLI || resolve(import.meta.dir, "../../src/cli/cli.ts"), homes: string[] = [];
 function home() { const value = createTestHome("stelz-transfer-cli"); homes.push(value); return value; }
 afterEach(() => { for (const directory of homes.splice(0)) rmSync(directory, { recursive: true, force: true }); });
 async function run(home: string, args: string[], extra: Record<string, string> = {}) {

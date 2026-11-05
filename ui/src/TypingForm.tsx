@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { TypingMode, UiProfile, UiTypingUpdate } from "../../../packages/stelz/src/api/contracts.ts";
+import type { TypingMode, UiProfile, UiTypingUpdate } from "../../src/api/contracts.ts";
 import { errorMessage } from "./api.ts";
 import { Notice, Select } from "./components";
 

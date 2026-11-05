@@ -1,6 +1,6 @@
 import { useEffect, useId, useState } from "react";
 import type { FormEvent } from "react";
-import type { UiProfile, UiNetworkUpdate } from "../../../packages/stelz/src/api/contracts.ts";
+import type { UiProfile, UiNetworkUpdate } from "../../src/api/contracts.ts";
 import { ApiError, errorMessage } from "./api.ts";
 import { hasProxy, networkDirty, networkDraft, networkUpdate } from "./model.ts";
 import { KeyValues, Notice } from "./components";

@@ -6,11 +6,11 @@ const root = resolve(import.meta.dir, "../..");
 mkdirSync(join(root, ".state"), { recursive: true });
 const home = mkdtempSync(join(root, ".state/window-close-"));
 process.env.STELZ_HOME = home;
-const { initialize, dir } = await import("../../packages/stelz/src/profiles/config.ts");
-const { assertStoppedProfile, running } = await import("../../packages/stelz/src/runtime/runtime.ts");
-const { createUiModel } = await import("../../packages/stelz/src/api/ui-model.ts");
-const { createUiServer } = await import("../../packages/stelz/src/api/ui-server.ts");
-const cli = join(root, "packages/stelz/dist/cli.js"), id = "window-close-check";
+const { initialize, dir } = await import("../../src/profiles/config.ts");
+const { assertStoppedProfile, running } = await import("../../src/runtime/runtime.ts");
+const { createUiModel } = await import("../../src/api/ui-model.ts");
+const { createUiServer } = await import("../../src/api/ui-server.ts");
+const cli = join(root, "dist/cli.js"), id = "window-close-check";
 async function command(...args: string[]) {
   const child = Bun.spawn([process.execPath, "--no-env-file", cli, ...args], { env: process.env, stdout: "pipe", stderr: "pipe" });
   const [code, out, err] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);

@@ -184,14 +184,14 @@ Showing a browser window preserves its controller. Human takeover still requires
 Closing the UI server preserves active browsers.
 See [UI operations](ui.md).
 
-Only `packages/stelz` produces the release package. `apps/ui` remains a private workspace package.
-The build copies canonical root documentation and examples into the release package.
+The root manifest defines the release package. `ui/` contains the bundled React application.
+The archive includes canonical documentation and examples without build-time copies.
 The package includes prepared Camofox and `camoufox-js` dependencies with committed compatibility patches.
 Setup checks and stages the runtime before activation. It preserves the installed Camoufox app and existing profile data.
 Pinned dependencies make compatibility changes reproducible and reviewable.
 See [adapter patches](camofox-patches.md) and [distribution](distribution.md).
 
-In the source workspace, `packages/stelz/src/` separates responsibilities by directory:
+In the source workspace, `src/` separates responsibilities by directory:
 
 | Directory | Responsibility |
 | --- | --- |

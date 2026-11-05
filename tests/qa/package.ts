@@ -1,11 +1,10 @@
-import { checkBundledArchive, inspectBundledDependencies } from "../../scripts/bundled-dependencies.ts";
-import { packRelease } from "../../scripts/release-archive.ts";
+import { inspectBundledDependencies } from "../../scripts/bundled-dependencies.ts";
 import { releaseArguments, inspectReleaseCandidate, assertCandidateUnchanged } from "../../scripts/release-candidate.ts";
 import { nativeSmoke } from "../../scripts/native-smoke.ts";
-import { mkdtempSync, mkdirSync, symlinkSync, readFileSync, writeFileSync, readdirSync, lstatSync, realpathSync } from "node:fs";
+import { mkdtempSync, mkdirSync, symlinkSync, readFileSync, writeFileSync, readdirSync, lstatSync, realpathSync, existsSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { tmpdir } from "node:os";
-import { STELZ_VERSION } from "../../packages/stelz/src/versions.ts";
+import { STELZ_VERSION } from "../../src/versions.ts";
 import { createTestHome } from "../helpers/test-home.ts";
 const root = resolve(import.meta.dir, "../.."), temp = mkdtempSync(join(tmpdir(), "stelz-package-"));
 const input = releaseArguments(process.argv.slice(2), ["--native", "--proxy", "--manual"]);
@@ -22,15 +21,11 @@ async function run(args: string[], options: { cwd?: string; env?: Record<string,
   if (code) throw Error(err || out); return out;
 }
 console.log("Install the release archive into an isolated global prefix.");
-let archive = input.archive;
-if (!archive) {
-  const packed = await packRelease(join(root, "packages/stelz"), temp, { env });
-  archive = join(temp, packed.filename);
-}
-const candidate = inspectReleaseCandidate(archive), packed = [candidate];
-for (const file of packed[0]!.files) if (/^(src|test|\.git|\.codex|\.state|sessions)\//.test(file.path)) throw Error(`Unexpected archive file: ${file.path}`);
-checkBundledArchive(packed[0]!.files);
-const uiFiles = packed[0]!.files.filter(file => file.path.startsWith("dist/ui/"));
+const archive = input.archive ?? join(root, "release-artifacts", `stelz-${STELZ_VERSION}.tgz`);
+if (!existsSync(archive)) throw Error("Release archive not found. Run bun run pack first, or supply --archive FILE.");
+const candidate = inspectReleaseCandidate(archive);
+for (const file of candidate.files) if (/^(src|test|\.git|\.codex|\.state|sessions)\//.test(file.path)) throw Error(`Unexpected archive file: ${file.path}`);
+const uiFiles = candidate.files.filter(file => file.path.startsWith("dist/ui/"));
 if (!uiFiles.some(file => file.path === "dist/ui/index.html") || !uiFiles.some(file => file.path.endsWith(".js")) || !uiFiles.some(file => file.path.endsWith(".woff2"))) throw Error("The archive is missing built UI assets.");
 await run([npm, "install", "--global", "--prefix", prefix, archive]);
 inspectBundledDependencies(join(prefix, "lib/node_modules/stelz"));

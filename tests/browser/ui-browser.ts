@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { chromium } from "playwright-core";
-import type { UiAction } from "../../packages/stelz/src/api/contracts.ts";
+import type { UiAction } from "../../src/api/contracts.ts";
 
 const root = resolve(import.meta.dir, "../.."), home = mkdtempSync(join(tmpdir(), "stelz-ui-browser-"));
 process.env.STELZ_HOME = home;
@@ -13,8 +13,8 @@ process.env.STELZ_TYPING_MODE = "auto";
 // Transfers use an install-compatible synthetic executable; lifecycle actions remain mocked.
 process.env.CAMOUFOX_EXECUTABLE = join(home, "fixture-engine");
 writeFileSync(process.env.CAMOUFOX_EXECUTABLE, "ui-browser-fixture", { mode: 0o600 });
-const { processStart } = await import("../../packages/stelz/src/runtime/runtime.ts");
-const { createUiServer, createUiSessionState } = await import("../../packages/stelz/src/api/ui-server.ts");
+const { processStart } = await import("../../src/runtime/runtime.ts");
+const { createUiServer, createUiSessionState } = await import("../../src/api/ui-server.ts");
 const reports = join(root, ".state/ui-browser");
 mkdirSync(reports, { recursive: true });
 const commands: string[] = [];
@@ -231,7 +231,7 @@ if (process.argv.includes("--serve")) {
     await page.getByLabel(/^Expected exit IP/).fill("198.51.100.10");
     if (!await page.getByRole("button", { name: "Start profile-02", exact: true }).isDisabled()) throw Error("Start ignores unsaved network changes.");
     await page.getByRole("tab", { name: "Device", exact: true }).click();
-    await page.getByRole("tab", { name: "Overview", exact: true }).click();
+    await page.getByRole("tab", { name: "Overview Unsaved network changes", exact: true }).click();
     await page.getByLabel("Default typing mode", { exact: true }).selectOption("keyboard");
     await page.getByText("Typing mode saved. Applies to future typing actions.", { exact: true }).waitFor();
     if (await page.getByRole("button", { name: "Save network", exact: true }).isDisabled()) throw Error("Saving typing preferences invalidated a dirty network form.");
@@ -275,7 +275,7 @@ if (process.argv.includes("--serve")) {
     await page.reload();
     await page.getByRole("button", { name: "Inspect Work browser", exact: true }).click();
     await page.getByRole("heading", { name: "Work browser", exact: true }).waitFor();
-    if (!(await page.getByLabel("Command", { exact: true }).innerText()).includes("--profile profile-02")) throw Error("Renaming changed the MCP profile ID.");
+    if (!/--profile (?:profile-02|'profile-02')(?=\s|$)/.test(await page.getByLabel("Command", { exact: true }).innerText())) throw Error("Renaming changed the MCP profile ID.");
     await page.getByRole("button", { name: "Rename profile", exact: true }).click();
     await page.getByRole("textbox", { name: "Profile name", exact: true }).fill("profile-02");
     await page.getByRole("button", { name: "Save profile name", exact: true }).click();

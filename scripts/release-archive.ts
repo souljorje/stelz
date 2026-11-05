@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, writeFileSync, readdirSync, rmSync, lstatSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { checkBundledArchive } from "./bundled-dependencies.ts";
-import { NATIVE_DEPENDENCIES } from "../packages/stelz/src/browser/native-dependencies.ts";
+import { NATIVE_DEPENDENCIES } from "../src/browser/native-dependencies.ts";
 
 type PackResult = { filename: string; files: Array<{ path: string }>; size: number; shasum: string; integrity: string };
 const nativePackages = NATIVE_DEPENDENCIES;
@@ -46,9 +46,9 @@ export function externalizeNativeDependencies(product: string) {
   visit(join(product, "node_modules"));
 }
 
-// Bun resolves its workspace links. npm then packs a physical standalone release tree.
+// Bun resolves dependency links. npm packs the prepared physical release tree.
 export async function packRelease(product: string, destination: string, options: {
-  ignoreScripts?: boolean; env?: Record<string, string>;
+  env?: Record<string, string>;
 } = {}): Promise<PackResult> {
   const temporary = mkdtempSync(join(tmpdir(), "stelz-release-tree-"));
   const env = { ...(options.env ?? process.env), npm_config_cache: join(temporary, "npm-cache") };
@@ -59,7 +59,7 @@ export async function packRelease(product: string, destination: string, options:
     return out;
   }
   try {
-    await run([process.execPath, "pm", "pack", "--quiet", "--destination", temporary, ...(options.ignoreScripts ? ["--ignore-scripts"] : [])], product);
+    await run([process.execPath, "pm", "pack", "--quiet", "--destination", temporary, "--ignore-scripts"], product);
     const archive = join(temporary, readdirSync(temporary).find(name => name.endsWith(".tgz"))!);
     const paths = (await run(["tar", "-tzf", archive], product)).split("\n").filter(Boolean);
     if (paths.some(path => !path.startsWith("package/") || path.split("/").includes("..") || path.includes("\\")))

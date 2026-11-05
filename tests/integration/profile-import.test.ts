@@ -4,7 +4,7 @@ import { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { parseEnv } from "node:util";
-import type { PortableProfile, ProfileArchiveManifest } from "../../packages/stelz/src/profiles/profile-transfer-types.ts";
+import type { PortableProfile, ProfileArchiveManifest } from "../../src/profiles/profile-transfer-types.ts";
 
 const root = resolve(import.meta.dir, "../.."), homes: string[] = [];
 const sha = (value: string | Buffer) => createHash("sha256").update(value).digest("hex");
@@ -53,10 +53,10 @@ async function run(f: Fixture, body: string, prelude = "", expectedCode = 0) {
 ${prelude}
 const home = process.env.STELZ_HOME, stagingDirectory = join(home, 'upload');
 const manifest = JSON.parse(fs.readFileSync(join(home, 'manifest.json'), 'utf8'));
-const api = await import(${JSON.stringify(join(root, "packages/stelz/src/profiles/profile-import.ts"))});
-const configuration = await import(${JSON.stringify(join(root, "packages/stelz/src/profiles/profile-configuration.ts"))});
-const config = await import(${JSON.stringify(join(root, "packages/stelz/src/profiles/config.ts"))});
-const transaction = await import(${JSON.stringify(join(root, "packages/stelz/src/profiles/profile-import-transaction.ts"))});
+const api = await import(${JSON.stringify(join(root, "src/profiles/profile-import.ts"))});
+const configuration = await import(${JSON.stringify(join(root, "src/profiles/profile-configuration.ts"))});
+const config = await import(${JSON.stringify(join(root, "src/profiles/config.ts"))});
+const transaction = await import(${JSON.stringify(join(root, "src/profiles/profile-import-transaction.ts"))});
 const preview = () => api.inspectProfileImport(manifest, stagingDirectory);
 const commit = async (extra = {}) => { const p = await preview(); return api.commitProfileImport({ manifest, stagingDirectory, revision: p.revision, profiles: p.profiles.map(({sourceId,id,name}) => ({sourceId,id,name})), ...extra }); };
 try { console.log(JSON.stringify({ ok: true, value: await (async () => { ${body} })() })); }
@@ -285,8 +285,8 @@ mock.module('node:fs', () => ({ ...original, fsyncSync(fd) { original.fsyncSync(
 test("pending import credentials are redacted and diagnostics report recovery without blocking existing catalog reads", async () => {
   const f = fixture();
   await run(f, "await commit({ onProgress(progress) { if (progress.bytes > 0) process.exit(79); } });", "", 79);
-  const result = await run(f, `const { createUiModel, redactUiText } = await import(${JSON.stringify(join(root, "packages/stelz/src/api/ui-model.ts"))});
-    const { doctor } = await import(${JSON.stringify(join(root, "packages/stelz/src/runtime/runtime.ts"))});
+  const result = await run(f, `const { createUiModel, redactUiText } = await import(${JSON.stringify(join(root, "src/api/ui-model.ts"))});
+    const { doctor } = await import(${JSON.stringify(join(root, "src/runtime/runtime.ts"))});
     return { text: redactUiText('import-password http://import-user:import-password@proxy.test:8080'), snapshot: await createUiModel().snapshot(), doctor: await doctor() };`);
   expect(result.ok).toBe(true); expect(result.value.text).not.toContain("import-password");
   expect(result.value.snapshot.profiles[0]).toMatchObject({ id: "existing", configurationError: expect.stringContaining("import") });
@@ -296,8 +296,8 @@ test("pending import credentials are redacted and diagnostics report recovery wi
 test("a conflicting import journal does not block an explicit verified stop of an existing profile", async () => {
   const f = fixture(); privateFile(journal(f), "invalid journal requires inspection");
   const result = await run(f, `
-    const runtime = await import(${JSON.stringify(join(root, "packages/stelz/src/runtime/runtime.ts"))});
-    const processApi = await import(${JSON.stringify(join(root, "packages/stelz/src/runtime/profile-process.ts"))});
+    const runtime = await import(${JSON.stringify(join(root, "src/runtime/runtime.ts"))});
+    const processApi = await import(${JSON.stringify(join(root, "src/runtime/profile-process.ts"))});
     const state = join(home, 'profiles/existing'), running = join(state, 'running.json');
     const accessKey = 'fixture-private-local-key'; fs.writeFileSync(join(state, 'access-key'), accessKey, {mode:0o600});
     let record;

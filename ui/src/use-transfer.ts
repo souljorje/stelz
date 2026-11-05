@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { UiProfile } from "../../../packages/stelz/src/api/contracts.ts";
-import type { UiTransfer, UiTransferImport } from "../../../packages/stelz/src/api/transfer-contracts.ts";
+import type { UiProfile } from "../../src/api/contracts.ts";
+import type { UiTransfer, UiTransferImport } from "../../src/api/transfer-contracts.ts";
 import { ApiError, errorMessage, request } from "./api.ts";
 
 type Intent = { kind: "import"; file?: File } | { kind: "export"; profileIds: string[] };

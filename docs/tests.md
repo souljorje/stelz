@@ -6,11 +6,13 @@ Use the runtime requirements in [Use the service](README.md).
 
 ```sh
 bun install --frozen-lockfile --ignore-scripts
-bun run build
+bun run check
 bun run pack
 ```
 
-Build regenerates `packages/stelz/dist/` from source.
+Build regenerates `dist/` from source.
+Bun builds the CLI, supervisor, browser plugin, and early theme script. Vite builds the UI and emits local font files.
+The theme script runs before the first page frame. The build preserves the bundled UI licenses.
 The archive contains the CLI, supervisor, browser plugin, built local UI, documentation, client examples, and third-party notices.
 The diagnostic client runs from source. The archive excludes Stelz source files, tests, and browser state.
 It includes the prepared Camofox and camoufox-js dependencies. See [Distribution](distribution.md).
@@ -22,6 +24,7 @@ See [Onboarding acceptance](onboarding-acceptance.md) for the real-agent install
 
 | Command | Coverage |
 | --- | --- |
+| `bun run check` | Build, TypeScript checks, and all browser-free tests. No release archive. |
 | `bun run typecheck` | TypeScript checks. |
 | `bun run test:ui` | UI sessions, lifecycle dispatch, profile creation and deletion, interrupted saves, safe network edits, and redaction. |
 | `bun run test:ui:browser` | Built UI in Chrome, local sessions, offline assets, forms, and responsive layouts. |
@@ -35,17 +38,18 @@ See [Onboarding acceptance](onboarding-acceptance.md) for the real-agent install
 | `bun run test:proxy` | Two distinct proxy exits, three browser lifetimes, expected IP pins, and isolated route failures during cached verification. |
 | `bun run test:manual` | Human interaction while paused, followed by MCP resume in the same browser and tab. |
 | `bun run test:public` | Four public fingerprint checks in a disposable native profile, with screenshots and verdict reports. |
-| `bun run verify:release` | Pack lifecycle, archive contents, installed dependency checks, CLI, HTTP UI, and staged setup validation with a fake executable. No browser. |
-| `bun run test:prepack --destination DIRECTORY` | Remove compiled output and produce one archive through the prepack lifecycle. |
+| `bun run pack` | Build once and save one release archive with its hash and source metadata in `release-artifacts/`. |
+| `bun run verify:release` | Check the saved archive, installed dependencies, CLI, HTTP UI, and staged setup with a fake executable. No browser or rebuild. |
 | `bun run verify:release --archive FILE --native` | Ordinary isolated npm installation, SQLite queries, and Impit construction from the installed package and staged runtime. No browser. |
-| `bun run test:package` | Archive installation in an isolated npm prefix, an empty working directory, and checkpoint plus native browser acceptance. |
+| `bun run test:package` | Install the saved archive in an isolated npm prefix. Run checkpoint and native browser acceptance. |
 | `bun run test:package --archive FILE --native --proxy --manual` | Full supported-platform acceptance against one unchanged release candidate, including a real human action. |
 
 The earlier browser acceptance run passed on 2026-11-02 with macOS 26.5.2 on Apple Silicon.
 That run used Bun 1.4.4, Node.js 24.14.0, TypeScript 5.9.3, and Camoufox 152.0.4 beta.30.
 Camofox remains pinned to npm version 1.18.1.
 
-The regression suite also runs directly with Node. It does not require a browser.
+Tests in `tests/unit` and `tests/integration` run with Bun through directory discovery.
+Tests in `tests/regression` run directly with Node. They do not require a browser.
 The plugin tests use the actual hooks with simulated browser and network interfaces.
 They cover stalled actions, failed IP checks, explicit recheck, action serialization, cache expiry, and independent provider fallback.
 One hundred queued actions require one IP check with the default cache, compared with 101 checks in strict mode.
@@ -96,10 +100,11 @@ See [Import and export profiles](profile-transfer.md) for the supported behavior
 
 ## Continuous integration
 
-GitHub Actions runs frozen installation, build, TypeScript checks, regression tests, and isolated browser-free archive verification on Linux and macOS.
-Each platform packs once, then checks the same archive with scripts disabled and with ordinary native installation.
+GitHub Actions runs frozen installation and `bun run check` on Linux and macOS.
+Normal checks do not pack archives or start live browsers.
 CI and release workflows use the root `package.json` `packageManager` pin (`bun@1.4.4`), Node.js 24, and read-only repository permissions.
-Release preparation requires these checks on both platforms, then uploads one verified archive.
+Release preparation requires these checks on both platforms, then builds and uploads one candidate archive.
+Linux and macOS download that same archive and check installation with scripts disabled and with ordinary native installation.
 The workflows skip browser downloads. Browser, proxy, and human acceptance checks run locally.
 
 ## Test data
@@ -301,7 +306,7 @@ The current version passed with the baseline fingerprints. Successful ZIP transf
 - `tests/helpers/`: shared fixtures and verdict readers.
 - `scripts/call.ts`: development MCP diagnostic client.
 
-UI source is in `apps/ui/src/`.
-It shares profile and transfer types through `api/contracts.ts` and `api/transfer-contracts.ts` under `packages/stelz/src/`.
+UI source is in `ui/src/`.
+It shares profile and transfer types through `src/api/contracts.ts` and `src/api/transfer-contracts.ts`.
 Server types use type-only imports. Server runtime modules stay on the backend.
 These contracts are not a public package API.

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { UiAction, UiProfile, UiProfileRename, UiNetworkUpdate, UiTypingUpdate } from "../../../packages/stelz/src/api/contracts.ts";
+import type { UiAction, UiProfile, UiProfileRename, UiNetworkUpdate, UiTypingUpdate } from "../../src/api/contracts.ts";
 import { errorMessage } from "./api.ts";
 import { ConfirmAction, CopyCommand, Icon, Mark, Modal, Notice } from "./components";
 import { ProfileDetail } from "./ProfileDetail";
@@ -13,7 +13,7 @@ import { useTheme } from "./use-theme.ts";
 import { ProfileMark } from "./ProfileMark";
 import { ProfileTransfer } from "./ProfileTransfers";
 import { exportUnavailable, useTransfer } from "./use-transfer.ts";
-import type { ShowProfileWindow } from "../../../packages/stelz/src/api/contracts.ts";
+import type { ShowProfileWindow } from "../../src/api/contracts.ts";
 
 type Page = "profiles" | "diagnostics" | "settings";
 type Route = { page: Page; profileId?: string };

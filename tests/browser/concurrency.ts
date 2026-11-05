@@ -5,9 +5,9 @@ import { join, resolve } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { fixture } from "../helpers/fixture.ts";
-import { processStart, type Running } from "../../packages/stelz/src/runtime/profile-process.ts";
+import { processStart, type Running } from "../../src/runtime/profile-process.ts";
 
-const root = resolve(import.meta.dir, "../.."), cli = join(root, "packages/stelz/dist/cli.js");
+const root = resolve(import.meta.dir, "../.."), cli = join(root, "dist/cli.js");
 const home = mkdtempSync(join(tmpdir(), "stelz-browser-concurrency-"));
 const ids = ["concurrency-01", "concurrency-02", "concurrency-03"];
 const env: Record<string, string> = { STELZ_HOME: home };

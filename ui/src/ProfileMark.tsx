@@ -1,4 +1,4 @@
-import { profileAppearance } from "../../../packages/stelz/src/api/contracts.ts";
+import { profileAppearance } from "../../src/api/contracts.ts";
 
 export function ProfileMark({ id }: { id: string }) {
   const appearance = profileAppearance(id);

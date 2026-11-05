@@ -8,10 +8,3 @@ dist/
 release-artifacts/
 candidate.json
 .DS_Store
-
-# Build stages canonical root documentation for npm pack.
-packages/stelz/docs/
-packages/stelz/examples/
-packages/stelz/README.md
-packages/stelz/LICENSE
-packages/stelz/THIRD_PARTY_NOTICES.md

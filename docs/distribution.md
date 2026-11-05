@@ -1,22 +1,22 @@
 # Distribution
 
-The workspace root and React UI are private packages. Only `packages/stelz` can produce a release archive.
+The repository contains one package. Its root manifest defines the release archive and development dependencies.
 The package remains `stelz` version `0.2.1`, with the MIT license.
 Release preparation and npm publication use separate workflows.
 
 1. Run `bun install --frozen-lockfile --ignore-scripts` in a clean workspace.
-2. Run `bun run typecheck`.
-3. Run `bun run test`.
-4. Run `bun run build`.
-5. Run `bun run pack --destination .state/release-candidate` once.
-6. Run `bun run verify:release --archive .state/release-candidate/stelz-0.2.1.tgz`.
-7. Run `bun run verify:release --archive .state/release-candidate/stelz-0.2.1.tgz --native`.
+2. Run `bun run check`.
+3. Run `bun run pack` once.
+4. Run `bun run verify:release`.
+5. Run `bun run verify:release --native`.
 
-The package prepack hook builds artifacts from the workspace.
-Release preparation uses Bun to resolve workspace links, then packs a temporary standalone tree with npm.
-The internal preparation steps disable lifecycle scripts to prevent recursion.
+`pack` builds once and saves the archive, hash, and source metadata in `release-artifacts/`.
+Bun resolves dependency links into a temporary archive. npm packs the extracted release directory after native dependency preparation.
+The preparation steps disable lifecycle scripts. There is no implicit prepack build.
+Verification uses the saved archive. It does not build or pack another archive.
+Use `--destination DIRECTORY` for another output directory. Verification then requires `--archive FILE`.
 Packing requires the source workspace and its development dependencies. Installing the archive does not require that workspace.
-Build copies canonical documentation and examples. Do not edit generated package copies.
+The archive uses canonical documentation and examples directly.
 For profile data archives, see [Import and export profiles](profile-transfer.md).
 The archive includes the optional browser skill, third-party notices, and UI font and library licenses.
 It excludes Stelz source, tests, browser state, and credentials.
@@ -35,15 +35,15 @@ Native addon execution requires separate checks after ordinary package installat
 The packaging check does not establish browser execution with lifecycle scripts disabled.
 The browser-free `--native` check uses ordinary installation and the staged runtime.
 It executes SQLite queries and constructs Impit clients through each relevant dependency resolution path.
-CI requires both installation modes on Linux and macOS against the same archive.
-The separate `test:prepack` command removes compiled output, then checks that packing rebuilds it.
+Release preparation requires both installation modes on Linux and macOS against the same archive.
 Run `bun run test:package` on every supported target before release.
 
 ## Prepare the release candidate
 
 Run the **Prepare release candidate** workflow on the release source commit.
 Its Linux and macOS checks must pass before it builds an archive.
-The workflow builds one candidate, checks that archive, and uploads `stelz-release-candidate`.
+The workflow builds one candidate and uploads `stelz-release-candidate`.
+Linux and macOS download and check that archive. Both installation checks must pass before acceptance can proceed.
 The artifact contains the tarball, its SHA-256 file, and `candidate.json` with the source commit.
 Preparation uses read-only repository permissions and requires no publication secret.
 
