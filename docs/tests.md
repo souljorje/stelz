@@ -76,6 +76,7 @@ The workflows skip browser downloads. Browser, proxy, and human acceptance check
 
 Browser checks use independent MCP SDK clients. Most checks use two profiles. `test:concurrency` uses three native profiles simultaneously.
 Routine tests use temporary catalogs and mocked browser or service interfaces.
+Lifecycle fixtures copy source into test packages and use mock plugin bytes. They do not require workspace build output.
 Live browser checks create disposable profiles in separate service directories. They never select an operator's saved profile.
 Checkpoint, native, and manual checks use explicit direct development mode. Proxy acceptance requires two supplied HTTP proxies.
 The isolated acceptance checks stop their test browsers. The public-site check saves its artifacts, then stops its selected browser.

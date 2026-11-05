@@ -12,34 +12,32 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { configurationHash, type Profile } from "../../packages/stelz/src/profiles/config.ts";
 import { lock, processStart } from "../../packages/stelz/src/runtime/runtime.ts";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { ROOT } from "../../packages/stelz/src/paths.ts";
 import { UPSTREAM_VERSION } from "../../packages/stelz/src/versions.ts";
+import { createMockPackage } from "../helpers/mock-package.ts";
 
-const root = resolve(import.meta.dir, "../.."),
-  cli = join(root, "packages/stelz/src/cli/cli.ts"),
-  runtime = join(root, "packages/stelz/src/runtime/runtime.ts");
 const bun = Bun.which("bun")!,
   stamp = processStart(process.pid)!;
 const dead = 2147483647;
-type Fixture = { home: string; idDir: string; profile: Profile };
+type Fixture = { home: string; idDir: string; profile: Profile } & ReturnType<typeof createMockPackage>;
 function fixture(port = 19471): Fixture {
   const home = mkdtempSync(join(tmpdir(), "stelz-lifecycle-")),
     idDir = join(home, "profiles", "test");
   const profile: Profile = { id: "test", port };
+  const packageFixture = createMockPackage(home);
   mkdirSync(idDir, { recursive: true });
   mkdirSync(join(home, "runtime"));
   const plugin = join(home, `runtime/camofox-${UPSTREAM_VERSION}/plugins/local-profile`);
   mkdirSync(plugin, { recursive: true });
-  writeFileSync(join(plugin, "index.js"), readFileSync(join(ROOT, "dist/plugin.js")));
+  writeFileSync(join(plugin, "index.js"), packageFixture.plugin);
   writeFileSync(join(home, "profiles.json"), JSON.stringify({ maxActive: 2, profiles: [profile] }));
   writeFileSync(join(home, "runtime/versions.json"), "{}");
   writeFileSync(join(idDir, "access-key"), "test-key");
-  return { home, idDir, profile };
+  return { home, idDir, profile, ...packageFixture };
 }
 function record(f: Fixture, overrides: Record<string, unknown> = {}) {
   const value = {
@@ -68,7 +66,7 @@ function legacyRecord(f: Fixture, overrides: Record<string, unknown> = {}) {
   });
 }
 async function run(f: Fixture, ...args: string[]) {
-  const child = Bun.spawn([bun, "--no-env-file", cli, ...args], {
+  const child = Bun.spawn([bun, "--no-env-file", f.cli, ...args], {
     env: { ...process.env, STELZ_HOME: f.home },
     stdout: "pipe",
     stderr: "pipe",
@@ -128,11 +126,11 @@ test("the supervisor rechecks installed plugin compatibility before spawning its
     const result = await runScript(f, `
       import { writeFileSync } from 'node:fs';
       import { join } from 'node:path';
-      const config = await import(${JSON.stringify(join(root, "packages/stelz/src/profiles/config.ts"))});
+      const config = await import(${JSON.stringify(join(f.packageRoot, "src/profiles/config.ts"))});
       writeFileSync(join(config.dir('test'), 'running.json'), JSON.stringify({ version: 2, pid: 0, instanceId: 'reserved',
         serverState: 'not-started', configurationHash: config.configurationHash(config.profile('test')) }));
       process.argv = [process.execPath, 'supervisor', 'test', 'reserved'];
-      try { await import(${JSON.stringify(join(root, "packages/stelz/src/runtime/supervisor.ts"))}); }
+      try { await import(${JSON.stringify(join(f.packageRoot, "src/runtime/supervisor.ts"))}); }
       catch (error) { console.log(error.message); }
     `);
     expect(result.code).toBe(0);
@@ -163,7 +161,7 @@ test("an orphan is reported and blocks its own startup, setup, and recovery with
     expect(status.ownership).toEqual({ supervisor: "missing", server: "owned" });
     const safety = await runScript(
       f,
-      `import { running } from ${JSON.stringify(runtime)}; console.log(Boolean(running('test')));`,
+      `import { running } from ${JSON.stringify(f.runtime)}; console.log(Boolean(running('test')));`,
     );
     expect(safety.stdout.trim()).toBe("true");
     expect((await run(f, "start", "test")).stderr).toContain("needs inspection");
@@ -232,7 +230,7 @@ test("legacy services stop through authenticated HTTP without adopting their PID
     expect(JSON.parse(result.stdout).phase).toBe("stopped");
     expect(calls).toEqual(["GET /local-profile/status", "POST /local-profile/stop"]);
     expect(readFileSync(join(f.idDir, "running.json"), "utf8")).toBe(before);
-    const live = await runScript(f, `import { running } from ${JSON.stringify(runtime)}; console.log(Boolean(running('test')));`);
+    const live = await runScript(f, `import { running } from ${JSON.stringify(f.runtime)}; console.log(Boolean(running('test')));`);
     expect(live.stdout.trim()).toBe("false");
     expect((await run(f, "stop", "test")).code).toBe(0);
     expect(calls).toHaveLength(2);
@@ -350,7 +348,7 @@ test("a changed configuration port cannot redirect control to another service", 
     `);
     await client.connect(new StdioClientTransport({
       command: bun,
-      args: ["--no-env-file", cli, "mcp", "--profile", "test"],
+      args: ["--no-env-file", f.cli, "mcp", "--profile", "test"],
       env: { ...process.env, STELZ_HOME: f.home } as Record<string, string>,
     }));
     const listed = (await client.listTools()).tools.map(tool => tool.name);
@@ -365,7 +363,7 @@ test("a changed configuration port cannot redirect control to another service", 
     expect(unrelatedCalls).toBe(0);
     await legacyClient.connect(new StdioClientTransport({
       command: bun,
-      args: ["--no-env-file", cli, "mcp", "--identity", "test"],
+      args: ["--no-env-file", f.cli, "mcp", "--identity", "test"],
       env: { ...process.env, STELZ_HOME: f.home } as Record<string, string>,
     }));
     const legacyList = (await legacyClient.listTools()).tools.map(tool => tool.name);
@@ -428,7 +426,7 @@ test("concurrent stale-lock recovery serializes across processes", async () => {
     events = join(f.home, "events");
   try {
     writeFileSync(lockFile, JSON.stringify({ pid: dead, token: "stale" }));
-    const script = `import { lock } from ${JSON.stringify(runtime)}; import { appendFileSync } from 'node:fs';
+    const script = `import { lock } from ${JSON.stringify(f.runtime)}; import { appendFileSync } from 'node:fs';
       await lock(${JSON.stringify(lockFile)}, async () => { appendFileSync(${JSON.stringify(events)}, 'enter '+process.pid+'\\n'); await Bun.sleep(80); appendFileSync(${JSON.stringify(events)}, 'exit '+process.pid+'\\n'); });`;
     const results = await Promise.all(Array.from({ length: 6 }, () => runScript(f, script)));
     expect(results.map((r) => r.stderr)).toEqual(Array(6).fill(""));
@@ -564,7 +562,7 @@ test("stop and interventions use deadlines longer than the action deadline", asy
   const f = fixture(service.port!);
   try {
     record(f);
-    const script = `import { stop, intervention } from ${JSON.stringify(runtime)};
+    const script = `import { stop, intervention } from ${JSON.stringify(f.runtime)};
       const original=AbortSignal.timeout.bind(AbortSignal), deadlines=[];
       AbortSignal.timeout=(ms)=>{deadlines.push(ms); return original(ms===75000 ? 300 : ms)};
       const checked=await intervention('test','check'); let error='';

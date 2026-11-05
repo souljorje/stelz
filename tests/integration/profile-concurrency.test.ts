@@ -1,14 +1,14 @@
 import { expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { processStart, type Running } from "../../packages/stelz/src/runtime/profile-process.ts";
 import { UPSTREAM_VERSION } from "../../packages/stelz/src/versions.ts";
-import { ROOT } from "../../packages/stelz/src/paths.ts";
+import { createMockPackage } from "../helpers/mock-package.ts";
 
-const cli = resolve(import.meta.dir, "../../packages/stelz/src/cli/cli.ts");
 function fixture(legacy = false) {
   const home = mkdtempSync(join(tmpdir(), "stelz-concurrency-"));
+  const packageFixture = createMockPackage(home);
   const sockets = Array.from({ length: 3 }, () => Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() }));
   const profiles = sockets.map((socket, index) => ({ id: `concurrent-${index}`, port: socket.port! }));
   for (const socket of sockets) socket.stop(true);
@@ -17,7 +17,7 @@ function fixture(legacy = false) {
   const upstream = join(home, "runtime", `camofox-${UPSTREAM_VERSION}`);
   mkdirSync(upstream, { recursive: true });
   mkdirSync(join(upstream, "plugins/local-profile"), { recursive: true });
-  writeFileSync(join(upstream, "plugins/local-profile/index.js"), readFileSync(join(ROOT, "dist/plugin.js")));
+  writeFileSync(join(upstream, "plugins/local-profile/index.js"), packageFixture.plugin);
   writeFileSync(join(home, "runtime/versions.json"), "{}");
   writeFileSync(join(upstream, "server.js"), `
 const http = require('node:http'), fs = require('node:fs'), path = require('node:path');
@@ -42,7 +42,7 @@ process.on('SIGTERM', stop);
 `);
   const record = (id: string): Running => JSON.parse(readFileSync(join(home, "profiles", id, "running.json"), "utf8"));
   async function command(action: string, id: string, overrides: Record<string, string> = {}) {
-    const child = Bun.spawn([process.execPath, "--no-env-file", cli, action, id], {
+    const child = Bun.spawn([process.execPath, "--no-env-file", packageFixture.cli, action, id], {
       env: { ...process.env, STELZ_HOME: home, ...overrides }, stdout: "pipe", stderr: "pipe",
     });
     const timeout = setTimeout(() => child.kill("SIGTERM"), 15000);
