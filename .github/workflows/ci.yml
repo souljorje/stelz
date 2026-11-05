@@ -17,7 +17,7 @@ jobs:
   checks:
     name: Build and tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 10
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -39,4 +39,6 @@ jobs:
       - run: bun run typecheck
       - run: bun run test
       - run: bun run build
-      - run: bun run verify:release
+      - run: bun run test:prepack --destination .state/ci-release
+      - run: bun run verify:release --archive .state/ci-release/*.tgz
+      - run: bun run verify:release --archive .state/ci-release/*.tgz --native

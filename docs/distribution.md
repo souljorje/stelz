@@ -10,6 +10,7 @@ Release preparation and npm publication use separate workflows.
 4. Run `bun run build`.
 5. Run `bun run pack --destination .state/release-candidate` once.
 6. Run `bun run verify:release --archive .state/release-candidate/stelz-0.2.0.tgz`.
+7. Run `bun run verify:release --archive .state/release-candidate/stelz-0.2.0.tgz --native`.
 
 The package prepack hook builds artifacts from the workspace.
 Release preparation uses Bun to resolve workspace links, then packs a temporary standalone tree with npm.
@@ -30,6 +31,10 @@ Their JavaScript and native binaries come from ordinary npm dependency installat
 Setup links these native packages from the installed Stelz package into the staged runtime.
 Native addon execution requires separate checks after ordinary package installation.
 The packaging check does not establish browser execution with lifecycle scripts disabled.
+The browser-free `--native` check uses ordinary installation and the staged runtime.
+It executes SQLite queries and constructs Impit clients through each relevant dependency resolution path.
+CI requires both installation modes on Linux and macOS against the same archive.
+The separate `test:prepack` command removes compiled output, then checks that packing rebuilds it.
 Run `bun run test:package` on every supported target before release.
 
 ## Prepare the release candidate

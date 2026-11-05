@@ -1,6 +1,7 @@
 import { checkBundledArchive, inspectBundledDependencies } from "../../scripts/bundled-dependencies.ts";
 import { packRelease } from "../../scripts/release-archive.ts";
 import { releaseArguments, inspectReleaseCandidate, assertCandidateUnchanged } from "../../scripts/release-candidate.ts";
+import { nativeSmoke } from "../../scripts/native-smoke.ts";
 import { mkdtempSync, mkdirSync, symlinkSync, readFileSync, writeFileSync, readdirSync, lstatSync, realpathSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { tmpdir } from "node:os";
@@ -36,15 +37,6 @@ const cleanEnv: Record<string, string> = { PATH: `${join(prefix, "bin")}:${bin}:
 if (env.TMPDIR) cleanEnv.TMPDIR = env.TMPDIR;
 for (const harness of ["codex", "claude", "hermes"]) if (Bun.which(harness, { PATH: cleanEnv.PATH })) throw Error(`Unexpected harness command in isolated PATH: ${harness}`);
 const executable = join(prefix, "bin/stelz");
-const nativeCheck = JSON.parse(await run([node, "--input-type=module", "-e", `
-  import { createRequire } from "node:module";
-  const own = createRequire(process.argv[1]), server = createRequire(own.resolve("@askjo/camofox-browser/package.json"));
-  const Sqlite = server("better-sqlite3"), db = new Sqlite(":memory:");
-  try { if (db.prepare("select 1 as ok").get().ok !== 1) throw Error("SQLite execution failed."); }
-  finally { db.close(); }
-  if (typeof own("impit").Impit !== "function") throw Error("The target Impit addon is unavailable.");
-  console.log(JSON.stringify({ sqlite: server("better-sqlite3/package.json").version, impit: own("impit/package.json").version, node: process.version }));
-`, join(prefix, "lib/node_modules/stelz/package.json")], { cwd, env: cleanEnv }));
 const poisonHome = join(temp, "wrong-project-home");
 writeFileSync(join(cwd, ".env"), `STELZ_HOME=${poisonHome}\n`);
 const defaultEnv = { ...cleanEnv }; delete defaultEnv.STELZ_HOME;
@@ -93,6 +85,9 @@ try {
   await ui.exited;
 }
 await run([executable, "setup"], { cwd, env: cleanEnv });
+const versions = JSON.parse(readFileSync(join(home, "runtime/versions.json"), "utf8"));
+const nativeCheck = await nativeSmoke(node, join(prefix, "lib/node_modules/stelz"),
+  join(home, "runtime", `camofox-${versions.upstreamVersion}`), { cwd, env: cleanEnv });
 const installedCli = join(prefix, "lib/node_modules/stelz/dist/cli.js");
 await run([bun, join(root, "tests/browser/integration.ts")], { cwd, env: { ...cleanEnv, STELZ_TEST_HOME: home, STELZ_TEST_CLI: installedCli }, inherit: true });
 const acceptance = { integration: true, native: false, proxy: false, manual: false };
@@ -101,7 +96,7 @@ for (const [flag, script, suite] of [
   ["--proxy", "tests/browser/proxy-integration.ts", "proxy"],
   ["--manual", "tests/qa/manual-integration.ts", "manual"],
 ] as const) {
-  if (!input.flags.has(flag)) continue;
+  if (suite !== "native" && !input.flags.has(flag)) continue;
   assertCandidateUnchanged(candidate);
   await run([bun, "--no-env-file", join(root, script)], { cwd, env: { ...cleanEnv, STELZ_TEST_CLI: installedCli,
     ...(suite === "proxy" && process.env.PROXY_TEST_ENV ? { PROXY_TEST_ENV: process.env.PROXY_TEST_ENV } : {}) }, inherit: true });

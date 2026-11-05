@@ -14,6 +14,7 @@
   "scripts": {
     "build": "bun scripts/build.ts",
     "pack": "bun scripts/pack.ts",
+    "test:prepack": "bun scripts/pack.ts --check-prepack",
     "setup": "bun packages/stelz/src/cli/cli.ts setup",
     "start": "bun packages/stelz/src/cli/cli.ts start",
     "status": "bun packages/stelz/src/cli/cli.ts status",

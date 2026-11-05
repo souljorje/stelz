@@ -22,7 +22,7 @@ type LifetimeEvidence = {
   ordinal: number; instanceId: string; serviceInstanceId: string; serverPid: number; startedAt: string;
   pinSha256: string; engineSha256: unknown; savedPinUnchanged: boolean; nativeMarkerUnchanged: boolean;
   nativeMarkerPresent: boolean; nativeBrowserDataPresent: boolean; nativeCookiesPresent: boolean;
-  stoppedAt?: string; cleanStop?: boolean;
+  stoppedAt?: string; cleanStop?: boolean; reconnected?: boolean;
 };
 type ProfileEvidence = {
   profile: string; configuration: { mode: "direct"; storage: "native" }; samples: NativeSample[]; lifetimes: LifetimeEvidence[];
@@ -171,6 +171,8 @@ async function capture(profile: ProfileEvidence, client: Client, lifetime: Lifet
   }
   lifetime.nativeCookiesPresent = existsSync(file(id, "browser-data/cookies.sqlite"));
   assert(lifetime.nativeCookiesPresent, `${id}: native cookie database is missing`);
+  assert(tabId, `${id}: native browser tab is missing`);
+  return tabId;
 }
 function summarize() {
   for (const profile of profiles) {
@@ -186,6 +188,7 @@ function summarize() {
         && unchanged(profile.profile, "fingerprint.json", pins.get(profile.profile))
         && unchanged(profile.profile, "native-profile.json", markers.get(profile.profile)),
       explicitCleanStops: profile.lifetimes.length === LIFETIMES && profile.lifetimes.every(value => value.cleanStop),
+      disconnectReconnectPreservedBrowser: profile.lifetimes.length === LIFETIMES && profile.lifetimes.every(value => value.reconnected),
       expectedObservablesMatch: STABLE_OBSERVATIONS.every(key => {
         const field = profile.summary!.fields[key]!;
         return field.withinSession.status === "observed-stable" && field.acrossRestarts.status === "observed-stable";
@@ -195,7 +198,8 @@ function summarize() {
 }
 try {
   console.log(`Explicit direct-development native stability experiment. Evidence: ${home}`);
-  for (const name of ["packages/stelz/dist/cli.js", "tests/browser/native-integration.ts", "tests/helpers/observations.ts", "tests/helpers/fixture-browser.ts", "tests/helpers/fixture.ts"]) {
+  report.environment.sources["tested-cli.js"] = hash(readFileSync(cli));
+  for (const name of ["tests/browser/native-integration.ts", "tests/helpers/observations.ts", "tests/helpers/fixture-browser.ts", "tests/helpers/fixture.ts"]) {
     report.environment.sources[name] = hash(readFileSync(join(root, name)));
   }
   await command("init");
@@ -207,8 +211,17 @@ try {
     for (const profile of profiles) {
       const { client, status } = await connect(profile.profile);
       const lifetime = nativeEvidence(profile, ordinal, status);
-      await capture(profile, client, lifetime);
+      const tabId = await capture(profile, client, lifetime);
+      const runningBefore = readFileSync(file(profile.profile, "running.json"), "utf8");
       await disconnect(client);
+      const resumed = await connect(profile.profile);
+      assert(resumed.status.instanceId === lifetime.serviceInstanceId, `${profile.profile}: reconnect replaced the service`);
+      await stored(resumed.client, tabId, profile.profile);
+      assert(readFileSync(file(profile.profile, "running.json"), "utf8") === runningBefore, `${profile.profile}: reconnect replaced the browser`);
+      assert(unchanged(profile.profile, "fingerprint.json", pins.get(profile.profile))
+        && unchanged(profile.profile, "native-profile.json", markers.get(profile.profile)), `${profile.profile}: reconnect changed native profile settings`);
+      lifetime.reconnected = true;
+      await disconnect(resumed.client);
     }
     for (const profile of profiles) {
       await command("stop", profile.profile); started.delete(profile.profile);

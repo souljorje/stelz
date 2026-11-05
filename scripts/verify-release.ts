@@ -2,12 +2,13 @@ import { checkBundledArchive, inspectBundledDependencies } from "./bundled-depen
 import { packRelease } from "./release-archive.ts";
 import { releaseArguments, inspectReleaseCandidate, assertCandidateUnchanged } from "./release-candidate.ts";
 import { checkMarkdownLinks } from "./markdown-links.ts";
+import { nativeSmoke } from "./native-smoke.ts";
 import { mkdtempSync, mkdirSync, symlinkSync, readFileSync, writeFileSync, readdirSync, lstatSync, realpathSync, rmSync, existsSync, chmodSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { STELZ_VERSION } from "../packages/stelz/src/versions.ts";
 const root = resolve(import.meta.dir, ".."), temp = mkdtempSync(join(tmpdir(), "stelz-package-"));
-const input = releaseArguments(process.argv.slice(2));
+const input = releaseArguments(process.argv.slice(2), ["--native"]);
 const prefix = join(temp, "global"), cwd = join(temp, "empty"), home = join(temp, "data"), bin = join(temp, "bin");
 for (const path of [cwd, bin]) mkdirSync(path, { recursive: true });
 const npm = Bun.which("npm")!, node = Bun.which("node")!, bun = Bun.which("bun")!;
@@ -20,7 +21,7 @@ async function run(args: string[], options: { cwd?: string; env?: Record<string,
   const [out, err, code] = await Promise.all([new Response(p.stdout as ReadableStream).text(), new Response(p.stderr as ReadableStream).text(), p.exited]);
   if (code) throw Error(err || out); return out;
 }
-console.log("Verify npm pack lifecycle and isolated browser-free installation.");
+console.log(`Verify isolated browser-free installation (${input.flags.has("--native") ? "ordinary native installation" : "lifecycle scripts disabled"}).`);
 try {
 const product = join(root, "packages/stelz");
 const preparedDependencies = inspectBundledDependencies(product);
@@ -43,7 +44,7 @@ for (const path of ["dist/cli.js", "dist/supervisor.js", "dist/plugin.js", "dist
   if (!paths.includes(path)) throw Error("Archive is missing " + path);
 }
 for (const path of paths) if (!/^(?:node_modules\/|dist\/|docs\/|examples\/|skills\/|package.json$|README.md$|LICENSE$|THIRD_PARTY_NOTICES.md$)/.test(path)) throw Error("Unexpected archive path: " + path);
-await run([npm, "install", "--global", "--ignore-scripts", "--no-audit", "--no-fund", "--prefix", prefix, archive]);
+await run([npm, "install", "--global", ...(input.flags.has("--native") ? [] : ["--ignore-scripts"]), "--no-audit", "--no-fund", "--prefix", prefix, archive]);
 const installed = join(prefix, "lib/node_modules/stelz");
 const installedDependencies = inspectBundledDependencies(installed);
 if (JSON.stringify(installedDependencies) !== JSON.stringify(preparedDependencies))
@@ -138,6 +139,8 @@ function checkRuntimeLinks(folder: string) {
 }
 checkRuntimeLinks(runtime);
 if (!links) throw Error("Setup did not stage dependency links.");
+const nativeCheck = input.flags.has("--native") ? await nativeSmoke(node, installed, upstream, { cwd, env: cleanEnv }) : undefined;
 assertCandidateUnchanged(candidate);
-console.log(JSON.stringify({ result: "passed", archive, sha256: candidate.sha256, checks: "Archive contents, Markdown links, isolated CLI, HTTP UI, and installed setup/dependency validation" }));
+console.log(JSON.stringify({ result: "passed", archive, sha256: candidate.sha256, nativeCheck,
+  checks: "Archive contents, Markdown links, isolated CLI, HTTP UI, and installed setup/dependency validation" }));
 } finally { rmSync(temp, { recursive: true, force: true }); }
