@@ -10,6 +10,7 @@ export class ApiError extends Error {
 type RequestOptions = {
   method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   body?: unknown;
+  file?: File;
   signal?: AbortSignal;
   timeout?: number;
 };
@@ -17,7 +18,7 @@ type RequestOptions = {
 export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const controller = new AbortController();
   const abort = () => controller.abort();
-  const timeout = window.setTimeout(abort, options.timeout ?? 12_000);
+  const timeout = options.timeout === 0 ? undefined : window.setTimeout(abort, options.timeout ?? 12_000);
   options.signal?.addEventListener("abort", abort, { once: true });
   if (options.signal?.aborted) controller.abort();
   try {
@@ -25,10 +26,10 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
       method: options.method ?? "GET",
       credentials: "same-origin",
       cache: "no-store",
-      headers: options.body === undefined ? { Accept: "application/json" } : {
+      headers: options.file ? { Accept: "application/json", "Content-Type": "application/zip" } : options.body === undefined ? { Accept: "application/json" } : {
         Accept: "application/json", "Content-Type": "application/json",
       },
-      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      body: options.file ?? (options.body === undefined ? undefined : JSON.stringify(options.body)),
       signal: controller.signal,
     });
     const body = await response.json().catch(() => null) as T | { error?: unknown } | null;

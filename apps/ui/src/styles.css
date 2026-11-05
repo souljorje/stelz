@@ -298,6 +298,62 @@ input:disabled, select:disabled { color: var(--faint); background: var(--raised)
 .log-tools { display: flex; justify-content: flex-end; }
 .theme-select { max-width: 240px; }
 
+.check-label { display: inline-flex; align-items: center; gap: 8px; min-height: 34px; cursor: pointer; }
+.check-label:has(input:disabled), .profile-export-check:has(input:disabled) { cursor: not-allowed; color: var(--faint); }
+.check-label input[type="checkbox"], .profile-export-check input { display: inline-block; flex: none; width: 16px; height: 16px; min-height: 16px; margin: 0; padding: 0; accent-color: var(--text); }
+.export-selection { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 16px; margin-bottom: 16px; }
+.export-selection .button-row { margin-left: auto; gap: 16px; }
+.profile-export-check { display: flex; align-items: center; justify-content: center; min-height: 34px; cursor: pointer; }
+.profile-table.has-selection thead th:nth-child(1) { width: 40px; }
+.profile-table.has-selection thead th:nth-child(2) { width: 30%; }
+.profile-table.has-selection thead th:nth-child(3) { width: 26%; }
+.profile-table.has-selection thead th:nth-child(4) { width: auto; }
+.profile-table.has-selection thead th:nth-child(5) { width: 144px; }
+.profile-table.has-selection .profile-select-cell { padding-inline: 10px; }
+.profile-export-shortcut { font-size: 12px; color: var(--muted); }
+
+.transfer-modal { width: min(600px, calc(100% - 32px)); overflow: hidden; }
+.transfer-modal[open] { display: flex; flex-direction: column; }
+.transfer-modal > .modal-heading, .transfer-modal > .modal-actions { flex: none; }
+.transfer-modal .button[aria-disabled="true"] { background: var(--raised); color: var(--faint); border-color: var(--border); cursor: not-allowed; }
+.transfer-intro { flex: none; padding-bottom: 0; padding-top: 12px; }
+.transfer-intro .field-help { margin: 0; }
+.transfer-status { overflow: auto; padding-top: 16px; }
+.transfer-filename { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.transfer-status .transfer-phase { margin-top: 8px; color: var(--text); }
+.transfer-status .transfer-phase:first-child { margin-top: 0; }
+.transfer-progress { display: block; width: 100%; height: 6px; margin-top: 16px; border: 0; border-radius: 3px; overflow: hidden; appearance: none; color: var(--text); background: var(--rule); }
+.transfer-progress::-webkit-progress-bar { background: var(--rule); }
+.transfer-progress::-webkit-progress-value { background: var(--text); border-radius: 3px; }
+.transfer-progress::-moz-progress-bar { background: var(--text); border-radius: 3px; }
+.transfer-counts { font-variant-numeric: tabular-nums; }
+.transfer-preview { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.transfer-preview-body { min-height: 0; overflow: auto; padding-top: 12px; }
+.transfer-preview-actions { flex: none; align-items: center; }
+.transfer-preview-actions > .field-help { margin: 0 auto 0 0; font-variant-numeric: tabular-nums; }
+.transfer-selection { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 8px; }
+.transfer-selection > .field-help { margin: 0; }
+.transfer-profile-list { border-top: 1px solid var(--rule); }
+.transfer-profile { min-width: 0; padding: 14px 0; border-bottom: 1px solid var(--rule); }
+.transfer-profile-title { width: 100%; gap: 10px; }
+.transfer-profile-title > span { min-width: 0; overflow-wrap: anywhere; }
+.transfer-profile-title .profile-mark { width: 24px; height: 24px; }
+.transfer-profile-title .cell-secondary { margin-top: 1px; }
+.transfer-profile-meta { display: flex; flex-wrap: wrap; gap: 2px 12px; margin: 6px 0 12px 26px; font-size: 12px; color: var(--muted); }
+.transfer-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; min-width: 0; margin: 0 0 0 26px; padding: 0; border: 0; }
+.transfer-fields .form-field { min-width: 0; margin: 0; }
+.transfer-fields label { margin-bottom: 4px; font-size: 12px; font-weight: 400; color: var(--muted); }
+.transfer-fields input { min-height: 34px; padding: 5px 8px; }
+.transfer-fields input[aria-invalid="true"] { border-color: var(--warning); }
+.transfer-profile > .field-help, .transfer-profile > .transfer-issues { margin: 8px 0 0 26px; }
+.transfer-profile .inline-attention { color: var(--warning); }
+.transfer-issues { margin: 0; padding: 0; list-style: none; font-size: 12px; }
+.transfer-issues li + li { margin-top: 4px; }
+.transfer-preview-body > .notice:first-child { margin-top: 0; margin-bottom: 12px; }
+.transfer-results { display: grid; gap: 12px; margin: 16px 0 0; padding: 0; list-style: none; }
+.transfer-results li { display: flex; align-items: center; gap: 10px; }
+.transfer-results li > span { min-width: 0; }
+
 @media (max-width: 900px) {
   .topbar { gap: 16px; padding: 0 12px; }
   .topbar-navigation { gap: 20px; }
@@ -317,6 +373,9 @@ input:disabled, select:disabled { color: var(--faint); background: var(--raised)
   .main-content { padding: 24px 20px; }
   .page-heading { gap: 16px; }
   .page-heading h1 { font-size: 24px; }
+  .page-heading-profiles { flex-wrap: wrap; }
+  .page-heading-profiles .page-heading-title { flex-basis: 100%; }
+  .page-heading-profiles .page-heading-actions { margin-left: auto; }
   .button, .icon-button, .text-button { min-height: 44px; }
   .icon-button { width: 44px; }
   .profile-name-editor-row input { min-height: 44px; }
@@ -346,6 +405,11 @@ input:disabled, select:disabled { color: var(--faint); background: var(--raised)
   .modal-heading { padding: 12px 16px; }
   .modal-body { padding: 16px; }
   .modal-actions { padding: 12px 16px; }
+  .check-label, .profile-export-check { min-height: 44px; }
+  .transfer-intro { padding-bottom: 0; padding-top: 12px; }
+  .transfer-fields { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .transfer-fields input { min-height: 40px; }
+  .transfer-preview-actions { gap: 8px; }
   .navigation-modal { width: 100%; max-width: none; height: 100dvh; max-height: 100dvh; margin: 0; border: 0; border-radius: 0; }
   .navigation-modal .nav-item { min-height: 48px; font-size: 14px; }
 }
@@ -366,4 +430,8 @@ input:disabled, select:disabled { color: var(--faint); background: var(--raised)
   .profile-table .row-actions { grid-column: 2; grid-row: 1 / 4; align-self: center; }
   .page-heading { gap: 12px; margin-bottom: 24px; }
   .page-heading-actions { gap: 4px; }
+  .profile-table.has-selection tbody tr { grid-template-columns: 28px minmax(0, 1fr) auto; }
+  .profile-table.has-selection .profile-select-cell { grid-column: 1; grid-row: 1 / 4; align-self: center; padding: 0; }
+  .profile-table.has-selection th[scope="row"], .profile-table.has-selection .browser-phase, .profile-table.has-selection .profile-connection { grid-column: 2; }
+  .profile-table.has-selection .row-actions { grid-column: 3; }
 }

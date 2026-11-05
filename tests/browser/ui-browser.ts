@@ -10,6 +10,9 @@ import type { UiAction } from "../../packages/stelz/src/api/contracts.ts";
 const root = resolve(import.meta.dir, "../.."), home = mkdtempSync(join(tmpdir(), "stelz-ui-browser-"));
 process.env.STELZ_HOME = home;
 process.env.STELZ_TYPING_MODE = "auto";
+// Transfers use an install-compatible synthetic executable; lifecycle actions remain mocked.
+process.env.CAMOUFOX_EXECUTABLE = join(home, "fixture-engine");
+writeFileSync(process.env.CAMOUFOX_EXECUTABLE, "ui-browser-fixture", { mode: 0o600 });
 const { processStart } = await import("../../packages/stelz/src/runtime/runtime.ts");
 const { createUiServer, createUiSessionState } = await import("../../packages/stelz/src/api/ui-server.ts");
 const reports = join(root, ".state/ui-browser");
@@ -74,6 +77,7 @@ for (const [index, id] of ["profile-01", "profile-02"].entries()) {
   states.set(id, state);
   writeFileSync(join(folder, "access-key"), key, { mode: 0o600 });
   writeFileSync(join(folder, "fingerprint.json"), JSON.stringify({ version: 2, engineSha256: digest, config: {
+    "navigator.userAgent": "Stelz UI fixture",
     "navigator.platform": "MacIntel", "navigator.oscpu": "Intel Mac OS X 10.15", "navigator.hardwareConcurrency": 8,
     "screen.width": 1440, "screen.height": 900, "screen.colorDepth": 24,
     "webGl:vendor": "Apple", "webGl:renderer": "Apple M2",

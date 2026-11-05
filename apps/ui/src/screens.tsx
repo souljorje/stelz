@@ -6,20 +6,24 @@ import { useResource } from "./use-service.ts";
 import type { ThemePreference } from "./theme.ts";
 import { ProfileMark } from "./ProfileMark";
 import { ShowWindowButton, type ShowWindow } from "./ProfileWindows";
+import { exportUnavailable } from "./use-transfer.ts";
 
-export function Profiles({ snapshot, context, onInspect, onAction, onShow }: { snapshot: UiSnapshot; context: ActionContext; onInspect: (id: string) => void; onAction: (profile: UiProfile, action: UiAction) => void; onShow: ShowWindow }) {
+export function Profiles({ snapshot, context, onInspect, onAction, onShow, exportSelection }: { snapshot: UiSnapshot; context: ActionContext; onInspect: (id: string) => void; onAction: (profile: UiProfile, action: UiAction) => void; onShow: ShowWindow; exportSelection?: { ids: string[]; onToggle: (id: string) => void } }) {
   if (!snapshot.profiles.length) return <p className="empty-inline">Create a profile to start a browser.</p>;
-  return <div className="profile-table-wrap"><table className="profile-table">
+  const selected = new Set(exportSelection?.ids);
+  return <div className="profile-table-wrap"><table className={`profile-table${exportSelection ? " has-selection" : ""}`}>
     <caption className="sr-only">Browser profiles</caption>
-    <thead><tr><th scope="col">Profile</th><th scope="col">Browser</th><th scope="col">Connection</th><th scope="col" className="actions-heading"><span className="sr-only">Actions</span></th></tr></thead>
+    <thead><tr>{exportSelection && <th scope="col" className="profile-select-cell"><span className="sr-only">Select for export</span></th>}<th scope="col">Profile</th><th scope="col">Browser</th><th scope="col">Connection</th><th scope="col" className="actions-heading"><span className="sr-only">Actions</span></th></tr></thead>
     <tbody>{snapshot.profiles.map(profile => {
       const action = profile.phase === "stopped" || profile.phase === "unclean" ? "start" : "stop";
       const reason = actionReason(profile, action, context);
       const issue = profileAttention(profile) ?? (profile.phase === "stopped" && context.connected && !context.pending ? reason : null);
+      const exportReason = !context.connected ? "Refresh the connection before exporting." : context.pending ? "Wait for the current UI operation." : exportUnavailable(profile);
       return <tr key={profile.id} className="profile-row" aria-busy={!!profile.pendingAction} onClick={event => {
         if ((event.target as Element).closest("button, a, input, select, textarea, summary, [data-row-control]") || window.getSelection()?.toString()) return;
         onInspect(profile.id);
       }}>
+        {exportSelection && <td className="profile-select-cell"><label className="profile-export-check" data-row-control title={exportReason ?? `Export ${profile.name}`}><input type="checkbox" aria-label={`Export ${profile.name}`} aria-describedby={exportReason ? `export-reason-${profile.id}` : undefined} checked={selected.has(profile.id) && !exportUnavailable(profile)} disabled={!!exportReason} onChange={() => exportSelection.onToggle(profile.id)} />{exportReason && <span id={`export-reason-${profile.id}`} className="sr-only">{exportReason}</span>}</label></td>}
         <th scope="row"><button type="button" className="profile-name" aria-label={`Inspect ${profile.name}`} onClick={() => onInspect(profile.id)}><ProfileMark id={profile.id} /><span>{profile.name}</span></button></th>
         <td className="browser-phase"><Phase phase={profile.phase} />{profile.controller && <span className="cell-secondary">{profile.controller.releasing ? "Releasing " : ""}{redact(profile.controller.label)}</span>}{issue && <span className="cell-secondary profile-issue inline-attention" title={issue}>{issue}</span>}</td>
         <td className="profile-connection"><span title={hasProxy(profile.network) ? proxyDisplay(profile.network.proxyDisplay) : undefined}>{hasProxy(profile.network) ? profile.network.proxyConfigured ? "Proxy" : "Proxy missing" : "Direct"}</span></td>

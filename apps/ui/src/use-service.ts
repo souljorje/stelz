@@ -8,7 +8,7 @@ export type Connection = "connecting" | "connected" | "offline" | "unauthorized"
 export type Pending = { id: string; action: UiAction | "save" | "typing" | "rename" | "create" | "delete" | "show" } | null;
 export const FRESH_FOR = 10_000;
 
-export function useService(session: Promise<void>) {
+export function useService(session: Promise<void>, transferBusy = false) {
   const [snapshot, setSnapshot] = useState<UiSnapshot | null>(null);
   const [connection, setConnection] = useState<Connection>("connecting");
   const [error, setError] = useState("");
@@ -20,6 +20,8 @@ export function useService(session: Promise<void>) {
   const sessionReady = useRef(false);
   const flight = useRef<Promise<boolean> | null>(null);
   const mutationLock = useRef(false);
+  const transferLock = useRef(transferBusy);
+  transferLock.current = transferBusy;
   const epoch = useRef(0);
   const failures = useRef(0);
   const mounted = useRef(true);
@@ -119,7 +121,7 @@ export function useService(session: Promise<void>) {
 
   const runMutation = useCallback(async <T,>(id: string, action: NonNullable<Pending>["action"], run: () => Promise<T>): Promise<T> => {
     const state = latest.current;
-    if (state.connection !== "connected" || Date.now() - state.lastGood >= FRESH_FOR || document.hidden || mutationLock.current)
+    if (state.connection !== "connected" || Date.now() - state.lastGood >= FRESH_FOR || document.hidden || mutationLock.current || transferLock.current)
       throw new ApiError(409, "Refresh the connection and wait for the current action before making changes.");
     mutationLock.current = true;
     setPending({ id, action });
@@ -192,7 +194,7 @@ export function useService(session: Promise<void>) {
     const previous = latest.current.connection;
     if (!sessionReady.current || ["connecting", "unauthorized", "ending", "ended"].includes(previous))
       throw new ApiError(409, "Connect to the UI session before turning it off.");
-    if (mutationLock.current) throw new ApiError(409, "Wait for the current UI operation before turning off the UI.");
+    if (mutationLock.current || transferLock.current) throw new ApiError(409, "Wait for the current UI operation before turning off the UI.");
     mutationLock.current = true;
     sessionReady.current = false;
     epoch.current += 1;

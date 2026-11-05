@@ -9,11 +9,12 @@ import { actionReason, boundedLog, dateTime, deleteReason, profileAttention, pro
 import type { ActionContext } from "./model.ts";
 import { useResource } from "./use-service.ts";
 import { ProfileWindows, type ShowWindow } from "./ProfileWindows";
+import { exportUnavailable } from "./use-transfer.ts";
 
 const tabs = ["Overview", "Device", "Logs"] as const;
 type Tab = typeof tabs[number];
 
-export function ProfileDetail({ profile, snapshot, context, mutationVersion, onAction, onSave, onTypingSave, onBack, onDirtyChange, onDelete, onShow }: {
+export function ProfileDetail({ profile, snapshot, context, mutationVersion, onAction, onSave, onTypingSave, onBack, onDirtyChange, onDelete, onShow, onExport, exportDisabled = false }: {
   profile: UiProfile; snapshot: UiSnapshot; context: ActionContext; mutationVersion: number;
   onAction: (profile: UiProfile, action: UiAction) => void;
   onSave: (id: string, update: UiNetworkUpdate) => Promise<UiProfile>;
@@ -21,6 +22,7 @@ export function ProfileDetail({ profile, snapshot, context, mutationVersion, onA
   onDelete: (profile: UiProfile) => void;
   onBack: () => void; onDirtyChange: (dirty: boolean) => void;
   onShow: ShowWindow;
+  onExport: (profile: UiProfile) => void; exportDisabled?: boolean;
 }) {
   const [tab, setTab] = useState<Tab>("Overview");
   const [networkDirty, setNetworkDirty] = useState(false);
@@ -43,9 +45,10 @@ export function ProfileDetail({ profile, snapshot, context, mutationVersion, onA
   const profileHome = detail.data?.directory ?? null;
   const actions = (["start", "pause", "resume", "recheck", "release", "stop"] as const).filter(action => action === "start" && ["stopped", "unclean"].includes(profile.phase) || !actionReason(profile, action, context));
   const canDelete = !deleteReason(profile, context) && !networkDirty;
+  const exportReason = exportDisabled || networkDirty ? "Save or discard your edits before exporting." : !context.connected ? "Refresh the connection before exporting." : context.pending ? "Wait for the current UI operation." : exportUnavailable(profile);
 
   return <div className="detail-view">
-    <div className="detail-context"><button type="button" className="text-button" onClick={onBack}><Icon name="back" />All profiles</button><span className="detail-context-right"><Phase phase={profile.phase} />{canDelete && <button type="button" className="text-button delete-profile" onClick={() => onDelete(profile)}>Delete profile</button>}</span></div>
+    <div className="detail-context"><button type="button" className="text-button" onClick={onBack}><Icon name="back" />All profiles</button><span className="detail-context-right"><Phase phase={profile.phase} />{profile.phase === "stopped" && <button type="button" className="text-button profile-export-shortcut" title={exportReason ?? undefined} disabled={!!exportReason} onClick={() => onExport(profile)}>Export ZIP</button>}{canDelete && <button type="button" className="text-button delete-profile" onClick={() => onDelete(profile)}>Delete profile</button>}</span></div>
     <div className="tabs" role="tablist" aria-label={`Details for ${profile.name}`}>{tabs.map((name, index) => <button key={name} type="button" role="tab" id={`profile-tab-${name}`} aria-controls={`profile-panel-${name}`} aria-selected={tab === name} tabIndex={tab === name ? 0 : -1} onClick={() => selectTab(name)} onKeyDown={(event) => keyTab(event, index)}>{name}{name === "Overview" && networkDirty && <span className="dirty-dot" aria-label="Unsaved network changes" />}</button>)}</div>
     {detail.error && <Notice kind="error"><span>{detail.error} {detail.data ? "Previously loaded details remain visible." : "Profile state remains available."}</span><button type="button" className="text-button" onClick={detail.reload} disabled={detail.loading}>Retry details</button></Notice>}
     <section className="tab-panel" id="profile-panel-Overview" role="tabpanel" aria-labelledby="profile-tab-Overview" hidden={tab !== "Overview"} tabIndex={0}>
