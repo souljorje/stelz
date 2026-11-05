@@ -34,6 +34,7 @@ See [Compatibility](docs/README.md#compatibility) before changing existing confi
 - [Use the service](docs/README.md)
 - [Connect a client](docs/clients.md)
 - [Instructions for agents](docs/agents.md)
+- [Architecture and design decisions](docs/architecture.md)
 - [Development and testing](docs/tests.md)
 
 ## Workspace
