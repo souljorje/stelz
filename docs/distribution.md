@@ -1,7 +1,7 @@
 # Distribution
 
 The workspace root and React UI are private packages. Only `packages/stelz` can produce a release archive.
-The package remains `stelz` version `0.2.0`, with the MIT license.
+The package remains `stelz` version `0.2.1`, with the MIT license.
 Release preparation and npm publication use separate workflows.
 
 1. Run `bun install --frozen-lockfile --ignore-scripts` in a clean workspace.
@@ -9,8 +9,8 @@ Release preparation and npm publication use separate workflows.
 3. Run `bun run test`.
 4. Run `bun run build`.
 5. Run `bun run pack --destination .state/release-candidate` once.
-6. Run `bun run verify:release --archive .state/release-candidate/stelz-0.2.0.tgz`.
-7. Run `bun run verify:release --archive .state/release-candidate/stelz-0.2.0.tgz --native`.
+6. Run `bun run verify:release --archive .state/release-candidate/stelz-0.2.1.tgz`.
+7. Run `bun run verify:release --archive .state/release-candidate/stelz-0.2.1.tgz --native`.
 
 The package prepack hook builds artifacts from the workspace.
 Release preparation uses Bun to resolve workspace links, then packs a temporary standalone tree with npm.
@@ -48,9 +48,9 @@ Preparation uses read-only repository permissions and requires no publication se
 Download the complete artifact from that run. Use the same tarball for all acceptance checks:
 
 ```sh
-bun run verify:release --archive /path/to/stelz-0.2.0.tgz
+bun run verify:release --archive /path/to/stelz-0.2.1.tgz
 PROXY_TEST_ENV=/private/path/proxies.env STELZ_RELEASE_CANDIDATE_RUN=RUN_ID \
-  bun run test:package --archive /path/to/stelz-0.2.0.tgz --native --proxy --manual
+  bun run test:package --archive /path/to/stelz-0.2.1.tgz --native --proxy --manual
 ```
 
 The second command uses ordinary npm installation outside the repository.
@@ -59,10 +59,10 @@ Each suite controls the installed CLI. No suite rebuilds the supplied archive.
 Supply two distinct private proxy routes as described in [testing](tests.md#proxy-acceptance).
 Complete the human action in the paused browser when prompted.
 
-Successful complete acceptance writes `release/acceptance-0.2.0.json`.
+Successful complete acceptance writes `release/acceptance-0.2.1.json`.
 This public record contains the archive hash, workflow run, source commit, platform, and check results.
 It omits proxy credentials, profile data, and local paths. Private detailed reports stay under `.state/`.
-Commit the acceptance record without changing release source. Tag that commit `v0.2.0`.
+Commit the acceptance record without changing release source. Tag that commit `v0.2.1`.
 
 ## Publish the tested archive
 
