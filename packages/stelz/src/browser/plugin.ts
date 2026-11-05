@@ -45,7 +45,6 @@ type Phase = "starting" | "ready" | "paused" | "verification_failed" | "blocked"
 type ProfileState = {
   profileId: string;
   instanceId: string;
-  mode: "direct" | "proxy";
   phase: Phase;
   exitIp: string | null;
   expectedIp?: string | null;
@@ -87,14 +86,14 @@ export async function register(app: App, ctx: PluginContext, options: {
   const stateDir = process.env.STELZ_PROFILE_DIR!;
   if (!id || !stateDir) throw Error("local-profile requires STELZ_PROFILE_ID and STELZ_PROFILE_DIR");
   const file = join(stateDir, "status.json");
-  const mode = process.env.STELZ_MODE === "proxy" ? "proxy" : "direct";
+  const proxied = !!process.env.PROXY_HOST;
   const interval = parseIpCheckInterval(options.ipCheckIntervalMs === undefined
     ? process.env.STELZ_IP_CHECK_INTERVAL_MS : String(options.ipCheckIntervalMs));
   const now = options.now ?? (() => performance.now());
   let lastVerifiedAt: number | undefined;
   const expected = process.env.STELZ_EXPECTED_IP || "";
-  const requiresCheck = mode === "proxy" || !!expected;
-  let state: ProfileState = { profileId: id, instanceId: randomUUID(), mode, phase: "starting", exitIp: null,
+  const requiresCheck = proxied || !!expected;
+  let state: ProfileState = { profileId: id, instanceId: randomUUID(), phase: "starting", exitIp: null,
     verificationIntervalMs: interval, verificationStatus: "unverified", verificationRequired: requiresCheck };
   const controller = createControllerLease();
   const upstream = await import(pathToFileURL(join(process.env.STELZ_UPSTREAM!, "mcp/lib/tool-contracts.mjs")).href) as Contracts;
@@ -189,14 +188,14 @@ export async function register(app: App, ctx: PluginContext, options: {
       if (invalidated || stopping || context !== original) throw Error("Original browser context was lost during verification");
       const phase = state.phase === "verification_failed" && explicit ? restorePhase : state.phase;
       persist({ phase, exitIp: ip, expectedIp: expected || null, checkedAt: new Date().toISOString(),
-        fixedIpVerified: mode === "proxy" && !!expected, verificationStatus: "verified", error: null, checkFailure: null });
+        fixedIpVerified: proxied && !!expected, verificationStatus: "verified", error: null, checkFailure: null });
       lastVerifiedAt = now();
     } catch (error) {
       lastVerifiedAt = undefined;
       if (!invalidated && !stopping && context === original) {
         if (state.phase !== "verification_failed") restorePhase = state.phase === "paused" ? "paused" : "ready";
         persist({ phase: "verification_failed", verificationStatus: "verification_failed", exitIp: null, fixedIpVerified: false,
-          error: mode === "proxy"
+          error: proxied
             ? "Proxy exit IP verification failed. Correct the network and run stelz recheck. Direct fallback is disabled."
             : "Expected exit IP verification failed. Correct the network or expected IP and run stelz recheck.",
           checkFailure: (error as Error).message.slice(0, 500) });
@@ -221,7 +220,7 @@ export async function register(app: App, ctx: PluginContext, options: {
       throw Error(error);
     }
     launchAdmitted = true;
-    const hashes = applyFingerprint(launchOptions, stateDir, process.env.CAMOUFOX_EXECUTABLE!, mode === "proxy");
+    const hashes = applyFingerprint(launchOptions, stateDir, process.env.CAMOUFOX_EXECUTABLE!, proxied);
     addProfileExtension(launchOptions, windows.extensionPath);
     persist({ phase: "starting", ...hashes });
   });

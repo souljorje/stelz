@@ -19,6 +19,7 @@ import {
 } from "../profiles/config.ts";
 import { key, lock, processStart, rotateLog, type Running } from "./runtime.ts";
 import { normalizeProfileId } from "../profiles/profile-compat.ts";
+import { assertRuntimePlugin } from "./runtime-plugin.ts";
 
 process.umask(0o077);
 const p = profile(process.argv[2]!);
@@ -72,7 +73,6 @@ const env = {
   STELZ_IP_CHECK_INTERVAL_MS: String(ipCheckIntervalMs()),
   STELZ_PROFILE_ID: p.id,
   STELZ_PROFILE_DIR: runtimeDir,
-  STELZ_MODE: p.mode,
   STELZ_EXPECTED_IP: p.expectedIPEnv ? secret(p.expectedIPEnv) || "" : "",
   STELZ_HOME: HOME_DIR,
   STELZ_UPSTREAM: UPSTREAM,
@@ -101,6 +101,7 @@ const server = await lock(join(STATE, "admission.lock"), async () => {
     throw Error("The service reservation is no longer valid.");
   if (record.configurationHash !== configurationHash(p))
     throw Error("Profile configuration changed during startup.");
+  assertRuntimePlugin();
   const reserved = { ...record, pid: process.pid, supervisorStart };
   save(file, reserved);
   const child = Bun.spawn(["node", "-e", bootstrap, join(UPSTREAM, "server.js")], {

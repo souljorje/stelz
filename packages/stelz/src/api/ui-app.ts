@@ -6,7 +6,7 @@ import { extname, join } from "node:path";
 import { ROOT } from "../profiles/config.ts";
 import { runLifecycle } from "../runtime/operations.ts";
 import { createUiModel, redactUiText } from "./ui-model.ts";
-import { UI_ACTIONS, type UiAction, type UiProfileCreate, type UiModel, type UiNetworkUpdate, type UiTypingUpdate } from "./contracts.ts";
+import { UI_ACTIONS, type UiAction, type UiProfileCreate, type UiProfileRename, type UiModel, type UiNetworkUpdate, type UiTypingUpdate } from "./contracts.ts";
 import { createWindowModel, type WindowModel } from "./window-model.ts";
 import type { ShowProfileWindow } from "../api/contracts.ts";
 
@@ -14,7 +14,7 @@ type Asset = { body: string | Uint8Array<ArrayBuffer>; type: string };
 export type UiSessionState = {
   bootstrapToken: string | null;
   session: string;
-  pending: Map<string, UiAction | "save" | "typing" | "delete" | "show">;
+  pending: Map<string, UiAction | "save" | "typing" | "rename" | "delete" | "show">;
   activeMutations: number;
   ended: boolean;
 };
@@ -124,7 +124,7 @@ export function createUiApp(options: UiAppOptions = {}) {
   // Keep the exact URL paths used by the asset map and profile ID validation.
   const app = new Hono<UiEnvironment>({ getPath: request => new URL(request.url).pathname });
 
-  async function exclusive<T>(id: string, action: UiAction | "save" | "typing" | "delete" | "show", run: () => Promise<T>) {
+  async function exclusive<T>(id: string, action: UiAction | "save" | "typing" | "rename" | "delete" | "show", run: () => Promise<T>) {
     if (pending.has(id)) throw new UiHttpError("An operation is already active for this profile. Wait for its result.", 409);
     pending.set(id, action);
     try { return await run(); }
@@ -191,9 +191,13 @@ export function createUiApp(options: UiAppOptions = {}) {
   });
 
   app.get(profilePath, async c => {
-    if (c.req.method !== "GET") return methodNotAllowed(c, "GET, DELETE");
+    if (c.req.method !== "GET") return methodNotAllowed(c, "GET, PATCH, DELETE");
     const id = c.req.param("id"), detail = await model.detail(id);
     return c.json({ ...detail, profile: { ...detail.profile, ...(pending.has(id) ? { pendingAction: pending.get(id) } : {}) } });
+  });
+  app.patch(profilePath, async c => {
+    const body = await readJson(c.req.raw), id = c.req.param("id");
+    return c.json({ profile: await exclusive(id, "rename", () => model.renameProfile(id, body as UiProfileRename)) });
   });
   app.delete(profilePath, async c => {
     const body = await readJson(c.req.raw), id = c.req.param("id");
@@ -202,7 +206,7 @@ export function createUiApp(options: UiAppOptions = {}) {
     await exclusive(id, "delete", () => model.deleteProfile(id, body.revision as string));
     return c.json({ deleted: true });
   });
-  app.all(profilePath, c => methodNotAllowed(c, "GET, DELETE"));
+  app.all(profilePath, c => methodNotAllowed(c, "GET, PATCH, DELETE"));
 
   app.post(`${profilePath}/actions`, async c => {
     const body = await readJson(c.req.raw), id = c.req.param("id");

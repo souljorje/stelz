@@ -2,8 +2,8 @@ import { useEffect, useId, useState } from "react";
 import type { FormEvent } from "react";
 import type { UiProfile, UiNetworkUpdate } from "../../../packages/stelz/src/api/contracts.ts";
 import { ApiError, errorMessage } from "./api.ts";
-import { networkDirty, networkDraft, networkUpdate, proxyDisplay } from "./model.ts";
-import { Notice } from "./components";
+import { hasProxy, networkDirty, networkDraft, networkUpdate } from "./model.ts";
+import { KeyValues, Notice } from "./components";
 
 export function NetworkForm({ profile, connected, busy, onSave, onDirtyChange }: {
   profile: UiProfile; connected: boolean; busy: boolean;
@@ -17,7 +17,6 @@ export function NetworkForm({ profile, connected, busy, onSave, onDirtyChange }:
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
-  const [advanced, setAdvanced] = useState(!!network.expectedIp || network.expectedIpReadOnly);
   const [rejectedConflict, setRejectedConflict] = useState(false);
   const dirty = networkDirty(draft, baseline);
   const conflict = rejectedConflict || (!saving && dirty && baseline.revision !== network.revision);
@@ -69,19 +68,23 @@ export function NetworkForm({ profile, connected, busy, onSave, onDirtyChange }:
     : !dirty ? "No unsaved changes." : null;
   const patch = (value: Partial<typeof draft>) => { setDraft((current) => ({ ...current, ...value })); setSaved(false); };
 
-  return <form className="network-form" onSubmit={event => void save(event)} aria-label={`Network settings for ${profile.id}`}>
-    {!stopped && <Notice kind="warning">Stop this profile before editing its network.</Notice>}
+  if (!stopped && !dirty) return <div className="network-summary"><KeyValues rows={[
+    { label: "Proxy", value: hasProxy(network) ? network.proxyDisplay ?? "Proxy unavailable" : "None" },
+    ...(profile.exitIp ? [{ label: "Exit IP", value: profile.exitIp, mono: true }] : []),
+    ...(network.expectedIp ? [{ label: "Expected exit IP", value: network.expectedIp, mono: true }] : []),
+  ]} /><p className="field-help">Stop the profile to edit its connection.</p></div>;
+
+  return <form className="network-form" onSubmit={event => void save(event)} aria-label={`Network settings for ${profile.name}`}>
+    {!stopped && <p className="field-help">Stop the profile to edit its connection.</p>}
     {conflict && <Notice kind="warning"><span>Network settings changed. Your edits remain here.</span><button type="button" className="text-button" onClick={reset} disabled={busy || saving}>Discard edits and load latest</button></Notice>}
-    <div className="form-field"><label htmlFor={`${prefix}-mode`}>Connection mode</label><select id={`${prefix}-mode`} value={draft.mode} disabled={!editable} onChange={event => patch({ mode: event.target.value as "direct" | "proxy" })}><option value="direct">Direct (no proxy)</option><option value="proxy">Proxy</option></select></div>
-    {draft.mode === "proxy" && <div className="form-field">
-      <label htmlFor={`${prefix}-proxy`}>Proxy URL {network.proxyReadOnly && <span className="label-note">Managed externally</span>}</label>
-      <input id={`${prefix}-proxy`} type="password" autoComplete="new-password" spellCheck={false} value={draft.proxyUrl} disabled={!editable || network.proxyReadOnly} onChange={event => patch({ proxyUrl: event.target.value })} placeholder={network.proxyConfigured ? "Leave blank to keep the saved proxy" : "scheme://host:port"} aria-describedby={`${prefix}-proxy-help`} />
-      <p className="field-help" id={`${prefix}-proxy-help`}>{network.proxyReadOnly ? <>Change {network.proxyEnv ? <code>{network.proxyEnv}</code> : "the shared secret"} outside the UI.</> : network.proxyConfigured ? <>Current: <code>{proxyDisplay(network.proxyDisplay)}</code>. Leave blank to keep it.</> : "HTTP(S) or unauthenticated SOCKS5."}</p>
-    </div>}
-    <details className="disclosure" open={advanced} onToggle={event => setAdvanced(event.currentTarget.open)}><summary>IP verification{draft.expectedIp && <span className="label-note">{draft.expectedIp}</span>}</summary>
-      <div className="form-field"><label htmlFor={`${prefix}-ip`}>Expected exit IP <span className="label-note">{network.expectedIpReadOnly ? "Managed externally" : "Optional"}</span></label><input id={`${prefix}-ip`} type="text" autoComplete="off" spellCheck={false} value={draft.expectedIp} disabled={!editable || network.expectedIpReadOnly} onChange={event => patch({ expectedIp: event.target.value })} placeholder="No fixed IP required" aria-describedby={`${prefix}-ip-help`} /><p className="field-help" id={`${prefix}-ip-help`}>{network.expectedIpReadOnly ? <>Change {network.expectedIPEnv ? <code>{network.expectedIPEnv}</code> : "the shared reference"} outside the UI.</> : "Leave blank to allow any exit IP. Proxies always verify their connection."}</p></div>
-    </details>
+    <div className="network-fields"><div className="form-field">
+      <label htmlFor={`${prefix}-proxy`}>Proxy URL <span className="label-note">{network.proxyReadOnly ? "Managed externally" : "Optional"}</span></label>
+      <input id={`${prefix}-proxy`} type={draft.proxyUrl === baseline.proxyUrl ? "text" : "password"} autoComplete="off" maxLength={8192} spellCheck={false} value={draft.proxyUrl} disabled={!editable} readOnly={network.proxyReadOnly} onChange={event => patch({ proxyUrl: event.target.value })} placeholder="No proxy (direct connection)" aria-describedby={network.proxyReadOnly ? `${prefix}-proxy-help` : undefined} />
+      {network.proxyReadOnly && <p className="field-help" id={`${prefix}-proxy-help`}>Change {network.proxyEnv ? <code>{network.proxyEnv}</code> : "the shared secret"} outside the UI.{draft.proxyUrl && <> <button type="button" className="text-button" disabled={!editable} onClick={() => patch({ proxyUrl: "" })}>Remove proxy</button></>}</p>}
+    </div>
+    <div className="form-field"><label htmlFor={`${prefix}-ip`}>Expected exit IP <span className="label-note">{network.expectedIpReadOnly ? "Managed externally" : "Optional"}</span></label><input id={`${prefix}-ip`} type="text" autoComplete="off" spellCheck={false} value={draft.expectedIp} disabled={!editable || network.expectedIpReadOnly} onChange={event => patch({ expectedIp: event.target.value })} placeholder="No fixed IP required" aria-describedby={network.expectedIpReadOnly ? `${prefix}-ip-help` : undefined} />{network.expectedIpReadOnly && <p className="field-help" id={`${prefix}-ip-help`}>Change {network.expectedIPEnv ? <code>{network.expectedIPEnv}</code> : "the shared reference"} outside the UI.</p>}</div>
+    </div>
     {error && <Notice kind="error" alert>{error}</Notice>}
-    <div className="form-actions"><span className={`field-help${!dirty && !saved ? " sr-only" : ""}`} id={`${prefix}-save-reason`} role="status">{saved ? "Network settings saved." : reason ?? "Applies on the next start."}</span><div className="button-row">{dirty && <button type="button" className="button" disabled={saving || busy} onClick={reset}>Discard edits</button>}<button type="submit" className="button button-primary" disabled={!!reason} aria-describedby={`${prefix}-save-reason`}>{saving ? "Saving…" : "Save network"}</button></div></div>
+    {(dirty || saved) && <div className="form-actions"><span className="field-help" id={`${prefix}-save-reason`} role="status">{saved ? "Network settings saved." : reason ?? "Applies on the next start."}</span>{dirty && <div className="button-row"><button type="button" className="button" disabled={saving || busy} onClick={reset}>Discard edits</button><button type="submit" className="button button-primary" disabled={!!reason} aria-describedby={`${prefix}-save-reason`}>{saving ? "Saving…" : "Save network"}</button></div>}</div>}
   </form>;
 }

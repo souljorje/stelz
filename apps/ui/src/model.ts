@@ -77,7 +77,7 @@ export function actionReason(profile: UiProfile, action: UiAction, context: Acti
     case "pause": return profile.phase === "ready" ? null : "Pause is available when the browser is ready.";
     case "resume": return profile.phase === "paused" ? null : "Resume is available when the browser is paused.";
     case "recheck":
-      if (profile.mode === "direct" && !profile.network.expectedIp) return "IP verification is not enabled for this profile.";
+      if (!hasProxy(profile.network) && !profile.network.expectedIp) return "IP verification is not enabled for this profile.";
       return ["ready", "paused", "verification_failed"].includes(profile.phase) ? null : "Start the browser before checking its IP.";
     case "release":
       if (!profile.controller) return "No controller holds this profile.";
@@ -86,18 +86,19 @@ export function actionReason(profile: UiProfile, action: UiAction, context: Acti
   }
 }
 
-export type NetworkDraft = { revision: string; mode: "direct" | "proxy"; proxyUrl: string; expectedIp: string };
+export const hasProxy = (network: UiNetwork) => !!(network.proxyEnv || network.proxyDisplay);
+
+export type NetworkDraft = { revision: string; proxyUrl: string; expectedIp: string };
 export const networkDraft = (network: UiNetwork): NetworkDraft => ({
-  revision: network.revision, mode: network.mode, proxyUrl: "", expectedIp: network.expectedIp,
+  revision: network.revision, proxyUrl: network.proxyDisplay ?? "", expectedIp: network.expectedIp,
 });
-export const networkDirty = (draft: NetworkDraft, baseline: NetworkDraft) => draft.mode !== baseline.mode || draft.proxyUrl !== "" || draft.expectedIp !== baseline.expectedIp;
+export const networkDirty = (draft: NetworkDraft, baseline: NetworkDraft) => draft.proxyUrl.trim() !== baseline.proxyUrl || draft.expectedIp.trim() !== baseline.expectedIp;
 
 export function networkUpdate(draft: NetworkDraft, baseline: NetworkDraft, network: UiNetwork): UiNetworkUpdate {
   return {
     revision: draft.revision,
-    mode: draft.mode,
-    ...(draft.mode === "proxy" && !network.proxyReadOnly && draft.proxyUrl.trim() ? { proxyUrl: draft.proxyUrl.trim() } : {}),
-    ...(!network.expectedIpReadOnly && draft.expectedIp !== baseline.expectedIp ? { expectedIp: draft.expectedIp.trim() } : {}),
+    ...((!network.proxyReadOnly || !draft.proxyUrl.trim()) && draft.proxyUrl.trim() !== baseline.proxyUrl ? { proxyUrl: draft.proxyUrl.trim() || null } : {}),
+    ...(!network.expectedIpReadOnly && draft.expectedIp.trim() !== baseline.expectedIp ? { expectedIp: draft.expectedIp.trim() } : {}),
   };
 }
 

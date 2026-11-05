@@ -3,7 +3,7 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync } from "nod
 import { createServer, isIP } from "node:net";
 import { join } from "node:path";
 import { parseEnv } from "node:util";
-import { CONFIG_FILE, HOME_DIR, STATE, dir, save, settings, serializeSettings, validateProxy, validateSettings, type Profile, type Settings } from "./config.ts";
+import { CONFIG_FILE, HOME_DIR, STATE, dir, save, settings, serializeSettings, parseProfileName, validateProxy, validateSettings, type Profile, type Settings } from "./config.ts";
 import { isTypingMode } from "../browser/typing.ts";
 import { assertStoppedProfile, lock, observe, observeStatus, running } from "../runtime/profile-process.ts";
 import {
@@ -14,8 +14,9 @@ import {
   NetworkTransactionError, networkTransactionProfile, pendingNetworkTransaction,
   recoverNetworkTransaction, saveNetworkTransaction,
 } from "./network-transaction.ts";
-import type { ProfileCreate, NetworkUpdate, TypingUpdate } from "./profile-configuration-types.ts";
-export type { ProfileCreate, NetworkUpdate } from "./profile-configuration-types.ts";
+import type { ProfileCreate, ProfileRename, NetworkUpdate, TypingUpdate } from "./profile-configuration-types.ts";
+import { hasProxy, withoutLegacyConnectionMode } from "./network-compat.ts";
+export type { ProfileCreate, ProfileRename, NetworkUpdate } from "./profile-configuration-types.ts";
 export { ProfileCatalogError, recoverProfileCatalog } from "./profile-catalog.ts";
 
 export class ProfileConfigurationError extends Error {
@@ -69,7 +70,7 @@ function referencedElsewhere(config: Settings, p: Profile, name?: string) {
 
 export function networkRevision(config: Settings, p: Profile, secrets: Pick<ReturnType<typeof readSecrets>, "values">): string {
   return createHash("sha256").update(JSON.stringify({
-    config: { ...config, profiles: config.profiles.map(({ typingMode: _typingMode, ...profile }) => profile) },
+    config: { ...config, profiles: config.profiles.map(({ name: _name, typingMode: _typingMode, ...profile }) => profile) },
     proxy: p.proxyEnv ? [secrets.values[p.proxyEnv] ?? null, process.env[p.proxyEnv] ?? null] : null,
     expected: p.expectedIPEnv ? [secrets.values[p.expectedIPEnv] ?? null, process.env[p.expectedIPEnv] ?? null] : null,
   })).digest("hex");
@@ -80,11 +81,10 @@ export function typingRevision(p: Profile): string {
 function validateUpdate(value: NetworkUpdate): NetworkUpdate {
   const item = data(value);
   if (!value || Array.isArray(value) || ![Object.prototype, null].includes(Object.getPrototypeOf(value)) ||
-      Object.keys(item).some(key => !["revision", "mode", "proxyUrl", "expectedIp"].includes(key)) ||
-      typeof item.revision !== "string" || !/^[a-f\d]{64}$/.test(item.revision) ||
-      !["direct", "proxy"].includes(item.mode as string))
-    throw new ProfileConfigurationError(400, "Network input is invalid. Supply a revision and a direct or proxy mode.");
-  if (Object.hasOwn(item, "proxyUrl")) {
+      Object.keys(item).some(key => !["revision", "proxyUrl", "expectedIp"].includes(key)) ||
+      typeof item.revision !== "string" || !/^[a-f\d]{64}$/.test(item.revision))
+    throw new ProfileConfigurationError(400, "Network input is invalid. Supply the current network revision.");
+  if (Object.hasOwn(item, "proxyUrl") && item.proxyUrl !== null) {
     if (typeof item.proxyUrl !== "string" || !item.proxyUrl || item.proxyUrl.length > 8192 ||
         /[\s\\\x00-\x1f\x7f]/.test(item.proxyUrl) || !/^(?:https?|socks5):\/\//i.test(item.proxyUrl))
       throw new ProfileConfigurationError(400, "Proxy URL must be a nonempty HTTP(S) or unauthenticated SOCKS5 URL.");
@@ -222,7 +222,7 @@ export async function createProfile(input: ProfileCreate): Promise<string> {
     let port = 9377;
     while (port <= 65535 && (ports.has(port) || !await portAvailable(port))) port++;
     if (port > 65535) throw new ProfileCatalogError(409, "No profile port is available.");
-    const p: Profile = { id: input.id, port, mode: input.proxyUrl ? "proxy" : "direct", storage: "native" };
+    const p: Profile = { id: input.id, port, storage: "native" };
     const secrets = parseEnv(before.secrets || "");
     const used = new Set([...Object.keys(secrets), ...Object.keys(process.env), ...config.profiles.flatMap(p => [p.proxyEnv, p.expectedIPEnv])]);
     let nextSecrets = before.secrets;
@@ -281,8 +281,9 @@ export async function updateNetwork(id: string, input: NetworkUpdate) {
         throw new ProfileConfigurationError(409, "Stop the profile cleanly before changing its network.");
       if (update.revision !== networkRevision(config, p, secrets))
         throw new ProfileConfigurationError(409, "Network configuration changed. Refresh it before saving.");
-      const candidate = structuredClone(config), next = candidate.profiles.find(item => item.id === id)!;
-      next.mode = update.mode;
+      const candidate = structuredClone(config), index = candidate.profiles.findIndex(item => item.id === id);
+      const next = update.proxyUrl === undefined ? candidate.profiles[index]! : withoutLegacyConnectionMode(candidate.profiles[index]!);
+      candidate.profiles[index] = next;
       const updates = new Map<string, string>();
       const used = new Set([...Object.keys(secrets.values), ...Object.keys(process.env), ...config.profiles.flatMap(item => [item.proxyEnv, item.expectedIPEnv].filter((name): name is string => !!name))]);
       const set = (field: "proxyEnv" | "expectedIPEnv", value: string) => {
@@ -296,14 +297,15 @@ export async function updateNetwork(id: string, input: NetworkUpdate) {
         }
         updates.set(name, value);
       };
-      if (update.proxyUrl !== undefined) set("proxyEnv", update.proxyUrl);
+      if (update.proxyUrl === null) delete next.proxyEnv;
+      else if (update.proxyUrl !== undefined) set("proxyEnv", update.proxyUrl);
       if (update.expectedIp !== undefined && (update.expectedIp || next.expectedIPEnv)) set("expectedIPEnv", update.expectedIp);
       validateSettings(candidate);
       const changedSecrets = editSecrets(secrets.text, updates), candidateSecrets = { text: changedSecrets, values: parseEnv(changedSecrets) };
       const proxy = next.proxyEnv && (process.env[next.proxyEnv] ?? candidateSecrets.values[next.proxyEnv]);
       const expected = next.expectedIPEnv && (process.env[next.expectedIPEnv] ?? candidateSecrets.values[next.expectedIPEnv]);
       let error: string | null = null;
-      if (next.mode === "proxy") {
+      if (hasProxy(next)) {
         if (!proxy) error = "Proxy URL is missing. Configure a proxy before starting this profile.";
         else { try { validateProxy(proxy); } catch { error = "Proxy URL is invalid. Use HTTP(S) or unauthenticated SOCKS5."; } }
       }
@@ -315,6 +317,27 @@ export async function updateNetwork(id: string, input: NetworkUpdate) {
       saveNetworkTransaction(id, before, { config: serializeSettings(candidate, previousConfig), secrets: updates.size ? changedSecrets : before.secrets });
       return { config: candidate, profile: next, secrets: candidateSecrets, observation };
     });
+  });
+}
+
+export async function renameProfile(id: string, input: ProfileRename) {
+  const value = data(input);
+  if (!validId(id) || !input || Array.isArray(input) || ![Object.prototype, null].includes(Object.getPrototypeOf(input)) ||
+      Object.keys(value).some(key => !["revision", "name"].includes(key)) ||
+      typeof value.revision !== "string" || !/^[a-f\d]{64}$/.test(value.revision))
+    throw new ProfileConfigurationError(400, "Supply the current profile revision and a display name.");
+  let name: string;
+  try { name = parseProfileName(value.name); }
+  catch (error) { throw new ProfileConfigurationError(400, (error as Error).message); }
+  return prepareProfileConfiguration(async () => {
+    const config = readSettings()!, p = findProfile(config, id), secrets = readSecrets();
+    revisionMatches(input.revision, config);
+    const candidate = structuredClone(config), next = candidate.profiles.find(item => item.id === p.id)!;
+    if (name === id) delete next.name;
+    else next.name = name;
+    validateSettings(candidate);
+    save(configFile, JSON.parse(serializeSettings(candidate, readFileSync(configFile, "utf8"))));
+    return { config: candidate, profile: next, secrets };
   });
 }
 

@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { dlopen, FFIType, ptr } from "bun:ffi";
 import { alive, dir, json, type Profile } from "../profiles/config.ts";
 import { normalizeProfileId } from "../profiles/profile-compat.ts";
+import { withoutLegacyConnectionMode } from "../profiles/network-compat.ts";
 
 // Keep the lock inode in place. The kernel releases flock when a process dies,
 // so competing stale-lock recoveries cannot unlink each other's new lock.
@@ -221,8 +222,7 @@ export function observeStatus(p: Profile) {
     phase = o.clean && o.server !== "owned" && o.supervisor !== "owned" ? "stopped" : "unclean";
   return {
     profileId: id,
-    mode: p.mode,
-    ...stored,
+    ...withoutLegacyConnectionMode(stored),
     phase,
     ...(o.record
       ? {

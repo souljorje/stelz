@@ -23,7 +23,7 @@ async function call(name: string, args: Record<string, unknown> = {}) {
   return JSON.parse((result.content as Array<{ type: string; text?: string }>).filter(v => v.type === "text").map(v => v.text).join("\n")) as Record<string, unknown>;
 }
 try {
-  await command("init"); writeFileSync(join(home, "profiles.json"), JSON.stringify({ profiles: [{ id, port: 9871, mode: "direct", storage: "native" }] }));
+  await command("init"); writeFileSync(join(home, "profiles.json"), JSON.stringify({ profiles: [{ id, port: 9871, storage: "native" }] }));
   await command("setup"); site = await fixture(9810); await command("start", id);
   await client.connect(new StdioClientTransport({ command: Bun.which("bun")!, args: ["--no-env-file", cli, "mcp", "--profile", id], env }));
   await call("profile_acquire");

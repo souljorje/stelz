@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { isDeepStrictEqual, parseEnv } from "node:util";
 import { CONFIG_FILE, HOME_DIR, STATE, dir, validateProxy, validateSettings, type Settings } from "./config.ts";
 import { normalizeProfileId } from "./profile-compat.ts";
+import { withoutLegacyConnectionMode } from "./network-compat.ts";
 
 export const NETWORK_JOURNAL = join(HOME_DIR, ".network-transaction.json");
 const configFile = CONFIG_FILE, secretsFile = join(HOME_DIR, "secrets.env");
@@ -97,14 +98,14 @@ function validate(value: unknown): Transaction {
   const oldProfile = before!.profiles.find(p => p.id === transaction.profileId);
   const newProfile = after!.profiles.find(p => p.id === transaction.profileId);
   if (!oldProfile || !newProfile) fail();
-  // A journal can change only this profile's mode and optional secret references.
+  // A journal can change only this profile's network fields, including legacy fields.
   const withoutNetwork = (config: Settings) => ({ ...config, profiles: config.profiles.map(p => {
     if (p.id !== transaction.profileId) return p;
-    const { mode: _mode, proxyEnv: _proxy, expectedIPEnv: _expected, ...rest } = p;
+    const { proxyEnv: _proxy, expectedIPEnv: _expected, ...rest } = withoutLegacyConnectionMode(p);
     return rest;
   }) });
   if (!isDeepStrictEqual(withoutNetwork(before!), withoutNetwork(after!)) ||
-      oldProfile.proxyEnv && oldProfile.proxyEnv !== newProfile.proxyEnv ||
+      oldProfile.proxyEnv && newProfile.proxyEnv && oldProfile.proxyEnv !== newProfile.proxyEnv ||
       oldProfile.expectedIPEnv && oldProfile.expectedIPEnv !== newProfile.expectedIPEnv) fail();
   const oldSecrets = parseEnv(transaction.before.secrets || ""), newSecrets = parseEnv(transaction.after.secrets || "");
   for (const field of ["proxyEnv", "expectedIPEnv"] as const) {

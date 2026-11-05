@@ -24,6 +24,7 @@ Setup copies them into the service directory and checks the prepared source with
 Setup does not clone a repository or apply patches.
 Setup does not change the installed Camoufox app.
 Stop all profiles before setup after a code update.
+Start refuses an outdated browser plugin. Run `stelz setup` to install the current package's plugin before starting a new browser.
 Setup stages and checks the complete runtime before it replaces the active runtime.
 See [Camofox adapter patches](camofox-patches.md) for the eight pinned compatibility changes.
 
@@ -40,7 +41,8 @@ The global CLI ignores automatic project `.env` files.
 ## Configuration
 
 `profiles.json` contains a `profiles` array.
-Each profile specifies its ID, loopback port, network mode, and storage mode.
+Each profile specifies its ID, loopback port, and storage mode.
+A profile uses its optional proxy reference to select the network route.
 See [profiles.json](../examples/profiles.json) for an empty configuration.
 `secrets.env` contains proxy credentials. Keep this file private.
 
@@ -53,8 +55,8 @@ Each profile has at most one browser instance. That browser can have multiple wi
 Available memory, disk, and loopback ports constrain practical capacity. The service does not impose a CPU budget.
 Catalogs and their transaction journals have no fixed byte ceiling. Secret files, state files, and HTTP requests retain their size protections.
 Existing entries without a `storage` field keep `checkpoint` mode. Init never overwrites them.
-Select Proxy in the UI to configure a proxy for a stopped profile.
-For manual proxy configuration on a new profile, set `mode: "proxy"` and `proxyEnv: "PROFILE_01_PROXY_URL"`.
+Enter a proxy URL in Overview to configure a proxy for a stopped profile. Clear the field to remove it.
+For manual proxy configuration on a new profile, set `proxyEnv: "PROFILE_01_PROXY_URL"`.
 Set `PROFILE_01_PROXY_URL` in `secrets.env`.
 Optionally set `expectedIPEnv: "PROFILE_01_EXPECTED_IP"` and its value in `secrets.env` to require a specific exit IP.
 Camofox supports HTTP(S) proxy authentication and unauthenticated SOCKS5.
@@ -106,6 +108,8 @@ Existing `maxActive` values are ignored and preserved during edits and recovery.
 
 Existing IDs, such as `identity-01`, remain unchanged. Keep configured secret references unchanged.
 The `profile-01` IDs and `PROFILE_01_*` secret names in examples are suggestions for new configuration.
+Legacy `mode` fields remain readable. New profiles infer proxy use from their optional `proxyEnv` reference.
+A missing proxy secret blocks startup. It never enables a direct fallback.
 
 ## Typing
 
@@ -135,6 +139,7 @@ If typing stops with incomplete input, read a fresh snapshot before another acti
 | Command | Effect |
 | --- | --- |
 | `stelz ui [--port PORT] [--open]` | Serve the local profile UI. The default port is 9380. |
+| `stelz profile create ID [--direct] [--json]` | Create a native profile or reuse a compatible profile. Run `stelz profile create --help` for network options. |
 | `stelz start profile-02` | Start one visible browser. |
 | `stelz start all` | Start configured profiles sequentially. Reuse an existing safe lifetime for each profile. |
 | `stelz status` | Read state and current controller information. |

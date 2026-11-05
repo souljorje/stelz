@@ -9,14 +9,23 @@ import { UPSTREAM_VERSION } from "../versions.ts";
 import { isTypingMode, parseTypingMode, type TypingMode } from "../browser/typing.ts";
 import { DEFAULT_IP_CHECK_INTERVAL_MS, parseIpCheckInterval } from "../browser/ip-verification.ts";
 import { existingProfilePath, normalizeProfileId } from "./profile-compat.ts";
+import { hasProxy, legacyConnectionMode, withoutLegacyConnectionMode } from "./network-compat.ts";
 export { UPSTREAM_VERSION, COMMIT } from "../versions.ts";
 
 export const HOME_DIR = resolve(process.env.STELZ_HOME || join(homedir(), ".local/share/stelz"));
 export const CONFIG_FILE = existingProfilePath(HOME_DIR, "profiles.json", "identities.json");
 export const STATE = existingProfilePath(HOME_DIR, "profiles", "identities");
 export const UPSTREAM = join(HOME_DIR, "runtime", `camofox-${UPSTREAM_VERSION}`);
-export type Profile = { id: string; port: number; mode: "direct" | "proxy"; proxyEnv?: string; expectedIPEnv?: string; storage?: "native" | "checkpoint"; typingMode?: TypingMode };
+export type Profile = { id: string; name?: string; port: number; proxyEnv?: string; expectedIPEnv?: string; storage?: "native" | "checkpoint"; typingMode?: TypingMode };
 export type Settings = { profiles: Profile[] };
+export function parseProfileName(value: unknown): string {
+  if (typeof value !== "string" || /[\p{Cc}\p{Bidi_Control}\u2028\u2029\u206a-\u206f]/u.test(value))
+    throw Error("Use a display name with 1–80 characters and no control or directional format characters.");
+  const name = value.trim();
+  if (!name || name.length > 80)
+    throw Error("Use a display name with 1–80 characters and no control or directional format characters.");
+  return name;
+}
 export function initialize() {
   mkdirSync(STATE, { recursive: true, mode: 0o700 });
   if (!existsSync(CONFIG_FILE)) save(CONFIG_FILE, { profiles: [] });
@@ -37,8 +46,10 @@ export function validateSettings(input: unknown): Settings {
   if (!Array.isArray(value.profiles)) throw Error("Configure a profiles array.");
   const ids = new Set<string>(), ports = new Set<number>();
   for (const p of value.profiles) {
-    if (!p || typeof p !== "object" || typeof p.id !== "string" || !/^[a-z][a-z0-9-]{0,63}$/.test(p.id) || !Number.isInteger(p.port) || p.port < 1024 || p.port > 65535 || !["direct", "proxy"].includes(p.mode) || ids.has(p.id) || ports.has(p.port)) throw Error("Profile IDs and ports must be valid and unique.");
+    if (!p || typeof p !== "object" || typeof p.id !== "string" || !/^[a-z][a-z0-9-]{0,63}$/.test(p.id) || !Number.isInteger(p.port) || p.port < 1024 || p.port > 65535 || ids.has(p.id) || ports.has(p.port)) throw Error("Profile IDs and ports must be valid and unique.");
+    legacyConnectionMode(p);
     if (p.storage !== undefined && !["native", "checkpoint"].includes(p.storage)) throw Error("Storage must be native or checkpoint.");
+    if (p.name !== undefined && parseProfileName(p.name) !== p.name) throw Error("Profile display names must have no leading or trailing whitespace.");
     if (p.typingMode !== undefined && !isTypingMode(p.typingMode)) throw Error("Typing mode must be auto, keyboard, or instant.");
     for (const name of [p.proxyEnv, p.expectedIPEnv]) {
       if (name !== undefined && (typeof name !== "string" || !/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(name))) throw Error("Environment variable names must be valid.");
@@ -82,7 +93,7 @@ export function alive(pid: number) {
   try { process.kill(pid, 0); return true; } catch (e) { return (e as NodeJS.ErrnoException).code === "EPERM"; }
 }
 export function proxyEnvironment(p: Profile): Record<string, string> {
-  if (p.mode === "direct") return {};
+  if (!hasProxy(p)) return {};
   const raw = p.proxyEnv && secret(p.proxyEnv);
   if (!raw) throw Error(`${p.id}: set ${p.proxyEnv || "proxyEnv"} in ${join(HOME_DIR, "secrets.env")}. Direct fallback is disabled.`);
   const u = validateProxy(raw, p.id);
@@ -97,8 +108,8 @@ export function validateProxy(raw: string, id = "Profile"): URL {
   return u;
 }
 export function configurationHash(p: Profile) {
-  // Typing is an action preference, read on each call, rather than launch state.
-  const { typingMode: _typingMode, ...launchProfile } = p;
+  // Display names and typing preferences do not change launch state.
+  const { name: _name, typingMode: _typingMode, ...launchProfile } = p;
   const interval = ipCheckIntervalMs(), typing = typingMode();
   return createHash("sha256").update(JSON.stringify({ ...launchProfile, proxy: proxyEnvironment(p),
     expectedIP: p.expectedIPEnv ? secret(p.expectedIPEnv) || "" : "",
@@ -109,7 +120,7 @@ export function configurationHash(p: Profile) {
 export async function control(p: Profile, method: string, action: string, body?: unknown) {
   const token = readFileSync(join(dir(p.id), "access-key"), "utf8").trim();
   const r = await fetch(`${base(p)}/local-profile/${action}`, { method, headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(120000) });
-  const payload = normalizeProfileId(await r.json() as Record<string, unknown>);
+  const payload = withoutLegacyConnectionMode(normalizeProfileId(await r.json() as Record<string, unknown>));
   if (!r.ok) throw Error(String(payload.error || `Profile control returned ${r.status}.`));
   return payload;
 }

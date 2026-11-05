@@ -9,7 +9,7 @@ export type ShowWindow = (id: string, selection?: ShowProfileWindow) => void;
 
 export function ShowWindowButton({ profile, context, onShow, compact = false }: { profile: UiProfile; context: ActionContext; onShow: ShowWindow; compact?: boolean }) {
   if (!["ready", "paused", "verification_failed"].includes(profile.phase)) return null;
-  const label = "Show window for " + profile.id;
+  const label = "Show window for " + profile.name;
   const reason = !context.connected ? "Reconnect before showing a window."
     : context.pending || profile.pendingAction ? "Wait for the current operation."
     : !profile.windowControls.available ? profile.windowControls.reason || "Window controls are unavailable."
@@ -42,7 +42,7 @@ export function ProfileWindows({ profile, context, mutationVersion, onShow }: {
           <div className="browser-window-heading"><span>Window {index + 1}<span className="window-state">{window.state === "minimized" ? "Minimized" : window.focused ? "Focused" : window.tabs.length + (window.tabs.length === 1 ? " page" : " pages")}</span></span>
             <button type="button" className="text-button" disabled={!canShow} onClick={() => onShow(profile.id, { instanceId: data.instanceId!, windowId: window.id })}>Show window</button></div>
           <ul className="window-pages">{window.tabs.map(tab => <li key={tab.id}><button type="button" className="window-page" disabled={!canShow} title={tab.title || tab.url || "Blank page"}
-            aria-label={"Show " + (tab.title || tab.url || "blank page") + " in " + profile.id}
+            aria-label={"Show " + (tab.title || tab.url || "blank page") + " in " + profile.name}
             onClick={() => onShow(profile.id, { instanceId: data.instanceId!, windowId: window.id, tabId: tab.id })}>
             <Icon name="window" /><span className="window-page-copy"><span>{tab.title || "Untitled page"}</span><small>{tab.url.replace(/^https?:\/\//, "") || "Address unavailable"}</small></span>
             {tab.active && <span className="window-page-active">Active</span>}

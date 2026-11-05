@@ -17,6 +17,8 @@ import { configurationHash, type Profile } from "../../packages/stelz/src/profil
 import { lock, processStart } from "../../packages/stelz/src/runtime/runtime.ts";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { ROOT } from "../../packages/stelz/src/paths.ts";
+import { UPSTREAM_VERSION } from "../../packages/stelz/src/versions.ts";
 
 const root = resolve(import.meta.dir, "../.."),
   cli = join(root, "packages/stelz/src/cli/cli.ts"),
@@ -28,9 +30,12 @@ type Fixture = { home: string; idDir: string; profile: Profile };
 function fixture(port = 19471): Fixture {
   const home = mkdtempSync(join(tmpdir(), "stelz-lifecycle-")),
     idDir = join(home, "profiles", "test");
-  const profile: Profile = { id: "test", port, mode: "direct" };
+  const profile: Profile = { id: "test", port };
   mkdirSync(idDir, { recursive: true });
   mkdirSync(join(home, "runtime"));
+  const plugin = join(home, `runtime/camofox-${UPSTREAM_VERSION}/plugins/local-profile`);
+  mkdirSync(plugin, { recursive: true });
+  writeFileSync(join(plugin, "index.js"), readFileSync(join(ROOT, "dist/plugin.js")));
   writeFileSync(join(home, "profiles.json"), JSON.stringify({ maxActive: 2, profiles: [profile] }));
   writeFileSync(join(home, "runtime/versions.json"), "{}");
   writeFileSync(join(idDir, "access-key"), "test-key");
@@ -96,6 +101,47 @@ function ownedRecord(pid: number) {
   expect(start).toBeTruthy();
   return start!;
 }
+
+test("startup rejects a stale installed plugin before a proxied browser can launch", async () => {
+  for (const legacy of [false, true]) {
+    const f = fixture();
+    try {
+      const profile = { ...f.profile, proxyEnv: "UPGRADE_PROXY", ...(legacy ? { mode: "proxy" } : {}) };
+      writeFileSync(join(f.home, "profiles.json"), JSON.stringify({ profiles: [profile] }));
+      writeFileSync(join(f.home, "secrets.env"), "UPGRADE_PROXY=http://upgrade-user:upgrade-password@proxy.test:8080\n");
+      writeFileSync(join(f.home, `runtime/camofox-${UPSTREAM_VERSION}/plugins/local-profile/index.js`),
+        "export const proxied = process.env.STELZ_MODE === 'proxy';\n");
+      const result = await run(f, "start", "test");
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain("installed browser plugin does not match");
+      expect(result.stderr).toContain("stelz setup");
+      expect(result.stderr).not.toContain("upgrade-password");
+      expect(existsSync(join(f.idDir, "running.json"))).toBe(false);
+    } finally { dispose(f); }
+  }
+});
+
+test("the supervisor rechecks installed plugin compatibility before spawning its server", async () => {
+  const f = fixture();
+  try {
+    writeFileSync(join(f.home, `runtime/camofox-${UPSTREAM_VERSION}/plugins/local-profile/index.js`), "old plugin\n");
+    const result = await runScript(f, `
+      import { writeFileSync } from 'node:fs';
+      import { join } from 'node:path';
+      const config = await import(${JSON.stringify(join(root, "packages/stelz/src/profiles/config.ts"))});
+      writeFileSync(join(config.dir('test'), 'running.json'), JSON.stringify({ version: 2, pid: 0, instanceId: 'reserved',
+        serverState: 'not-started', configurationHash: config.configurationHash(config.profile('test')) }));
+      process.argv = [process.execPath, 'supervisor', 'test', 'reserved'];
+      try { await import(${JSON.stringify(join(root, "packages/stelz/src/runtime/supervisor.ts"))}); }
+      catch (error) { console.log(error.message); }
+    `);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("installed browser plugin does not match");
+    const reserved = JSON.parse(readFileSync(join(f.idDir, "running.json"), "utf8"));
+    expect(reserved).toMatchObject({ pid: 0, instanceId: "reserved", serverState: "not-started" });
+    expect(reserved).not.toHaveProperty("serverPid");
+  } finally { dispose(f); }
+});
 
 test("an orphan is reported and blocks its own startup, setup, and recovery without contacting it", async () => {
   let calls = 0;
@@ -611,7 +657,7 @@ test("a real supervisor crash leaves its server visible until explicit stop and 
   socket.stop(true);
   const f = fixture(port),
     upstream = join(f.home, "runtime", "camofox-1.18.1");
-  mkdirSync(upstream);
+  mkdirSync(upstream, { recursive: true });
   writeFileSync(
     join(upstream, "server.js"),
     `const http=require('node:http'), fs=require('node:fs'), path=require('node:path');

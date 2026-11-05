@@ -42,11 +42,11 @@ for (const legacy of [false, true]) test(`large ${legacy ? "legacy" : "canonical
   const result = await run(f.home, `
     await domain.createProfile({ id: 'added', revision: domain.catalogRevision(config.settings()) });
     const createdCount = config.settings().profiles.length;
-    const updated = await domain.updateNetwork('large-0', { revision: revision(), mode: 'proxy', proxyUrl: 'http://new.test:8080' });
+    const updated = await domain.updateNetwork('large-0', { revision: revision(), proxyUrl: 'http://new.test:8080' });
     await domain.deleteProfile('large-0', domain.catalogRevision(config.settings()));
-    return { createdCount, mode: updated.profile.mode, count: config.settings().profiles.length };
+    return { createdCount, hasMode: Object.hasOwn(updated.profile, 'mode'), count: config.settings().profiles.length };
   `);
-  expect(result).toEqual({ ok: true, value: { createdCount: 1002, mode: "proxy", count: 1001 } });
+  expect(result).toEqual({ ok: true, value: { createdCount: 1002, hasMode: false, count: 1001 } });
   const saved = JSON.parse(readFileSync(f.config, "utf8"));
   expect(saved.maxActive).toBe(1); expect(saved.metadata).toBe(f.value.metadata);
   expect(saved[f.key].some((p: { id: string }) => p.id === "added")).toBe(true);
@@ -131,7 +131,7 @@ mock.module('node:fs', () => ({ ...original, renameSync(from, to) {
   if (to === join(process.env.STELZ_HOME, 'secrets.env') && !failed) { failed = true; throw Error('injected failure'); }
   return original.renameSync(from, to);
 }}));`;
-  expect(await run(f.home, "await domain.updateNetwork('large-0', { revision: revision(), mode: 'proxy', proxyUrl: 'http://new.test:8080' });", prelude))
+  expect(await run(f.home, "await domain.updateNetwork('large-0', { revision: revision(), proxyUrl: 'http://new.test:8080' });", prelude))
     .toMatchObject({ ok: false, status: 409, message: expect.stringContaining("restored") });
   expect(readFileSync(f.config, "utf8")).toBe(before);
   expect(readFileSync(join(f.home, "secrets.env"), "utf8")).toBe(secrets);
@@ -143,7 +143,7 @@ test("removing catalog byte ceilings preserves secret-file bounds for both mutat
   writeFileSync(join(f.home, "secrets.env"), "#".repeat(MiB + 1));
   for (const action of [
     "await domain.createProfile({ id: 'rejected', revision: domain.catalogRevision(config.settings()) });",
-    "await domain.updateNetwork('large-0', { revision: revision(), mode: 'direct' });",
+    "await domain.updateNetwork('large-0', { revision: revision() });",
   ]) expect(await run(f.home, action)).toMatchObject({ ok: false, status: 409 });
   expect(readFileSync(f.config, "utf8")).toBe(before);
   expect(existsSync(join(f.home, ".profile-transaction.json"))).toBe(false);

@@ -18,7 +18,7 @@ console.log(JSON.stringify({ root: ROOT, home: HOME_DIR, supervisor: entry("supe
     expect(result.exitCode).toBe(0);
     expect(JSON.parse(result.stdout.toString())).toEqual({ root: product + "/", home, supervisor: join(product, "src/runtime/supervisor.ts"), cli: join(product, "src/cli/cli.ts"), version: "0.2.0" });
     mkdirSync(home);
-    writeFileSync(join(home, "profiles.json"), JSON.stringify({ maxActive: 2, profiles: [{ id: "source", port: 9876, mode: "direct" }] }));
+    writeFileSync(join(home, "profiles.json"), JSON.stringify({ maxActive: 2, profiles: [{ id: "source", port: 9876 }] }));
     const supervisor = Bun.spawnSync([process.execPath, "--no-env-file", JSON.parse(result.stdout.toString()).supervisor, "source"], { cwd, env: { ...process.env, STELZ_HOME: home } });
     expect(supervisor.exitCode).not.toBe(0);
     expect(supervisor.stderr.toString()).toContain("A supervisor requires a reserved service instance.");

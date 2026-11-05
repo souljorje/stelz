@@ -103,7 +103,7 @@ try {
   const reservations = ids.map(() => Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() }));
   try {
     writeFileSync(join(home, "profiles.json"), JSON.stringify({ profiles: ids.map((id, index) => ({
-      id, port: reservations[index]!.port, mode: "direct", storage: "native",
+      id, port: reservations[index]!.port, storage: "native",
     })) }), { mode: 0o600 });
   } finally { for (const reservation of reservations) reservation.stop(true); }
   await command("setup"); site = await fixture(0);

@@ -47,13 +47,18 @@ test("configuration gives two fixed profiles separate relay and expected-IP refe
   expect(settings).not.toHaveProperty("maxActive"); expect(settings.profiles.map(p => p.id)).toEqual([...PROXY_PROFILE_IDS]);
   const values = parseEnv(secrets);
   settings.profiles.forEach((profile, index) => {
-    expect(profile.storage).toBe("native"); expect(values[profile.proxyEnv]).toBe(urls[index]);
+    expect(profile.storage).toBe("native"); expect(values[profile.proxyEnv!]).toBe(urls[index]);
+    expect(profile).not.toHaveProperty("mode");
     expect(values[profile.expectedIPEnv]).toBe(exits[index]);
   });
   expect(settings.profiles[0]!.proxyEnv).not.toBe(settings.profiles[1]!.proxyEnv);
   expect(settings.profiles[0]!.expectedIPEnv).not.toBe(settings.profiles[1]!.expectedIPEnv);
   expect(JSON.stringify(settings)).not.toContain("password");
   const direct = proxyTestConfiguration("direct", urls, exits, [10211, 10212]);
+  for (const profile of direct.settings.profiles) {
+    expect(profile).not.toHaveProperty("proxyEnv");
+    expect(profile).not.toHaveProperty("mode");
+  }
   expect(parseEnv(direct.secrets).TEST_PROXY_1_EXPECTED_IP).toBe(""); expect(parseEnv(direct.secrets).TEST_PROXY_2_EXPECTED_IP).toBe("");
   expect(() => proxyTestConfiguration("proxy", [urls[0], urls[0]], exits, [10211, 10212])).toThrow("own relay");
 });

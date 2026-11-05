@@ -4,8 +4,10 @@ import type { UiAction, UiProfile, UiPhase } from "../../../packages/stelz/src/a
 import type { ActionContext } from "./model.ts";
 import { actionLabels, actionReason, phaseLabels, redact } from "./model.ts";
 
-type IconName = "refresh" | "play" | "stop" | "back" | "copy" | "close" | "menu" | "pause" | "power" | "window";
+type IconName = "refresh" | "play" | "stop" | "back" | "copy" | "close" | "menu" | "pause" | "power" | "window" | "edit" | "check";
 const paths: Record<IconName, ReactNode> = {
+  edit: <><path d="m15 4 5 5M4 20l5-1L21 7a2.1 2.1 0 0 0-4-4L5 15z" /></>,
+  check: <path d="m5 12 4 4L19 6" />,
   window: <><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 9h18M7 6.5h.01M10 6.5h.01" /></>,
   refresh: <><path d="M19 8a8 8 0 1 0 1 7M19 3v5h-5" /></>,
   play: <path d="m8 5 11 7-11 7z" />,
@@ -64,15 +66,15 @@ export function KeyValues({ rows }: { rows: { label: string; value: ReactNode; m
   return <dl className="key-values">{rows.map(({ label, value, mono }) => <div className="key-value" key={label}><dt>{label}</dt><dd className={mono ? "mono" : undefined}>{value ?? <span className="muted">—</span>}</dd></div>)}</dl>;
 }
 
-export function ActionButton({ profile, action, context, onAction, compact = false, primary = false }: {
+export function ActionButton({ profile, action, context, onAction, compact = false, primary = false, disabledReason }: {
   profile: UiProfile; action: UiAction; context: ActionContext;
-  onAction: (profile: UiProfile, action: UiAction) => void; compact?: boolean; primary?: boolean;
+  onAction: (profile: UiProfile, action: UiAction) => void; compact?: boolean; primary?: boolean; disabledReason?: string;
 }) {
   const reasonId = useId();
-  const reason = actionReason(profile, action, context);
+  const reason = disabledReason ?? actionReason(profile, action, context);
   const icon = action === "start" || action === "resume" ? "play" : action === "stop" ? "stop" : action === "pause" ? "pause" : null;
   return <span className={`action-with-reason${compact ? " compact" : ""}`} data-row-control title={reason ?? undefined}>
-    <button type="button" className={`button${action === "stop" ? " button-stop" : ""}${primary ? " button-primary" : ""}`} disabled={!!reason} aria-label={`${actionLabels[action]} ${profile.id}`} aria-describedby={reason ? reasonId : undefined} title={reason ?? `${actionLabels[action]} ${profile.id}`} onClick={() => onAction(profile, action)}>
+    <button type="button" className={`button${action === "stop" ? " button-stop" : ""}${primary ? " button-primary" : ""}`} disabled={!!reason} aria-label={`${actionLabels[action]} ${profile.name}`} aria-describedby={reason ? reasonId : undefined} title={reason ?? `${actionLabels[action]} ${profile.name}`} onClick={() => onAction(profile, action)}>
       {icon && <Icon name={icon} />}{actionLabels[action]}
     </button>
     {reason && <span id={reasonId} className="sr-only">{reason}</span>}
@@ -103,10 +105,10 @@ export function ConfirmAction({ original, profile, action, context, busy, error,
 }) {
   const changed = !profile || profile.instanceId !== original.instanceId || (action === "release" && (profile.controller?.pid !== original.controller?.pid || profile.controller?.label !== original.controller?.label));
   const reason = changed ? "The browser or controller changed. Cancel and review the latest profile state." : profile ? actionReason(profile, action, { ...context, pending: false }) : "The profile is no longer configured.";
-  return <Modal title={`${action === "stop" ? "Stop" : "Release controller from"} ${original.id}?`} onClose={onClose} busy={busy}>
+  return <Modal title={`${action === "stop" ? "Stop" : "Release controller from"} ${original.name}?`} onClose={onClose} busy={busy}>
     <div className="modal-body">{action === "stop"
-      ? <p>This closes the browser and its open pages for <strong className="mono">{original.id}</strong>. Saved profile data remains.</p>
-      : <p>Release <strong>{redact(original.controller?.label ?? "the controller")}</strong> from <strong className="mono">{original.id}</strong> after current actions finish. The browser and its pages stay open.</p>}
+      ? <p>This closes the browser and its open pages for <strong>{original.name}</strong>. Saved profile data remains.</p>
+      : <p>Release <strong>{redact(original.controller?.label ?? "the controller")}</strong> from <strong>{original.name}</strong> after current actions finish. The browser and its pages stay open.</p>}
       {reason && !busy && <Notice kind="warning">{reason}</Notice>}
       {error && <Notice kind="error" alert>{error}</Notice>}
       {busy && <p className="muted" role="status">Waiting for the service. Start and stop can take up to 90 seconds.</p>}

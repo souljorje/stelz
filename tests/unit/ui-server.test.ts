@@ -5,13 +5,13 @@ import type { UiAction, UiProfile, UiModel, UiSnapshot } from "../../packages/st
 
 function profile(id = "profile-02"): UiProfile {
   return {
-    id, port: 9378, mode: "direct", storage: "native", typingMode: "auto", phase: "stopped", instanceId: null,
+    id, name: id, port: 9378, storage: "native", typingMode: "auto", phase: "stopped", instanceId: null,
     typing: { revision: "typing-revision-1", mode: null, defaultMode: "auto" },
     exitIp: null, checkedAt: null, fixedIpVerified: false, controller: null,
     windowControls: { available: false, reason: null },
     supervisorPid: null, serverPid: null, ownership: null, fingerprintSha256: null,
     engineSha256: null, error: null, controlError: null, configurationError: null,
-    network: { revision: "revision-1", mode: "direct", proxyEnv: null, expectedIPEnv: null,
+    network: { revision: "revision-1", proxyEnv: null, expectedIPEnv: null,
       proxyDisplay: null, proxyConfigured: false, expectedIp: "", proxyReadOnly: false, expectedIpReadOnly: false },
   };
 }
@@ -34,7 +34,7 @@ function fixture(lifecycle?: (action: UiAction, id: string) => Promise<unknown>,
     async updateNetwork(id, update) {
       if (update.revision !== "revision-1") throw Object.assign(Error("Configuration changed. Reload before saving."), { status: 409 });
       calls.push(`save:${id}`);
-      return { ...profile(id), mode: update.mode };
+      return profile(id);
     },
     async updateTyping(id, update) {
       if (update.revision !== "typing-revision-1" || update.mode !== null && !["auto", "keyboard", "instant"].includes(update.mode))
@@ -42,6 +42,14 @@ function fixture(lifecycle?: (action: UiAction, id: string) => Promise<unknown>,
       calls.push(`typing:${id}`);
       const row = profile(id);
       return { ...row, typingMode: update.mode ?? row.typing.defaultMode, typing: { ...row.typing, mode: update.mode } };
+    },
+    async renameProfile(id, update) {
+      if (update.revision !== snapshot.catalogRevision) throw Object.assign(Error("Profiles changed. Refresh before continuing."), { status: 409 });
+      const row = profiles.find(profile => profile.id === id);
+      if (!row) throw Object.assign(Error("Unknown profile."), { status: 404 });
+      calls.push(`rename:${id}`);
+      row.name = update.name;
+      return structuredClone(row);
     },
     async createProfile(input) {
       calls.push(`create:${input.id}`);
@@ -110,6 +118,103 @@ test("typing preferences use an authenticated same-origin PUT and expose the sav
   expect(inherited.status).toBe(200);
   expect(await inherited.json()).toMatchObject({ profile: { typingMode: "auto", typing: { mode: null } } });
   expect(f.calls).toEqual(["typing:profile-02", "typing:profile-02"]);
+});
+
+test("profile rename requires an authenticated same-origin PATCH with a bounded JSON object", async () => {
+  const f = fixture(), auth = await f.authenticate(), path = "/api/profiles/profile-02";
+  const body = JSON.stringify({ revision: "a".repeat(64), name: "Work profile" });
+  expect((await f.request(path, { method: "PATCH", headers: { Origin: f.url, "Content-Type": "application/json" }, body })).status).toBe(401);
+  expect((await f.request(path, { method: "PATCH", headers: { ...auth, Origin: "https://other.test" }, body })).status).toBe(403);
+  expect((await f.request(path, { method: "PATCH", headers: { Cookie: auth.Cookie, "Content-Type": "application/json" }, body })).status).toBe(403);
+  expect((await f.request(path, { method: "PATCH", headers: { ...auth, Host: "attacker.test" }, body })).status).toBe(403);
+  for (const method of ["POST", "PUT", "OPTIONS"]) {
+    const response = await f.request(path, { method, headers: auth, body });
+    expect(response.status).toBe(405);
+    expect(response.headers.get("allow")).toBe("GET, PATCH, DELETE");
+  }
+  for (const body of ["[]", "null", "{", '"name"'])
+    expect((await f.request(path, { method: "PATCH", headers: auth, body })).status).toBe(400);
+  expect((await f.request(path, { method: "PATCH", headers: { ...auth, "Content-Type": "text/plain" }, body })).status).toBe(415);
+  expect((await f.request(path, { method: "PATCH", headers: auth, body: JSON.stringify({ name: "a".repeat(20_000) }) })).status).toBe(413);
+  expect((await f.request("/api/profiles/profile%2D02", { method: "PATCH", headers: auth, body })).status).toBe(404);
+  expect((await f.request("/api/profiles/unknown", { method: "PATCH", headers: auth, body })).status).toBe(404);
+  expect(f.calls).toEqual([]);
+  const stale = await f.request(path, { method: "PATCH", headers: auth, body: JSON.stringify({ revision: "b".repeat(64), name: "Stale" }) });
+  expect(stale.status).toBe(409);
+  const response = await f.request(path, { method: "PATCH", headers: auth, body });
+  expect(response.status).toBe(200);
+  expect(response.headers.get("content-type")).toContain("application/json");
+  expect(await response.json()).toMatchObject({ profile: { id: "profile-02", name: "Work profile", phase: "stopped" } });
+  expect((await (await f.request(path, { headers: auth })).json()).profile.name).toBe("Work profile");
+  expect(f.calls).toEqual(["rename:profile-02"]);
+});
+
+test("profile rename bounds streamed request bodies before model dispatch", async () => {
+  const f = fixture(), auth = await f.authenticate();
+  let cancelled = false;
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) { controller.enqueue(new Uint8Array(20_000).fill(32)); },
+    cancel() { cancelled = true; },
+  });
+  const response = await f.app.fetch(new Request(`${f.url}/api/profiles/profile-02`, {
+    method: "PATCH", headers: { ...auth, Host: new URL(f.url).host, "Content-Length": "1" }, body,
+  }), { origin: f.url });
+  expect(response.status).toBe(413);
+  expect(cancelled).toBe(true);
+  expect(f.calls).toEqual([]);
+  expect(f.sessionState.activeMutations).toBe(0);
+});
+
+test("profile rename exposes pending state and excludes other writes and UI shutdown", async () => {
+  const f = fixture(), auth = await f.authenticate(), path = "/api/profiles/profile-02";
+  let finish!: () => void, entered!: () => void;
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  const operation = new Promise<void>(resolve => { finish = resolve; });
+  const rename = f.model.renameProfile;
+  f.model.renameProfile = async (id, update) => { entered(); await operation; return rename(id, update); };
+  const body = JSON.stringify({ revision: "a".repeat(64), name: "Current name" });
+  const first = f.request(path, { method: "PATCH", headers: auth, body });
+  await started;
+  try {
+    const snapshot = await (await f.request("/api/state", { headers: auth })).json();
+    const detail = await (await f.request(path, { headers: auth })).json();
+    expect(snapshot.profiles[1].pendingAction).toBe("rename");
+    expect(detail.profile.pendingAction).toBe("rename");
+    expect(f.sessionState.activeMutations).toBe(1);
+    for (const [suffix, method, payload] of [
+      ["", "PATCH", { revision: "a".repeat(64), name: "Duplicate" }],
+      ["", "DELETE", { revision: "a".repeat(64) }],
+      ["/network", "PUT", { revision: "revision-1" }],
+      ["/typing", "PUT", { revision: "typing-revision-1", mode: "keyboard" }],
+      ["/actions", "POST", { action: "start" }],
+      ["/window", "POST", { instanceId: "existing" }],
+    ] as const) {
+      expect((await f.request(path + suffix, { method, headers: auth, body: JSON.stringify(payload) })).status).toBe(409);
+    }
+    expect((await f.request("/api/shutdown", { method: "POST", headers: auth, body: "{}" })).status).toBe(409);
+    expect(f.sessionState.ended).toBe(false);
+    expect(f.calls).toEqual([]);
+  } finally { finish(); }
+  expect((await first).status).toBe(200);
+  expect(f.sessionState.activeMutations).toBe(0);
+  const snapshot = await (await f.request("/api/state", { headers: auth })).json();
+  expect(snapshot.profiles[1]).toMatchObject({ name: "Current name" });
+  expect(snapshot.profiles[1].pendingAction).toBeUndefined();
+  expect(f.calls).toEqual(["rename:profile-02"]);
+});
+
+test("rename errors remain sanitized and release the pending operation", async () => {
+  const f = fixture(), auth = await f.authenticate(), path = "/api/profiles/profile-02", rename = f.model.renameProfile;
+  f.model.renameProfile = async () => { throw Object.assign(Error("Save failed: http://rename-user:rename-password@proxy.test"), { status: 409 }); };
+  const request = () => f.request(path, { method: "PATCH", headers: auth, body: JSON.stringify({ revision: "a".repeat(64), name: "Retry" }) });
+  const response = await request();
+  expect(response.status).toBe(409);
+  expect(response.headers.get("cache-control")).toBe("no-store");
+  expect(await response.text()).not.toMatch(/rename-user|rename-password/);
+  expect(f.sessionState.activeMutations).toBe(0);
+  expect(f.sessionState.pending.size).toBe(0);
+  f.model.renameProfile = rename;
+  expect((await request()).status).toBe(200);
 });
 
 describe("local UI session boundary", () => {
@@ -205,7 +310,7 @@ describe("local UI session boundary", () => {
     const f = fixture(), auth = await f.authenticate();
     for (const [path, status, allow] of [
       ["/", 200, null], ["/app.js", 200, null], ["/api/state", 404, null], ["/api/diagnostics", 404, null],
-      ["/api/session", 405, "POST"], ["/api/profiles/profile-02", 405, "GET, DELETE"],
+      ["/api/session", 405, "POST"], ["/api/profiles/profile-02", 405, "GET, PATCH, DELETE"],
       ["/api/profiles/profile-02/actions", 405, "POST"], ["/api/profiles/profile-02/network", 405, "PUT"],
     ] as const) {
       const response = await f.request(path, { method: "HEAD", headers: auth });
@@ -399,6 +504,10 @@ describe("local UI lifecycle", () => {
         body: JSON.stringify({ revision: "typing-revision-1", mode: "keyboard" }) });
       expect(typing.status).toBe(409);
       expect(f.calls).not.toContain("typing:profile-02");
+      const rename = await f.request("/api/profiles/profile-02", { method: "PATCH", headers: auth,
+        body: JSON.stringify({ revision: "a".repeat(64), name: "Renamed" }) });
+      expect(rename.status).toBe(409);
+      expect(f.calls).not.toContain("rename:profile-02");
       expect(calls).toBe(1);
     } finally { finish(); }
     expect((await first).status).toBe(200);
@@ -408,7 +517,7 @@ describe("local UI lifecycle", () => {
 
   test("preserves model conflicts and hides URL credentials in action errors", async () => {
     const f = fixture(async () => { throw Error("Proxy failed: http://username:password@proxy.example:8000"); }), auth = await f.authenticate();
-    const conflict = await f.request("/api/profiles/profile-02/network", { method: "PUT", headers: auth, body: JSON.stringify({ mode: "direct", revision: "old" }) });
+    const conflict = await f.request("/api/profiles/profile-02/network", { method: "PUT", headers: auth, body: JSON.stringify({ revision: "old" }) });
     expect(conflict.status).toBe(409);
     const action = await f.request("/api/profiles/profile-02/actions", { method: "POST", headers: auth, body: '{"action":"start"}' });
     expect(action.status).toBe(409);

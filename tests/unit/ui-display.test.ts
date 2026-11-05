@@ -2,13 +2,14 @@ import { describe, expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { TypingForm } from "../../apps/ui/src/TypingForm.tsx";
+import { NetworkForm } from "../../apps/ui/src/NetworkForm.tsx";
 import { UI_ACTIONS } from "../../packages/stelz/src/api/contracts.ts";
 import type { UiProfile, UiNetwork, UiPhase, UiSnapshot } from "../../packages/stelz/src/api/contracts.ts";
-import { actionReason, boundedLog, homeCommand, mcpCommand, networkDraft, networkUpdate, proxyDisplay, redact, shellQuote } from "../../apps/ui/src/model.ts";
+import { actionReason, boundedLog, hasProxy, homeCommand, mcpCommand, networkDirty, networkDraft, networkUpdate, proxyDisplay, redact, shellQuote } from "../../apps/ui/src/model.ts";
 
-const network: UiNetwork = { revision: "revision-1", mode: "direct", proxyEnv: null, expectedIPEnv: null, proxyDisplay: null, proxyConfigured: false, expectedIp: "203.0.113.1", proxyReadOnly: false, expectedIpReadOnly: false };
+const network: UiNetwork = { revision: "revision-1", proxyEnv: null, expectedIPEnv: null, proxyDisplay: null, proxyConfigured: false, expectedIp: "203.0.113.1", proxyReadOnly: false, expectedIpReadOnly: false };
 function profile(phase: UiPhase, changes: Partial<UiProfile> = {}): UiProfile {
-  return { id: "profile-01", phase, port: 9340, mode: "direct", storage: "native", typingMode: "auto", typing: { revision: "typing-revision-1", mode: null, defaultMode: "auto" }, instanceId: null, exitIp: null, checkedAt: null, fixedIpVerified: false, windowControls: { available: false, reason: null }, controller: null, supervisorPid: null, serverPid: null, ownership: null, fingerprintSha256: null, engineSha256: null, error: null, controlError: null, configurationError: null, network, ...changes };
+  return { id: "profile-01", name: "profile-01", phase, port: 9340, storage: "native", typingMode: "auto", typing: { revision: "typing-revision-1", mode: null, defaultMode: "auto" }, instanceId: null, exitIp: null, checkedAt: null, fixedIpVerified: false, windowControls: { available: false, reason: null }, controller: null, supervisorPid: null, serverPid: null, ownership: null, fingerprintSha256: null, engineSha256: null, error: null, controlError: null, configurationError: null, network, ...changes };
 }
 function context(row: UiProfile) {
   const snapshot: UiSnapshot = { home: "/tmp/stelz", version: "0.2.0", upstreamVersion: "1.18.1", initialized: true, setup: true, catalogRevision: "a".repeat(64), profiles: [row], updatedAt: new Date().toISOString() };
@@ -59,19 +60,52 @@ describe("lifecycle guards", () => {
 });
 
 describe("network updates", () => {
-  test("blank proxy preserves credentials, and an explicit blank IP clears the requirement", () => {
+  const proxied: UiNetwork = { ...network, proxyEnv: "PROXY_URL", proxyDisplay: "http://proxy.example:8080", proxyConfigured: true };
+  test("the saved address is visible, and an IP-only change preserves saved authentication", () => {
+    const baseline = networkDraft(proxied);
+    expect(baseline.proxyUrl).toBe("http://proxy.example:8080");
+    expect(networkDirty(baseline, baseline)).toBe(false);
+    expect(networkUpdate({ ...baseline, expectedIp: "" }, baseline, proxied)).toEqual({ revision: "revision-1", expectedIp: "" });
+  });
+  test("clearing a saved proxy explicitly removes it, and discard restores its address", () => {
+    const baseline = networkDraft(proxied), cleared = { ...baseline, proxyUrl: "" };
+    expect(networkDirty(cleared, baseline)).toBe(true);
+    expect(networkUpdate(cleared, baseline, proxied)).toEqual({ revision: "revision-1", proxyUrl: null });
+    expect(networkDraft(proxied).proxyUrl).toBe(baseline.proxyUrl);
+  });
+  test("an empty direct proxy is unchanged and does not remove credentials during an IP save", () => {
     const baseline = networkDraft(network);
-    expect(networkUpdate({ ...baseline, mode: "proxy", expectedIp: "" }, baseline, network)).toEqual({ revision: "revision-1", mode: "proxy", expectedIp: "" });
+    expect(networkUpdate({ ...baseline, expectedIp: "" }, baseline, network)).toEqual({ revision: "revision-1", expectedIp: "" });
   });
   test("a newer observation cannot advance a dirty draft's revision", () => {
     const baseline = networkDraft(network);
-    const update = networkUpdate({ ...baseline, proxyUrl: "http://user:secret@proxy.example:80", mode: "proxy" }, baseline, { ...network, revision: "revision-2" });
+    const update = networkUpdate({ ...baseline, proxyUrl: "http://user:secret@proxy.example:80" }, baseline, { ...network, revision: "revision-2" });
     expect(update.revision).toBe("revision-1");
     expect(update.proxyUrl).toBe("http://user:secret@proxy.example:80");
   });
   test("read-only references never receive override values", () => {
     const baseline = networkDraft(network);
-    expect(networkUpdate({ ...baseline, mode: "proxy", proxyUrl: "http://new:secret@proxy.example", expectedIp: "" }, baseline, { ...network, proxyReadOnly: true, expectedIpReadOnly: true })).toEqual({ revision: "revision-1", mode: "proxy" });
+    expect(networkUpdate({ ...baseline, proxyUrl: "http://new:secret@proxy.example", expectedIp: "" }, baseline, { ...network, proxyReadOnly: true, expectedIpReadOnly: true })).toEqual({ revision: "revision-1" });
+  });
+  test("a managed proxy can be unlinked without replacing its shared credential", () => {
+    const managed = { ...proxied, proxyReadOnly: true }, baseline = networkDraft(managed);
+    expect(networkUpdate({ ...baseline, proxyUrl: "" }, baseline, managed)).toEqual({ revision: "revision-1", proxyUrl: null });
+  });
+  test("a missing configured proxy remains visible and can be explicitly removed", () => {
+    const missing = { ...network, proxyEnv: "MISSING_PROXY", proxyDisplay: "Proxy unavailable" };
+    const baseline = networkDraft(missing);
+    expect(hasProxy(missing)).toBe(true);
+    expect(networkUpdate({ ...baseline, expectedIp: "" }, baseline, missing)).toEqual({ revision: "revision-1", expectedIp: "" });
+    expect(networkUpdate({ ...baseline, proxyUrl: "" }, baseline, missing)).toEqual({ revision: "revision-1", proxyUrl: null });
+  });
+  test("the connection form shows the saved address without the mode selector or replacement instructions", () => {
+    const html = renderToStaticMarkup(createElement(NetworkForm, { profile: profile("stopped", { network: proxied }), connected: true, busy: false,
+      onSave: async () => { throw Error("Rendering must not change the network."); }, onDirtyChange: () => {} }));
+    expect(html).toContain('value="http://proxy.example:8080"');
+    expect(html).not.toContain("Connection mode");
+    expect(html).not.toContain("Current:");
+    expect(html).not.toContain("Leave blank");
+    expect(html).not.toContain("Save network");
   });
 });
 

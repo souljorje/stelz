@@ -9,6 +9,7 @@ import { isDeepStrictEqual, parseEnv } from "node:util";
 import { CONFIG_FILE, HOME_DIR, STATE, dir, validateProxy, validateSettings, type Settings } from "./config.ts";
 import { assertStoppedProfile, lock } from "../runtime/profile-process.ts";
 import { existingProfilePath } from "./profile-compat.ts";
+import { hasProxy } from "./network-compat.ts";
 
 export const CATALOG_JOURNAL = existingProfilePath(HOME_DIR, ".profile-transaction.json", ".identity-transaction.json");
 const configFile = CONFIG_FILE, secretsFile = join(HOME_DIR, "secrets.env");
@@ -102,7 +103,7 @@ function validate(value: unknown): Transaction {
       if (previousSecrets[name] === nextSecrets[name]) continue;
       if (!references.includes(name)) fail();
     }
-    if (next.mode === "proxy" && (!next.proxyEnv || !nextSecrets[next.proxyEnv])) fail();
+    if (hasProxy(next) && (!next.proxyEnv || !nextSecrets[next.proxyEnv])) fail();
     if (next.proxyEnv) validateProxy(nextSecrets[next.proxyEnv] || "");
     if (next.expectedIPEnv && (!isIP(nextSecrets[next.expectedIPEnv] || "") || nextSecrets[next.expectedIPEnv]!.includes("%"))) fail();
   }

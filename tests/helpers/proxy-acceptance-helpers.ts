@@ -68,10 +68,10 @@ export function proxyTestConfiguration(mode: "direct" | "proxy", urls: Pair<stri
   assert(urls[0] !== urls[1], "Each profile requires its own relay URL.");
   assert(ports[0] !== ports[1], "Each profile requires its own service port.");
   const profiles = PROXY_PROFILE_IDS.map((id, i) => ({
-    id, port: ports[i]!, mode, storage: "native",
-    proxyEnv: `TEST_PROXY_${i + 1}_URL`, expectedIPEnv: `TEST_PROXY_${i + 1}_EXPECTED_IP`,
+    id, port: ports[i]!, storage: "native",
+    ...(mode === "proxy" ? { proxyEnv: `TEST_PROXY_${i + 1}_URL` } : {}), expectedIPEnv: `TEST_PROXY_${i + 1}_EXPECTED_IP`,
   }));
-  const secrets = profiles.map((p, i) => `${p.proxyEnv}=${JSON.stringify(urls[i])}\n${p.expectedIPEnv}=${mode === "proxy" ? expected[i] : ""}\n`).join("");
+  const secrets = profiles.map((p, i) => `${p.proxyEnv ? `${p.proxyEnv}=${JSON.stringify(urls[i])}\n` : ""}${p.expectedIPEnv}=${mode === "proxy" ? expected[i] : ""}\n`).join("");
   return { settings: { profiles }, secrets };
 }
 

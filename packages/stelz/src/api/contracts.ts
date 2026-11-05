@@ -7,7 +7,6 @@ export type UiPhase = "starting" | "ready" | "paused" | "verification_failed" | 
 
 export type UiNetwork = {
   revision: string;
-  mode: "direct" | "proxy";
   proxyEnv: string | null;
   expectedIPEnv: string | null;
   proxyDisplay: string | null;
@@ -25,8 +24,8 @@ export type UiTyping = {
 
 export type UiProfile = {
   id: string;
+  name: string;
   port: number;
-  mode: "direct" | "proxy";
   storage: "native" | "checkpoint";
   typingMode: TypingMode;
   typing: UiTyping;
@@ -46,7 +45,7 @@ export type UiProfile = {
   controlError: string | null;
   configurationError: string | null;
   network: UiNetwork;
-  pendingAction?: UiAction | "save" | "typing" | "delete" | "show";
+  pendingAction?: UiAction | "save" | "typing" | "rename" | "delete" | "show";
 };
 
 export type UiSnapshot = {
@@ -87,7 +86,9 @@ export type UiDiagnostics = {
 
 export type { NetworkUpdate as UiNetworkUpdate, ProfileCreate as UiProfileCreate } from "../profiles/profile-configuration-types.ts";
 export type { TypingUpdate as UiTypingUpdate } from "../profiles/profile-configuration-types.ts";
+export type { ProfileRename as UiProfileRename } from "../profiles/profile-configuration-types.ts";
 import type { TypingUpdate } from "../profiles/profile-configuration-types.ts";
+import type { ProfileRename as UiProfileRename } from "../profiles/profile-configuration-types.ts";
 import type { NetworkUpdate as UiNetworkUpdate, ProfileCreate as UiProfileCreate } from "../profiles/profile-configuration-types.ts";
 
 export type UiModel = {
@@ -96,6 +97,7 @@ export type UiModel = {
   diagnostics(): Promise<UiDiagnostics>;
   updateNetwork(id: string, update: UiNetworkUpdate): Promise<UiProfile>;
   updateTyping(id: string, update: TypingUpdate): Promise<UiProfile>;
+  renameProfile(id: string, update: UiProfileRename): Promise<UiProfile>;
   createProfile(input: UiProfileCreate): Promise<UiProfile>;
   deleteProfile(id: string, revision: string): Promise<void>;
 };

@@ -1,6 +1,6 @@
 import type { UiAction, UiDiagnostics, UiProfile, UiSnapshot } from "../../../packages/stelz/src/api/contracts.ts";
 import { ActionButton, CopyCommand, Icon, KeyValues, Notice, Phase } from "./components";
-import { actionReason, homeCommand, profileAttention, profileCommand, mcpCommand, proxyDisplay, redact } from "./model.ts";
+import { actionReason, hasProxy, homeCommand, profileAttention, profileCommand, mcpCommand, proxyDisplay, redact } from "./model.ts";
 import type { ActionContext } from "./model.ts";
 import { useResource } from "./use-service.ts";
 import type { ThemePreference } from "./theme.ts";
@@ -20,9 +20,9 @@ export function Profiles({ snapshot, context, onInspect, onAction, onShow }: { s
         if ((event.target as Element).closest("button, a, input, select, textarea, summary, [data-row-control]") || window.getSelection()?.toString()) return;
         onInspect(profile.id);
       }}>
-        <th scope="row"><button type="button" className="profile-name" aria-label={`Inspect ${profile.id}`} onClick={() => onInspect(profile.id)}><ProfileMark id={profile.id} /><span>{profile.id}</span></button></th>
+        <th scope="row"><button type="button" className="profile-name" aria-label={`Inspect ${profile.name}`} onClick={() => onInspect(profile.id)}><ProfileMark id={profile.id} /><span>{profile.name}</span></button></th>
         <td className="browser-phase"><Phase phase={profile.phase} />{profile.controller && <span className="cell-secondary">{profile.controller.releasing ? "Releasing " : ""}{redact(profile.controller.label)}</span>}{issue && <span className="cell-secondary profile-issue inline-attention" title={issue}>{issue}</span>}</td>
-        <td className="profile-connection"><span title={profile.mode === "proxy" ? proxyDisplay(profile.network.proxyDisplay) : undefined}>{profile.mode === "proxy" ? profile.network.proxyConfigured ? "Proxy" : "Proxy missing" : "Direct"}</span></td>
+        <td className="profile-connection"><span title={hasProxy(profile.network) ? proxyDisplay(profile.network.proxyDisplay) : undefined}>{hasProxy(profile.network) ? profile.network.proxyConfigured ? "Proxy" : "Proxy missing" : "Direct"}</span></td>
         <td className="row-actions"><div className="button-row"><ShowWindowButton profile={profile} context={context} onShow={onShow} compact /><ActionButton profile={profile} action={action} context={context} onAction={onAction} compact /></div></td>
       </tr>;
     })}</tbody>
@@ -70,6 +70,6 @@ export function Settings({ snapshot, theme, onThemeChange }: { snapshot: UiSnaps
       { label: "Camofox", value: snapshot.upstreamVersion, mono: true },
       { label: "Browsers per profile", value: 1 },
     ]} /></section>
-    <section className="settings-section"><h2>MCP connections</h2><div className="mcp-list">{snapshot.profiles.map(profile => <div key={profile.id}><h3>{profile.id}</h3><CopyCommand command={mcpCommand(profile.id, snapshot.home)} label={`Copy MCP command for ${profile.id}`} /></div>)}{!snapshot.profiles.length && <p className="empty-inline">Create a profile to connect an MCP client.</p>}</div></section>
+    <section className="settings-section"><h2>MCP connections</h2><div className="mcp-list">{snapshot.profiles.map(profile => <div key={profile.id}><h3>{profile.name}</h3><CopyCommand command={mcpCommand(profile.id, snapshot.home)} label={`Copy MCP command for ${profile.name}`} /></div>)}{!snapshot.profiles.length && <p className="empty-inline">Create a profile to connect an MCP client.</p>}</div></section>
   </div>;
 }

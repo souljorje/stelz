@@ -16,6 +16,8 @@ import { lock, observe, observeStatus, isRuntimePhase, processStart, running, ty
 export { assertStoppedProfile, lock, processStart, running, type Running } from "./profile-process.ts";
 import { prepareProfileConfiguration, recoverProfileCatalog } from "../profiles/profile-configuration.ts";
 import { normalizeProfileId } from "../profiles/profile-compat.ts";
+import { withoutLegacyConnectionMode } from "../profiles/network-compat.ts";
+import { assertRuntimePlugin } from "./runtime-plugin.ts";
 import {
   pendingNetworkTransaction,
 } from "../profiles/network-transaction.ts";
@@ -71,7 +73,7 @@ async function serviceRequest(p: Profile, method: string, action: string, timeou
     signal: AbortSignal.timeout(timeout),
     redirect: "error",
   });
-  const payload = normalizeProfileId(await response.json() as Record<string, unknown>);
+  const payload = withoutLegacyConnectionMode(normalizeProfileId(await response.json() as Record<string, unknown>));
   if (!response.ok) throw Error(String(payload.error || `Profile control returned ${response.status}.`));
   return payload;
 }
@@ -141,6 +143,7 @@ export async function start(id: string) {
       throw Error(
         `${id}: previous stop was not clean. Run stelz recover ${id} after inspecting its processes.`,
       );
+    assertRuntimePlugin();
     const profiles = readdirSync(STATE, { withFileTypes: true });
     if (profiles.some((item) => item.isSymbolicLink()))
       throw Error("Profile state contains a symbolic link.");

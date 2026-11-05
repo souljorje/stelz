@@ -42,13 +42,13 @@ test("domain operations create, edit, and archive profiles without a UI model", 
   const home = fixture();
   const result = await run(home, `
     await domain.createProfile({ id: 'second', revision: domain.catalogRevision(settings()) });
-    const saved = await domain.updateNetwork('test', { revision: revision(), mode: 'proxy', proxyUrl: 'http://new.test:8080', expectedIp: '' });
+    const saved = await domain.updateNetwork('test', { revision: revision(), proxyUrl: 'http://new.test:8080', expectedIp: '' });
     fs.writeFileSync(join(home, 'profiles/test/profile-data'), 'complete profile');
     await domain.deleteProfile('test', domain.catalogRevision(settings()));
-    return { mode: saved.profile.mode, ids: settings().profiles.map(p => p.id), trash: fs.readdirSync(join(home, 'trash')) };
+    return { hasMode: Object.hasOwn(saved.profile, 'mode'), ids: settings().profiles.map(p => p.id), trash: fs.readdirSync(join(home, 'trash')) };
   `);
   expect(result.ok).toBe(true);
-  expect(result.value).toMatchObject({ mode: "proxy", ids: ["second"] });
+  expect(result.value).toMatchObject({ hasMode: false, ids: ["second"] });
   expect(result.value.trash).toHaveLength(1);
   expect(readFileSync(join(home, "trash", result.value.trash[0], "profile/profile-data"), "utf8")).toBe("complete profile");
   const secrets = readFileSync(join(home, "secrets.env"), "utf8");
@@ -101,7 +101,7 @@ test("concurrent network and typing edits merge while competing typing edits con
     const networkBefore = revision(), typingBefore = typingRevision();
     await Promise.all([
       domain.updateTyping('test', { revision: typingBefore, mode: 'keyboard' }),
-      domain.updateNetwork('test', { revision: networkBefore, mode: 'proxy', proxyUrl: 'http://merged.test:8080' }),
+      domain.updateNetwork('test', { revision: networkBefore, proxyUrl: 'http://merged.test:8080' }),
     ]);
     const merged = settings().profiles[0];
     const current = typingRevision();
@@ -112,7 +112,8 @@ test("concurrent network and typing edits merge while competing typing edits con
       inherited: settings().profiles[0], networkUnchanged: networkAfter === revision() };
   `);
   expect(result.ok).toBe(true);
-  expect(result.value.merged).toMatchObject({ mode: "proxy", typingMode: "keyboard" });
+  expect(result.value.merged).toMatchObject({ proxyEnv: "DOMAIN_PROXY", typingMode: "keyboard" });
+  expect(result.value.merged).not.toHaveProperty("mode");
   expect(result.value.competing.sort()).toEqual([200, 409]);
   expect(result.value.inherited).not.toHaveProperty("typingMode");
   expect(result.value.networkUnchanged).toBe(true);
@@ -123,11 +124,11 @@ test("a stale domain revision cannot overwrite a completed edit", async () => {
   const home = fixture();
   const result = await run(home, `
     const old = revision();
-    await domain.updateNetwork('test', { revision: old, mode: 'proxy' });
-    await domain.updateNetwork('test', { revision: old, mode: 'direct', proxyUrl: 'http://rejected.test:8080' });
+    await domain.updateNetwork('test', { revision: old, proxyUrl: 'http://old.test:8080' });
+    await domain.updateNetwork('test', { revision: old, proxyUrl: 'http://rejected.test:8080' });
   `);
   expect(result).toMatchObject({ ok: false, status: 409, message: expect.stringContaining("Refresh") });
-  expect(JSON.parse(readFileSync(join(home, "profiles.json"), "utf8")).profiles[0].mode).toBe("proxy");
+  expect(JSON.parse(readFileSync(join(home, "profiles.json"), "utf8")).profiles[0]).not.toHaveProperty("mode");
   expect(parseEnv(readFileSync(join(home, "secrets.env"), "utf8")).DOMAIN_PROXY).toBe("http://old.test:8080");
 });
 
@@ -140,18 +141,18 @@ mock.module('node:fs', () => ({ ...original, renameSync(from, to) {
   if (to === join(process.env.STELZ_HOME, 'secrets.env')) process.exit(79);
   return original.renameSync(from, to);
 }}));`;
-  await run(home, `await domain.updateNetwork('test', { revision: revision(), mode: 'proxy', proxyUrl: 'http://recovered.test:8080' });`, prelude, 79);
+  await run(home, `await domain.updateNetwork('test', { revision: revision(), proxyUrl: 'http://recovered.test:8080' });`, prelude, 79);
   const journal = join(home, ".network-transaction.json"), record = join(home, "profiles/test/running.json");
   expect(existsSync(journal)).toBe(true);
   writeFileSync(record, JSON.stringify({ version: 2, pid: 0, instanceId: "reserved", configurationHash: "test", serverState: "not-started" }));
   const before = [readFileSync(journal, "utf8"), readFileSync(join(home, "secrets.env"), "utf8")];
-  const blocked = await run(home, `await domain.updateNetwork('test', { revision: revision(), mode: 'direct' });`);
+  const blocked = await run(home, `await domain.updateNetwork('test', { revision: revision() });`);
   expect(blocked).toMatchObject({ ok: false, status: 409, message: expect.stringContaining("Stop the journal profile cleanly") });
   expect([readFileSync(journal, "utf8"), readFileSync(join(home, "secrets.env"), "utf8")]).toEqual(before);
   rmSync(record);
-  const recovered = await run(home, `await domain.updateNetwork('test', { revision: ${JSON.stringify(initial.value)}, mode: 'direct' });`);
+  const recovered = await run(home, `await domain.updateNetwork('test', { revision: ${JSON.stringify(initial.value)} });`);
   expect(recovered).toMatchObject({ ok: false, status: 409, message: expect.stringContaining("Refresh") });
   expect(existsSync(journal)).toBe(false);
   expect(parseEnv(readFileSync(join(home, "secrets.env"), "utf8")).DOMAIN_PROXY).toBe("http://recovered.test:8080");
-  expect(JSON.parse(readFileSync(join(home, "profiles.json"), "utf8")).profiles[0].mode).toBe("proxy");
+  expect(JSON.parse(readFileSync(join(home, "profiles.json"), "utf8")).profiles[0]).not.toHaveProperty("mode");
 });

@@ -2,8 +2,7 @@ import type { TypingMode } from "../browser/typing.ts";
 
 export type NetworkUpdate = {
   revision: string;
-  mode: "direct" | "proxy";
-  proxyUrl?: string;
+  proxyUrl?: string | null;
   expectedIp?: string;
 };
 
@@ -14,3 +13,4 @@ export type ProfileCreate = {
   expectedIp?: string;
 };
 export type TypingUpdate = { revision: string; mode: TypingMode | null };
+export type ProfileRename = { revision: string; name: string };

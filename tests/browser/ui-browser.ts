@@ -20,7 +20,7 @@ const unavailableWindows = new Set<string>();
 const inventoryReads = new Map<string, number>();
 const states = new Map<string, Record<string, unknown>>();
 const services: ReturnType<typeof Bun.serve>[] = [];
-const profiles: { id: string; port: number; mode: "proxy" | "direct"; storage: "native"; proxyEnv?: string; expectedIPEnv?: string }[] = [];
+const profiles: { id: string; port: number; storage: "native"; proxyEnv?: string; expectedIPEnv?: string }[] = [];
 const born = processStart(process.pid)!;
 const digest = createHash("sha256").update("ui-browser-fixture").digest("hex");
 
@@ -64,8 +64,8 @@ for (const [index, id] of ["profile-01", "profile-02"].entries()) {
     return Response.json({ error: "This fixture only serves observations." }, { status: 404 });
   } });
   services.push(service);
-  profiles.push({ id, port: service.port!, mode: index === 0 ? "proxy" : "direct", storage: "native", ...(index === 0 ? { proxyEnv: "UI_FIXTURE_PROXY_URL", expectedIPEnv: "UI_FIXTURE_EXPECTED_IP" } : {}) });
-  const state: Record<string, unknown> = { profileId: id, instanceId: randomUUID(), phase: index === 0 ? "ready" : "stopped", mode: profiles[index]!.mode,
+  profiles.push({ id, port: service.port!, storage: "native", ...(index === 0 ? { proxyEnv: "UI_FIXTURE_PROXY_URL", expectedIPEnv: "UI_FIXTURE_EXPECTED_IP" } : {}) });
+  const state: Record<string, unknown> = { profileId: id, instanceId: randomUUID(), phase: index === 0 ? "ready" : "stopped",
     typingModeDefault: index === 0 ? "instant" : "auto",
     exitIp: index === 0 ? "203.0.113.8" : null, expectedIp: index === 0 ? "203.0.113.8" : null,
     checkedAt: index === 0 ? new Date().toISOString() : null, fixedIpVerified: index === 0,
@@ -190,7 +190,7 @@ if (process.argv.includes("--serve")) {
     await page.setViewportSize({ width: 1440, height: 900 });
     const configFile = join(home, "profiles.json"), initialConfig = readFileSync(configFile, "utf8");
     const broken = JSON.parse(initialConfig);
-    Object.assign(broken.profiles[1], { mode: "proxy", proxyEnv: "UI_FIXTURE_UNSET_PROXY" });
+    Object.assign(broken.profiles[1], { proxyEnv: "UI_FIXTURE_UNSET_PROXY" });
     writeFileSync(configFile, JSON.stringify(broken), { mode: 0o600 });
     await page.getByRole("button", { name: "Refresh service state", exact: true }).click();
     await page.waitForFunction(() => document.querySelector<HTMLButtonElement>('button[aria-label="Start profile-02"]')?.disabled === true);
@@ -214,25 +214,22 @@ if (process.argv.includes("--serve")) {
     await page.getByRole("heading", { name: "profile-02", exact: true }).waitFor();
     const stoppedActions = await page.getByRole("group", { name: "Browser lifecycle actions", exact: true }).getByRole("button").allTextContents();
     if (stoppedActions.join(",") !== "Start") throw Error("A stopped profile shows unavailable lifecycle actions.");
-    const technical = page.locator("details").filter({ has: page.getByText("Technical details", { exact: true }) });
-    await technical.locator("summary").click();
-    await technical.getByText(`127.0.0.1:${profiles[1]!.port}`, { exact: true }).waitFor();
-    await technical.locator("summary").click();
-    const mcp = page.locator("details").filter({ has: page.getByText("Connect via MCP", { exact: true }) });
-    await mcp.locator("summary").click();
-    if (!(await mcp.getByLabel("Command", { exact: true }).innerText()).includes(home)) throw Error("The disclosed MCP command does not select this service home.");
-    await mcp.locator("summary").click();
+    if (await page.getByRole("tab", { name: "Network", exact: true }).count() || await page.locator(".detail-view details").count()) throw Error("The profile still has a Network tab or collapsible sections.");
+    const tabs = await page.getByRole("tablist").getByRole("tab").allTextContents();
+    if (tabs.join(",") !== "Overview,Device,Logs") throw Error("Profile navigation was not consolidated.");
+    await page.getByRole("tab", { name: "Device", exact: true }).click();
+    await page.getByText(`127.0.0.1:${profiles[1]!.port}`, { exact: true }).waitFor();
+    await page.getByRole("tab", { name: "Overview", exact: true }).click();
+    if (!(await page.getByLabel("Command", { exact: true }).innerText()).includes(home)) throw Error("The MCP command does not select this service home.");
     await captureScreen("overview");
-    await page.getByRole("tab", { name: "Network", exact: true }).click();
-    await captureScreen("network");
-    await page.getByLabel("Connection mode", { exact: true }).selectOption("proxy");
+    if (await page.getByLabel("Connection mode", { exact: true }).count()) throw Error("The UI still requires an explicit connection mode.");
     await page.getByLabel(/^Proxy URL/).fill("http://new-user:new-password@proxy.example:8081");
-    await page.locator(".network-form summary").click();
     await page.getByLabel(/^Expected exit IP/).fill("198.51.100.10");
+    if (!await page.getByRole("button", { name: "Start profile-02", exact: true }).isDisabled()) throw Error("Start ignores unsaved network changes.");
+    await page.getByRole("tab", { name: "Device", exact: true }).click();
     await page.getByRole("tab", { name: "Overview", exact: true }).click();
     await page.getByLabel("Default typing mode", { exact: true }).selectOption("keyboard");
     await page.getByText("Typing mode saved. Applies to future typing actions.", { exact: true }).waitFor();
-    await page.getByRole("tab", { name: /^Network/ }).click();
     if (await page.getByRole("button", { name: "Save network", exact: true }).isDisabled()) throw Error("Saving typing preferences invalidated a dirty network form.");
     // A background observation must not overwrite an operator's unsaved form.
     await page.waitForTimeout(2300);
@@ -240,9 +237,45 @@ if (process.argv.includes("--serve")) {
     await page.getByRole("button", { name: "Save network", exact: true }).click();
     await page.getByText("Network settings saved.", { exact: true }).waitFor();
     if (JSON.parse(readFileSync(configFile, "utf8")).profiles.find((profile: { id: string }) => profile.id === "profile-02").typingMode !== "keyboard") throw Error("Saving a network draft overwrote the typing preference.");
-    if (await page.getByLabel(/^Proxy URL/).inputValue()) throw Error("The saved proxy credential remains in the form.");
+    if (await page.getByLabel(/^Proxy URL/).inputValue() !== "http://proxy.example:8081") throw Error("The UI does not show the saved proxy address.");
+    if (await page.getByLabel(/^Proxy URL/).getAttribute("type") !== "text") throw Error("The saved safe proxy address is hidden.");
     if ((await page.locator("body").innerText()).includes("new-password")) throw Error("The UI displays a proxy password.");
-    await page.getByRole("tab", { name: "Overview", exact: true }).click();
+    const savedSecrets = readFileSync(join(home, "secrets.env"), "utf8");
+    await page.getByLabel(/^Expected exit IP/).fill("");
+    await page.getByRole("button", { name: "Save network", exact: true }).click();
+    await page.getByText("Network settings saved.", { exact: true }).waitFor();
+    if (readFileSync(join(home, "secrets.env"), "utf8").includes("new-user:new-password@proxy.example:8081") === false) throw Error("An IP-only save lost proxy credentials.");
+    await page.getByLabel(/^Proxy URL/).fill("");
+    await page.getByRole("button", { name: "Discard edits", exact: true }).click();
+    if (await page.getByLabel(/^Proxy URL/).inputValue() !== "http://proxy.example:8081") throw Error("Discard did not restore the saved proxy address.");
+    await page.getByLabel(/^Proxy URL/).fill("");
+    await page.getByRole("button", { name: "Save network", exact: true }).click();
+    await page.getByText("Network settings saved.", { exact: true }).waitFor();
+    const directProfile = JSON.parse(readFileSync(configFile, "utf8")).profiles.find((profile: { id: string }) => profile.id === "profile-02");
+    if (directProfile.proxyEnv !== undefined || directProfile.mode !== undefined || await page.getByLabel(/^Proxy URL/).inputValue()) throw Error("Clearing the proxy did not restore a mode-free direct connection.");
+    if (!savedSecrets.includes("new-user:new-password@proxy.example:8081") || !readFileSync(join(home, "secrets.env"), "utf8").includes("new-user:new-password@proxy.example:8081")) throw Error("Removing the proxy deleted saved secret data.");
+    const beforeRename = JSON.stringify(states.get("profile-02")), renameCommands = commands.length;
+    const secretsBeforeRename = readFileSync(join(home, "secrets.env"), "utf8");
+    await page.getByRole("button", { name: "Rename profile", exact: true }).click();
+    await page.getByRole("textbox", { name: "Profile name", exact: true }).fill("Cancelled name");
+    await page.getByRole("textbox", { name: "Profile name", exact: true }).press("Escape");
+    await page.getByRole("heading", { name: "profile-02", exact: true }).waitFor();
+    await page.getByRole("button", { name: "Rename profile", exact: true }).click();
+    await page.getByRole("textbox", { name: "Profile name", exact: true }).fill("Work browser");
+    await captureScreen("rename");
+    await page.getByRole("button", { name: "Save profile name", exact: true }).click();
+    await page.getByRole("heading", { name: "Work browser", exact: true }).waitFor();
+    if (JSON.stringify(states.get("profile-02")) !== beforeRename || commands.length !== renameCommands || readFileSync(join(home, "secrets.env"), "utf8") !== secretsBeforeRename) throw Error("Renaming changed a browser lifetime, lifecycle, or secrets.");
+    await page.getByRole("button", { name: "All profiles", exact: true }).click();
+    await page.getByRole("button", { name: "Inspect Work browser", exact: true }).waitFor();
+    await page.reload();
+    await page.getByRole("button", { name: "Inspect Work browser", exact: true }).click();
+    await page.getByRole("heading", { name: "Work browser", exact: true }).waitFor();
+    if (!(await page.getByLabel("Command", { exact: true }).innerText()).includes("--profile profile-02")) throw Error("Renaming changed the MCP profile ID.");
+    await page.getByRole("button", { name: "Rename profile", exact: true }).click();
+    await page.getByRole("textbox", { name: "Profile name", exact: true }).fill("profile-02");
+    await page.getByRole("button", { name: "Save profile name", exact: true }).click();
+    await page.getByRole("heading", { name: "profile-02", exact: true }).waitFor();
     await page.getByRole("button", { name: "Start profile-02", exact: true }).click();
     await page.getByRole("button", { name: "Pause profile-02", exact: true }).waitFor({ state: "visible" });
     if (await page.getByRole("button", { name: "Start profile-02", exact: true }).count() || await page.getByRole("button", { name: "Resume profile-02", exact: true }).count()) throw Error("A running profile offers start or resume.");
@@ -363,7 +396,7 @@ if (process.argv.includes("--serve")) {
       await dialog.getByRole("button", { name: "Create profile", exact: true }).click();
       await page.getByRole("heading", { name: id, exact: true }).waitFor();
       const created = JSON.parse(readFileSync(join(home, "profiles.json"), "utf8")).profiles.find((p: { id: string }) => p.id === id);
-      if (created?.mode !== (proxy ? "proxy" : "direct") || created?.storage !== "native") throw Error("Creation did not preserve the selected optional proxy.");
+      if (!created || Object.hasOwn(created, "mode") || !!created.proxyEnv !== !!proxy || created.storage !== "native") throw Error("Creation did not preserve the selected optional proxy.");
       if (commands.length !== beforeCreate) throw Error("Creating a profile started a browser.");
       if ((await page.locator("body").innerText()).includes("created-password")) throw Error("Creation echoed proxy credentials.");
       await page.getByRole("button", { name: "Delete profile", exact: true }).click();
@@ -388,7 +421,6 @@ if (process.argv.includes("--serve")) {
     offPage.on("request", request => { if (new URL(request.url()).pathname.startsWith("/api/")) apiRequests++; });
     await offPage.goto(ui.url);
     await offPage.getByRole("button", { name: "Inspect profile-02", exact: true }).click();
-    await offPage.getByRole("tab", { name: "Network", exact: true }).click();
     await offPage.getByLabel(/^Expected exit IP/).fill("198.51.100.11");
     await offPage.getByRole("button", { name: "Discard edits", exact: true }).waitFor();
     await offPage.getByRole("button", { name: "Turn off UI", exact: true }).click();

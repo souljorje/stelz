@@ -109,7 +109,7 @@ try {
   } else {
     await command("init");
     writeFileSync(join(home, "profiles.json"), JSON.stringify({ profiles: [
-      { id: profileId, port, mode: "direct", storage: "native" },
+      { id: profileId, port, storage: "native" },
     ] }));
     await command("setup");
   }
@@ -128,7 +128,7 @@ try {
   async function setDefault(mode: TypingMode) {
     assert(!existingProfile, "Do not edit an operator's profile catalog.");
     writeFileSync(join(home, "profiles.json"), JSON.stringify({ profiles: [
-      { id: profileId, port, mode: "direct", storage: "native", typingMode: mode },
+      { id: profileId, port, storage: "native", typingMode: mode },
     ] }), { mode: 0o600 });
   }
   const text = "Paced typing, with pauses.";

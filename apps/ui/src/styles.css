@@ -113,6 +113,13 @@ code { overflow-wrap: anywhere; }
 .main-content { width: min(100%, 800px); margin: 0 auto; padding: 40px 32px 32px; min-width: 0; }
 .main-content:focus { outline: none; }
 .page-heading { display: flex; align-items: center; justify-content: space-between; gap: 24px; min-height: 36px; margin-bottom: 28px; }
+.page-heading-title { display: flex; flex: 1; align-items: center; gap: 8px; min-width: 0; }
+.page-heading:has(.profile-name-editor) { align-items: flex-start; }
+.profile-name-editor { flex: 1; min-width: 0; }
+.profile-name-editor-row { display: flex; align-items: center; gap: 4px; }
+.profile-name-editor-row input { flex: 1; min-width: 0; min-height: 34px; padding: 4px 8px; font-size: 18px; line-height: 24px; }
+.profile-name-editor .field-help { margin-top: 4px; }
+.profile-name-editor .notice { margin-bottom: 0; }
 .page-heading h1 { display: flex; align-items: center; gap: 10px; min-width: 0; font-size: 24px; line-height: 32px; font-weight: 500; letter-spacing: -.025em; white-space: nowrap; }
 .page-heading h1 > span { overflow: hidden; text-overflow: ellipsis; }
 .page-heading h1:focus { outline: none; }
@@ -200,6 +207,7 @@ code { overflow-wrap: anywhere; }
 .key-value dd { margin: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; font-size: 14px; }
 .key-value dd.mono { font-size: 12px; }
 .field-help { color: var(--faint); font-size: 12px; line-height: 19px; margin-top: 8px; }
+.field-help:empty { display: none; }
 .command-wrap { min-width: 0; }
 .command { display: flex; align-items: center; min-width: 0; border: 1px solid var(--control); border-radius: var(--radius-control); background: var(--surface); }
 .command code { display: block; padding: 10px 12px; min-width: 0; flex: 1; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
@@ -216,7 +224,7 @@ input, select { display: block; width: 100%; min-height: 40px; padding: 8px 12px
 input::placeholder { color: var(--faint); opacity: 1; }
 input:disabled, select:disabled { color: var(--faint); background: var(--raised); border-color: var(--border); cursor: not-allowed; opacity: 1; }
 .form-field select { max-width: 320px; }
-.form-actions { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-top: 24px; margin-top: 24px; }
+.form-actions { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 16px; }
 .form-actions .field-help { margin: 0; }
 .form-actions .button-row { flex: none; margin-left: auto; }
 .log-section { margin-top: 24px; }
@@ -279,8 +287,9 @@ input:disabled, select:disabled { color: var(--faint); background: var(--raised)
 .disclosure[open] > summary { margin-bottom: 16px; color: var(--text); }
 .disclosure > summary .label-note { margin-left: 8px; }
 .network-form > .form-field:first-child, .profile-create-fields > .form-field:first-child { margin-top: 0; }
-.network-form > .disclosure { margin-top: 24px; }
-.network-form .disclosure .form-field { margin-top: 0; }
+.network-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px 16px; }
+.network-fields .form-field, .typing-section .form-field { margin-top: 0; }
+.network-section { margin-top: 20px; padding-top: 20px; }
 .settings-section:first-child { border: 0; padding-top: 0; margin-top: 0; }
 .log-tools { display: flex; justify-content: flex-end; }
 .theme-select { max-width: 240px; }
@@ -306,6 +315,7 @@ input:disabled, select:disabled { color: var(--faint); background: var(--raised)
   .page-heading h1 { font-size: 24px; }
   .button, .icon-button, .text-button { min-height: 44px; }
   .icon-button { width: 44px; }
+  .profile-name-editor-row input { min-height: 44px; }
   .button { padding-left: 12px; padding-right: 12px; }
   .ui-power-button { flex: none; }
   .notice { flex-direction: column; align-items: flex-start; gap: 8px; padding: 12px; }
@@ -319,6 +329,7 @@ input:disabled, select:disabled { color: var(--faint); background: var(--raised)
   .tab-panel { padding-top: 20px; }
   .key-value { grid-template-columns: minmax(100px, 38%) minmax(0, 1fr); gap: 12px; }
   .form-field select { max-width: none; }
+  .network-fields { grid-template-columns: minmax(0, 1fr); gap: 20px; }
   .form-actions { flex-direction: column; align-items: flex-start; }
   .form-actions .button-row { width: 100%; justify-content: flex-end; flex-wrap: wrap; }
   .command code { font-size: 12px; padding: 10px; }

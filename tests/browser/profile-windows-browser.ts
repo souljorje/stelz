@@ -53,7 +53,7 @@ try {
   console.log("Profile window acceptance: " + home);
   await command("init");
   writeFileSync(join(home, "profiles.json"), JSON.stringify({ profiles: ids.map((id, index) => ({
-    id, port: freePort(), mode: "direct", storage: index === 0 ? "native" : "checkpoint",
+    id, port: freePort(), storage: index === 0 ? "native" : "checkpoint",
   })) }), { mode: 0o600 });
   await command("setup");
   assert.notEqual(profileAppearance(ids[0]!).color, profileAppearance(ids[1]!).color);

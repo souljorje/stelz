@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 test("service secrets select the IP interval and invalidate configuration only for a changed policy", async () => {
   const home = mkdtempSync(join(tmpdir(), "stelz-ip-config-"));
   const script = `import { ipCheckIntervalMs, configurationHash } from ${JSON.stringify(join(import.meta.dir, "../../packages/stelz/src/profiles/config.ts"))};
-console.log(JSON.stringify({interval:ipCheckIntervalMs(),hash:configurationHash({id:"network",port:9478,mode:"direct"})}));`;
+console.log(JSON.stringify({interval:ipCheckIntervalMs(),hash:configurationHash({id:"network",port:9478})}));`;
   const env: NodeJS.ProcessEnv = { ...process.env, STELZ_HOME: home };
   delete env.STELZ_IP_CHECK_INTERVAL_MS;
   const read = async (override?: string) => {

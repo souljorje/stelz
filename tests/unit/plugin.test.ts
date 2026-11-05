@@ -74,6 +74,40 @@ test("proxy policy wins and unrelated fresh preferences survive", () => {
   assert.deepEqual(launchPreferences({ fresh: 1 }, false), { fresh: 1 });
 });
 
+test("proxy host controls verification and security policy independently of legacy mode", async () => {
+  const previous = process.env.STELZ_MODE;
+  try {
+    process.env.STELZ_MODE = "proxy";
+    const direct = await harness("direct", undefined, { expected: "", ipError: "offline" });
+    try {
+      await direct.launch(); await direct.create();
+      assert.equal(direct.checks(), 0);
+      assert.equal(direct.state().verificationRequired, false);
+      assert.equal(Object.hasOwn(direct.state(), "mode"), false);
+    } finally { await direct.close(); }
+    process.env.STELZ_MODE = "direct";
+    const proxied = await harness("proxy", undefined, { expected: "" });
+    try {
+      const launched = await proxied.launch(); await proxied.create();
+      assert.equal(proxied.checks(), 1);
+      assert.equal(proxied.state().verificationRequired, true);
+      assert.equal(launched.firefoxUserPrefs["media.peerconnection.enabled"], false);
+      assert.equal(launched.firefoxUserPrefs["network.proxy.failover_direct"], false);
+      assert.equal(launched.firefoxUserPrefs["network.proxy.socks_remote_dns"], true);
+      assert.equal(launched.firefoxUserPrefs["network.proxy.socks5_remote_dns"], true);
+      assert.equal(Object.hasOwn((await proxied.request("status")).payload as object, "mode"), false);
+    } finally { await proxied.close(); }
+    const missing = await harness("proxy", undefined, { expected: "" });
+    try {
+      const options = missing.options(); delete options.proxy;
+      await assert.rejects(missing.emit("browser:launching", { options }), /Proxy launch configuration is missing/);
+    } finally { await missing.close(); }
+  } finally {
+    if (previous === undefined) delete process.env.STELZ_MODE;
+    else process.env.STELZ_MODE = previous;
+  }
+});
+
 type App = Parameters<typeof register>[0];
 type Handler = Parameters<App["post"]>[1];
 async function harness(mode: "direct" | "proxy" = "direct", waitForIP?: Promise<void>,
@@ -90,7 +124,7 @@ async function harness(mode: "direct" | "proxy" = "direct", waitForIP?: Promise<
     export function adaptResponse(_spec, payload) { return [{ type: "text", text: JSON.stringify(payload) }]; }
   `);
   const settings = { STELZ_HOME: root, STELZ_PROFILE_ID: id, STELZ_PROFILE_DIR: stateDir, STELZ_UPSTREAM: upstream,
-    CAMOUFOX_EXECUTABLE: binary, STELZ_MODE: mode, STELZ_EXPECTED_IP: fixture.expected ?? "198.51.100.10",
+    CAMOUFOX_EXECUTABLE: binary, PROXY_HOST: mode === "proxy" ? "127.0.0.1" : "", STELZ_EXPECTED_IP: fixture.expected ?? "198.51.100.10",
     CAMOFOX_PORT: String(fixture.port ?? 0), CAMOFOX_ACCESS_KEY: "fixture-key" };
   const previous = Object.fromEntries(Object.keys(settings).map(key => [key, process.env[key]]));
   Object.assign(process.env, settings);

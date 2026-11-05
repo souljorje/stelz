@@ -8,7 +8,7 @@ export class ApiError extends Error {
 }
 
 type RequestOptions = {
-  method?: "GET" | "POST" | "PUT" | "DELETE";
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   body?: unknown;
   signal?: AbortSignal;
   timeout?: number;

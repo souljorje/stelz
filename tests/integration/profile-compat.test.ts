@@ -13,11 +13,12 @@ import { UPSTREAM_VERSION } from "../../packages/stelz/src/versions.ts";
 import type { Profile } from "../../packages/stelz/src/profiles/config.ts";
 
 const root = resolve(import.meta.dir, "../.."), homes: string[] = [];
-const legacyProfile: Profile = {
+type LegacyProfile = Profile & { mode: "direct" | "proxy" };
+const legacyProfile: LegacyProfile = {
   id: "identity-01", port: 19471, mode: "direct", storage: "native",
   proxyEnv: "IDENTITY_01_PROXY_URL", expectedIPEnv: "IDENTITY_01_EXPECTED_IP",
 };
-const checkpointProfile: Profile = { id: "identity-02", port: 19472, mode: "direct" };
+const checkpointProfile: LegacyProfile = { id: "identity-02", port: 19472, mode: "direct" };
 const oldSecrets = "# keep legacy references\nUNRELATED='literal # value'\n" +
   "IDENTITY_01_PROXY_URL=http://old-user:old-password@old.test:8080\nIDENTITY_01_EXPECTED_IP=198.51.100.9\n";
 const token = "12345678-1234-4234-8234-123456789abc";
@@ -45,7 +46,7 @@ function fixture(legacy = true): Fixture {
     mkdirSync(data, { recursive: true, mode: 0o700 });
     privateFile(join(path, "lifecycle.lock"), '{"pid":0,"token":"legacy-lifecycle"}');
     privateFile(join(path, "fingerprint.json"), '{"version":1,"config":{"screen.width":1440}}');
-    privateFile(join(path, "status.json"), encode({ identityId: p.id, instanceId: "old-instance", phase: "stopped" }));
+    privateFile(join(path, "status.json"), encode({ identityId: p.id, instanceId: "old-instance", mode: "direct", phase: "stopped" }));
     if (p.storage === "native") {
       privateFile(join(path, "native-profile.json"), '{"version":1}');
       writeFileSync(join(data, "cookies.sqlite"), Buffer.from([0, 255, 17, 13, 10, 42]), { mode: 0o600 });
@@ -185,7 +186,7 @@ for (const legacy of [true, false]) test(`${legacy ? "legacy" : "canonical"} cre
   const result = await run(f.home, `const created = await model.createProfile({ id: 'new-work', revision: (await model.snapshot()).catalogRevision });
     const afterCreate = JSON.parse(fs.readFileSync(config.CONFIG_FILE, 'utf8'));
     const revision = (await model.snapshot()).profiles[0].network.revision;
-    const updated = await model.updateNetwork('identity-01', { revision, mode: 'proxy',
+    const updated = await model.updateNetwork('identity-01', { revision,
       proxyUrl: 'http://new-user:new-password@new.test:8181', expectedIp: '2001:db8::8' });
     const afterNetwork = JSON.parse(fs.readFileSync(config.CONFIG_FILE, 'utf8'));
     await model.deleteProfile('identity-01', (await model.snapshot()).catalogRevision);
@@ -193,7 +194,8 @@ for (const legacy of [true, false]) test(`${legacy ? "legacy" : "canonical"} cre
   expect(result).toMatchObject({ ok: true });
   expect(result.value.created).toMatchObject({ id: "new-work", storage: "native", phase: "stopped" });
   expect(result.value.afterCreate).toEqual({ maxActive: 2, [f.key]: [...f.profiles, expect.objectContaining({ id: "new-work" })] });
-  expect(result.value.afterNetwork[f.key][0]).toEqual({ ...legacyProfile, mode: "proxy" });
+  const { mode: _mode, ...updatedProfile } = legacyProfile;
+  expect(result.value.afterNetwork[f.key][0]).toEqual(updatedProfile);
   expect(result.value.updated).toMatchObject({ id: legacyProfile.id, network: { expectedIp: "2001:db8::8", proxyDisplay: "http://new.test:8181" } });
   expect(JSON.stringify(result.value.updated)).not.toMatch(/new-user|new-password/);
   expect(rawCatalog(f)).toEqual({ maxActive: 2, [f.key]: [checkpointProfile, expect.objectContaining({ id: "new-work" })] });
@@ -205,7 +207,7 @@ for (const legacy of [true, false]) test(`${legacy ? "legacy" : "canonical"} cre
   expect(lstatSync(join(archived, "lifecycle.lock")).ino).toBe(lifecycleInode);
   expect(lstatSync(join(f.state, "admission.lock")).ino).toBe(admissionInode);
   expect(tree(join(f.state, checkpointProfile.id))).toEqual(other);
-  expect(JSON.parse(text(join(archive, "profile.json")))).toEqual({ profile: { ...legacyProfile, mode: "proxy" } });
+  expect(JSON.parse(text(join(archive, "profile.json")))).toEqual({ profile: updatedProfile });
   expect(existsSync(join(archive, "identity.json"))).toBe(false);
   expect(existsSync(path)).toBe(false);
   expect(existsSync(join(f.home, ".profile-transaction.json"))).toBe(false);
@@ -218,7 +220,7 @@ test("interrupted legacy creation recovers with or without already-persisted sec
     const f = fixture(), before = files(f), stateInode = lstatSync(f.state).ino;
     const saved = f.profiles.map(p => tree(join(f.state, p.id)));
     const admissionInode = lstatSync(join(f.state, "admission.lock")).ino;
-    const added: Profile = { id: "identity-new", port: 19473, mode: "proxy", storage: "native", proxyEnv: "IDENTITY_NEW_PROXY_URL" };
+    const added: LegacyProfile = { id: "identity-new", port: 19473, mode: "proxy", storage: "native", proxyEnv: "IDENTITY_NEW_PROXY_URL" };
     const after = { config: encode({ maxActive: 2, identities: [...f.profiles, added] }),
       secrets: before.secrets + "IDENTITY_NEW_PROXY_URL=http://new-user:new-password@new.test:8181\n" };
     const journal = catalogJournal(f, "create", added.id, before, after);
@@ -327,6 +329,7 @@ test("CLI --identity and cached identity MCP tools work while advertised names s
     const legacyStatus = JSON.parse((legacy.content as { text: string }[])[0]!.text);
     expect(canonicalStatus).toMatchObject({ profileId: legacyProfile.id, phase: "stopped" });
     expect(canonicalStatus).not.toHaveProperty("identityId");
+    expect(canonicalStatus).not.toHaveProperty("mode");
     expect(legacyStatus).toEqual({ ...canonicalStatus, identityId: legacyProfile.id });
     for (const action of actions.slice(1)) {
       const current = await client.callTool({ name: `profile_${action}`, arguments: {} });
@@ -337,4 +340,36 @@ test("CLI --identity and cached identity MCP tools work while advertised names s
     }
   } finally { await client.close(); }
   expect(tree(f.home)).toEqual(before);
+});
+
+for (const mode of ["direct", "proxy"] as const) test(`legacy ${mode} launch hashes and network fields survive unrelated edits`, async () => {
+  const f = fixture(), saved = rawCatalog(f);
+  saved.identities[0].mode = mode;
+  privateFile(f.config, encode(saved));
+  const secrets = text(f.secrets);
+  const result = await run(f.home, `
+    delete process.env.STELZ_TYPING_MODE;
+    delete process.env.STELZ_IP_CHECK_INTERVAL_MS;
+    const { createHash } = await import('node:crypto');
+    const domain = await import(${JSON.stringify(join(root, "packages/stelz/src/profiles/profile-configuration.ts"))});
+    const before = config.settings().profiles[0];
+    const proxy = ${JSON.stringify(mode === "direct" ? {} : {
+      PROXY_STRATEGY: "round_robin", PROXY_PROTOCOL: "http", PROXY_HOST: "old.test", PROXY_PORT: "8080", PROXY_USERNAME: "old-user", PROXY_PASSWORD: "old-password",
+    })};
+    const historicalHash = createHash('sha256').update(JSON.stringify({ ...before, proxy, expectedIP: '198.51.100.9' })).digest('hex');
+    const beforeHash = config.configurationHash(before);
+    await domain.renameProfile(before.id, { revision: domain.catalogRevision(config.settings()), name: 'Renamed' });
+    await domain.updateTyping(before.id, { revision: domain.typingRevision(config.settings().profiles[0]), mode: 'keyboard' });
+    const current = config.settings(), p = current.profiles[0];
+    await domain.updateNetwork(p.id, { revision: domain.networkRevision(current, p, { values: {
+      IDENTITY_01_PROXY_URL: 'http://old-user:old-password@old.test:8080', IDENTITY_01_EXPECTED_IP: '198.51.100.9' } }), expectedIp: '198.51.100.9' });
+    const after = config.settings().profiles[0];
+    return { before, after, historicalHash, beforeHash, afterHash: config.configurationHash(after) };
+  `);
+  expect(result.ok).toBe(true);
+  expect(result.value.after).toEqual({ ...result.value.before, name: "Renamed", typingMode: "keyboard" });
+  expect(result.value.beforeHash).toBe(result.value.historicalHash);
+  expect(result.value.afterHash).toBe(result.value.historicalHash);
+  expect(text(f.secrets)).toBe(secrets);
+  expectNoMigration(f);
 });

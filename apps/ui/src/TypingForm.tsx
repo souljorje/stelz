@@ -31,8 +31,8 @@ export function TypingForm({ profile, connected, busy, onSave }: {
     } catch (cause) { setError(errorMessage(cause)); }
     finally { setSelection(null); }
   };
-  return <section className="detail-section" aria-labelledby={`${id}-heading`}>
-    <h2 id={`${id}-heading`}>Typing</h2>
+  return <section className="detail-section typing-section" aria-labelledby={`${id}-heading`}>
+    <h2 className="sr-only" id={`${id}-heading`}>Typing</h2>
     <div className="form-field">
       <label htmlFor={id}>Default typing mode</label>
       <select id={id} value={selected} disabled={!connected || pending || !!selection} aria-describedby={`${id}-help ${id}-status`}
@@ -40,8 +40,8 @@ export function TypingForm({ profile, connected, busy, onSave }: {
         <option value="inherit">Service default ({profile.typing.defaultMode})</option>
         <option value="auto">Automatic</option><option value="keyboard">Keyboard input</option><option value="instant">Instant input</option>
       </select>
-      <p className="field-help" id={`${id}-help`}>{help[mode]} Agents can override this default for each action.</p>
-      <p className="field-help" id={`${id}-status`} role="status">{selection ? "Saving typing mode…" : !connected ? "Reconnect to change the typing mode." : pending ? "Wait for the current service action to finish." : saved ? "Typing mode saved. Applies to future typing actions." : "Changes save automatically and apply without a browser restart."}</p>
+      <p className="field-help" id={`${id}-help`}>{help[mode]}</p>
+      <p className="field-help" id={`${id}-status`} role="status">{selection ? "Saving typing mode…" : !connected ? "Reconnect to change the typing mode." : pending ? "Wait for the current service action to finish." : saved ? "Typing mode saved. Applies to future typing actions." : ""}</p>
     </div>
     {error && <Notice kind="error" alert>{error}</Notice>}
   </section>;

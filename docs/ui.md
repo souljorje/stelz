@@ -11,7 +11,7 @@ The browsers and their open pages remain active.
 Select **Turn off UI** in the header to end the UI session and stop its server.
 The button also expires the session cookie. Running browsers stay open.
 Finish active UI operations before using the button.
-The UI asks before discarding unsaved network edits.
+The UI asks before discarding unsaved edits.
 Start `stelz ui` again to obtain a new session URL.
 
 For a source checkout, first run `bun run build`.
@@ -45,7 +45,8 @@ Open **Profiles**. Select **New profile** and enter a name.
 Supply a proxy URL if necessary. Leave it blank to use a direct connection.
 Creation saves the profile without starting a browser.
 The service assigns its port and uses a native persistent profile.
-You can configure its network later in the Network tab.
+Overview contains its connection settings, typing preferences, and browser windows.
+Device and Logs contain the technical information.
 
 The profile table shows browser phase and controller ownership separately.
 A ready browser can still have an active MCP controller.
@@ -67,6 +68,14 @@ Closing its browser window stops the profile. Start it explicitly to open it aga
 A failed IP check keeps actions blocked.
 An operation timeout can require an explicit stop and start.
 See [Use the service](README.md) for process inspection and recovery procedures.
+
+## Rename a profile
+
+Select the pencil beside the profile name. Enter the new name and select **Save name**.
+Escape or **Cancel rename** discards the edit.
+The name updates in the profile list and heading. It can change while the browser is running.
+The profile ID, saved data, proxy references, and MCP commands remain unchanged.
+Browser window title prefixes continue to show the stable profile ID.
 
 ## Typing mode
 
@@ -123,7 +132,7 @@ The installed Camoufox app remains unchanged.
 ## Delete a profile
 
 Stop the profile cleanly. Open its details and select **Delete profile**.
-Type its exact name to confirm deletion.
+Type its exact profile ID, shown above the confirmation field, to confirm deletion.
 The service removes the profile from the list and archives its complete directory under `STELZ_HOME/trash/`.
 The archive includes its configuration in `profile.json` and its saved browser data in `profile/`.
 The service retains secret values because other profiles can share them.
@@ -137,18 +146,18 @@ Read-only status does not change the transaction. Conflicting manual edits block
 ## Network configuration
 
 Stop a profile before you edit its network configuration.
-Direct mode is the default. A proxy is optional.
-Select **Direct (no proxy)** to use the connection without a proxy.
-Direct mode requires no IP lookup unless you set an expected exit IP.
-The Network tab permits direct or proxy mode, a replacement proxy URL, and an expected exit IP.
-Open **IP verification** to set an expected exit IP.
-A blank replacement proxy field preserves the saved credential.
-An empty expected IP removes that check in direct mode.
-Proxy mode always requires a successful browser-side IP check.
+A proxy is optional. An empty **Proxy URL** uses a direct connection.
+The **Connection** section in Overview shows the saved proxy address and optional expected exit IP.
+Change the address to replace the proxy. Clear it and save to remove the proxy.
+An unchanged address preserves its saved authentication, including when you change only the expected IP.
+These fields are visible without opening a disclosure or selecting a connection mode.
+A direct connection requires no IP lookup unless you set an expected exit IP.
+An empty expected IP removes that requirement for a direct connection.
+A proxy connection always requires a successful browser-side IP check.
 
 The UI never shows saved proxy authentication.
-Environment overrides make the affected fields read-only.
-The UI refuses edits to shared secret references.
+Environment overrides and shared secrets keep their values read-only.
+**Remove proxy** disconnects this profile from a managed proxy. It preserves the secret for other profiles.
 A conflicting save requires a fresh configuration before another save.
 The backend checks process ownership and configuration again before it writes.
 
@@ -158,7 +167,7 @@ Read-only status does not complete the transaction.
 Conflicting manual edits block recovery.
 Run `stelz doctor ID` to inspect the failure.
 
-Profile IDs cannot be renamed after creation. Storage mode, saved device properties, and browser versions remain read-only.
+Display names are editable. Profile IDs, storage mode, saved device properties, and browser versions remain read-only.
 All profile state stays under `STELZ_HOME`.
 The service has no saved-profile count limit or global active-browser limit.
 Each profile has at most one browser instance. Other running profiles do not disable Start.
