@@ -21,6 +21,12 @@ Setup copies the published Camofox package into the service directory. It does n
 Setup does not change the installed Camoufox app.
 Stop all profiles before setup after a code update.
 Setup stages and checks the complete runtime before it replaces the active runtime.
+See [Camofox adapter patches](camofox-patches.md) for the eight pinned compatibility changes.
+
+For a source installation, run `bun install --frozen-lockfile` and `bun run build` at the workspace root.
+Run `npm pack ./packages/stelz` to create the release archive.
+Only `packages/stelz` is publishable. The UI workspace is private.
+See [Distribution](distribution.md) for archive verification and the manual workflow.
 
 The default service directory is `~/.local/share/stelz`.
 Set `STELZ_HOME` to use a different directory. Use the same value for all clients and lifecycle commands.

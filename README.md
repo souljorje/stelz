@@ -19,7 +19,7 @@ Browser windows show their profile's name and color.
 Use the UI's window icon to find a profile's window.
 See [Find a profile's windows](docs/ui.md#find-a-profiles-windows).
 
-The archive is not published to npm yet. Build it with `bun install`, `bun run build`, and `npm pack`.
+The archive is not published to npm yet. Build it with `bun install`, `bun run build`, and `npm pack ./packages/stelz`.
 
 Each MCP connection selects one profile. One controller can act on that profile at a time.
 Client disconnect releases control. The browser and its pages remain open.
@@ -34,3 +34,11 @@ See [Compatibility](docs/README.md#compatibility) before changing existing confi
 - [Connect a client](docs/clients.md)
 - [Instructions for agents](docs/agents.md)
 - [Development and testing](docs/tests.md)
+
+## Workspace
+
+`apps/ui` contains the private React UI. `packages/stelz` contains the only publishable package.
+The package groups source under `cli`, `profiles`, `browser`, `runtime`, `mcp`, and `api`.
+Root `docs/` and `examples/` are canonical. Build stages their copies into the package.
+Run `bun run verify:release` for browser-free archive verification.
+See [Distribution](docs/distribution.md) and [Camofox patches](docs/camofox-patches.md).

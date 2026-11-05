@@ -7,10 +7,10 @@ Use the runtime requirements in [Use the service](README.md).
 ```sh
 bun install --frozen-lockfile
 bun run build
-npm pack
+npm pack ./packages/stelz
 ```
 
-Build regenerates `dist/` from source.
+Build regenerates `packages/stelz/dist/` from source.
 The archive contains the CLI, supervisor, browser plugin, built local UI, documentation, client examples, and third-party notices.
 The diagnostic client runs from source. The archive excludes source files, tests, installed dependencies, and browser state.
 
@@ -29,6 +29,7 @@ The diagnostic client runs from source. The archive excludes source files, tests
 | `bun run test:proxy` | Two distinct proxy exits, three browser lifetimes, expected IP pins, and isolated route failures during cached verification. |
 | `bun run test:manual` | Human interaction while paused, followed by MCP resume in the same browser and tab. |
 | `bun run test:public --profile ID` | Four public fingerprint checks in an existing Camoufox profile, with screenshots and verdict reports. |
+| `bun run verify:release` | npm pack lifecycle, archive contents, isolated install, CLI, HTTP UI, and staged setup validation with a fake executable. No browser. |
 | `bun run test:package` | Archive installation in an isolated npm prefix, an empty working directory, and browser acceptance. |
 
 The earlier browser acceptance run passed on 2026-11-02 with macOS 26.5.2 on Apple Silicon.
@@ -57,7 +58,7 @@ The UI check also creates profiles with and without a proxy, confirms deletion, 
 
 ## Continuous integration
 
-GitHub Actions runs frozen installation, build, TypeScript checks, regression tests, and an archive dry run on Linux and macOS.
+GitHub Actions runs frozen installation, build, TypeScript checks, regression tests, and isolated browser-free archive verification on Linux and macOS.
 It uses the Bun version in `package.json`, Node.js 24, and read-only repository permissions.
 The workflow skips browser downloads. Browser, proxy, and human acceptance checks run locally.
 
@@ -237,3 +238,15 @@ The check used temporary harness configurations and a working local model endpoi
 Claude Code was not installed, so that client remains untested.
 Browser executable changes require an explicit migration.
 No test establishes that websites cannot detect automation.
+
+## Source layout
+
+- `tests/unit/`: offline logic and verdict tests, including Node regression tests.
+- `tests/integration/`: offline process, setup, catalog, and transaction checks.
+- `tests/browser/`: explicit browser acceptance commands.
+- `tests/qa/`: package, public-site, and human acceptance commands.
+- `tests/helpers/`: shared fixtures and verdict readers.
+- `scripts/call.ts`: development MCP diagnostic client.
+
+UI source is in `apps/ui/src/`. Its browser imports use only `packages/stelz/src/api/contracts.ts`.
+The contract contains no Node, Bun, or server imports. It is not a public package API.

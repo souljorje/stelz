@@ -6,3 +6,9 @@ node_modules/
 dist/
 *.tgz
 .DS_Store
+
+# Build stages canonical root documentation for npm pack.
+packages/stelz/docs/
+packages/stelz/examples/
+packages/stelz/README.md
+packages/stelz/THIRD_PARTY_NOTICES.md

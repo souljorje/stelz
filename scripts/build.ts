@@ -1,48 +1,25 @@
-import { mkdirSync, chmodSync, rmSync } from "node:fs";
-import { basename, join } from "node:path";
-import { createHash } from "node:crypto";
+import { mkdirSync, chmodSync, rmSync, cpSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { checkMarkdownLinks } from "./markdown-links.ts";
 const root = join(import.meta.dir, "..");
-rmSync(join(root, "dist"), { recursive: true, force: true });
-mkdirSync(join(root, "dist"), { recursive: true });
-for (const name of ["cli", "supervisor"]) {
-  const result = await Bun.build({ entrypoints: [join(root, "src", `${name}.ts`)], target: "bun", packages: "external", format: "esm", outdir: join(root, "dist"), naming: `${name}.js` });
+const product = join(root, "packages/stelz");
+const dist = join(product, "dist");
+rmSync(dist, { recursive: true, force: true });
+mkdirSync(dist, { recursive: true });
+for (const [name, domain, target] of [["cli", "cli", "bun"], ["supervisor", "runtime", "bun"], ["plugin", "browser", "node"]] as const) {
+  const result = await Bun.build({ entrypoints: [join(product, "src", domain, name + ".ts")], target, packages: "external", format: "esm", outdir: dist, naming: name + ".js" });
   if (!result.success) throw Error(result.logs.join("\n"));
-  chmodSync(join(root, "dist", `${name}.js`), 0o755);
+  if (name !== "plugin") chmodSync(join(dist, name + ".js"), 0o755);
 }
-const plugin = await Bun.build({ entrypoints: [join(root, "src/plugin.ts")], target: "node", packages: "external", format: "esm", outdir: join(root, "dist"), naming: "plugin.js" });
-if (!plugin.success) throw Error(plugin.logs.join("\n"));
-const ui = await Bun.build({
-  entrypoints: [join(root, "ui/index.html")], target: "browser", format: "esm",
-  outdir: join(root, "dist/ui"), minify: true,
-  loader: { ".woff2": "file", ".woff": "file" },
-  define: { "process.env.NODE_ENV": JSON.stringify("production") },
-});
-if (!ui.success) throw Error(ui.logs.join("\n"));
-const theme = await Bun.build({
-  entrypoints: [join(root, "ui/theme-init.ts")], target: "browser", format: "iife",
-  outdir: join(root, "dist/ui"), naming: "theme-[hash].js", minify: true,
-});
-if (!theme.success) throw Error(theme.logs.join("\n"));
-const themeScript = theme.outputs.find(output => output.path.endsWith(".js"));
-if (!themeScript) throw Error("The UI theme bootstrap was not built.");
-const htmlPath = join(root, "dist/ui/index.html");
-const html = await Bun.file(htmlPath).text();
-await Bun.write(htmlPath, html.replace("</title>", `</title><script src="./${basename(themeScript.path)}"></script>`));
-// Some Bun versions inline CSS font URLs. Keep fonts in local files for font-src 'self'.
-for (const output of ui.outputs) {
-  if (!output.path.endsWith(".css")) continue;
-  const fonts: Promise<number>[] = [];
-  const css = (await output.text()).replace(/url\((["']?)data:font\/(woff2?);base64,([A-Za-z0-9+/=]+)\1\)/g, (_match, _quote, format: string, encoded: string) => {
-    const bytes = Buffer.from(encoded, "base64");
-    const name = `font-${createHash("sha256").update(bytes).digest("hex").slice(0, 16)}.${format}`;
-    fonts.push(Bun.write(join(root, "dist/ui", name), bytes));
-    return `url(./${name})`;
-  });
-  await Promise.all(fonts);
-  await Bun.write(output.path, css);
+const ui = Bun.spawn([process.execPath, "run", "build"], { cwd: join(root, "apps/ui"), stdout: "inherit", stderr: "inherit" });
+if (await ui.exited) throw Error("UI build failed.");
+for (const name of ["docs", "examples"]) {
+  rmSync(join(product, name), { recursive: true, force: true });
+  cpSync(join(root, name), join(product, name), { recursive: true });
 }
-for (const [name, path] of [
-  ["react", "react/LICENSE"], ["react-dom", "react-dom/LICENSE"], ["scheduler", "scheduler/LICENSE"],
-  ["ibm-plex-sans", "@fontsource/ibm-plex-sans/LICENSE"], ["ibm-plex-mono", "@fontsource/ibm-plex-mono/LICENSE"],
-]) await Bun.write(join(root, "dist/ui/licenses", `${name}.txt`), Bun.file(join(root, "node_modules", path!)));
-console.log("Built standalone CLI, browser service, and local UI.");
+for (const name of ["README.md", "THIRD_PARTY_NOTICES.md"]) cpSync(join(root, name), join(product, name));
+const agents = join(product, "docs/agents.md");
+writeFileSync(agents, readFileSync(agents, "utf8").replace("../packages/stelz/skills/", "../skills/"));
+checkMarkdownLinks([join(root, "README.md"), join(root, "docs"), join(root, "examples"), join(product, "skills")]);
+checkMarkdownLinks([join(product, "README.md"), join(product, "docs"), join(product, "examples"), join(product, "skills")]);
+console.error("Built standalone CLI, browser service, and local UI.");
