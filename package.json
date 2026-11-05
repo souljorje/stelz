@@ -2,7 +2,7 @@
   "name": "stelz-workspace",
   "private": true,
   "type": "module",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "packageManager": "bun@1.4.4",
   "engines": {
     "bun": ">=1.4.4"
@@ -24,7 +24,7 @@
     "ui": "bun --no-env-file packages/stelz/src/cli/cli.ts ui",
     "browser": "bun scripts/call.ts",
     "fixture": "bun tests/helpers/fixture.ts",
-    "test": "bun test tests/unit/bundled-dependencies.test.ts tests/integration/profile-concurrency.test.ts tests/integration/catalog-limits.test.ts tests/unit/paths.test.ts tests/integration/profile-compat.test.ts tests/unit/profile-windows.test.ts tests/unit/unit.test.ts tests/unit/typing.test.ts tests/unit/typing-route.test.ts tests/unit/ip-configuration.test.ts tests/unit/proxy-acceptance.test.ts tests/integration/lifecycle.test.ts tests/integration/setup.test.ts tests/unit/ui-server.test.ts tests/integration/ui-model.test.ts tests/integration/profile-configuration.test.ts tests/unit/public-site-verdicts.test.ts tests/unit/rebrowser-verdict.test.ts tests/unit/public-sites.test.ts tests/unit/ui-api.test.ts tests/unit/ui-display.test.ts && bun run test:regression",
+    "test": "bun test tests/unit/release-candidate.test.ts tests/unit/bundled-dependencies.test.ts tests/integration/profile-concurrency.test.ts tests/integration/catalog-limits.test.ts tests/unit/paths.test.ts tests/integration/profile-compat.test.ts tests/unit/profile-windows.test.ts tests/unit/unit.test.ts tests/unit/typing.test.ts tests/unit/typing-route.test.ts tests/unit/ip-configuration.test.ts tests/unit/proxy-acceptance.test.ts tests/integration/lifecycle.test.ts tests/integration/setup.test.ts tests/unit/ui-server.test.ts tests/integration/ui-model.test.ts tests/integration/profile-configuration.test.ts tests/unit/public-site-verdicts.test.ts tests/unit/rebrowser-verdict.test.ts tests/unit/public-sites.test.ts tests/unit/ui-api.test.ts tests/unit/ui-display.test.ts && bun run test:regression",
     "test:ui": "bun test tests/integration/catalog-limits.test.ts tests/unit/profile-windows.test.ts tests/unit/ui-server.test.ts tests/integration/ui-model.test.ts tests/integration/profile-configuration.test.ts tests/unit/ui-api.test.ts tests/unit/ui-display.test.ts",
     "test:ui:browser": "bun tests/browser/ui-browser.ts",
     "test:regression": "node --experimental-transform-types --test tests/unit/plugin.test.ts tests/unit/ip-verification.test.ts tests/unit/native-profile.test.ts tests/unit/observations.test.ts",

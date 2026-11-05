@@ -19,7 +19,7 @@ for (const name of ["docs", "examples"]) {
   rmSync(join(product, name), { recursive: true, force: true });
   cpSync(join(root, name), join(product, name), { recursive: true });
 }
-for (const name of ["README.md", "THIRD_PARTY_NOTICES.md"]) cpSync(join(root, name), join(product, name));
+for (const name of ["README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"]) cpSync(join(root, name), join(product, name));
 const agents = join(product, "docs/agents.md");
 writeFileSync(agents, readFileSync(agents, "utf8").replace("../packages/stelz/skills/", "../skills/"));
 checkMarkdownLinks([join(root, "README.md"), join(root, "docs"), join(root, "examples"), join(product, "skills")]);

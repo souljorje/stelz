@@ -1,11 +1,13 @@
 import { checkBundledArchive, inspectBundledDependencies } from "./bundled-dependencies.ts";
 import { packRelease } from "./release-archive.ts";
+import { releaseArguments, inspectReleaseCandidate, assertCandidateUnchanged } from "./release-candidate.ts";
 import { checkMarkdownLinks } from "./markdown-links.ts";
 import { mkdtempSync, mkdirSync, symlinkSync, readFileSync, writeFileSync, readdirSync, lstatSync, realpathSync, rmSync, existsSync, chmodSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { STELZ_VERSION } from "../packages/stelz/src/versions.ts";
 const root = resolve(import.meta.dir, ".."), temp = mkdtempSync(join(tmpdir(), "stelz-package-"));
+const input = releaseArguments(process.argv.slice(2));
 const prefix = join(temp, "global"), cwd = join(temp, "empty"), home = join(temp, "data"), bin = join(temp, "bin");
 for (const path of [cwd, bin]) mkdirSync(path, { recursive: true });
 const npm = Bun.which("npm")!, node = Bun.which("node")!, bun = Bun.which("bun")!;
@@ -22,29 +24,32 @@ console.log("Verify npm pack lifecycle and isolated browser-free installation.")
 try {
 const product = join(root, "packages/stelz");
 const preparedDependencies = inspectBundledDependencies(product);
-// Removing generated artifacts proves that the real npm prepack lifecycle builds them.
-rmSync(join(product, "dist"), { recursive: true, force: true });
-const lifecycle = [await packRelease(product, temp, { env })];
-if (!existsSync(join(product, "dist/cli.js"))) throw Error("npm prepack did not build the CLI.");
-const packed = [await packRelease(product, temp, { env, ignoreScripts: true })];
-const archive = join(temp, packed[0]!.filename);
+let archive = input.archive;
+if (!archive) {
+  // Prove the prepack hook builds missing artifacts before creating one candidate.
+  rmSync(join(product, "dist"), { recursive: true, force: true });
+  const packed = await packRelease(product, temp, { env });
+  if (!existsSync(join(product, "dist/cli.js"))) throw Error("Prepack did not build the CLI.");
+  archive = join(temp, packed.filename);
+}
+const candidate = inspectReleaseCandidate(archive);
+const packed = [candidate];
 for (const file of packed[0]!.files) if (/^(src|test|\.git|\.codex|\.state|sessions)\//.test(file.path)) throw Error(`Unexpected archive file: ${file.path}`);
 checkBundledArchive(packed[0]!.files);
 const uiFiles = packed[0]!.files.filter(file => file.path.startsWith("dist/ui/"));
 if (!uiFiles.some(file => file.path === "dist/ui/index.html") || !uiFiles.some(file => file.path.endsWith(".js")) || !uiFiles.some(file => file.path.endsWith(".woff2"))) throw Error("The archive is missing built UI assets.");
 const paths = packed[0]!.files.map(file => file.path).sort();
-if (JSON.stringify(paths) !== JSON.stringify(lifecycle[0]!.files.map(file => file.path).sort())) throw Error("Pack lifecycle changed archive contents.");
-for (const path of ["dist/cli.js", "dist/supervisor.js", "dist/plugin.js", "dist/ui/index.html", "README.md", "THIRD_PARTY_NOTICES.md", "docs/agents.md", "examples/profiles.json", "skills/stelz-browser/SKILL.md", "skills/stelz-browser/references/recovery.md", ...["react", "react-dom", "scheduler", "ibm-plex-mono", "ibm-plex-sans"].map(name => "dist/ui/licenses/" + name + ".txt")]) {
+for (const path of ["dist/cli.js", "dist/supervisor.js", "dist/plugin.js", "dist/ui/index.html", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md", "docs/agents.md", "examples/profiles.json", "skills/stelz-browser/SKILL.md", "skills/stelz-browser/references/recovery.md", ...["react", "react-dom", "scheduler", "ibm-plex-mono", "ibm-plex-sans"].map(name => "dist/ui/licenses/" + name + ".txt")]) {
   if (!paths.includes(path)) throw Error("Archive is missing " + path);
 }
-for (const path of paths) if (!/^(?:node_modules\/|dist\/|docs\/|examples\/|skills\/|package.json$|README.md$|THIRD_PARTY_NOTICES.md$)/.test(path)) throw Error("Unexpected archive path: " + path);
+for (const path of paths) if (!/^(?:node_modules\/|dist\/|docs\/|examples\/|skills\/|package.json$|README.md$|LICENSE$|THIRD_PARTY_NOTICES.md$)/.test(path)) throw Error("Unexpected archive path: " + path);
 await run([npm, "install", "--global", "--ignore-scripts", "--no-audit", "--no-fund", "--prefix", prefix, archive]);
 const installed = join(prefix, "lib/node_modules/stelz");
 const installedDependencies = inspectBundledDependencies(installed);
 if (JSON.stringify(installedDependencies) !== JSON.stringify(preparedDependencies))
   throw Error("The installed archive changed the patched dependency files.");
 const manifest = JSON.parse(readFileSync(join(installed, "package.json"), "utf8"));
-if (manifest.name !== "stelz" || manifest.version !== STELZ_VERSION || manifest.private || manifest.license !== "UNLICENSED") throw Error("Invalid release manifest.");
+if (manifest.name !== "stelz" || manifest.version !== STELZ_VERSION || manifest.private || manifest.license !== "MIT") throw Error("Invalid release manifest.");
 checkMarkdownLinks([join(root, "README.md"), join(root, "docs"), join(root, "examples"), join(root, "packages/stelz/skills")]);
 checkMarkdownLinks([join(installed, "README.md"), join(installed, "docs"), join(installed, "examples"), join(installed, "skills")]);
 for (const file of ["cli.js", "supervisor.js", "plugin.js"]) if (readFileSync(join(installed, "dist", file), "utf8").includes(root)) throw Error("Bundle contains a checkout path: " + file);
@@ -133,5 +138,6 @@ function checkRuntimeLinks(folder: string) {
 }
 checkRuntimeLinks(runtime);
 if (!links) throw Error("Setup did not stage dependency links.");
-console.log("Release verification passed: pack lifecycle, archive contents, Markdown links, isolated CLI version/help/init, HTTP UI/session/assets, and installed setup/dependency validation.");
+assertCandidateUnchanged(candidate);
+console.log(JSON.stringify({ result: "passed", archive, sha256: candidate.sha256, checks: "Archive contents, Markdown links, isolated CLI, HTTP UI, and installed setup/dependency validation" }));
 } finally { rmSync(temp, { recursive: true, force: true }); }

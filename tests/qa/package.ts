@@ -1,10 +1,12 @@
 import { checkBundledArchive, inspectBundledDependencies } from "../../scripts/bundled-dependencies.ts";
 import { packRelease } from "../../scripts/release-archive.ts";
+import { releaseArguments, inspectReleaseCandidate, assertCandidateUnchanged } from "../../scripts/release-candidate.ts";
 import { mkdtempSync, mkdirSync, symlinkSync, readFileSync, writeFileSync, readdirSync, lstatSync, realpathSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join, resolve, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { STELZ_VERSION } from "../../packages/stelz/src/versions.ts";
 const root = resolve(import.meta.dir, "../.."), temp = mkdtempSync(join(tmpdir(), "stelz-package-"));
+const input = releaseArguments(process.argv.slice(2), ["--native", "--proxy", "--manual"]);
 const prefix = join(temp, "global"), cwd = join(temp, "empty"), home = join(temp, "data"), bin = join(temp, "bin");
 for (const path of [cwd, bin]) mkdirSync(path, { recursive: true });
 const npm = Bun.which("npm")!, node = Bun.which("node")!, bun = Bun.which("bun")!;
@@ -17,10 +19,13 @@ async function run(args: string[], options: { cwd?: string; env?: Record<string,
   const [out, err, code] = await Promise.all([new Response(p.stdout as ReadableStream).text(), new Response(p.stderr as ReadableStream).text(), p.exited]);
   if (code) throw Error(err || out); return out;
 }
-console.log("Pack and install the release archive into an isolated global prefix.");
-await run([bun, "run", "build"]);
-const packed = [await packRelease(join(root, "packages/stelz"), join(root, "packages/stelz"), { env, ignoreScripts: true })];
-const archive = join(root, "packages/stelz", packed[0]!.filename);
+console.log("Install the release archive into an isolated global prefix.");
+let archive = input.archive;
+if (!archive) {
+  const packed = await packRelease(join(root, "packages/stelz"), temp, { env });
+  archive = join(temp, packed.filename);
+}
+const candidate = inspectReleaseCandidate(archive), packed = [candidate];
 for (const file of packed[0]!.files) if (/^(src|test|\.git|\.codex|\.state|sessions)\//.test(file.path)) throw Error(`Unexpected archive file: ${file.path}`);
 checkBundledArchive(packed[0]!.files);
 const uiFiles = packed[0]!.files.filter(file => file.path.startsWith("dist/ui/"));
@@ -38,7 +43,7 @@ const nativeCheck = JSON.parse(await run([node, "--input-type=module", "-e", `
   try { if (db.prepare("select 1 as ok").get().ok !== 1) throw Error("SQLite execution failed."); }
   finally { db.close(); }
   if (typeof own("impit").Impit !== "function") throw Error("The target Impit addon is unavailable.");
-  console.log(JSON.stringify({ sqlite: server("better-sqlite3/package.json").version, impit: own("impit/package.json").version }));
+  console.log(JSON.stringify({ sqlite: server("better-sqlite3/package.json").version, impit: own("impit/package.json").version, node: process.version }));
 `, join(prefix, "lib/node_modules/stelz/package.json")], { cwd, env: cleanEnv }));
 const poisonHome = join(temp, "wrong-project-home");
 writeFileSync(join(cwd, ".env"), `STELZ_HOME=${poisonHome}\n`);
@@ -90,6 +95,18 @@ try {
 await run([executable, "setup"], { cwd, env: cleanEnv });
 const installedCli = join(prefix, "lib/node_modules/stelz/dist/cli.js");
 await run([bun, join(root, "tests/browser/integration.ts")], { cwd, env: { ...cleanEnv, STELZ_TEST_HOME: home, STELZ_TEST_CLI: installedCli }, inherit: true });
+const acceptance = { integration: true, native: false, proxy: false, manual: false };
+for (const [flag, script, suite] of [
+  ["--native", "tests/browser/native-integration.ts", "native"],
+  ["--proxy", "tests/browser/proxy-integration.ts", "proxy"],
+  ["--manual", "tests/qa/manual-integration.ts", "manual"],
+] as const) {
+  if (!input.flags.has(flag)) continue;
+  assertCandidateUnchanged(candidate);
+  await run([bun, "--no-env-file", join(root, script)], { cwd, env: { ...cleanEnv, STELZ_TEST_CLI: installedCli,
+    ...(suite === "proxy" && process.env.PROXY_TEST_ENV ? { PROXY_TEST_ENV: process.env.PROXY_TEST_ENV } : {}) }, inherit: true });
+  acceptance[suite] = true;
+}
 // Setup must resolve every dependency from the installed archive, not the source checkout.
 function checkLinks(folder: string) {
   for (const name of readdirSync(folder)) {
@@ -99,7 +116,17 @@ function checkLinks(folder: string) {
   }
 }
 checkLinks(join(home, "runtime"));
-const evidence = { result: "passed", archive, version, nativeCheck, globalPrefix: prefix, cwd, serviceHome: home, bundledUiChecked: uiChecked, harnessExecutablesRequired: false, llmCredentialsProvided: false, runtimeLinksReferToSourceCheckout: false, browserChecks: JSON.parse(readFileSync(join(home, "report.json"), "utf8")) };
+assertCandidateUnchanged(candidate);
+const evidence = { result: "passed", archive, sha256: candidate.sha256, version, acceptance, nativeCheck, globalPrefix: prefix, cwd, serviceHome: home, bundledUiChecked: uiChecked, harnessExecutablesRequired: false, llmCredentialsProvided: false, runtimeLinksReferToSourceCheckout: false, browserChecks: JSON.parse(readFileSync(join(home, "report.json"), "utf8")) };
 mkdirSync(join(root, ".state/package-test"), { recursive: true, mode: 0o700 });
 writeFileSync(join(root, ".state/package-test/report.json"), JSON.stringify(evidence, null, 2), { mode: 0o600 });
+if (Object.values(acceptance).every(Boolean) && /^\d+$/.test(process.env.STELZ_RELEASE_CANDIDATE_RUN || "")) {
+  const metadata = JSON.parse(readFileSync(join(dirname(archive), "candidate.json"), "utf8"));
+  if (metadata.sha256 !== candidate.sha256 || metadata.version !== version || !/^[a-f\d]{40}$/.test(metadata.sourceCommit)) throw Error("The candidate metadata does not match the tested release.");
+  mkdirSync(join(root, "release"), { recursive: true });
+  writeFileSync(join(root, "release", `acceptance-${version}.json`), JSON.stringify({ result: "passed", version,
+    sha256: candidate.sha256, candidateRunId: process.env.STELZ_RELEASE_CANDIDATE_RUN, candidateSourceCommit: metadata.sourceCommit,
+    platform: process.platform, arch: process.arch, bun: Bun.version, node: nativeCheck.node,
+    checks: { ...acceptance, ui: uiChecked } }, null, 2) + "\n");
+}
 console.log(JSON.stringify({ result: evidence.result, archive, globalPrefix: prefix, serviceHome: home, cwd }, null, 2));

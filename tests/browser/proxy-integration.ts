@@ -13,7 +13,7 @@ import {
 } from "../helpers/proxy-acceptance-helpers.ts";
 import { assertRelayTraffic, networkProbe, probeExit, proxyRelay, unusedPorts } from "../helpers/proxy-network-fixture.ts";
 
-const root = resolve(import.meta.dir, "../.."), cli = join(root, "packages/stelz/dist/cli.js");
+const root = resolve(import.meta.dir, "../.."), cli = process.env.STELZ_TEST_CLI || join(root, "packages/stelz/dist/cli.js");
 const CACHE_MS = 120_000;
 const clients: Client[] = [], owned = new Set<string>(), report: unknown[] = [];
 const relays: ReturnType<typeof proxyRelay>[] = [];

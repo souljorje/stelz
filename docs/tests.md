@@ -5,14 +5,15 @@ Use the runtime requirements in [Use the service](README.md).
 ## Build
 
 ```sh
-bun install --frozen-lockfile
+bun install --frozen-lockfile --ignore-scripts
 bun run build
-npm pack ./packages/stelz
+bun run pack
 ```
 
 Build regenerates `packages/stelz/dist/` from source.
 The archive contains the CLI, supervisor, browser plugin, built local UI, documentation, client examples, and third-party notices.
-The diagnostic client runs from source. The archive excludes source files, tests, installed dependencies, and browser state.
+The diagnostic client runs from source. The archive excludes Stelz source files, tests, and browser state.
+It includes the prepared Camofox and camoufox-js dependencies. See [Distribution](distribution.md).
 
 ## Checks
 
@@ -32,6 +33,7 @@ The diagnostic client runs from source. The archive excludes source files, tests
 | `bun run test:public --profile ID` | Four public fingerprint checks in an existing Camoufox profile, with screenshots and verdict reports. |
 | `bun run verify:release` | Pack lifecycle, archive contents, installed dependency checks, CLI, HTTP UI, and staged setup validation with a fake executable. No browser. |
 | `bun run test:package` | Archive installation in an isolated npm prefix, an empty working directory, and browser acceptance. |
+| `bun run test:package --archive FILE --native --proxy --manual` | Full supported-platform acceptance against one unchanged release candidate, including a real human action. |
 
 The earlier browser acceptance run passed on 2026-11-02 with macOS 26.5.2 on Apple Silicon.
 That run used Bun 1.4.4, Node.js 24.14.0, TypeScript 5.9.3, and Camoufox 152.0.4 beta.30.
@@ -61,8 +63,8 @@ The UI check also creates profiles with and without a proxy, confirms deletion, 
 
 GitHub Actions runs frozen installation, build, TypeScript checks, regression tests, and isolated browser-free archive verification on Linux and macOS.
 CI and release workflows use the root `package.json` `packageManager` pin (`bun@1.4.4`), Node.js 24, and read-only repository permissions.
-The manual release workflow runs the same checks on Linux and uploads the archive as an artifact.
-Both workflows skip browser downloads. Browser, proxy, and human acceptance checks run locally.
+Release preparation requires these checks on both platforms, then uploads one verified archive.
+The workflows skip browser downloads. Browser, proxy, and human acceptance checks run locally.
 
 ## Test data
 
@@ -84,7 +86,9 @@ The default tests check add-on generation, stale inventories, focus acknowledgem
 They also check credential redaction before display limits and one secrets-file read per window inventory.
 UI browser checks cover disabled window controls, aligned actions, and polling that stops on hidden tabs.
 
-For proxy acceptance, create a private env file with `PROXY_TEST_URL` and `PROXY_TEST_SECOND_URL`.
+## Proxy acceptance
+
+Create a private env file with `PROXY_TEST_URL` and `PROXY_TEST_SECOND_URL`.
 Optionally add `PROXY_TEST_EXPECTED_IP` and `PROXY_TEST_SECOND_EXPECTED_IP` to pin known exit addresses.
 Pass its absolute path in `PROXY_TEST_ENV` when running `bun run test:proxy`. Keep credentials outside the repository.
 The test requires different observed exits. Two credentials or endpoints with the same exit cannot pass.

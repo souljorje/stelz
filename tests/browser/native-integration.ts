@@ -13,7 +13,7 @@ const policy = "direct:upstream-language-and-location:stelz-fixture-v2";
 const root = resolve(import.meta.dir, "../..");
 mkdirSync(join(root, ".state"), { recursive: true });
 const home = mkdtempSync(join(root, ".state/native-acceptance-"));
-const cli = join(root, "packages/stelz/dist/cli.js"), ids = ["profile-01", "profile-02"];
+const cli = process.env.STELZ_TEST_CLI || join(root, "packages/stelz/dist/cli.js"), ids = ["profile-01", "profile-02"];
 const env: Record<string, string> = { STELZ_HOME: home };
 for (const key of ["PATH", "HOME", "LANG", "TMPDIR", "CAMOUFOX_EXECUTABLE"]) if (process.env[key]) env[key] = process.env[key]!;
 const clients = new Set<Client>(), started = new Set<string>();

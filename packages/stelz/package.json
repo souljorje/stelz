@@ -2,7 +2,10 @@
   "name": "stelz",
   "version": "0.2.0",
   "description": "Standalone persistent Camoufox profiles with exclusive MCP control",
-  "license": "UNLICENSED",
+  "license": "MIT",
+  "homepage": "https://github.com/souljorje/stelz#readme",
+  "bugs": { "url": "https://github.com/souljorje/stelz/issues" },
+  "keywords": ["browser", "automation", "camoufox", "playwright", "mcp", "persistent-profiles"],
   "bin": {
     "stelz": "dist/cli.js"
   },
@@ -14,6 +17,7 @@
     "docs/",
     "examples/",
     "README.md",
+    "LICENSE",
     "THIRD_PARTY_NOTICES.md",
     "skills/"
   ],
@@ -23,8 +27,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/souljorje/stelz.git"
+    "url": "https://github.com/souljorje/stelz.git",
+    "directory": "packages/stelz"
   },
+  "publishConfig": { "access": "public", "registry": "https://registry.npmjs.org" },
   "type": "module",
   "packageManager": "bun@1.4.4",
   "scripts": {
