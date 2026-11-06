@@ -1,6 +1,12 @@
 {
   "mcpServers": {
-    "stelz_profile_01": { "command": "stelz", "args": ["mcp", "--profile", "profile-01"] },
-    "stelz_profile_02": { "command": "stelz", "args": ["mcp", "--profile", "profile-02"] }
+    "stelz-work": {
+      "command": "/absolute/path/to/stelz",
+      "args": ["mcp", "--profile", "work"],
+      "env": {
+        "STELZ_HOME": "/absolute/service/home",
+        "PATH": "/absolute/bun/bin:/absolute/node/bin:/usr/bin:/bin"
+      }
+    }
   }
 }

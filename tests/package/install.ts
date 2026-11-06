@@ -33,12 +33,17 @@ for (const file of candidate.files) if (/^(src|test|\.git|\.codex|\.state|sessio
 const uiFiles = candidate.files.filter(file => file.path.startsWith("dist/ui/"));
 if (!uiFiles.some(file => file.path === "dist/ui/index.html") || !uiFiles.some(file => file.path.endsWith(".js")) || !uiFiles.some(file => file.path.endsWith(".woff2"))) throw Error("The archive is missing built UI assets.");
 const paths = candidate.files.map(file => file.path).sort();
-for (const path of ["docs/bootstrap.md", "docs/onboarding-acceptance.md", "examples/onboarding-fixture.html"])
+for (const path of ["CONTRIBUTING.md", "assets/screenshots/stelz-overview.png", "examples/onboarding-fixture.html",
+  ...["README", "bootstrap", "getting-started", "clients", "ui", "proxies", "profile-transfer", "troubleshooting", "cli", "configuration",
+    "development/architecture", "development/testing", "development/releasing", "development/camofox-integration",
+    "development/reports/browser-acceptance-2026-11", "development/reports/onboarding-2026-11-05"].map(name => `docs/${name}.md`)])
   if (!paths.includes(path)) throw Error("Archive is missing " + path);
-for (const path of ["dist/cli.js", "dist/supervisor.js", "dist/plugin.js", "dist/ui/index.html", "README.md", "LICENSE", "docs/agents.md", "examples/profiles.json", "skills/stelz-browser/SKILL.md", "skills/stelz-browser/references/recovery.md", ...["README.md", "stelz-logo.svg", "stelz-logo-full.svg", "stelz-logo-full-dark.svg", "favicon.svg"].map(name => "assets/brand/" + name), ...["react", "react-dom", "scheduler", "ibm-plex-mono", "ibm-plex-sans"].map(name => "dist/ui/licenses/" + name + ".txt")]) {
+for (const name of ["agents", "tests", "distribution", "releasing", "architecture", "camofox-patches", "onboarding-acceptance"])
+  if (paths.includes(`docs/${name}.md`)) throw Error(`Archive contains obsolete documentation: docs/${name}.md`);
+for (const path of ["dist/cli.js", "dist/supervisor.js", "dist/plugin.js", "dist/ui/index.html", "README.md", "LICENSE", "examples/profiles.json", "skills/stelz-browser/SKILL.md", "skills/stelz-browser/references/recovery.md", ...["README.md", "stelz-logo.svg", "stelz-logo-full.svg", "stelz-logo-full-dark.svg", "favicon.svg"].map(name => "assets/brand/" + name), ...["react", "react-dom", "scheduler", "ibm-plex-mono", "ibm-plex-sans"].map(name => "dist/ui/licenses/" + name + ".txt")]) {
   if (!paths.includes(path)) throw Error("Archive is missing " + path);
 }
-for (const path of paths) if (!/^(?:node_modules\/|dist\/|assets\/brand\/|docs\/|examples\/|skills\/|package.json$|README.md$|CHANGELOG.md$|LICENSE$)/.test(path)) throw Error("Unexpected archive path: " + path);
+for (const path of paths) if (!/^(?:node_modules\/|dist\/|assets\/(?:brand|screenshots)\/|docs\/|examples\/|skills\/|package.json$|README.md$|CONTRIBUTING.md$|CHANGELOG.md$|LICENSE$)/.test(path)) throw Error("Unexpected archive path: " + path);
 await run([npm, "install", "--global", ...(input.flags.has("--native") ? [] : ["--ignore-scripts"]), "--no-audit", "--no-fund", "--prefix", prefix, archive]);
 const installed = join(prefix, "lib/node_modules/stelz");
 const installedDependencies = inspectBundledDependencies(installed);
@@ -46,8 +51,8 @@ if (JSON.stringify(installedDependencies) !== JSON.stringify(preparedDependencie
   throw Error("The installed archive changed the patched dependency files.");
 const manifest = JSON.parse(readFileSync(join(installed, "package.json"), "utf8"));
 if (manifest.name !== "stelz" || manifest.version !== STELZ_VERSION || manifest.private || manifest.license !== "MIT") throw Error("Invalid release manifest.");
-checkMarkdownLinks([join(root, "README.md"), join(root, "docs"), join(root, "examples"), join(root, "skills")]);
-checkMarkdownLinks([join(installed, "README.md"), join(installed, "docs"), join(installed, "examples"), join(installed, "skills")]);
+checkMarkdownLinks(["README.md", "CONTRIBUTING.md", "AGENTS.md", "docs", "examples", "skills"].map(path => join(root, path)));
+checkMarkdownLinks(["README.md", "CONTRIBUTING.md", "docs", "examples", "skills"].map(path => join(installed, path)));
 for (const file of ["cli.js", "supervisor.js", "plugin.js"]) if (readFileSync(join(installed, "dist", file), "utf8").includes(root)) throw Error("Bundle contains a checkout path: " + file);
 const cleanEnv: Record<string, string> = { PATH: `${join(prefix, "bin")}:${bin}:/usr/bin:/bin`, HOME: env.HOME!, STELZ_HOME: home };
 if (env.TMPDIR) cleanEnv.TMPDIR = env.TMPDIR;

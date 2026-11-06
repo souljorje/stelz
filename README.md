@@ -6,56 +6,57 @@
   </picture>
 </h1>
 
-[MIT license](LICENSE)
+[![npm version](https://img.shields.io/npm/v/stelz)](https://www.npmjs.com/package/stelz)
+[![CI](https://github.com/souljorje/stelz/actions/workflows/ci.yml/badge.svg)](https://github.com/souljorje/stelz/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-stelz runs persistent Camoufox profiles through standard MCP, with one browser instance per profile.
-There is no global browser or saved-profile count limit.
-It needs Bun, Node.js, and Camoufox. It needs no agent harness or LLM credentials.
+**Stealth browser for AI agents.**
 
-Give a local coding agent access to this package folder or archive, then ask:
+Persistent browser profiles that your existing agent can control while you watch and take over when needed.
+Powered by Camoufox, with browser tools delivered through MCP.
 
-> Follow the [installation guide](docs/bootstrap.md). Create or reuse profile `work`. Start its browser. Open the management UI. Connect your browser tools. Check browser control. Preserve existing profiles, credentials, and client settings. Report what is ready and any action I must complete.
+- Keep logins and saved device settings between browser runs.
+- Give each profile its own browser and optional proxy.
+- Pause your agent for manual work in the same visible window.
+- Run agents in separate profiles at the same time. Practical capacity depends on your machine.
+- Control pages through accessibility snapshots.
 
-Install Stelz globally:
+Stelz manages the browsers. Your agent decides what to do.
+
+![Stelz profile manager with disposable work and research profiles](assets/screenshots/stelz-overview.png)
+
+## Quickstart
+
+The tested desktop platform is macOS on Apple Silicon.
+You need Bun ≥1.4.4, Node.js ≥24, and a compatible Camoufox installation.
+Follow [Getting started](docs/getting-started.md) to install the prerequisites and locate or download Camoufox.
+`stelz setup` requires the browser to exist already.
+
+With those prerequisites ready:
 
 ```sh
-npm install --global stelz
+CAMOFOX_SKIP_DOWNLOAD=1 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install --global stelz
 stelz init
 stelz setup
 stelz ui --open
 ```
 
-Create a profile in the UI. Add a proxy if necessary, then start the browser.
-Connect a client with `stelz mcp --profile YOUR-ID`.
+Create a profile named `work` in the UI. Leave the proxy blank for a direct connection, then select **Start**.
+[Connect your agent](docs/clients.md) to use that browser.
 
-Browser windows show their profile's name and color.
-Use the UI's window icon to find a profile's window.
-See [Find a profile's windows](docs/ui.md#find-a-profiles-windows).
+## Let your agent set it up
 
-Build a release archive with `bun install --ignore-scripts` and `bun run pack`.
-Install a tested archive with `npm install --global ./release-artifacts/stelz-VERSION.tgz`.
+Give a local coding agent this request:
 
-Each MCP connection selects one profile. One controller can act on that profile at a time.
-Client disconnect releases control. The browser and its pages remain open.
-Use `stelz stop ID` to stop a browser and save its state.
-Closing its browser window also stops the profile. Closing the UI keeps browsers running.
+> Follow the [agent setup guide](docs/bootstrap.md). Create or reuse profile `work`. Start its browser. Connect your browser tools. Preserve existing profiles, credentials, and client settings. Check browser control. Report anything I must complete.
 
+## Documentation
 
-- [Use the local UI](docs/ui.md)
-- [Import and export profiles](docs/profile-transfer.md)
-- [Use the service](docs/README.md)
-- [Connect a client](docs/clients.md)
-- [Instructions for agents](docs/agents.md)
-- [Architecture and design decisions](docs/architecture.md)
-- [Development and testing](docs/tests.md)
-- [Release procedure](docs/releasing.md)
+- [Getting started](docs/getting-started.md) · [Agent setup](docs/bootstrap.md) · [Documentation index](docs/README.md)
+- [Manage profiles and take over](docs/ui.md) · [Configure a proxy](docs/proxies.md)
+- [Move profiles](docs/profile-transfer.md) · [Troubleshoot](docs/troubleshooting.md)
+- [CLI reference](docs/cli.md) · [Configuration reference](docs/configuration.md)
 
-## Development
+## Contribute
 
-`src/` contains the service. `ui/` contains the bundled React UI.
-The root manifest defines the published package and development commands.
-Build uses `docs/`, `examples/`, and `skills/` directly. It does not copy documentation.
-Run `bun run check` for build, TypeScript checks, and browser-free tests.
-Run `bun run pack` to create `release-artifacts/stelz-VERSION.tgz`.
-Run `bun run test:install` to check that saved archive without a browser or rebuild.
-See [Distribution](docs/distribution.md) and [Camofox patches](docs/camofox-patches.md).
+See [Contributing](CONTRIBUTING.md) for development and checks. Stelz uses the [MIT license](LICENSE).

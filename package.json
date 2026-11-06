@@ -24,9 +24,11 @@
     "dist/plugin.js",
     "dist/ui/",
     "assets/brand/",
+    "assets/screenshots/",
     "docs/",
     "examples/",
     "README.md",
+    "CONTRIBUTING.md",
     "LICENSE",
     "CHANGELOG.md",
     "skills/"
