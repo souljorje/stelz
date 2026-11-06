@@ -18,7 +18,7 @@ Use `--destination DIRECTORY` for another output directory. Verification then re
 Packing requires the source workspace and its development dependencies. Installing the archive does not require that workspace.
 The archive uses canonical documentation and examples directly.
 For profile data archives, see [Import and export profiles](profile-transfer.md).
-The archive includes the optional browser skill, third-party notices, and UI font and library licenses.
+The archive includes the optional browser skill and UI font and library licenses.
 It excludes Stelz source, tests, browser state, and credentials.
 It bundles the prepared Camofox and camoufox-js packages, including transitive JavaScript sources and licenses.
 Bun applies the committed dependency patches during workspace installation. End-user setup only checks those changes.

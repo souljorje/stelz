@@ -7,7 +7,7 @@ export type Fingerprint = Record<string, unknown>;
 export type LaunchOptions = { env?: Record<string, string>; firefoxUserPrefs?: Fingerprint; proxy?: Record<string, unknown> };
 
 // Classification follows camoufox-profile-manager's device/runtime distinction.
-// See THIRD_PARTY_NOTICES.md. Keep this allowlist small and test observable output.
+// Keep this allowlist small and test observable output.
 const DEVICE_PREFIXES = [
   "navigator.", "screen.", "window.", "webGl:", "webGl2:", "webGl.", "webGl2.",
   "canvas:", "audio:", "fonts", "mediaDevices:", "voices", "AudioContext:",
