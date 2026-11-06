@@ -19,7 +19,7 @@ For installation through a local coding agent, use [Bootstrap](bootstrap.md).
 4. Run `stelz ui --open`.
 5. Create a profile. Configure a proxy if necessary, then start it.
 
-For a release candidate, install its archive with `npm install --global ./stelz-0.2.1.tgz`.
+For a release candidate, install its archive with `npm install --global ./stelz-VERSION.tgz`.
 
 The release archive contains the prepared Camofox and camoufox-js dependencies.
 Setup copies them into the service directory and checks the prepared source without rewriting it.

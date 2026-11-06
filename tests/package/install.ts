@@ -154,4 +154,3 @@ if (import.meta.main) {
   const input = packageArguments(process.argv.slice(2), ["--native"]);
   await installPackage(input.archive ?? resolve(import.meta.dir, "../../release-artifacts", `stelz-${STELZ_VERSION}.tgz`), { native: input.flags.has("--native") });
 }
-

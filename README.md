@@ -27,7 +27,7 @@ Use the UI's window icon to find a profile's window.
 See [Find a profile's windows](docs/ui.md#find-a-profiles-windows).
 
 Build a release archive with `bun install --ignore-scripts` and `bun run pack`.
-Install a tested archive with `npm install --global ./release-artifacts/stelz-0.2.1.tgz`.
+Install a tested archive with `npm install --global ./release-artifacts/stelz-VERSION.tgz`.
 
 Each MCP connection selects one profile. One controller can act on that profile at a time.
 Client disconnect releases control. The browser and its pages remain open.
@@ -42,6 +42,7 @@ Closing its browser window also stops the profile. Closing the UI keeps browsers
 - [Instructions for agents](docs/agents.md)
 - [Architecture and design decisions](docs/architecture.md)
 - [Development and testing](docs/tests.md)
+- [Release procedure](docs/releasing.md)
 
 ## Development
 
@@ -49,6 +50,6 @@ Closing its browser window also stops the profile. Closing the UI keeps browsers
 The root manifest defines the published package and development commands.
 Build uses `docs/`, `examples/`, and `skills/` directly. It does not copy documentation.
 Run `bun run check` for build, TypeScript checks, and browser-free tests.
-Run `bun run pack` to create `release-artifacts/stelz-0.2.1.tgz`.
-Run `bun run verify:release` to check that saved archive without a browser or rebuild.
+Run `bun run pack` to create `release-artifacts/stelz-VERSION.tgz`.
+Run `bun run test:install` to check that saved archive without a browser or rebuild.
 See [Distribution](docs/distribution.md) and [Camofox patches](docs/camofox-patches.md).

@@ -27,4 +27,3 @@ test("package inspection records exact bytes and detects replacement after accep
     expect(() => assertArchiveUnchanged(candidate)).toThrow("changed");
   } finally { rmSync(home, { recursive: true, force: true }); }
 });
-

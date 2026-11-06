@@ -5,6 +5,7 @@
 - Read `docs/README.md` for service operations.
 - Read `skills/stelz-browser/SKILL.md` for the MCP control protocol.
 - Use the installed ASD-STE100 skill for documentation.
+- For versioning or publication, read `docs/releasing.md`. Add Changesets for package changes and publish only the archive checked in CI.
 - Preserve global harness configuration and approval protections.
 - For short-lived subagents, use `fork_turns: "none"` where the host supports it. Use `fork_context: false` otherwise.
 

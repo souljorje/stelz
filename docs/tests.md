@@ -39,11 +39,10 @@ See [Onboarding acceptance](onboarding-acceptance.md) for the real-agent install
 | `bun run test:manual` | Human interaction while paused, followed by MCP resume in the same browser and tab. |
 | `bun run test:public` | Four public fingerprint checks in a disposable native profile, with screenshots and verdict reports. |
 | `bun run pack` | Build once and save one release archive with its hash and source metadata in `release-artifacts/`. |
-| `bun run verify:release` | Check the saved archive, installed dependencies, CLI, HTTP UI, and staged setup with a fake executable. No browser or rebuild. |
-| `bun run verify:release --archive FILE --native` | Ordinary isolated npm installation, SQLite queries, and Impit construction from the installed package and staged runtime. No browser. |
+| `bun run test:install` | Check the saved archive, installed dependencies, CLI, HTTP UI, and staged setup with a fake executable. No browser or rebuild. |
+| `bun run test:install --archive FILE --native` | Ordinary isolated npm installation, SQLite queries, and Impit construction from the installed package and staged runtime. No browser. |
 | `bun run test:package` | Install the saved archive in an isolated npm prefix. Run native browser acceptance. |
 | `bun run test:package --archive FILE --native --proxy --manual` | Full supported-platform acceptance against one unchanged release candidate, including a real human action. |
-| `bun run test:package --archive FILE --native --proxy --waive-manual` | The owner-approved `0.2.1` release exception. All automated gates remain required. Human takeover remains untested in the record. |
 
 The earlier browser acceptance run passed on 2026-11-02 with macOS 26.5.2 on Apple Silicon.
 That run used Bun 1.4.4, Node.js 24.14.0, TypeScript 5.9.3, and Camoufox 152.0.4 beta.30.
