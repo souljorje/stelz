@@ -15,7 +15,7 @@ async function run(dir: string, args: string[], extra: Record<string, string> = 
   return { code, out, err, value: args.includes("--json") ? JSON.parse(out || err) : undefined };
 }
 const create = (dir: string, args: string[] = [], env?: Record<string, string>) => run(dir, ["profile", "create", "work", ...args, "--json"], env);
-const files = (dir: string, legacy = false) => [readFileSync(join(dir, legacy ? "identities.json" : "profiles.json"), "utf8"), readFileSync(join(dir, "secrets.env"), "utf8")];
+const files = (dir: string) => [readFileSync(join(dir, "profiles.json"), "utf8"), readFileSync(join(dir, "secrets.env"), "utf8")];
 
 test("CLI creates a native profile and reuses it without rewriting configuration or saved state", async () => {
   const dir = home(); await run(dir, ["init"]);
@@ -64,21 +64,6 @@ test("existing direct profiles reject requested proxies instead of changing rout
   const before = files(dir), result = await create(dir, ["--proxy-url", "http://private:password@proxy.test:8080"]);
   expect(result.code).toBe(1); expect(result.value.error.code).toBe("conflict");
   expect(result.err).not.toContain("password"); expect(files(dir)).toEqual(before);
-});
-
-test("legacy profiles and unrelated client configuration remain byte-for-byte intact", async () => {
-  const dir = home(); mkdirSync(join(dir, "identities/work"), { recursive: true });
-  writeFileSync(join(dir, "identities.json"), JSON.stringify({ maxActive: 2, metadata: "keep", identities: [
-    { id: "work", port: 19471, mode: "proxy", proxyEnv: "EXISTING_PROXY", expectedIPEnv: "EXISTING_IP" },
-  ] }));
-  writeFileSync(join(dir, "secrets.env"), "# keep\nEXISTING_PROXY=http://legacy.test:8080\nEXISTING_IP=203.0.113.19\n");
-  writeFileSync(join(dir, "client.toml"), 'approval_policy = "on-request"\n');
-  const before = files(dir, true);
-  const result = await create(dir, ["--proxy-url", "http://legacy.test:8080", "--expected-ip", "203.0.113.19"]);
-  expect(result.value).toMatchObject({ ok: true, created: false, profile: { storage: "checkpoint", proxyEnv: "EXISTING_PROXY", expectedIPEnv: "EXISTING_IP" } });
-  expect(files(dir, true)).toEqual(before);
-  expect(existsSync(join(dir, "profiles.json"))).toBe(false);
-  expect(readFileSync(join(dir, "client.toml"), "utf8")).toBe('approval_policy = "on-request"\n');
 });
 
 test("parallel CLI creates allocate exactly one profile and one credential reference", async () => {
@@ -136,14 +121,4 @@ test("missing existing proxy credentials and unsafe service files cannot become 
   const target = join(dir, "outside.env"); writeFileSync(target, before[1]!); symlinkSync(target, join(dir, "secrets.env"));
   expect((await create(dir)).code).toBe(1);
   expect(readFileSync(target, "utf8")).toBe(before[1]);
-});
-
-test("conflicting legacy paths fail as JSON before configuration modules can initialize", async () => {
-  const dir = home(); await run(dir, ["init"]); const before = files(dir);
-  const legacy = '{"identities":[]}\n'; writeFileSync(join(dir, "identities.json"), legacy);
-  const result = await create(dir);
-  expect(result.code).toBe(1);
-  expect(result.value).toMatchObject({ ok: false, error: { code: "profile_unavailable" } });
-  expect(files(dir)).toEqual(before);
-  expect(readFileSync(join(dir, "identities.json"), "utf8")).toBe(legacy);
 });

@@ -26,7 +26,7 @@ export type UiProfile = {
   id: string;
   name: string;
   port: number;
-  storage: "native" | "checkpoint";
+  storage: "native";
   typingMode: TypingMode;
   typing: UiTyping;
   phase: UiPhase;

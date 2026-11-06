@@ -33,7 +33,7 @@ try {
     if (args.length !== 1 || args[0] === "all") throw Error("Select one profile: stelz recover ID");
     console.log(JSON.stringify(await recover(args[0]!), null, 2));
   } else if (command === "mcp") {
-    if (args.length !== 2 || !["--profile", "--identity"].includes(args[0]!) || !args[1] || args[1].startsWith("--"))
+    if (args.length !== 2 || args[0] !== "--profile" || !args[1] || args[1].startsWith("--"))
       throw Error("Select a profile: stelz mcp --profile ID");
     await runMcp(args[1]);
   } else if (["start", "status", "stop", "pause", "resume", "release", "recheck"].includes(command)) {

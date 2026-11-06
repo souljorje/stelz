@@ -4,7 +4,6 @@ import { base, dir, profile } from "../profiles/config.ts";
 import { assertRunning, reportStatus, running } from "../runtime/runtime.ts";
 import { createUiRedactor } from "./ui-model.ts";
 import type { ProfileWindows, ShowProfileWindow } from "../api/contracts.ts";
-import { normalizeProfileId } from "../profiles/profile-compat.ts";
 
 export type WindowModel = {
   list(id: string): Promise<ProfileWindows>;
@@ -21,7 +20,7 @@ async function request(id: string, action: string, body?: unknown) {
     body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(body === undefined ? 3_000 : 75_000),
   });
   if (response.status === 404) throw Error("Update the runtime with stelz setup, then start this profile again.");
-  const value = normalizeProfileId(await response.json() as Record<string, unknown>);
+  const value = await response.json() as Record<string, unknown>;
   if (!response.ok) throw Error(typeof value.error === "string" ? value.error : "Update the runtime with stelz setup, then start this profile again.");
   if (running(id)?.instanceId !== record.instanceId) throw Error("The browser restarted. Refresh the profile before selecting its window.");
   return value;

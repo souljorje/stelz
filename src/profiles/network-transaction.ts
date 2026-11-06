@@ -7,8 +7,6 @@ import { isIP } from "node:net";
 import { join } from "node:path";
 import { isDeepStrictEqual, parseEnv } from "node:util";
 import { CONFIG_FILE, HOME_DIR, STATE, dir, validateProxy, validateSettings, type Settings } from "./config.ts";
-import { normalizeProfileId } from "./profile-compat.ts";
-import { withoutLegacyConnectionMode } from "./network-compat.ts";
 
 export const NETWORK_JOURNAL = join(HOME_DIR, ".network-transaction.json");
 const configFile = CONFIG_FILE, secretsFile = join(HOME_DIR, "secrets.env");
@@ -82,7 +80,6 @@ function files(): NetworkFiles {
   return { config, secrets: read(secretsFile) };
 }
 function validate(value: unknown): Transaction {
-  if (object(value)) value = normalizeProfileId(value);
   if (!keys(value, ["version", "token", "profileId", "direction", "before", "after"]) || value.version !== 1 ||
       typeof value.token !== "string" || !/^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/.test(value.token) ||
       typeof value.profileId !== "string" || !/^[a-z][a-z\d-]{0,63}$/.test(value.profileId) ||
@@ -98,10 +95,10 @@ function validate(value: unknown): Transaction {
   const oldProfile = before!.profiles.find(p => p.id === transaction.profileId);
   const newProfile = after!.profiles.find(p => p.id === transaction.profileId);
   if (!oldProfile || !newProfile) fail();
-  // A journal can change only this profile's network fields, including legacy fields.
+  // A journal can change only this profile's network fields.
   const withoutNetwork = (config: Settings) => ({ ...config, profiles: config.profiles.map(p => {
     if (p.id !== transaction.profileId) return p;
-    const { proxyEnv: _proxy, expectedIPEnv: _expected, ...rest } = withoutLegacyConnectionMode(p);
+    const { proxyEnv: _proxy, expectedIPEnv: _expected, ...rest } = p;
     return rest;
   }) });
   if (!isDeepStrictEqual(withoutNetwork(before!), withoutNetwork(after!)) ||

@@ -18,7 +18,6 @@ import {
   ipCheckIntervalMs,
 } from "../profiles/config.ts";
 import { key, lock, processStart, rotateLog, type Running } from "./runtime.ts";
-import { normalizeProfileId } from "../profiles/profile-compat.ts";
 import { assertRuntimePlugin } from "./runtime-plugin.ts";
 
 process.umask(0o077);
@@ -68,7 +67,6 @@ const env = {
   BROWSER_IDLE_TIMEOUT_MS: "0",
   MAX_SESSIONS: "1",
   TAB_INACTIVITY_MS: "31536000000",
-  STELZ_STORAGE_MODE: p.storage || "checkpoint",
   STELZ_TYPING_MODE: typingMode(),
   STELZ_IP_CHECK_INTERVAL_MS: String(ipCheckIntervalMs()),
   STELZ_PROFILE_ID: p.id,
@@ -204,7 +202,7 @@ const initialize = async () => {
 void initialize();
 const exitCode = await server.exited;
 await Promise.race([logs, Bun.sleep(1000)]);
-const old = normalizeProfileId(json<Record<string, unknown>>(join(runtimeDir, "status.json")) || {});
+const old = json<Record<string, unknown>>(join(runtimeDir, "status.json")) || {};
 const clean = exitCode === 0 && old?.phase === "stopped";
 save(join(runtimeDir, "status.json"), {
   ...old,

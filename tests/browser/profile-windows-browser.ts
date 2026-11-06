@@ -53,7 +53,7 @@ try {
   console.log("Profile window acceptance: " + home);
   await command("init");
   writeFileSync(join(home, "profiles.json"), JSON.stringify({ profiles: ids.map((id, index) => ({
-    id, port: freePort(), storage: index === 0 ? "native" : "checkpoint",
+    id, port: freePort(), storage: "native",
   })) }), { mode: 0o600 });
   await command("setup");
   assert.notEqual(profileAppearance(ids[0]!).color, profileAppearance(ids[1]!).color);
@@ -99,7 +99,7 @@ try {
     assert.equal(after.instanceId, before.instanceId);
     assert.deepEqual(after.controller, before.controller);
     assert.equal(readFileSync(join(home, "profiles", id, "window-addon/manifest.json"), "utf8").includes('"theme"'), true);
-    (report.checks as unknown[]).push({ id, storage: id.endsWith("01") ? "native" : "checkpoint", windows: changed.windows.length,
+    (report.checks as unknown[]).push({ id, storage: "native", windows: changed.windows.length,
       profilePrefix: true, websiteTitlesPreserved: true, showWindow: shown, controllerPreserved: true, staleInstanceRejected: true });
     await call(client, "profile_release"); await client.close();
     const released = await windows.list(id);

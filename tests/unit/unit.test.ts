@@ -18,7 +18,7 @@ test("init creates an empty catalog and preserves existing profiles", async () =
     return JSON.parse(output);
   };
   expect(await initialize()).toEqual([]);
-  const config = JSON.stringify({ maxActive: 2, profiles: [{ id: "existing", port: 9474, mode: "proxy", storage: "checkpoint", proxyEnv: "INIT_TEST_PROXY" }] });
+  const config = JSON.stringify({ profiles: [{ id: "existing", port: 9474, storage: "native", proxyEnv: "INIT_TEST_PROXY" }] });
   const secrets = "# existing credentials\nINIT_TEST_PROXY=http://proxy.test:8080\n";
   writeFileSync(join(home, "profiles.json"), config);
   writeFileSync(join(home, "secrets.env"), secrets);
@@ -26,15 +26,19 @@ test("init creates an empty catalog and preserves existing profiles", async () =
   expect(readFileSync(join(home, "profiles.json"), "utf8")).toBe(config);
   expect(readFileSync(join(home, "secrets.env"), "utf8")).toBe(secrets);
 });
-test("catalogs have no profile count limit and preserve inert legacy maxActive metadata", () => {
+test("catalogs have no profile count limit", () => {
   const profiles = Array.from({ length: 1001 }, (_, i) => ({ id: `browser-${i}`, port: 9475 + i }));
   expect(validateSettings({ profiles }).profiles).toHaveLength(1001);
-  for (const maxActive of [1, 2, 3, 0, null, "obsolete"]) {
-    const catalog = { maxActive, profiles };
-    expect(validateSettings(catalog)).toEqual(catalog);
-  }
+
   expect(() => validateSettings({ profiles: {} })).toThrow("profiles array");
   expect(() => validateSettings({ profiles: [...profiles, profiles[0]] })).toThrow("unique");
+});
+test("catalog validation accepts only current fields and native storage", () => {
+  for (const catalog of [{ identities: [] }, { profiles: [], maxActive: 1 }])
+    expect(() => validateSettings(catalog)).toThrow("only profiles");
+  for (const extra of [{ mode: "direct" }, { mode: "proxy" }, { storage: "checkpoint" }, { unexpected: true }])
+    expect(() => validateSettings({ profiles: [{ ...p, ...extra }] })).toThrow();
+  expect(validateSettings({ profiles: [{ ...p, storage: "native" }] }).profiles).toHaveLength(1);
 });
 test("missing proxy rejects launch", () => { delete process.env.STELZ_UNIT_PROXY; expect(() => proxyEnvironment(p)).toThrow("Direct fallback is disabled"); });
 test("mode-free profiles infer routing only from their own proxy reference", () => {
@@ -50,25 +54,6 @@ test("mode-free profiles infer routing only from their own proxy reference", () 
   } finally {
     names.forEach((name, index) => previous[index] === undefined ? delete process.env[name] : process.env[name] = previous[index]);
   }
-});
-test("legacy proxy without a reference cannot silently select a direct connection", () => {
-  const legacy = { id: "legacy", port: 9472, mode: "proxy" };
-  expect(validateSettings({ profiles: [legacy] }).profiles[0]).toEqual(legacy);
-  expect(() => proxyEnvironment(legacy)).toThrow("Direct fallback is disabled");
-});
-test("invalid legacy connection modes reject the catalog without migrating valid entries", () => {
-  for (const mode of [null, undefined, "", "automatic", false, 1, {}]) {
-    expect(() => validateSettings({ profiles: [{ ...p, mode }] })).toThrow("Legacy connection mode");
-  }
-  for (const mode of ["direct", "proxy"]) {
-    const legacy = { ...p, mode };
-    expect(validateSettings({ profiles: [legacy] }).profiles[0]).toBe(legacy);
-  }
-});
-test("legacy direct mode ignores dormant proxy credentials", () => {
-  process.env.STELZ_UNIT_PROXY = "http://secret:password@host:9999";
-  const legacy = { ...p, mode: "direct" };
-  expect(proxyEnvironment(legacy)).toEqual({});
 });
 test("upstream decodes HTTP credentials once", () => { process.env.STELZ_UNIT_PROXY = "http://u%40name:p%253Ass@127.0.0.1:8888"; const v = proxyEnvironment(p); expect(decodeURIComponent(v.PROXY_USERNAME!)).toBe("u@name"); expect(decodeURIComponent(v.PROXY_PASSWORD!)).toBe("p%3Ass"); });
 test("unsupported proxy forms fail without credentials in errors", () => {

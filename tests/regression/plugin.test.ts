@@ -74,7 +74,7 @@ test("proxy policy wins and unrelated fresh preferences survive", () => {
   assert.deepEqual(launchPreferences({ fresh: 1 }, false), { fresh: 1 });
 });
 
-test("proxy host controls verification and security policy independently of legacy mode", async () => {
+test("proxy host controls verification and security policy independently of ambient routing", async () => {
   const previous = process.env.STELZ_MODE;
   try {
     process.env.STELZ_MODE = "proxy";
@@ -210,21 +210,14 @@ async function harness(mode: "direct" | "proxy" = "direct", waitForIP?: Promise<
     } };
 }
 
-test("the actual launch hook keeps WebRTC disabled when a legacy direct pin is reused with a proxy", async () => {
+test("the actual launch hook rejects schema-1 fingerprint pins", async () => {
   const h = await harness("proxy");
   try {
     const pin = { version: 1, engineSha256: createHash("sha256").update(readFileSync(h.binary)).digest("hex"),
       config: generated, preferences: { "media.peerconnection.enabled": true, stale: true } };
     writeFileSync(join(h.stateDir, "fingerprint.json"), JSON.stringify(pin));
     const before = readFileSync(join(h.stateDir, "fingerprint.json"), "utf8");
-    const options = await h.launch();
-    assert.equal(options.firefoxUserPrefs["media.peerconnection.enabled"], false);
-    assert.equal(options.firefoxUserPrefs["network.proxy.failover_direct"], false);
-    assert.equal(options.firefoxUserPrefs["network.proxy.socks_remote_dns"], true);
-    assert.equal(options.firefoxUserPrefs["network.proxy.socks5_remote_dns"], true);
-    assert.equal((options.proxy as Record<string, unknown>).bypass, "127.0.0.1,localhost");
-    assert.equal(options.firefoxUserPrefs.fresh, true);
-    assert.equal(options.firefoxUserPrefs.stale, undefined);
+    await assert.rejects(h.launch(), /explicit migration/);
     assert.equal(readFileSync(join(h.stateDir, "fingerprint.json"), "utf8"), before);
   } finally { await h.close(); }
 });
@@ -257,13 +250,13 @@ test("a new pin stores device fields, not Firefox security preferences", async (
   } finally { await h.close(); }
 });
 
-for (const version of [1, 2]) for (const enabled of [true, false]) {
-  test(`the launch hook keeps schema-${version} WebGL2 support ${enabled} when the fresh GPU differs`, async () => {
+for (const enabled of [true, false]) {
+  test(`the launch hook keeps WebGL2 support ${enabled} when the fresh GPU differs`, async () => {
     const h = await harness();
     try {
       const gpu = { "webGl:vendor": "saved GPU", "webGl:parameters": {},
         ...(enabled ? { "webGl2:parameters": {}, "webGl2:supportedExtensions": ["saved extension"] } : {}) };
-      writeFileSync(join(h.stateDir, "fingerprint.json"), JSON.stringify({ version,
+      writeFileSync(join(h.stateDir, "fingerprint.json"), JSON.stringify({ version: 2,
         engineSha256: createHash("sha256").update(readFileSync(h.binary)).digest("hex"), config: { ...generated, ...gpu } }));
       const options = h.options();
       options.env.CAMOU_CONFIG_1 = JSON.stringify({ ...generated, "webGl:parameters": {},
@@ -558,18 +551,17 @@ test("the service deadline prevents overlap while the upstream typing lock remai
   } finally { finish(); await fixture.close(); }
 });
 
-for (const [legacy, profileMode, expected, fallback] of [
+for (const [serviceMode, profileMode, expected, fallback] of [
   [undefined, undefined, "auto", "auto"],
-  ["paced", undefined, "auto", "auto"],
   ["instant", undefined, "instant", "instant"],
   ["keyboard", undefined, "keyboard", "keyboard"],
   ["instant", "auto", "auto", "instant"],
-] as const) test(`typing dispatch uses ${expected} with legacy ${legacy ?? "unset"} and profile ${profileMode ?? "unset"}`, async () => {
+] as const) test(`typing dispatch uses ${expected} with service ${serviceMode ?? "unset"} and profile ${profileMode ?? "unset"}`, async () => {
   const fixture = await canonicalHarness(), { h, requests } = fixture;
   const previous = process.env.STELZ_TYPING_MODE;
   try {
-    if (legacy === undefined) delete process.env.STELZ_TYPING_MODE;
-    else process.env.STELZ_TYPING_MODE = legacy;
+    if (serviceMode === undefined) delete process.env.STELZ_TYPING_MODE;
+    else process.env.STELZ_TYPING_MODE = serviceMode;
     writeFileSync(join(dirname(h.stateDir), "profiles.json"), JSON.stringify({ profiles: [
       { id: h.id, ...(profileMode === undefined ? {} : { typingMode: profileMode }) },
     ] }));

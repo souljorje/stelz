@@ -6,14 +6,14 @@ import { processStart, type Running } from "../../src/runtime/profile-process.ts
 import { UPSTREAM_VERSION } from "../../src/versions.ts";
 import { createMockPackage } from "../helpers/mock-package.ts";
 
-function fixture(legacy = false) {
+function fixture() {
   const home = mkdtempSync(join(tmpdir(), "stelz-concurrency-"));
   const packageFixture = createMockPackage(home);
   const sockets = Array.from({ length: 3 }, () => Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() }));
   const profiles = sockets.map((socket, index) => ({ id: `concurrent-${index}`, port: socket.port! }));
   for (const socket of sockets) socket.stop(true);
   mkdirSync(join(home, "profiles"));
-  writeFileSync(join(home, "profiles.json"), JSON.stringify({ ...(legacy ? { maxActive: 1 } : {}), profiles }));
+  writeFileSync(join(home, "profiles.json"), JSON.stringify({ profiles }));
   const upstream = join(home, "runtime", `camofox-${UPSTREAM_VERSION}`);
   mkdirSync(upstream, { recursive: true });
   mkdirSync(join(upstream, "plugins/local-profile"), { recursive: true });
@@ -66,8 +66,8 @@ process.on('SIGTERM', stop);
   };
 }
 
-test("three profiles start concurrently despite legacy maxActive and an unrelated orphan", async () => {
-  const f = fixture(true);
+test("three profiles start concurrently with an unrelated orphan", async () => {
+  const f = fixture();
   const removed = join(f.home, "profiles/removed"); mkdirSync(removed);
   const orphan = JSON.stringify({ version: 2, pid: 2147483647, supervisorStart: "dead", serverPid: process.pid,
     serverStart: processStart(process.pid), serverState: "started", instanceId: "removed", configurationHash: "old" });
@@ -84,7 +84,6 @@ test("three profiles start concurrently despite legacy maxActive and an unrelate
     }
     expect(f.launches()).toHaveLength(3);
     expect(readFileSync(join(removed, "running.json"), "utf8")).toBe(orphan);
-    expect(JSON.parse(readFileSync(join(f.home, "profiles.json"), "utf8")).maxActive).toBe(1);
   } finally { await f.dispose(); }
 }, 45000);
 

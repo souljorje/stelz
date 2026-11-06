@@ -7,10 +7,6 @@ import { contracts, type Tool } from "../browser/upstream.ts";
 import { allowedBrowserTools } from "./tool-policy.ts";
 import { STELZ_VERSION } from "../versions.ts";
 
-// Accept cached legacy tool calls while advertising only the current names.
-const legacyTools = new Map(["status", "acquire", "release", "pause", "resume", "recheck"]
-  .map(action => [`identity_${action}`, `profile_${action}`]));
-
 export async function runMcp(id: string) {
   if (!id) throw Error("Select a profile: stelz mcp --profile ID");
   const p = profile(id), controllerId = crypto.randomUUID();
@@ -40,8 +36,7 @@ export async function runMcp(id: string) {
   });
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }));
   server.setRequestHandler(CallToolRequestSchema, async request => {
-    const { name: requestedName, arguments: args = {} } = request.params;
-    const name = legacyTools.get(requestedName) ?? requestedName;
+    const { name, arguments: args = {} } = request.params;
     try {
       if (!tools.some(t => t.name === name)) throw Error("Unknown tool.");
       let result: unknown;
@@ -61,8 +56,6 @@ export async function runMcp(id: string) {
         }
         else return await control(serviceProfile(), "POST", "tool", { controllerId, name, args }) as { content: Awaited<ReturnType<typeof upstream.adaptResponse>> };
       }
-      if (legacyTools.has(requestedName) && result && typeof result === "object" && "profileId" in result)
-        result = { ...result, identityId: result.profileId };
       return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
     } catch (e) { return { isError: true, content: [{ type: "text" as const, text: (e as Error).message }] }; }
   });

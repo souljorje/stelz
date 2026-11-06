@@ -84,7 +84,7 @@ function validateMetadata(value: unknown, limits: TransferLimits): asserts value
     if (!keys(profile, ["id", "storage"], ["name", "typingMode", "proxy", "expectedIp"]) || !validId(profile.id) || ids.has(profile.id))
       invalid("Archive profile IDs must be valid, unique, and different from all.");
     ids.add(profile.id);
-    if (profile.storage !== "native" && profile.storage !== "checkpoint") invalid("Archive profile storage must be native or checkpoint.");
+    if (profile.storage !== "native") invalid("Archive profiles must use native storage.");
     if (Object.hasOwn(profile, "name") && (typeof profile.name !== "string" || profile.name !== profile.name.trim() ||
         !profile.name || profile.name.length > 80 || /[\p{Cc}\p{Bidi_Control}\u2028\u2029\u206a-\u206f]/u.test(profile.name)))
       invalid("An archive profile display name is invalid.");
@@ -131,17 +131,13 @@ function durablePath(path: string, kind: Kind, profiles?: Map<string, PortablePr
     if (kind !== "directory") invalid("A profile root must be a directory.");
     return;
   }
-  if (["fingerprint.json", "native-profile.json", "storage-state.json"].includes(durable)) {
+  if (["fingerprint.json", "native-profile.json"].includes(durable)) {
     if (kind !== "file" || rest.length) invalid("An archive profile state path is invalid.");
   } else if (["browser-data", "cookies", "uploads"].includes(durable)) {
     if (!rest.length && kind !== "directory") invalid("An archive profile data root must be a directory.");
     if (durable === "browser-data" && rest.length === 1 && rootLocks.has(rest[0]!))
       invalid("The archive contains a native browser lock.");
   } else invalid("The archive contains profile state that cannot be transferred.");
-  if (profile?.storage === "checkpoint" && ["native-profile.json", "browser-data"].includes(durable))
-    invalid("A checkpoint profile contains native browser data.");
-  if (profile?.storage === "native" && durable === "storage-state.json")
-    invalid("A native profile contains checkpoint data.");
 }
 
 // Track implicit parents too. Reject aliases on case-insensitive filesystems.

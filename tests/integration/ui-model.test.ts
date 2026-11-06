@@ -10,7 +10,7 @@ import type { Profile } from "../../src/profiles/config.ts";
 
 const root = resolve(import.meta.dir, "../.."), homes: string[] = [];
 const modelPath = join(root, "src/api/ui-model.ts"), runtimePath = join(root, "src/runtime/runtime.ts");
-type SavedProfile = Profile & { mode?: "direct" | "proxy" };
+type SavedProfile = Profile;
 type Fixture = { home: string; state: string; config: string; secrets: string; profiles: SavedProfile[] };
 function fixture(profiles: SavedProfile[] = [{ id: "test", port: 19471, storage: "native" }], secrets = "# private configuration\n", initialized = true): Fixture {
   const home = mkdtempSync(join(tmpdir(), "stelz-ui-model-"));
@@ -19,7 +19,7 @@ function fixture(profiles: SavedProfile[] = [{ id: "test", port: 19471, storage:
   if (initialized) {
     mkdirSync(state, { recursive: true });
     for (const p of profiles) mkdirSync(join(state, p.id), { recursive: true });
-    writeFileSync(config, JSON.stringify({ maxActive: 2, profiles: profiles }), { mode: 0o600 });
+    writeFileSync(config, JSON.stringify({ profiles: profiles }), { mode: 0o600 });
     writeFileSync(secretFile, secrets, { mode: 0o600 });
   }
   return { home, state, config, secrets: secretFile, profiles };
@@ -54,7 +54,7 @@ function tree(folder: string): unknown[] {
 const withRevision = `const revision = (await model.snapshot()).profiles[0].network.revision;`;
 const withCatalogRevision = `const revision = (await model.snapshot()).catalogRevision;`;
 
-test("the UI creates named profiles with optional proxies and omits legacy capacity metadata", async () => {
+test("the UI creates named profiles with optional proxies", async () => {
   const f = fixture([], "# keep this comment\nUNRELATED='literal # value'\n");
   const result = await run(f, `
     const initial = await model.snapshot();
@@ -77,7 +77,6 @@ test("the UI creates named profiles with optional proxies and omits legacy capac
   expect(result.value.snapshot.catalogRevision).not.toBe(result.value.initial.catalogRevision);
   expect(JSON.stringify(result)).not.toMatch(/private-reader|private-password/);
   const config = JSON.parse(readFileSync(f.config, "utf8")), secrets = readFileSync(f.secrets, "utf8");
-  expect(config.maxActive).toBe(2);
   for (const p of config.profiles) expect(p).not.toHaveProperty("mode");
   for (const row of result.value.snapshot.profiles) {
     expect(row).not.toHaveProperty("mode");
@@ -120,7 +119,7 @@ test("catalog writes serialize and reject competing revisions", async () => {
 });
 
 test("deleting a stopped profile archives its complete profile and retains shared secrets", async () => {
-  const f = fixture([proxyProfile, { id: "other", port: 19472, mode: "direct", storage: "native" }], "UI_TEST_PROXY=http://reader:password@proxy.test:8080\n");
+  const f = fixture([proxyProfile, { id: "other", port: 19472, storage: "native" }], "UI_TEST_PROXY=http://reader:password@proxy.test:8080\n");
   mkdirSync(join(f.state, "test/browser-data"));
   writeFileSync(join(f.state, "test/browser-data/saved-cookie"), "private saved session");
   writeFileSync(join(f.state, "test/fingerprint.json"), '{"version":2,"config":{}}');
@@ -216,7 +215,7 @@ test("catalog recovery refuses manual file changes without overwriting them", as
   const f = fixture();
   await expect(run(f, `${withCatalogRevision} await model.deleteProfile('test', revision);`, {},
     catalogInterruption(`to.endsWith('/profile')`))).rejects.toThrow();
-  const manual = JSON.stringify({ maxActive: 1, profiles: f.profiles });
+  const manual = JSON.stringify({ profiles: f.profiles.map(p => ({ ...p, name: "Manual edit" })) });
   writeFileSync(f.config, manual);
   const result = await run(f, `await runtime.start('test');`);
   expect(result).toMatchObject({ ok: false, status: 409, message: expect.stringContaining("manually changed") });
@@ -227,7 +226,7 @@ test("catalog recovery refuses manual file changes without overwriting them", as
 const proxyProfile: Profile = { id: "test", port: 19471, storage: "native", proxyEnv: "UI_TEST_PROXY", expectedIPEnv: "UI_TEST_EXPECTED" };
 const journalName = ".network-transaction.json";
 const oldNetworkSecrets = `# preserve the private file\nUNRELATED='literal # value' # keep comment\nMULTILINE="first\nUI_TEST_PROXY=inside a quoted value\nlast"\nUI_TEST_PROXY=http://old-user:old-password@old.test:8080\nUI_TEST_EXPECTED=198.51.100.9\n# end\n`;
-function networkFixture() { return fixture([{ ...proxyProfile, mode: "direct" }], oldNetworkSecrets); }
+function networkFixture() { return fixture([{ ...proxyProfile }], oldNetworkSecrets); }
 function spawnNetworkSave(f: Fixture, onRename: string) {
   const script = `import * as fs from 'node:fs';
 import { join } from 'node:path';
@@ -265,8 +264,7 @@ async function interruptedSave(f: Fixture, rollback = false) {
 function expectRecovered(f: Fixture, committed = true) {
   const config = JSON.parse(readFileSync(f.config, "utf8")), text = readFileSync(f.secrets, "utf8"), secrets = parseEnv(text);
   expect(config.profiles[0]).toMatchObject({ id: "test", storage: "native" });
-  if (committed) expect(config.profiles[0]).not.toHaveProperty("mode");
-  else expect(config.profiles[0].mode).toBe("direct");
+  expect(config.profiles[0]).not.toHaveProperty("mode");
   expect(secrets.UI_TEST_PROXY).toBe(committed ? "http://recovered-user:recovered-password@recovered.test:8181" : "http://old-user:old-password@old.test:8080");
   expect(secrets.UI_TEST_EXPECTED).toBe(committed ? "2001:db8::8" : "198.51.100.9");
   expect(text).toContain("UNRELATED='literal # value' # keep comment\n");
@@ -295,13 +293,13 @@ test("stopped observations preserve files but do not present an old controller o
     phase: "blocked", controller: { id: "private-controller", label: "Client", pid: 123, activeActions: 2, releasing: false },
     error: "Old IP verification failure", checkFailure: "page.goto: NS_ERROR_UNKNOWN_HOST", controlError: "Old connection error",
   }));
-  writeFileSync(join(state, "fingerprint.json"), JSON.stringify({ version: 1, config: { "navigator.userAgent": "Saved agent", "screen.width": 1440 } }));
+  writeFileSync(join(state, "fingerprint.json"), JSON.stringify({ version: 2, config: { "navigator.userAgent": "Saved agent", "screen.width": 1440 } }));
   const before = tree(f.home);
   const result = await run(f, "return { snapshot: await model.snapshot(), detail: await model.detail('test'), diagnostics: await model.diagnostics() };");
   expect(result.ok).toBe(true);
   expect(result.value.snapshot.profiles[0]).toMatchObject({ phase: "stopped", controller: null, error: null, controlError: null });
   expect(result.value.detail.profile).toMatchObject({ phase: "stopped", controller: null, error: null, controlError: null });
-  expect(result.value.detail.device).toEqual({ version: 1, properties: [{ name: "User agent", value: "Saved agent" }, { name: "Screen width (px)", value: "1440" }] });
+  expect(result.value.detail.device).toEqual({ version: 2, properties: [{ name: "User agent", value: "Saved agent" }, { name: "Screen width (px)", value: "1440" }] });
   expect(tree(f.home)).toEqual(before);
 });
 
@@ -314,7 +312,7 @@ test("live observations call only authenticated status and expose no controller 
       return Response.json({ profileId: 'test', phase: 'verification_failed', error: 'Expected exit IP verification failed.', checkFailure: 'page.goto: NS_ERROR_UNKNOWN_HOST https://hidden-user:hidden-password@ip.example/?token=private-query', windowControls: { available: true }, controller: { id: 'lease-secret', label: 'Live client', pid: process.pid, activeActions: 1, releasing: false } });
     }});
     try {
-      fs.writeFileSync(join(home, 'profiles.json'), JSON.stringify({ maxActive: 2, profiles: [{ id: 'test', port: service.port, mode: 'direct' }] }));
+      fs.writeFileSync(join(home, 'profiles.json'), JSON.stringify({ profiles: [{ id: 'test', port: service.port }] }));
       fs.writeFileSync(join(state, 'access-key'), 'status-only-key');
       const stamp = runtime.processStart(process.pid);
       fs.writeFileSync(join(state, 'running.json'), JSON.stringify({ version: 2, pid: process.pid, supervisorStart: stamp, serverPid: process.pid, serverStart: stamp, serverState: 'started', instanceId: 'instance', configurationHash: 'unused', port: service.port }));
@@ -343,7 +341,7 @@ test("typing inherits the active service fallback and permits explicit auto and 
       return Response.json(live);
     }});
     try {
-      fs.writeFileSync(join(home, 'profiles.json'), JSON.stringify({ profiles: [{ id: 'test', port: service.port, mode: 'direct' }] }));
+      fs.writeFileSync(join(home, 'profiles.json'), JSON.stringify({ profiles: [{ id: 'test', port: service.port }] }));
       fs.writeFileSync(join(state, 'access-key'), 'status-only-key');
       const stamp = runtime.processStart(process.pid), running = join(state, 'running.json');
       fs.writeFileSync(running, JSON.stringify({ version: 2, pid: process.pid, supervisorStart: stamp, serverPid: process.pid,
@@ -382,7 +380,7 @@ test("typing inherits the active service fallback and permits explicit auto and 
 });
 
 test("renaming a running profile refreshes its display name without changing its browser lifetime", async () => {
-  const f = fixture([{ id: "test", port: 19471, mode: "direct", storage: "native", proxyEnv: "DISPLAY_PROXY", expectedIPEnv: "DISPLAY_IP" }],
+  const f = fixture([{ id: "test", port: 19471, storage: "native", proxyEnv: "DISPLAY_PROXY", expectedIPEnv: "DISPLAY_IP" }],
     "DISPLAY_PROXY=http://display-user:display-password@proxy.test:8080\nDISPLAY_IP=198.51.100.1\n");
   writeFileSync(join(f.state, "test/profile-data"), "existing profile data");
   const secrets = readFileSync(f.secrets, "utf8"), inode = lstatSync(join(f.state, "test")).ino;
@@ -489,7 +487,7 @@ test("typing saves preserve dirty network drafts and network merges retain the c
 
 test("window inventories redact whole values before truncation and load secrets once per response", async () => {
   const password = "sensitive-window-password".repeat(30);
-  const f = fixture([{ id: "test", port: 19471, mode: "direct", proxyEnv: "WINDOW_PROXY" }],
+  const f = fixture([{ id: "test", port: 19471, proxyEnv: "WINDOW_PROXY" }],
     `WINDOW_PROXY=http://window-user:${password}@proxy.test:8080\n`);
   const result = await run(f, `
     const { createWindowModel } = await import(${JSON.stringify(join(root, "src/api/window-model.ts"))});
@@ -505,7 +503,7 @@ test("window inventories redact whole values before truncation and load secrets 
         })) }] });
     }});
     try {
-      fs.writeFileSync(join(home, 'profiles.json'), JSON.stringify({ maxActive: 2, profiles: [{ id: 'test', port: service.port, mode: 'direct', proxyEnv: 'WINDOW_PROXY' }] }));
+      fs.writeFileSync(join(home, 'profiles.json'), JSON.stringify({ profiles: [{ id: 'test', port: service.port, proxyEnv: 'WINDOW_PROXY' }] }));
       fs.writeFileSync(join(state, 'access-key'), 'window-service-key');
       fs.writeFileSync(join(state, 'status.json'), JSON.stringify({ profileId: 'test', instanceId: 'window-life', phase: 'ready' }));
       const stamp = runtime.processStart(process.pid);
@@ -615,11 +613,10 @@ test("network edits create distinct safe environment references without changing
   expect(new Set(refs).size).toBe(4);
   for (const ref of refs) expect(ref).toMatch(/^[A-Za-z_][A-Za-z0-9_]{0,127}$/);
   expect(config.profiles.map((p: Profile) => ({ id: p.id, storage: p.storage }))).toEqual([{ id: "test", storage: undefined }, { id: "other", storage: "native" }]);
-  expect(config.maxActive).toBe(2);
   expect(secrets[config.profiles[0].proxyEnv]).toBe("http://new-user:new-private-password@proxy.test:8080");
   expect(secrets[config.profiles[0].expectedIPEnv]).toBe("2001:db8::1");
   expect(secrets.STELZ_TEST_PROXY_URL).toBe("unrelated");
-  expect(result.value.first.storage).toBe("checkpoint");
+  expect(result.value.first.storage).toBe("native");
   expect(result.value.second.network.proxyDisplay).toBe("socks5://other.test:1080");
   expect(JSON.stringify(result)).not.toContain("new-private-password");
   expect(lstatSync(f.config).mode & 0o777).toBe(0o600);
@@ -654,8 +651,8 @@ test("omitted proxy URL preserves credentials during an expected-IP-only save", 
 });
 
 test("null clears a proxy reference without changing credentials, IDs, paths, or typing", async () => {
-  for (const legacy of [false, true]) {
-    const original: SavedProfile = { ...proxyProfile, name: "Saved display name", typingMode: "keyboard", ...(legacy ? { mode: "proxy" } : {}) };
+  {
+    const original: SavedProfile = { ...proxyProfile, name: "Saved display name", typingMode: "keyboard" };
     const f = fixture([original], oldNetworkSecrets), inode = lstatSync(join(f.state, "test")).ino;
     const result = await run(f, `${withRevision}
       const saved = await model.updateNetwork('test', { revision, proxyUrl: null });
@@ -665,7 +662,7 @@ test("null clears a proxy reference without changing credentials, IDs, paths, or
     expect(result.value.saved).toMatchObject({ id: "test", name: "Saved display name", typingMode: "keyboard", configurationError: null,
       network: { proxyEnv: null, proxyDisplay: null, proxyConfigured: false, expectedIp: "198.51.100.9" } });
     expect(result.value.proxy).toEqual({});
-    const { proxyEnv: _proxy, mode: _mode, ...unlinked } = original;
+    const { proxyEnv: _proxy, ...unlinked } = original;
     expect(JSON.parse(readFileSync(f.config, "utf8")).profiles[0]).toEqual(unlinked);
     expect(readFileSync(f.secrets, "utf8")).toBe(oldNetworkSecrets);
     expect(lstatSync(join(f.state, "test")).ino).toBe(inode);
@@ -673,48 +670,10 @@ test("null clears a proxy reference without changing credentials, IDs, paths, or
   }
 });
 
-test("legacy direct references stay dormant during IP saves and require an explicit proxy replacement", async () => {
-  const original: SavedProfile = { ...proxyProfile, mode: "direct" }, f = fixture([original], oldNetworkSecrets);
-  const result = await run(f, `
-    const before = (await model.snapshot()).profiles[0];
-    const saved = await model.updateNetwork('test', { revision: before.network.revision, expectedIp: '198.51.100.77' });
-    const raw = JSON.parse(fs.readFileSync(join(home, 'profiles.json'), 'utf8')).profiles[0];
-    const config = await import(${JSON.stringify(join(root, "src/profiles/config.ts"))});
-    const proxy = config.proxyEnvironment(config.settings().profiles[0]);
-    const replaced = await model.updateNetwork('test', { revision: saved.network.revision, proxyUrl: 'http://new-user:new-password@new.test:8181' });
-    return { before, saved, raw, proxy, replaced };`);
-  expect(result.ok).toBe(true);
-  for (const row of [result.value.before, result.value.saved]) {
-    expect(row).not.toHaveProperty("mode");
-    expect(row.network).toMatchObject({ proxyEnv: null, proxyDisplay: null, proxyConfigured: false, proxyReadOnly: false });
-  }
-  expect(result.value.raw).toEqual(original);
-  expect(result.value.proxy).toEqual({});
-  expect(result.value.replaced.network).toMatchObject({ proxyConfigured: true, proxyDisplay: "http://new.test:8181", proxyEnv: "UI_TEST_PROXY" });
-  expect(JSON.parse(readFileSync(f.config, "utf8")).profiles[0]).not.toHaveProperty("mode");
-});
-
-test("a legacy proxy without a reference remains visibly unavailable until an explicit clear", async () => {
-  const f = fixture([{ id: "test", port: 19471, mode: "proxy", storage: "native" }]);
-  const result = await run(f, `
-    const original = (await model.snapshot()).profiles[0];
-    let rejected;
-    try { await model.updateNetwork('test', { revision: original.network.revision, expectedIp: '198.51.100.8' }); }
-    catch (error) { rejected = error.status; }
-    const saved = await model.updateNetwork('test', { revision: original.network.revision, proxyUrl: null });
-    return { original, rejected, saved };`);
-  expect(result.ok).toBe(true);
-  expect(result.value.original).toMatchObject({ configurationError: expect.stringContaining("missing"),
-    network: { proxyEnv: null, proxyDisplay: "Proxy unavailable", proxyConfigured: false } });
-  expect(result.value.rejected).toBe(400);
-  expect(result.value.saved).toMatchObject({ configurationError: null, network: { proxyEnv: null, proxyDisplay: null, proxyConfigured: false } });
-  expect(JSON.parse(readFileSync(f.config, "utf8")).profiles[0]).not.toHaveProperty("mode");
-});
-
 test("null unlinks managed proxy references while preserving another profile and environment or shared secrets", async () => {
   const text = "UI_TEST_PROXY=http://shared-user:shared-password@shared.test:8080\n";
   for (const environmentManaged of [false, true]) {
-    const original: SavedProfile = { ...proxyProfile, mode: "proxy" };
+    const original: SavedProfile = { ...proxyProfile };
     const other: Profile = { id: "other", port: 19472, storage: "native", proxyEnv: "UI_TEST_PROXY" };
     const f = fixture([original, other], text);
     const result = await run(f, `
@@ -805,7 +764,7 @@ test("environment and shared references reject secret writes while honoring proc
   expect([readFileSync(f.config, "utf8"), readFileSync(f.secrets, "utf8")]).toEqual(before);
   expect(JSON.stringify(result)).not.toContain("private-");
 
-  const shared = fixture([proxyProfile, { id: "other", port: 19472, mode: "direct", proxyEnv: "UI_TEST_EXPECTED", expectedIPEnv: "UI_TEST_PROXY" }], before[1]);
+  const shared = fixture([proxyProfile, { id: "other", port: 19472, proxyEnv: "UI_TEST_EXPECTED", expectedIPEnv: "UI_TEST_PROXY" }], before[1]);
   const rejection = await run(shared, `${withRevision}
     const results = [];
     for (const patch of [{ proxyUrl: 'http://new.test:8080' }, { expectedIp: '' }]) {
@@ -894,7 +853,7 @@ test("strict inputs reject bad proxies, IP addresses, extra fields, and unknown 
 
 test("unsafe environment references cannot be rewritten", async () => {
   const cases = [
-    [{ id: "test", port: 19471, mode: "direct", proxyEnv: "BAD\nINJECTED" }],
+    [{ id: "test", port: 19471, proxyEnv: "BAD\nINJECTED" }],
   ];
   for (const profiles of cases) {
     const f = fixture(profiles as Profile[]), before = readFileSync(f.config, "utf8");
@@ -958,11 +917,11 @@ test("an interruption during rollback resumes rollback instead of applying the r
 });
 
 for (const direction of ["commit", "rollback"]) test(`an interrupted proxy unlink recovers ${direction} without touching shared credentials`, async () => {
-  const original: SavedProfile = { ...proxyProfile, mode: "proxy" };
+  const original: SavedProfile = { ...proxyProfile };
   const other: Profile = { id: "other", port: 19472, proxyEnv: "UI_TEST_PROXY" };
   const f = fixture([original, other], oldNetworkSecrets), before = { config: readFileSync(f.config, "utf8"), secrets: oldNetworkSecrets };
-  const { mode: _mode, proxyEnv: _proxy, ...unlinked } = original;
-  const after = { config: JSON.stringify({ maxActive: 2, profiles: [unlinked, other] }), secrets: oldNetworkSecrets };
+  const { proxyEnv: _proxy, ...unlinked } = original;
+  const after = { config: JSON.stringify({ profiles: [unlinked, other] }), secrets: oldNetworkSecrets };
   writeFileSync(f.config, after.config);
   const journal = join(f.home, journalName);
   writeFileSync(journal, JSON.stringify({ version: 1, token: crypto.randomUUID(), profileId: "test", direction, before, after }), { mode: 0o600 });
@@ -987,7 +946,7 @@ test("manual edits to either file block recovery, preserve all bytes, and provid
     await interruptedSave(f);
     if (target === "config") {
       const value = JSON.parse(readFileSync(f.config, "utf8"));
-      value.manualProperty = "preserve this manual edit";
+      value.profiles[0].name = "Preserve this manual edit";
       writeFileSync(f.config, JSON.stringify(value));
     } else writeFileSync(f.secrets, readFileSync(f.secrets, "utf8") + "# preserve this manual edit\n");
     const journal = join(f.home, journalName), before = [readFileSync(f.config, "utf8"), readFileSync(f.secrets, "utf8"), readFileSync(journal, "utf8")];

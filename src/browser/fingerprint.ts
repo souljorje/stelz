@@ -76,7 +76,7 @@ export function applyFingerprint(options: LaunchOptions, stateDir: string, binar
   let pin: Pin;
   if (existsSync(path)) {
     pin = JSON.parse(readFileSync(path, "utf8")) as Pin;
-    if (![1, 2].includes(pin.version) || pin.engineSha256 !== engineSha256 ||
+    if (pin.version !== 2 || pin.engineSha256 !== engineSha256 ||
       typeof pin.config?.["navigator.userAgent"] !== "string" || !pin.config["navigator.userAgent"]) {
       throw Error("Fingerprint pin is corrupt or browser binary changed; explicit migration required");
     }

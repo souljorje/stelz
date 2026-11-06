@@ -1,7 +1,6 @@
 import { existsSync } from "node:fs";
 import { CONFIG_FILE, HOME_DIR, STATE } from "../profiles/config.ts";
 import { ensureProfile, ProfileCatalogError, ProfileConfigurationError } from "../profiles/profile-configuration.ts";
-import { hasProxy } from "../profiles/network-compat.ts";
 import { runProfileTransfer, transferUsage } from "./profile-transfer.ts";
 
 const usage = "stelz profile create ID [--direct | --proxy-url URL | --proxy-env NAME] [--expected-ip IP | --expected-ip-env NAME] [--json]";
@@ -46,7 +45,7 @@ export async function runProfile(args: string[]) {
     }
     const { profile: p, created } = await ensureProfile(input);
     const result = { ok: true, created, home: HOME_DIR, profile: {
-      id: p.id, port: p.port, storage: p.storage ?? "checkpoint", proxyConfigured: hasProxy(p),
+      id: p.id, port: p.port, storage: "native", proxyConfigured: p.proxyEnv !== undefined,
       ...(p.proxyEnv ? { proxyEnv: p.proxyEnv } : {}), ...(p.expectedIPEnv ? { expectedIPEnv: p.expectedIPEnv } : {}),
     } };
     console.log(json ? JSON.stringify(result) : `${created ? "Created" : "Reused"} profile ${p.id}.`);

@@ -203,7 +203,7 @@ function stageRuntime(stage: string, source: string, browser: string, plugin: st
   validate(upstream);
 }
 
-// Exchange complete sibling directories so a legacy runtime and its manifest move together.
+// Exchange complete sibling directories so an installed runtime and its manifest move together.
 // A filesystem without an atomic exchange must fail rather than use a two-rename fallback.
 function activate(stage: string) {
   const target = join(HOME_DIR, "runtime");

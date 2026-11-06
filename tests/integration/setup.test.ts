@@ -73,7 +73,7 @@ async function typeRoute(req, locator, tabState, selector, text, mode) {
   file(join(upstream, "lib/camoufox-executable.js"), "// stelz: read macOS resources without changing the installed app bundle.\n");
   file(join(upstream, "mcp/server.mjs"), "export {};\n");
   file(join(upstream, "mcp/lib/tool-contracts.mjs"), "export const TOOL_DEFS = [];\nexport function runTool() {}\nexport function adaptResponse() {}\n");
-  file(join(upstream, "plugins/persistence/index.js"), "export async function register(app, ctx, pluginConfig = {}) {\n  if (process.env.STELZ_STORAGE_MODE === 'native') return; // Native Firefox profile owns storage.\n}\n");
+  file(join(upstream, "plugins/persistence/index.js"), "export async function register(app, ctx, pluginConfig = {}) {\n  return; // Native Firefox profile owns storage.\n}\n");
   const camoufox = join(project, "node_modules/camoufox-js");
   file(join(camoufox, "package.json"), JSON.stringify({ name: "camoufox-js", version: "0.11.5", dependencies: {} }));
   file(join(camoufox, "dist/utils.js"), 'propFile = process.platform === "darwin" && filePath.includes(".app/Contents/MacOS/") ? path.join(path.dirname(filePath), "../Resources/properties.json") : path.join(path.dirname(filePath), "properties.json");\n');
@@ -100,7 +100,7 @@ process.exit(await child.exited);
   return { base, project, home, browser, upstream, bin, gate: join(base, "gate"), release: join(base, "release") };
 }
 type Fixture = ReturnType<typeof fixture>;
-function legacy(f: Fixture) {
+function installedRuntime(f: Fixture) {
   file(join(f.home, "runtime/camofox-1.18.1/server.js"), "old server");
   file(join(f.home, "runtime/versions.json"), JSON.stringify({ old: "successful manifest" }));
 }
@@ -128,8 +128,8 @@ function stopGate(f: Fixture) {
 }
 const gated = (f: Fixture) => ({ SETUP_TEST_GATE: f.gate, SETUP_TEST_RELEASE: f.release });
 
-test("activates a complete runtime and manifest, including legacy replacement", async () => {
-  const f = fixture(); legacy(f);
+test("activates a complete runtime and manifest, replacing the installed runtime", async () => {
+  const f = fixture(); installedRuntime(f);
   for (let i = 0; i < 2; i++) {
     const result = await finish(launch(f));
     if (result.code) throw Error(result.stderr || result.stdout);
@@ -149,7 +149,7 @@ test("activates a complete runtime and manifest, including legacy replacement", 
 }, 30000);
 
 test("validation failure preserves the previous runtime and manifest", async () => {
-  const f = fixture(); legacy(f);
+  const f = fixture(); installedRuntime(f);
   const result = await finish(launch(f, "setup", { SETUP_TEST_FAIL: "1" }));
   expect(result.code).not.toBe(0);
   expect(result.stderr).toContain("forced validation failure");
@@ -163,7 +163,7 @@ test("missing contract modules or required exports cannot replace the runtime", 
   const cases = ["missing-contract", ...contractExports.map(name => `contract:${name}`), ...pluginExports.map(name => `plugin:${name}`)];
   for (const item of cases) {
     const f = fixture();
-    legacy(f);
+    installedRuntime(f);
     if (item === "missing-contract") rmSync(join(f.upstream, "mcp/lib/tool-contracts.mjs"));
     if (item.startsWith("contract:")) {
       const missing = item.slice("contract:".length);
@@ -185,7 +185,7 @@ test("missing contract modules or required exports cannot replace the runtime", 
 }, 30000);
 
 test("interruption after staging leaves the previous runtime active and permits retry", async () => {
-  const f = fixture(); legacy(f);
+  const f = fixture(); installedRuntime(f);
   const child = launch(f, "setup", gated(f));
   try {
     await until(() => existsSync(f.gate), "staged validation");
@@ -204,7 +204,7 @@ test("interruption after staging leaves the previous runtime active and permits 
 }, 30000);
 
 test("interruption during old-runtime cleanup leaves the new runtime complete", async () => {
-  const f = fixture(); legacy(f);
+  const f = fixture(); installedRuntime(f);
   const bulk = join(f.home, "runtime/bulk"); mkdirSync(bulk);
   for (let i = 0; i < 8000; i++) writeFileSync(join(bulk, String(i)), "old");
   const child = launch(f, "setup", gated(f));
@@ -222,7 +222,7 @@ test("interruption during old-runtime cleanup leaves the new runtime complete", 
 }, 30000);
 
 test("setup serializes with another setup and a real start operation", async () => {
-  const f = fixture(); legacy(f);
+  const f = fixture(); installedRuntime(f);
   const first = launch(f, "setup", gated(f));
   let second: ReturnType<typeof launch> | undefined, start: ReturnType<typeof launch> | undefined;
   try {
@@ -262,7 +262,7 @@ test("active, orphaned, unclean, and malformed profile records block setup", asy
     ["profile-01", { pid: 0, instanceId: "reservation" }],
     ["profile-01", null],
   ] as const) {
-    const f = fixture(); legacy(f);
+    const f = fixture(); installedRuntime(f);
     file(join(f.home, "profiles", id, "running.json"), JSON.stringify(value));
     const result = await finish(launch(f));
     expect(result.code).not.toBe(0);
@@ -271,7 +271,7 @@ test("active, orphaned, unclean, and malformed profile records block setup", asy
 });
 
 test("setup rechecks profiles after obtaining the shared admission lock", async () => {
-  const f = fixture(); legacy(f);
+  const f = fixture(); installedRuntime(f);
   const state = join(f.home, "profiles"), held = join(f.base, "held"), release = join(f.base, "unlock");
   mkdirSync(state, { recursive: true });
   const code = `import { lock } from ${JSON.stringify(join(f.project, "src/runtime/runtime.ts"))};
@@ -298,9 +298,9 @@ await lock(${JSON.stringify(join(state, "admission.lock"))}, async () => {
 test("a clean stopped record permits setup, but a matching marker cannot hide a live server", async () => {
   for (const live of [false, true]) {
     const f = fixture();
-    legacy(f);
+    installedRuntime(f);
     const base = join(f.home, "profiles/profile-02");
-    file(join(base, "running.json"), JSON.stringify({ pid: 99999999, serverPid: live ? process.pid : undefined, instanceId: "clean" }));
+    file(join(base, "running.json"), JSON.stringify({ version: 2, pid: 99999999, serverPid: live ? process.pid : undefined, instanceId: "clean" }));
     file(join(base, "stopped.json"), JSON.stringify({ instanceId: "clean" }));
     const result = await finish(launch(f));
     if (live) {
@@ -321,7 +321,7 @@ test("symlinks in runtime, lock, profile state, and setup sources cannot be foll
     if (kind === "lock") { mkdirSync(join(f.home, "profiles")); symlinkSync(outside, join(f.home, "profiles/admission.lock")); }
     if (kind === "hardlock") { mkdirSync(join(f.home, "profiles")); linkSync(outside, join(f.home, "profiles/admission.lock")); }
     if (kind === "profile") { mkdirSync(join(f.home, "profiles/profile-01"), { recursive: true }); symlinkSync(outside, join(f.home, "profiles/profile-01/running.json")); }
-    if (kind === "source") { legacy(f); symlinkSync(outside, join(f.upstream, "lib/unsafe.js")); }
+    if (kind === "source") { installedRuntime(f); symlinkSync(outside, join(f.upstream, "lib/unsafe.js")); }
     const result = await finish(launch(f));
     expect(result.code).not.toBe(0);
     expect(readFileSync(outside, "utf8")).toBe("untouched");
@@ -330,7 +330,7 @@ test("symlinks in runtime, lock, profile state, and setup sources cannot be foll
 });
 
 test("unpatched dependencies are rejected without rewriting the installed package or old runtime", async () => {
-  const f = fixture(); legacy(f);
+  const f = fixture(); installedRuntime(f);
   const path = join(f.upstream, "server.js");
   const before = readFileSync(path, "utf8").replace(
     "await (await import('./plugins/local-profile/index.js')).typeIntoLocator(locator, text, typingMode);",

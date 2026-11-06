@@ -5,13 +5,13 @@ import { join, resolve } from "node:path";
 import { parseEnv } from "node:util";
 
 const root = resolve(import.meta.dir, "../.."), homes: string[] = [];
-function fixture(legacy = false) {
-  const home = mkdtempSync(join(tmpdir(), "stelz-rename-")), id = "identity-01";
+function fixture() {
+  const home = mkdtempSync(join(tmpdir(), "stelz-rename-")), id = "profile-01";
   homes.push(home);
-  const state = join(home, legacy ? "identities" : "profiles"), config = join(home, legacy ? "identities.json" : "profiles.json");
+  const state = join(home, "profiles"), config = join(home, "profiles.json");
   mkdirSync(join(state, id), { recursive: true });
-  writeFileSync(config, JSON.stringify({ maxActive: 2, note: "keep catalog metadata", [legacy ? "identities" : "profiles"]: [
-    { id, port: 19471, mode: "direct", proxyEnv: "RENAME_PROXY", expectedIPEnv: "RENAME_IP", typingMode: "keyboard" },
+  writeFileSync(config, JSON.stringify({ profiles: [
+    { id, port: 19471, proxyEnv: "RENAME_PROXY", expectedIPEnv: "RENAME_IP", typingMode: "keyboard" },
   ] }), { mode: 0o600 });
   writeFileSync(join(home, "secrets.env"), "# keep credentials\nRENAME_PROXY=http://rename-user:rename-password@proxy.test:8080\nRENAME_IP=198.51.100.1\n", { mode: 0o600 });
   return { home, id, state, config };
@@ -38,8 +38,8 @@ catch (error) { console.log(JSON.stringify({ ok: false, status: error.status, me
   return out.trim() ? JSON.parse(out) : null;
 }
 
-for (const legacy of [false, true]) test(`rename preserves ${legacy ? "legacy identities" : "profile"} catalogs and saved browser data`, async () => {
-  const f = fixture(legacy), directory = join(f.state, f.id), inode = lstatSync(directory).ino;
+test("rename preserves profiles and saved browser data", async () => {
+  const f = fixture(), directory = join(f.state, f.id), inode = lstatSync(directory).ino;
   const secrets = readFileSync(join(f.home, "secrets.env"), "utf8");
   writeFileSync(join(directory, "browser-data"), "existing browser data");
   const result = await run(f, `
@@ -53,19 +53,16 @@ for (const legacy of [false, true]) test(`rename preserves ${legacy ? "legacy id
     const state = fs.readFileSync(join(config.dir(id), 'status.json'), 'utf8');
     const saved = await domain.renameProfile(id, { revision: oldRevision, name: '  Рабочий профиль  ' });
     const after = config.settings().profiles[0];
-    const { createHash } = await import('node:crypto');
-    const legacyHash = createHash('sha256').update('{"id":"identity-01","port":19471,"mode":"direct","proxyEnv":"RENAME_PROXY","expectedIPEnv":"RENAME_IP","proxy":{},"expectedIP":"198.51.100.1"}').digest('hex');
     return { before, after, saved: saved.profile, changedRevision: oldRevision !== revision(), hash,
-      legacyHash, afterHash: config.configurationHash(after),
+      afterHash: config.configurationHash(after),
       typingHash: config.configurationHash({ ...after, typingMode: 'instant' }),
       lifetimeUnchanged: lifetime === fs.readFileSync(join(config.dir(id), 'running.json'), 'utf8'),
       statusUnchanged: state === fs.readFileSync(join(config.dir(id), 'status.json'), 'utf8') };
   `);
   expect(result.ok).toBe(true);
-  const { before, after, saved, hash, legacyHash, afterHash, typingHash } = result.value;
+  const { before, after, saved, hash, afterHash, typingHash } = result.value;
   expect(after).toEqual({ ...before, name: "Рабочий профиль" });
   expect(saved).toEqual(after);
-  expect(hash).toBe(legacyHash);
   expect(afterHash).toBe(hash);
   expect(typingHash).toBe(hash);
   expect(result.value).toMatchObject({ changedRevision: true, lifetimeUnchanged: true, statusUnchanged: true });
@@ -73,10 +70,7 @@ for (const legacy of [false, true]) test(`rename preserves ${legacy ? "legacy id
   expect(readFileSync(join(directory, "browser-data"), "utf8")).toBe("existing browser data");
   expect(readFileSync(join(f.home, "secrets.env"), "utf8")).toBe(secrets);
   const persisted = JSON.parse(readFileSync(f.config, "utf8"));
-  expect(persisted).toMatchObject({ maxActive: 2, note: "keep catalog metadata" });
-  expect(persisted[legacy ? "identities" : "profiles"][0]).toEqual(after);
-  expect(persisted).not.toHaveProperty(legacy ? "profiles" : "identities");
-  expect(existsSync(join(f.home, legacy ? "profiles" : "identities"))).toBe(false);
+  expect(persisted.profiles[0]).toEqual(after);
 });
 
 test("rename accepts the length boundary and removes the override when the name equals the stable ID", async () => {
@@ -146,7 +140,7 @@ test("catalog revisions reject competing renames and edits without losing unrela
   expect(result.value.competing.sort()).toEqual([200, 409]);
   expect(["Work", "Personal"]).toContain(result.value.winner);
   expect(result.value.conflict).toBe(409);
-  expect(result.value.after).toMatchObject({ id: f.id, name: "Merged", typingMode: "instant", mode: "direct", port: 19471,
+  expect(result.value.after).toMatchObject({ id: f.id, name: "Merged", typingMode: "instant", port: 19471,
     proxyEnv: "RENAME_PROXY", expectedIPEnv: "RENAME_IP" });
 });
 
@@ -168,7 +162,7 @@ test("a network draft captured before rename preserves the latest display name",
   expect(parseEnv(readFileSync(join(f.home, "secrets.env"), "utf8")).RENAME_PROXY).toBe("http://draft.test:8080");
 });
 
-test("rename recovers pending network changes before checking the catalog revision", async () => {
+test("rename recovers pending network changes before saving the display name", async () => {
   const f = fixture(), initial = await run(f, "return revision();");
   const prelude = `import { mock } from 'bun:test';
 const original = { ...fs };
@@ -187,12 +181,10 @@ mock.module('node:fs', () => ({ ...original, renameSync(from, to) {
   expect(blocked).toMatchObject({ ok: false, status: 409, message: expect.stringContaining("Stop the journal profile cleanly") });
   expect(existsSync(journal)).toBe(true);
   rmSync(record);
-  const stale = await run(f, rename);
-  expect(stale).toMatchObject({ ok: false, status: 409, message: expect.stringContaining("Refresh") });
+  const saved = await run(f, `${rename} return config.settings().profiles[0];`);
+  expect(saved).toMatchObject({ ok: true, value: { id: f.id, name: "Recovered", proxyEnv: "RENAME_PROXY" } });
   expect(existsSync(journal)).toBe(false);
   expect(parseEnv(readFileSync(join(f.home, "secrets.env"), "utf8")).RENAME_PROXY).toBe("http://recovered.test:8080");
-  const saved = await run(f, "await domain.renameProfile(id, { revision: revision(), name: 'Recovered' }); return config.settings().profiles[0];");
-  expect(saved).toMatchObject({ ok: true, value: { id: f.id, name: "Recovered", proxyEnv: "RENAME_PROXY" } });
 });
 
 test("an interrupted atomic rename leaves the previous catalog readable and permits retry", async () => {

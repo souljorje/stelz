@@ -6,9 +6,6 @@ import {
 import { createServer, isIP, type Server } from "node:net";
 import { isAbsolute, join } from "node:path";
 import { parseEnv } from "node:util";
-import { pipeline } from "node:stream/promises";
-import parser from "stream-json";
-import type { Token } from "stream-json/parser.js";
 import {
   HOME_DIR, STATE, executable, parseProfileName, serializeSettings, validateProxy, validateSettings, type Profile,
 } from "./config.ts";
@@ -33,7 +30,7 @@ function safePath(path: unknown): path is string {
 function allowedRelative(path: string, kind: "file" | "directory") {
   const [root, ...rest] = path.split("/");
   if (["browser-data", "cookies", "uploads"].includes(root!)) return rest.length > 0 || kind === "directory";
-  return kind === "file" && !rest.length && ["fingerprint.json", "native-profile.json", "storage-state.json"].includes(root!);
+  return kind === "file" && !rest.length && ["fingerprint.json", "native-profile.json"].includes(root!);
 }
 function validateManifest(manifest: ProfileArchiveManifest) {
   if (!object(manifest) || manifest.format !== "stelz-profiles" || manifest.version !== 1 ||
@@ -43,7 +40,7 @@ function validateManifest(manifest: ProfileArchiveManifest) {
       !Array.isArray(manifest.files) || !Array.isArray(manifest.directories)) invalid();
   const ids = new Set<string>();
   for (const p of manifest.profiles) {
-    if (!object(p) || !validId(p.id) || ids.has(p.id) || !["native", "checkpoint"].includes(p.storage) ||
+    if (!object(p) || !validId(p.id) || ids.has(p.id) || p.storage !== "native" ||
         Object.keys(p).some(key => !["id", "name", "storage", "typingMode", "proxy", "expectedIp"].includes(key)) ||
         p.typingMode !== undefined && !isTypingMode(p.typingMode)) invalid();
     ids.add(p.id);
@@ -93,52 +90,6 @@ function directory(path: string, optional = false) {
   return true;
 }
 type SourceProfile = { profile: PortableProfile; directory: string; files: { file: ArchiveFile; relative: string }[]; directories: string[]; issues: string[] };
-// Validate syntax and root field types without retaining checkpoint values.
-export async function validCheckpointFile(path: string, signal?: AbortSignal): Promise<boolean> {
-  let fd: number | undefined, input: ReturnType<typeof createReadStream> | undefined;
-  let depth = 0, root = false, cookies = false, origins: boolean | undefined;
-  let capture: string | null | undefined, key: string | undefined, pending = false;
-  try {
-    fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
-    const opened = fstatSync(fd);
-    if (!opened.isFile() || opened.nlink !== 1) return false;
-    input = createReadStream(path, { fd, autoClose: true, highWaterMark: 64 * 1024, signal }); fd = undefined;
-    await pipeline(input, async function* (chunks) {
-      let quoted = false, escaped = false;
-      for await (const chunk of chunks) {
-        // The parser's UTF-8 layer can remove a BOM. JSON.parse rejects it.
-        for (const byte of chunk as Buffer) {
-          if (quoted) {
-            if (escaped) escaped = false;
-            else if (byte === 92) escaped = true;
-            else if (byte === 34) quoted = false;
-          } else if (byte === 34) quoted = true;
-          else if (byte >= 127 || byte < 32 && ![9, 10, 13].includes(byte)) throw Error("Invalid checkpoint syntax.");
-        }
-        yield chunk;
-      }
-    }, parser({ packValues: false, packKeys: false, packStrings: false, packNumbers: false, streamValues: true, ignoreBOM: false }),
-      async tokens => {
-        for await (const token of tokens as AsyncIterable<Token>) {
-          if (token.name === "startKey" && depth === 1) capture = "";
-          else if (token.name === "stringChunk" && capture !== undefined && capture !== null)
-            capture = capture.length + token.value.length <= 7 ? capture + token.value : null;
-          else if (token.name === "endKey" && depth === 1) { key = capture ?? undefined; capture = undefined; pending = true; }
-          else if (["startObject", "startArray", "startString", "startNumber", "nullValue", "trueValue", "falseValue"].includes(token.name)) {
-            if (depth === 0) { if (root || token.name !== "startObject") throw Error("Invalid checkpoint root."); root = true; }
-            if (depth === 1 && pending) {
-              if (key === "cookies") cookies = token.name === "startArray";
-              if (key === "origins") origins = token.name === "startArray";
-              pending = false;
-            }
-            if (token.name === "startObject" || token.name === "startArray") depth++;
-          } else if (token.name === "endObject" || token.name === "endArray") depth--;
-        }
-      });
-    return root && depth === 0 && cookies && origins !== false;
-  } catch { cancelled(signal); return false; }
-  finally { if (fd !== undefined) closeSync(fd); input?.destroy(); }
-}
 async function sources(manifest: ProfileArchiveManifest, stagingDirectory: string, validateContents = true, signal?: AbortSignal): Promise<SourceProfile[]> {
   if (typeof stagingDirectory !== "string" || !isAbsolute(stagingDirectory)) invalid();
   directory(stagingDirectory);
@@ -188,10 +139,8 @@ async function sources(manifest: ProfileArchiveManifest, stagingDirectory: strin
     const presentDirectories = new Set(directories);
     if (files.length !== listed.size || [...listedDirectories].some(name => !presentDirectories.has(name))) changed();
     const issues: string[] = [], names = new Set(files.map(item => item.relative));
-    const marker = names.has("native-profile.json"), native = directories.includes("browser-data"), checkpoint = names.has("storage-state.json");
-    if (marker && !native) issues.push("The native marker has no browser-data directory.");
-    if (profile.storage === "checkpoint" && (marker || native)) issues.push("A checkpoint profile contains native browser data.");
-    if (profile.storage === "native" && checkpoint) issues.push("A native profile contains a storage checkpoint. Engine migration is unavailable.");
+    const marker = names.has("native-profile.json"), native = directories.includes("browser-data");
+    if (marker && !native) issues.push("A native marker has no browser-data directory.");
     const json = (name: string, limit: number): unknown => {
       try {
         const file = join(path, name), info = stat(file);
@@ -211,13 +160,12 @@ async function sources(manifest: ProfileArchiveManifest, stagingDirectory: strin
       } catch { return; }
     };
     if (validateContents && marker) { const value = json("native-profile.json", 64 * 1024); if (!object(value) || value.version !== 1) issues.push("The native marker is invalid or exceeds 64 KiB."); }
-    if (validateContents && checkpoint && !await validCheckpointFile(join(path, "storage-state.json"), signal)) issues.push("The storage checkpoint is invalid.");
     if (validateContents && names.has("fingerprint.json")) {
       const pin = json("fingerprint.json", 16 * 1024 * 1024);
-      if (!object(pin) || ![1, 2].includes(pin.version as number) || pin.engineSha256 !== manifest.source.engineSha256 ||
+      if (!object(pin) || pin.version !== 2 || pin.engineSha256 !== manifest.source.engineSha256 ||
           !object(pin.config) || typeof pin.config["navigator.userAgent"] !== "string" || !pin.config["navigator.userAgent"])
         issues.push("The fingerprint pin is invalid, exceeds 16 MiB, or uses a different browser executable.");
-    } else if (!names.has("fingerprint.json") && (native || marker || checkpoint)) issues.push("Saved browser data requires a fingerprint pin.");
+    } else if (!names.has("fingerprint.json") && (native || marker)) issues.push("Saved browser data requires a fingerprint pin.");
     result.push({ profile, directory: path, files, directories, issues });
   }
   return result;
@@ -282,16 +230,10 @@ async function reservePort(port: number): Promise<Server | undefined> {
     server.listen(port, "127.0.0.1", () => resolve(server));
   });
 }
-function importedLayout(id: string, source: SourceProfile): ImportPath[] {
+function importedLayout(source: SourceProfile): ImportPath[] {
   const paths: ImportPath[] = [{ path: "", kind: "directory" }];
   for (const path of source.directories) paths.push({ path, kind: "directory" });
-  for (const { relative } of source.files) {
-    if (relative === "storage-state.json") {
-      const hash = createHash("sha256").update(id).digest("hex").slice(0, 32);
-      paths.push({ path: "storage", kind: "directory" }, { path: `storage/${hash}`, kind: "directory" },
-        { path: `storage/${hash}/storage-state.json`, kind: "file" });
-    } else paths.push({ path: relative, kind: "file" });
-  }
+  for (const { relative } of source.files) paths.push({ path: relative, kind: "file" });
   return paths;
 }
 async function copyFile(source: SourceProfile, relative: string, target: string, expected: ArchiveFile, options: TransferOptions, progress: { bytes: number; files: number; totalBytes: number }) {
@@ -402,8 +344,8 @@ export async function commitProfileImport(input: {
         throw new ProfileTransferError(409, "The secrets file cannot safely store the imported credentials.");
       const next = validateSettings({ ...config, profiles: [...config.profiles, ...imported] });
       const byId = new Map(saved.map(p => [p.profile.id, p]));
-      await commitProfileImportTransaction({ before, after: { config: serializeSettings(next, before.config), secrets: nextSecrets }, ids: imported.map(p => p.id),
-        layouts: selections.map(selection => importedLayout(selection.id, byId.get(selection.sourceId)!)),
+      await commitProfileImportTransaction({ before, after: { config: serializeSettings(next), secrets: nextSecrets }, ids: imported.map(p => p.id),
+        layouts: selections.map(selection => importedLayout(byId.get(selection.sourceId)!)),
         prepare: async stage => {
           const refreshed = new Map((await sources(manifest, input.stagingDirectory, false, input.signal)).map(p => [p.profile.id, p]));
           const selected = selections.map(selection => ({ selection, source: refreshed.get(selection.sourceId)! }));
@@ -415,12 +357,6 @@ export async function commitProfileImport(input: {
             for (const relative of source.directories) mkdirSync(join(target, relative), { mode: 0o700 });
             for (const { file, relative } of source.files) {
               let destination = join(target, relative);
-              if (relative === "storage-state.json") {
-                const hash = createHash("sha256").update(selection.id).digest("hex").slice(0, 32);
-                mkdirSync(join(target, "storage"), { mode: 0o700 });
-                mkdirSync(join(target, "storage", hash), { mode: 0o700 });
-                destination = join(target, "storage", hash, "storage-state.json");
-              }
               await copyFile(source, relative, destination, file, input, progress);
             }
           }

@@ -10,9 +10,7 @@ import { dir, executable, typingMode, validateProxy, validateSettings } from "./
 import { prepareProfileConfiguration } from "./profile-configuration.ts";
 import { checkCatalogDirectory, readCatalogFiles } from "./profile-catalog.ts";
 import { assertStoppedProfile, lock } from "../runtime/profile-process.ts";
-import { hasProxy } from "./network-compat.ts";
 import { writeProfileArchive } from "./profile-archive.ts";
-import { validCheckpointFile } from "./profile-import.ts";
 import { STELZ_VERSION } from "../versions.ts";
 import { ProfileTransferError, transferLimits, type ArchiveMetadata, type PortableProfile, type TransferOptions } from "./profile-transfer-types.ts";
 
@@ -118,8 +116,8 @@ export async function exportProfileArchive(options: ExportProfileOptions) {
         const profiles: PortableProfile[] = [];
         await mkdir(join(snapshot, "profiles"), { mode: 0o700 }); count();
         for (const p of selected) {
-          const portable: PortableProfile = { id: p.id, ...(p.name ? { name: p.name } : {}), storage: p.storage ?? "checkpoint", typingMode: typingMode(p) };
-          if (hasProxy(p)) {
+          const portable: PortableProfile = { id: p.id, ...(p.name ? { name: p.name } : {}), storage: "native", typingMode: typingMode(p) };
+          if (p.proxyEnv) {
             const url = value(p.proxyEnv);
             if (url) {
               try { validateProxy(url); }
@@ -136,7 +134,7 @@ export async function exportProfileArchive(options: ExportProfileOptions) {
           const root = dir(p.id), target = join(snapshot, "profiles", p.id);
           await mkdir(target, { mode: 0o700 }); count();
           const native = await optionalInfo(join(root, "browser-data")), marker = await optionalInfo(join(root, "native-profile.json"));
-          if (portable.storage === "checkpoint" && (native || marker) || marker && !native)
+          if (marker && !native)
             throw new ProfileTransferError(409, "A selected profile has inconsistent saved storage. Inspect it before exporting.");
           if (marker) {
             if (!marker.isFile() || marker.isSymbolicLink() || marker.nlink !== 1 || marker.size > 64 * 1024)
@@ -145,18 +143,6 @@ export async function exportProfileArchive(options: ExportProfileOptions) {
             try { valid = JSON.parse(await readFile(join(root, "native-profile.json"), "utf8"))?.version === 1; } catch {}
             if (!valid) throw new ProfileTransferError(409, "A selected profile has an invalid native marker. Inspect it before exporting.");
           }
-          async function containsCheckpoint(path: string): Promise<boolean> {
-            const info = await optionalInfo(path);
-            if (!info) return false;
-            if (!info.isDirectory() || info.isSymbolicLink()) throw new ProfileTransferError(409, "The checkpoint directory is unsafe. Inspect it before exporting.");
-            for (const item of await readdir(path, { withFileTypes: true })) {
-              signal?.throwIfAborted();
-              if (["storage-state.json", "storage_state.json"].includes(item.name) || item.isDirectory() && await containsCheckpoint(join(path, item.name))) return true;
-            }
-            return false;
-          }
-          if (portable.storage === "native" && !marker && await containsCheckpoint(join(root, "storage")))
-            throw new ProfileTransferError(409, "A selected native profile contains unmigrated checkpoints. Keep its original storage configuration before exporting.");
           const fingerprint = await optionalInfo(join(root, "fingerprint.json"));
           if (!fingerprint && (native || marker))
             throw new ProfileTransferError(409, "Saved browser data has no fingerprint pin. Restore the original pin before exporting.");
@@ -166,29 +152,15 @@ export async function exportProfileArchive(options: ExportProfileOptions) {
             let valid = false;
             try {
               const pin = JSON.parse(await readFile(join(root, "fingerprint.json"), "utf8"));
-              valid = [1, 2].includes(pin?.version) && pin.engineSha256 === engineSha256 && typeof pin.config?.["navigator.userAgent"] === "string" && !!pin.config["navigator.userAgent"];
+              valid = pin?.version === 2 && pin.engineSha256 === engineSha256 && typeof pin.config?.["navigator.userAgent"] === "string" && !!pin.config["navigator.userAgent"];
             } catch { /* Report a safe error without saved properties. */ }
             if (!valid) throw new ProfileTransferError(409, "A selected profile has an invalid fingerprint or a different Camoufox executable. Correct it before exporting.");
           }
           for (const name of ["fingerprint.json", "cookies", "uploads"]) {
             if (await optionalInfo(join(root, name))) await copy(join(root, name), join(target, name));
           }
-          if (portable.storage === "native") {
-            if (marker) await copy(join(root, "native-profile.json"), join(target, "native-profile.json"));
-            if (native) await copy(join(root, "browser-data"), join(target, "browser-data"), true);
-          } else {
-            const hash = createHash("sha256").update(p.id).digest("hex").slice(0, 32);
-            const storageRoot = join(root, "storage");
-            if (await optionalInfo(storageRoot)) checkCatalogDirectory(storageRoot);
-            const stateRoot = join(storageRoot, hash);
-            if (await optionalInfo(stateRoot)) checkCatalogDirectory(stateRoot);
-            const state = join(stateRoot, "storage-state.json");
-            if (await optionalInfo(state)) {
-              if (!fingerprint) throw new ProfileTransferError(409, "Saved checkpoints have no fingerprint pin. Restore the original pin before exporting.");
-              if (!await validCheckpointFile(state, signal)) throw new ProfileTransferError(409, "A selected profile has an invalid storage checkpoint. Inspect it before exporting.");
-              await copy(state, join(target, "storage-state.json"));
-            }
-          }
+          if (marker) await copy(join(root, "native-profile.json"), join(target, "native-profile.json"));
+          if (native) await copy(join(root, "browser-data"), join(target, "browser-data"), true);
         }
         // Verify the catalog did not change outside the service's lock protocol.
         const after = readCatalogFiles();

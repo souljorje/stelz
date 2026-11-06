@@ -68,12 +68,12 @@ try {
   const pin = readFileSync(profilePath(source, "fingerprint.json"));
   const accessKey = readFileSync(profilePath(source, "access-key"), "utf8");
   const cookieBytes = readFileSync(profilePath(source, "browser-data/cookies.sqlite"));
-  const checkpointId = "transfer-checkpoint";
+  const secondId = "transfer-second";
   const config = JSON.parse(readFileSync(join(home, "profiles.json"), "utf8"));
-  config.profiles.push({ id: checkpointId, port: (await unusedPorts(1))[0]!, storage: "checkpoint" });
+  config.profiles.push({ id: secondId, port: (await unusedPorts(1))[0]!, storage: "native" });
   writeFileSync(join(home, "profiles.json"), JSON.stringify(config));
   const archive = join(home, "roundtrip.stelz-profiles.zip");
-  await command("profile", "export", source, checkpointId, "--output", archive, "--json");
+  await command("profile", "export", source, secondId, "--output", archive, "--json");
   const result = JSON.parse(await command("profile", "import", archive, "--json"));
   const copied = result.profiles.find((p: { sourceId: string }) => p.sourceId === source).id as string;
   assert(copied !== source, "Import did not create a separate copy.");

@@ -19,7 +19,7 @@ index 7c5199d3b00c39325b660699581f4298a334808e..bc26fcdd5b5d76747d12329a9b986c97
  }
  
  export async function register(app, ctx, pluginConfig = {}) {
-+  if (process.env.STELZ_STORAGE_MODE === 'native') return; // Native Firefox profile owns storage.
++  return; // Native Firefox profile owns storage.
    const { events, config, log } = ctx;
  
    // Resolve profileDir: env var > plugin config > global config default (~/.camofox/profiles)

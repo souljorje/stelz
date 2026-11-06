@@ -4,7 +4,7 @@ import type { TypingMode } from "../browser/typing.ts";
 export type PortableProfile = {
   id: string;
   name?: string;
-  storage: "native" | "checkpoint";
+  storage: "native";
   typingMode?: TypingMode;
   proxy?: { url?: string };
   expectedIp?: string;
@@ -50,7 +50,7 @@ export type ProfileImportPreview = {
   compatible: boolean;
   issues: string[];
   profiles: {
-    sourceId: string; id: string; name: string; storage: "native" | "checkpoint";
+    sourceId: string; id: string; name: string; storage: "native";
     proxyDisplay: string | null; proxyUnavailable: boolean; issues: string[];
   }[];
 };

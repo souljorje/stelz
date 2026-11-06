@@ -65,7 +65,7 @@ export function ProfileDetail({ profile, snapshot, context, mutationVersion, onA
       <KeyValues rows={[
         { label: "Profile ID", value: profile.id, mono: true },
         { label: "Endpoint", value: `127.0.0.1:${profile.port}`, mono: true },
-        { label: "Storage mode", value: profile.storage === "native" ? "Native" : "Checkpoint" },
+        { label: "Storage", value: "Native" },
         { label: "Profile directory", value: profileHome, mono: true },
         { label: "Browser data", value: profileHome ? `${profileHome}/${profile.storage === "native" ? "browser-data" : "storage"}/` : null, mono: true },
         { label: "Fingerprint SHA-256", value: profile.fingerprintSha256, mono: true },

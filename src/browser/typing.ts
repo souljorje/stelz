@@ -16,8 +16,7 @@ export function isTypingMode(value: unknown): value is TypingMode {
 }
 
 export function parseTypingMode(value?: string): TypingMode {
-  // Preserve old service settings without retaining their long-text rejection.
-  if (value === undefined || value === "paced") return "auto";
+  if (value === undefined) return "auto";
   if (isTypingMode(value)) return value;
   throw Error("STELZ_TYPING_MODE must be auto, keyboard, or instant.");
 }

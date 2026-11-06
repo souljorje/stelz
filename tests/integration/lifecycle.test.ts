@@ -34,7 +34,7 @@ function fixture(port = 19471): Fixture {
   const plugin = join(home, `runtime/camofox-${UPSTREAM_VERSION}/plugins/local-profile`);
   mkdirSync(plugin, { recursive: true });
   writeFileSync(join(plugin, "index.js"), packageFixture.plugin);
-  writeFileSync(join(home, "profiles.json"), JSON.stringify({ maxActive: 2, profiles: [profile] }));
+  writeFileSync(join(home, "profiles.json"), JSON.stringify({ profiles: [profile] }));
   writeFileSync(join(home, "runtime/versions.json"), "{}");
   writeFileSync(join(idDir, "access-key"), "test-key");
   return { home, idDir, profile, ...packageFixture };
@@ -54,16 +54,6 @@ function record(f: Fixture, overrides: Record<string, unknown> = {}) {
   };
   writeFileSync(join(f.idDir, "running.json"), JSON.stringify(value));
   return value;
-}
-function legacyRecord(f: Fixture, overrides: Record<string, unknown> = {}) {
-  return record(f, {
-    version: undefined,
-    port: undefined,
-    supervisorStart: undefined,
-    serverStart: undefined,
-    serverState: undefined,
-    ...overrides,
-  });
 }
 async function run(f: Fixture, ...args: string[]) {
   const child = Bun.spawn([bun, "--no-env-file", f.cli, ...args], {
@@ -101,10 +91,9 @@ function ownedRecord(pid: number) {
 }
 
 test("startup rejects a stale installed plugin before a proxied browser can launch", async () => {
-  for (const legacy of [false, true]) {
     const f = fixture();
     try {
-      const profile = { ...f.profile, proxyEnv: "UPGRADE_PROXY", ...(legacy ? { mode: "proxy" } : {}) };
+      const profile = { ...f.profile, proxyEnv: "UPGRADE_PROXY" };
       writeFileSync(join(f.home, "profiles.json"), JSON.stringify({ profiles: [profile] }));
       writeFileSync(join(f.home, "secrets.env"), "UPGRADE_PROXY=http://upgrade-user:upgrade-password@proxy.test:8080\n");
       writeFileSync(join(f.home, `runtime/camofox-${UPSTREAM_VERSION}/plugins/local-profile/index.js`),
@@ -116,7 +105,6 @@ test("startup rejects a stale installed plugin before a proxied browser can laun
       expect(result.stderr).not.toContain("upgrade-password");
       expect(existsSync(join(f.idDir, "running.json"))).toBe(false);
     } finally { dispose(f); }
-  }
 });
 
 test("the supervisor rechecks installed plugin compatibility before spawning its server", async () => {
@@ -202,114 +190,6 @@ test("reused and unverified PIDs are never controlled or signalled", async () =>
   }
 });
 
-test("legacy services stop through authenticated HTTP without adopting their PIDs", async () => {
-  const calls: string[] = [];
-  let f: Fixture;
-  const instanceId = "legacy-plugin-instance";
-  const child = Bun.spawn([bun, "-e", "console.log('ready'); setInterval(() => {}, 1000)"], { stdout: "pipe", stderr: "pipe" });
-  await child.stdout.getReader().read();
-  const service = Bun.serve({ port: 0, fetch(req) {
-    expect(req.headers.get("authorization")).toBe("Bearer test-key");
-    calls.push(`${req.method} ${new URL(req.url).pathname}`);
-    if (req.method === "POST") {
-      writeFileSync(join(f.idDir, "status.json"), JSON.stringify({ profileId: "test", instanceId, phase: "stopped" }));
-      writeFileSync(join(f.idDir, "stopped.json"), JSON.stringify({ instanceId: "test-instance" }));
-      child.kill("SIGTERM");
-      return Response.json({ stopping: true });
-    }
-    return Response.json({ profileId: "test", instanceId, phase: "ready" });
-  } });
-  f = fixture(service.port!);
-  try {
-    legacyRecord(f, { pid: child.pid, serverPid: child.pid });
-    writeFileSync(join(f.idDir, "status.json"), JSON.stringify({ profileId: "test", instanceId, phase: "ready" }));
-    const before = readFileSync(join(f.idDir, "running.json"), "utf8");
-    const result = await run(f, "stop", "test");
-    expect(result.stderr).toBe("");
-    expect(result.code).toBe(0);
-    expect(JSON.parse(result.stdout).phase).toBe("stopped");
-    expect(calls).toEqual(["GET /local-profile/status", "POST /local-profile/stop"]);
-    expect(readFileSync(join(f.idDir, "running.json"), "utf8")).toBe(before);
-    const live = await runScript(f, `import { running } from ${JSON.stringify(f.runtime)}; console.log(Boolean(running('test')));`);
-    expect(live.stdout.trim()).toBe("false");
-    expect((await run(f, "stop", "test")).code).toBe(0);
-    expect(calls).toHaveLength(2);
-    expect((await run(f, "recover", "test")).code).toBe(0);
-    expect(existsSync(join(f.idDir, "running.json"))).toBe(false);
-  } finally {
-    if (processStart(child.pid)) child.kill("SIGKILL");
-    await child.exited;
-    service.stop(true);
-    dispose(f);
-  }
-});
-
-test("a legacy clean marker cannot conceal a live unverified server", async () => {
-  const f = fixture();
-  try {
-    legacyRecord(f);
-    writeFileSync(join(f.idDir, "stopped.json"), JSON.stringify({ instanceId: "test-instance" }));
-    expect(JSON.parse((await run(f, "status", "test")).stdout).phase).toBe("ownership_unknown");
-    expect((await run(f, "start", "test")).code).toBe(1);
-    expect((await run(f, "recover", "test")).code).toBe(1);
-  } finally { dispose(f); }
-});
-
-test("legacy stop rejects an unrelated or unauthenticated endpoint", async () => {
-  for (const response of [
-    { profileId: "another-profile", instanceId: "saved-instance" },
-    { profileId: "test", instanceId: "another-instance" },
-    { error: "Forbidden" },
-  ]) {
-    const calls: string[] = [];
-    const service = Bun.serve({ port: 0, fetch(req) {
-      calls.push(req.method);
-      return Response.json(response, { status: "error" in response ? 403 : 200 });
-    } });
-    const f = fixture(service.port!);
-    try {
-      legacyRecord(f);
-      writeFileSync(join(f.idDir, "status.json"), JSON.stringify({ profileId: "test", instanceId: "saved-instance", phase: "ready" }));
-      const before = readFileSync(join(f.idDir, "running.json"), "utf8");
-      expect((await run(f, "stop", "test")).code).toBe(1);
-      expect(calls).toEqual(["GET"]);
-      expect(readFileSync(join(f.idDir, "running.json"), "utf8")).toBe(before);
-    } finally { service.stop(true); dispose(f); }
-  }
-});
-
-test("legacy stop refuses changed configuration and missing instance evidence", async () => {
-  let calls = 0;
-  const service = Bun.serve({ port: 0, fetch() { calls++; return Response.json({}); } });
-  const f = fixture(service.port!);
-  try {
-    legacyRecord(f);
-    expect((await run(f, "stop", "test")).stderr).toContain("saved legacy service profile is missing");
-    writeFileSync(join(f.idDir, "status.json"), JSON.stringify({ profileId: "test", instanceId: "saved-instance" }));
-    writeFileSync(join(f.home, "profiles.json"), JSON.stringify({ maxActive: 2, profiles: [{ ...f.profile, storage: "native" }] }));
-    expect((await run(f, "stop", "test")).stderr).toContain("restore the legacy launch configuration");
-    expect(calls).toBe(0);
-  } finally { service.stop(true); dispose(f); }
-});
-
-test("legacy stop refuses a lifetime replaced during endpoint verification", async () => {
-  const calls: string[] = [];
-  let f: Fixture;
-  const service = Bun.serve({ port: 0, fetch(req) {
-    calls.push(req.method);
-    record(f, { instanceId: "replacement" });
-    return Response.json({ profileId: "test", instanceId: "saved-instance" });
-  } });
-  f = fixture(service.port!);
-  try {
-    legacyRecord(f);
-    writeFileSync(join(f.idDir, "status.json"), JSON.stringify({ profileId: "test", instanceId: "saved-instance" }));
-    expect((await run(f, "stop", "test")).stderr).toContain("legacy process record changed");
-    expect(calls).toEqual(["GET"]);
-    expect(JSON.parse(readFileSync(join(f.idDir, "running.json"), "utf8")).instanceId).toBe("replacement");
-  } finally { service.stop(true); dispose(f); }
-});
-
 test("a changed configuration port cannot redirect control to another service", async () => {
   let intendedCalls = 0;
   let unrelatedCalls = 0;
@@ -317,7 +197,7 @@ test("a changed configuration port cannot redirect control to another service", 
     port: 0,
     fetch() {
       intendedCalls++;
-      return Response.json({ checked: true, identityId: "test", phase: "ready" });
+      return Response.json({ checked: true, profileId: "test", phase: "ready" });
     },
   });
   const unrelated = Bun.serve({
@@ -329,12 +209,11 @@ test("a changed configuration port cannot redirect control to another service", 
   });
   const f = fixture(intended.port!);
   const client = new Client({ name: "port-test", version: "1" });
-  const legacyClient = new Client({ name: "legacy-port-test", version: "1" });
   try {
     record(f);
     writeFileSync(
       join(f.home, "profiles.json"),
-      JSON.stringify({ maxActive: 2, profiles: [{ ...f.profile, port: unrelated.port }] }),
+      JSON.stringify({ profiles: [{ ...f.profile, port: unrelated.port }] }),
     );
     const result = await run(f, "recheck", "test");
     expect(result.code).toBe(0);
@@ -361,27 +240,12 @@ test("a changed configuration port cannot redirect control to another service", 
     expect((await client.callTool({ name: "profile_release", arguments: {} })).isError).not.toBe(true);
     expect(intendedCalls).toBe(4);
     expect(unrelatedCalls).toBe(0);
-    await legacyClient.connect(new StdioClientTransport({
-      command: bun,
-      args: ["--no-env-file", f.cli, "mcp", "--identity", "test"],
-      env: { ...process.env, STELZ_HOME: f.home } as Record<string, string>,
-    }));
-    const legacyList = (await legacyClient.listTools()).tools.map(tool => tool.name);
-    expect(legacyList).toContain("profile_acquire");
-    expect(legacyList.some(name => name.startsWith("identity_"))).toBe(false);
-    const legacyStatus = await legacyClient.callTool({ name: "identity_status", arguments: {} });
-    expect(legacyStatus.isError).not.toBe(true);
-    const payload = JSON.parse((legacyStatus.content as { text: string }[])[0]!.text);
-    expect(payload.profileId).toBe("test");
-    expect(payload.identityId).toBe("test");
-    for (const action of ["acquire", "pause", "resume", "recheck", "release"])
-      expect((await legacyClient.callTool({ name: `identity_${action}`, arguments: {} })).isError).not.toBe(true);
-    expect(intendedCalls).toBe(10);
+    expect((await run(f, "mcp", "--profile", "test", "--identity", "test")).code).toBe(1);
+    expect(intendedCalls).toBe(4);
     expect(unrelatedCalls).toBe(0);
     expect((await run(f, "mcp", "--profile", "test", "--identity", "test")).stderr).toContain("stelz mcp --profile ID");
   } finally {
     await client.close();
-    await legacyClient.close();
     intended.stop(true);
     unrelated.stop(true);
     dispose(f);
@@ -409,9 +273,9 @@ test("recovery archives only safe records and keeps profile data", async () => {
     expect(existsSync(join(f.idDir, "running.json"))).toBe(false);
     writeFileSync(
       join(f.idDir, "running.json"),
-      JSON.stringify({ pid: dead, instanceId: "legacy", configurationHash: "" }),
+      JSON.stringify({ pid: dead, instanceId: "invalid", configurationHash: "" }),
     );
-    expect((await run(f, "recover", "test")).stderr).toContain("does not identify its server");
+    expect((await run(f, "recover", "test")).stderr).toContain("invalid process record");
     expect(existsSync(join(f.idDir, "running.json"))).toBe(true);
     writeFileSync(join(f.idDir, "running.json"), "null");
     expect((await run(f, "recover", "test")).stderr).toContain("invalid process record");

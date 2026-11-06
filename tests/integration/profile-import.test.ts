@@ -11,13 +11,13 @@ const sha = (value: string | Buffer) => createHash("sha256").update(value).diges
 function privateFile(path: string, text: string) { mkdirSync(dirname(path), { recursive: true, mode: 0o700 }); writeFileSync(path, text, { mode: 0o600 }); }
 function fixture(profiles: PortableProfile[] = [
   { id: "first", name: "First", storage: "native", typingMode: "keyboard", proxy: { url: "http://import-user:import-password@proxy.test:8080" }, expectedIp: "198.51.100.7" },
-  { id: "second", storage: "checkpoint", proxy: {}, expectedIp: "" },
+  { id: "second", storage: "native", proxy: {}, expectedIp: "" },
 ]) {
   const home = mkdtempSync(join(tmpdir(), "stelz-import-")); homes.push(home);
   const stage = join(home, "upload"), browser = join(home, "browser"), engine = "fixture executable";
   mkdirSync(join(home, "profiles"), { mode: 0o700 }); mkdirSync(stage, { mode: 0o700 });
   privateFile(browser, engine);
-  privateFile(join(home, "profiles.json"), JSON.stringify({ maxActive: 1, metadata: "keep", profiles: [
+  privateFile(join(home, "profiles.json"), JSON.stringify({ profiles: [
     { id: "existing", name: "Existing", port: 19471, storage: "native", proxyEnv: "EXISTING_PROXY" },
   ] }, null, 2) + "\n");
   privateFile(join(home, "secrets.env"), "# keep this comment\nEXISTING_PROXY=http://existing.test:8080\nOTHER='line one\nline two'\n");
@@ -35,11 +35,10 @@ function fixture(profiles: PortableProfile[] = [
     privateFile(join(stage, path), text);
     manifest.files.push({ path, size: Buffer.byteLength(text), sha256: sha(text) });
   };
-  for (const [index, p] of profiles.entries()) {
+  for (const p of profiles) {
     addDirectory(`profiles/${p.id}`);
-    addFile(p.id, "fingerprint.json", JSON.stringify({ version: index % 2 + 1, engineSha256: manifest.source.engineSha256, config: { "navigator.userAgent": "fixture browser" } }));
-    if (p.storage === "native") { addFile(p.id, "native-profile.json", '{"version":1}'); addFile(p.id, "browser-data/session", `saved ${p.id}`); }
-    else addFile(p.id, "storage-state.json", '{"cookies":[],"origins":[{"origin":"https://site.test","localStorage":[]}]}');
+    addFile(p.id, "fingerprint.json", JSON.stringify({ version: 2, engineSha256: manifest.source.engineSha256, config: { "navigator.userAgent": "fixture browser" } }));
+    addFile(p.id, "native-profile.json", '{"version":1}'); addFile(p.id, "browser-data/session", `saved ${p.id}`);
     addFile(p.id, "uploads/document.txt", `upload ${p.id}`);
   }
   const persist = () => privateFile(join(home, "manifest.json"), JSON.stringify(manifest)); persist();
@@ -80,7 +79,7 @@ function replaceArchiveFile(f: Fixture, id: string, relative: string, text: stri
 
 test("preview reserves the complete batch, copies catalog and disk conflicts, and bounds IDs and names", async () => {
   const longId = "a".repeat(64), f = fixture([
-    { id: "existing", name: "Workspace", storage: "native" }, { id: "existing-copy", storage: "checkpoint" },
+    { id: "existing", name: "Workspace", storage: "native" }, { id: "existing-copy", storage: "native" },
     { id: longId, name: "n".repeat(80), storage: "native" },
   ]);
   mkdirSync(join(f.home, "profiles/existing-copy-2")); mkdirSync(join(f.home, "profiles", longId));
@@ -96,14 +95,14 @@ test("preview reserves the complete batch, copies catalog and disk conflicts, an
   expect(readFileSync(join(f.home, "profiles/existing/browser-data/session"), "utf8")).toBe("existing session");
 });
 
-test("batch import remaps checkpoints, isolates credentials, keeps blocked references, and imports effective typing", async () => {
+test("batch native import isolates credentials, keeps blocked references, and imports effective typing", async () => {
   const f = fixture(), before = readFileSync(join(f.home, "secrets.env"), "utf8");
   privateFile(join(f.home, "profiles/stray/running.json"), JSON.stringify({ port: 9377 }));
   const result = await run(f, "return { preview: await preview(), result: await commit() };");
   expect(result.ok).toBe(true); expect(result.value.preview.profiles[0].proxyDisplay).toBe("http://proxy.test:8080");
   expect(JSON.stringify(result.value.preview)).not.toContain("import-password");
   const saved = catalog(f), [existing, first, second] = saved.profiles;
-  expect(saved).toMatchObject({ metadata: "keep", maxActive: 1 });
+  expect(Object.keys(saved)).toEqual(["profiles"]);
   expect(existing.proxyEnv).toBe("EXISTING_PROXY"); expect(first).toMatchObject({ id: "first", typingMode: "keyboard", storage: "native" });
   expect(first.port).not.toBe(9377); expect(new Set(saved.profiles.map((p: { port: number }) => p.port)).size).toBe(3);
   const text = readFileSync(join(f.home, "secrets.env"), "utf8"), values = parseEnv(text);
@@ -111,8 +110,7 @@ test("batch import remaps checkpoints, isolates credentials, keeps blocked refer
   expect(values[first.expectedIPEnv]).toBe("198.51.100.7"); expect(second.proxyEnv).toMatch(/^STELZ_[A-F\d]+_PROXY_URL$/);
   expect(second.expectedIPEnv).toMatch(/^STELZ_[A-F\d]+_EXPECTED_IP$/); expect(values[second.proxyEnv]).toBeUndefined();
   expect(new Set([first.proxyEnv, first.expectedIPEnv, second.proxyEnv, second.expectedIPEnv]).size).toBe(4);
-  const checkpoint = join(f.home, "profiles/second/storage", sha("second").slice(0, 32), "storage-state.json");
-  expect(readFileSync(checkpoint, "utf8")).toContain("https://site.test"); expect(existsSync(join(f.home, "profiles/second/storage-state.json"))).toBe(false);
+  expect(readFileSync(join(f.home, "profiles/second/browser-data/session"), "utf8")).toContain("saved second");
   for (const id of ["first", "second"]) for (const name of ["running.json", "status.json", "access-key", "server.log", "supervisor.log"])
     expect(existsSync(join(f.home, "profiles", id, name))).toBe(false);
   const blocked = await run(f, "return config.proxyEnvironment(config.profile('second'));");
@@ -134,7 +132,7 @@ test("stale catalog revisions and newly occupied destinations reject the complet
 
 test("compatibility reports global and individual issues separately and permits a valid subset", async () => {
   const f = fixture();
-  f.addFile("second", "native-profile.json", '{"version":1}');
+  replaceArchiveFile(f, "second", "native-profile.json", '{"version":9}');
   const result = await run(f, `const p = await preview(); const selected = p.profiles[0];
     return { preview: p, result: await api.commitProfileImport({ manifest, stagingDirectory, revision: p.revision, profiles: [{sourceId:selected.sourceId,id:selected.id}] }) };`);
   expect(result.ok).toBe(true); expect(result.value.preview.compatible).toBe(true);
@@ -144,42 +142,22 @@ test("compatibility reports global and individual issues separately and permits 
   expect(incompatible.ok).toBe(true); expect(incompatible.value.compatible).toBe(false); expect(incompatible.value.issues).toHaveLength(3);
 });
 
-test("unstarted profiles need no fingerprint and checkpoint origins are optional", async () => {
-  const f = fixture([{ id: "new-native", storage: "native" }, { id: "new-checkpoint", storage: "checkpoint" }]);
-  for (const id of ["new-native", "new-checkpoint"]) {
-    rmSync(join(f.stage, "profiles", id), { recursive: true }); mkdirSync(join(f.stage, "profiles", id));
-  }
-  f.manifest.files = []; f.manifest.directories = ["profiles", "profiles/new-native", "profiles/new-checkpoint"];
-  expect(await run(f, "return commit();")).toMatchObject({ ok: true });
-  const g = fixture([{ id: "checkpoint", storage: "checkpoint" }]);
-  const path = "profiles/checkpoint/storage-state.json", text = '{"cookies":[]}';
-  privateFile(join(g.stage, path), text); Object.assign(g.manifest.files.find(file => file.path === path)!, { size: text.length, sha256: sha(text) });
-  const result = await run(g, "return { preview: await preview(), result: await commit() };");
-  expect(result.ok).toBe(true); expect(result.value.preview.profiles[0].issues).toEqual([]);
-});
-
-for (const checkpoint of ['[]', '{"cookies":{}}', '{"origins":[]}', '{"cookies":[],"origins":null}', '{"cookies":[]} trailing', '{"cookies":[}', '\ufeff{"cookies":[]}', '\u00a0{"cookies":[]}'])
-  test("streaming validation rejects invalid checkpoint syntax or root fields", async () => {
-    const f = fixture([{ id: "checkpoint", storage: "checkpoint" }]);
-    replaceArchiveFile(f, "checkpoint", "storage-state.json", checkpoint);
+for (const marker of ['[]', '{"cookies":{}}', '{"origins":[]}', '{"cookies":[],"origins":null}', '{"cookies":[]} trailing', '{"cookies":[}', '\ufeff{"cookies":[]}', '\u00a0{"cookies":[]}'])
+  test("native marker validation rejects invalid JSON", async () => {
+    const f = fixture([{ id: "native", storage: "native" }]);
+    replaceArchiveFile(f, "native", "native-profile.json", marker);
     const result = await run(f, "return preview();");
     expect(result.ok).toBe(true); expect(result.value.compatible).toBe(true);
-    expect(result.value.profiles[0].issues).toContain("The storage checkpoint is invalid.");
+    expect(result.value.profiles[0].issues.join(" ")).toContain("native marker is invalid");
     expect(await run(f, "return commit();")).toMatchObject({ ok: false, status: 409 });
   });
 
-test("checkpoint validation streams large values and bounded metadata readers report safe issues", async () => {
-  const f = fixture([{ id: "checkpoint", storage: "checkpoint" }]);
-  replaceArchiveFile(f, "checkpoint", "storage-state.json", '{"cookies":[],"origins":[{"data":"' + "x".repeat(4 * 1024 * 1024) + '"}]}');
-  expect(await run(f, "return api.validCheckpointFile(join(stagingDirectory, 'profiles/checkpoint/storage-state.json'));")).toEqual({ ok: true, value: true });
-  replaceArchiveFile(f, "checkpoint", "fingerprint.json", JSON.stringify({ version: 2, engineSha256: f.manifest.source.engineSha256,
+test("native fingerprint and marker readers report safe issues", async () => {
+  const f = fixture([{ id: "native", storage: "native" }]);
+  replaceArchiveFile(f, "native", "fingerprint.json", JSON.stringify({ version: 2, engineSha256: f.manifest.source.engineSha256,
     config: { "navigator.userAgent": "fixture browser", oversized: "x".repeat(16 * 1024 * 1024) } }));
   const pin = await run(f, "return preview();");
   expect(pin.value.profiles[0].issues.join(" ")).toContain("16 MiB");
-  const g = fixture([{ id: "native", storage: "native" }]);
-  replaceArchiveFile(g, "native", "native-profile.json", JSON.stringify({ version: 1, oversized: "x".repeat(64 * 1024) }));
-  const marker = await run(g, "return preview();");
-  expect(marker.value.profiles[0].issues.join(" ")).toContain("64 KiB");
 });
 
 for (const value of ["http://private-user:private-password@host.test/bad", "socks5://user:password@host.test:1080"]) test("invalid archive network data returns a safe error", async () => {

@@ -7,7 +7,6 @@ import {
 } from "../profiles/config.ts";
 import { doctor, logs, reportStatus, status } from "../runtime/runtime.ts";
 import { isTypingMode } from "../browser/typing.ts";
-import { hasProxy } from "../profiles/network-compat.ts";
 import {
   NetworkTransactionError, networkTransactionSecretValues, pendingNetworkTransaction,
 } from "../profiles/network-transaction.ts";
@@ -163,7 +162,7 @@ function referencedElsewhere(config: Settings, p: Profile, name?: string) {
 }
 function network(config: Settings, p: Profile, secrets: ReturnType<typeof readSecrets>): UiNetwork {
   const effective = (name?: string) => name ? process.env[name] ?? secrets.values[name] : undefined;
-  const configured = hasProxy(p), proxyEnv = configured ? p.proxyEnv : undefined;
+  const configured = !!p.proxyEnv, proxyEnv = configured ? p.proxyEnv : undefined;
   const proxy = effective(proxyEnv), expected = effective(p.expectedIPEnv);
   let proxyDisplay: string | null = configured ? "Proxy unavailable" : null;
   let proxyConfigured = false;
@@ -193,7 +192,7 @@ function configurationError(p: Profile, secrets: ReturnType<typeof readSecrets>)
   if (catalog) return catalog;
   const pending = pendingNetworkTransaction();
   if (pending && (!pending.profileId || pending.profileId === p.id)) return pending.message;
-  if (hasProxy(p)) {
+  if (p.proxyEnv) {
     const proxy = p.proxyEnv && (process.env[p.proxyEnv] ?? secrets.values[p.proxyEnv]);
     if (!proxy) return "Proxy URL is missing. Configure a proxy before starting this profile.";
     try { validateProxy(proxy); } catch { return "Proxy URL is invalid. Use HTTP(S) or unauthenticated SOCKS5."; }
@@ -216,7 +215,7 @@ function profile(config: Settings, p: Profile, raw: Data, secrets: ReturnType<ty
   const windowsAvailable = ["ready", "paused", "verification_failed"].includes(currentPhase) && !raw.controlError && windows.available === true;
   const checkedAt = typeof raw.checkedAt === "string" && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,3})?Z$/.test(raw.checkedAt) && Number.isFinite(Date.parse(raw.checkedAt)) ? new Date(raw.checkedAt).toISOString() : null;
   return {
-    id: p.id, name: p.name === undefined ? p.id : redact(p.name), port: p.port, storage: p.storage || "checkpoint", phase: currentPhase,
+    id: p.id, name: p.name === undefined ? p.id : redact(p.name), port: p.port, storage: "native", phase: currentPhase,
     instanceId: typeof raw.instanceId === "string" && /^[\w.-]{1,128}$/.test(raw.instanceId) ? text(raw.instanceId, 128) : null,
     exitIp: ip(raw.exitIp) ? raw.exitIp : null,
     checkedAt, fixedIpVerified: raw.fixedIpVerified === true,

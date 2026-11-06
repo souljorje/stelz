@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import {
   closeSync, constants, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync,
   readFileSync, readdirSync, renameSync, rmdirSync, unlinkSync, writeFileSync,
@@ -96,15 +96,12 @@ function portablePath(path: unknown): path is string {
   return typeof path === "string" && !path.includes("\\") && !/[\x00-\x1f\x7f]/.test(path) &&
     (path === "" || path.split("/").every(part => !!part && part !== "." && part !== ".."));
 }
-function allowedPath(id: string, entry: ImportPath) {
+function allowedPath(entry: ImportPath) {
   if (!entry.path) return entry.kind === "directory";
   const [root, ...rest] = entry.path.split("/");
   if (["browser-data", "cookies", "uploads"].includes(root!)) return rest.length > 0 || entry.kind === "directory";
   if (["fingerprint.json", "native-profile.json"].includes(root!)) return !rest.length && entry.kind === "file";
-  const hash = createHash("sha256").update(id).digest("hex").slice(0, 32);
-  return root === "storage" && (rest.length === 0 && entry.kind === "directory" ||
-    rest[0] === hash && (rest.length === 1 && entry.kind === "directory" ||
-      rest.length === 2 && rest[1] === "storage-state.json" && entry.kind === "file"));
+  return false;
 }
 function validate(value: unknown): Transaction {
   if (!keys(value, ["version", "token", "direction", "stage", "profiles", "before", "after"]) || value.version !== 1 ||
@@ -120,7 +117,7 @@ function validate(value: unknown): Transaction {
     const planned = new Map<string, ImportPath>();
     for (const entry of p.paths) {
       if (!keys(entry, ["path", "kind"]) || !portablePath(entry.path) || !["file", "directory"].includes(entry.kind) ||
-          !allowedPath(p.id, entry) || planned.has(entry.path)) fail();
+          !allowedPath(entry) || planned.has(entry.path)) fail();
       planned.set(entry.path, entry);
     }
     if (planned.get("")?.kind !== "directory") fail();
@@ -130,7 +127,7 @@ function validate(value: unknown): Transaction {
     const paths = new Map<string, Entry>();
     for (const e of p.tree) {
       if (!object(e) || !validIdentity(e) || !portablePath(e.path) || paths.has(e.path) ||
-          !["file", "directory"].includes(e.kind) || !allowedPath(p.id, e) ||
+          !["file", "directory"].includes(e.kind) || !allowedPath(e) ||
           !keys(e, e.kind === "file" ? ["path", "kind", "dev", "ino", "size", "modified"] : ["path", "kind", "dev", "ino"]) ||
           e.kind === "file" && (typeof e.size !== "string" || !/^\d+$/.test(e.size) ||
             typeof e.modified !== "string" || !/^-?\d+$/.test(e.modified))) fail();
@@ -147,7 +144,7 @@ function validate(value: unknown): Transaction {
   const before = validateSettings(JSON.parse(t.before.config)), after = validateSettings(JSON.parse(t.after.config));
   const added = after.profiles.slice(before.profiles.length);
   if (!isDeepStrictEqual(before, { ...after, profiles: after.profiles.slice(0, before.profiles.length) }) ||
-      !isDeepStrictEqual(added.map(p => p.id), [...ids]) || added.some(p => p.storage !== "native" && p.storage !== "checkpoint" ||
+      !isDeepStrictEqual(added.map(p => p.id), [...ids]) || added.some(p => p.storage !== "native" ||
         Object.keys(p).some(key => !["id", "name", "port", "storage", "typingMode", "proxyEnv", "expectedIPEnv"].includes(key)))) fail();
   const old = parseEnv(t.before.secrets || ""), next = parseEnv(t.after.secrets || ""), references = new Set<string>();
   const oldReferences = new Set(before.profiles.flatMap(p => [p.proxyEnv, p.expectedIPEnv]));

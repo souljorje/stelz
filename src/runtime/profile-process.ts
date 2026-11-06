@@ -1,9 +1,7 @@
-import { closeSync, constants, fstatSync, ftruncateSync, lstatSync, openSync, readFileSync, readSync, writeSync } from "node:fs";
+import { closeSync, constants, fstatSync, ftruncateSync, lstatSync, openSync, readFileSync, writeSync } from "node:fs";
 import { join } from "node:path";
 import { dlopen, FFIType, ptr } from "bun:ffi";
 import { alive, dir, json, type Profile } from "../profiles/config.ts";
-import { normalizeProfileId } from "../profiles/profile-compat.ts";
-import { withoutLegacyConnectionMode } from "../profiles/network-compat.ts";
 
 // Keep the lock inode in place. The kernel releases flock when a process dies,
 // so competing stale-lock recoveries cannot unlink each other's new lock.
@@ -29,7 +27,6 @@ const macSysctl =
       })
     : undefined;
 
-type Lock = { pid: number; token: string; version?: number };
 export async function lock<T>(path: string, action: () => Promise<T>, timeout = 45000): Promise<T> {
   const token = crypto.randomUUID(),
     end = Date.now() + timeout;
@@ -42,7 +39,7 @@ export async function lock<T>(path: string, action: () => Promise<T>, timeout = 
     for (;;) {
       if (system.symbols.flock(fd, 2 | 4) === 0) {
         held = true;
-        // Refuse an unlinked/replaced inode, including one left by an older client.
+        // Refuse an unlinked or replaced inode.
         let same = false;
         try {
           const a = fstatSync(fd);
@@ -51,26 +48,9 @@ export async function lock<T>(path: string, action: () => Promise<T>, timeout = 
             a.isFile() && b.isFile() && a.nlink === 1 && b.nlink === 1 && a.dev === b.dev && a.ino === b.ino;
         } catch {}
         if (!same) throw Error(`Lock file changed during acquisition: ${path}`);
-        let previous: Lock | undefined;
-        try {
-          const buffer = Buffer.alloc(4096);
-          const length = readSync(fd, buffer, 0, buffer.length, 0);
-          previous = JSON.parse(buffer.subarray(0, length).toString("utf8")) as Lock;
-        } catch {}
-        // Old versions did not use flock. Do not run alongside a live old owner.
-        if (
-          !previous ||
-          previous.version === 2 ||
-          !Number.isInteger(previous.pid) ||
-          previous.pid <= 1 ||
-          !alive(previous.pid)
-        ) {
-          ftruncateSync(fd, 0);
-          writeSync(fd, JSON.stringify({ version: 2, pid: process.pid, token }));
-          break;
-        }
-        system.symbols.flock(fd, 8);
-        held = false;
+        ftruncateSync(fd, 0);
+        writeSync(fd, JSON.stringify({ version: 2, pid: process.pid, token }));
+        break;
       }
       if (Date.now() >= end) throw Error("Profile operation is busy. Wait for the current action.");
       await Bun.sleep(50);
@@ -134,7 +114,7 @@ export type Running = {
   instanceId: string;
   configurationHash: string;
   port?: number;
-  version?: 2;
+  version: 2;
   supervisorStart?: string;
   serverStart?: string;
   serverState?: "not-started" | "started";
@@ -159,6 +139,7 @@ export function observe(id: string, directory = dir(id)) {
       record.pid === 1 ||
       typeof record.instanceId !== "string" ||
       !record.instanceId ||
+      record.version !== 2 ||
       (record.serverPid !== undefined &&
         (!Number.isSafeInteger(record.serverPid) || record.serverPid <= 1)) ||
       (record.port !== undefined &&
@@ -178,7 +159,7 @@ export function observe(id: string, directory = dir(id)) {
 }
 export function assertStoppedProfile(id: string, directory = dir(id)) {
   const o = observe(id, directory);
-  if (o.record && (o.record.version !== undefined && o.record.version !== 2 || !o.clean ||
+  if (o.record && (!o.clean ||
       [o.supervisor, o.server].some(value => value === "owned" || value === "unverified")))
     throw Error("Stop the profile cleanly before deleting it or changing its configuration.");
 }
@@ -211,7 +192,7 @@ export function isRuntimePhase(value: unknown): value is RuntimePhase {
 }
 export function observeStatus(p: Profile) {
   const id = p.id, o = observe(id);
-  const stored = normalizeProfileId(json<Record<string, unknown>>(join(dir(id), "status.json")) || {});
+  const stored = json<Record<string, unknown>>(join(dir(id), "status.json")) || {};
   let phase: RuntimePhase =
     stored?.phase === undefined ? "starting" : isRuntimePhase(stored.phase) ? stored.phase : "unclean";
   if (!o.record) phase = "stopped";
@@ -222,7 +203,7 @@ export function observeStatus(p: Profile) {
     phase = o.clean && o.server !== "owned" && o.supervisor !== "owned" ? "stopped" : "unclean";
   return {
     profileId: id,
-    ...withoutLegacyConnectionMode(stored),
+    ...stored,
     phase,
     ...(o.record
       ? {

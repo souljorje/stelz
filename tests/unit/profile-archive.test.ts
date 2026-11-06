@@ -29,12 +29,12 @@ function metadata(): ArchiveMetadata {
   return {
     format: "stelz-profiles", version: 1, createdAt: "2026-11-05T08:00:00.000Z",
     source: { stelzVersion: "0.2.1", platform: "darwin", arch: "arm64", engineSha256: "e".repeat(64) },
-    profiles: [{ id: "source", name: "Saved sessions", storage: "checkpoint", typingMode: "instant", expectedIp: "" }],
+    profiles: [{ id: "source", name: "Saved sessions", storage: "native", typingMode: "instant", expectedIp: "" }],
   };
 }
-const checkpoint = JSON.stringify({ cookies: [{ name: "session", value: "private-cookie" }], origins: [] });
-const statePath = "profiles/source/storage-state.json";
-function manifest(data: string | Buffer = checkpoint): ProfileArchiveManifest {
+const payload = JSON.stringify({ cookies: [{ name: "session", value: "private-cookie" }], origins: [] });
+const statePath = "profiles/source/browser-data/session.sqlite";
+function manifest(data: string | Buffer = payload): ProfileArchiveManifest {
   return { ...metadata(), directories: ["profiles", "profiles/source"], files: [{ path: statePath, size: Buffer.byteLength(data), sha256: sha256(data) }] };
 }
 
@@ -85,7 +85,7 @@ function rawZip(entries: RawEntry[]) {
   end.writeUInt32LE(directory.length, 12); end.writeUInt32LE(offset, 16);
   return Buffer.concat([...locals, directory, end]);
 }
-function entries(value: unknown = manifest(), data: string | Buffer = checkpoint): RawEntry[] {
+function entries(value: unknown = manifest(), data: string | Buffer = payload): RawEntry[] {
   return [
     { name: "manifest.json", data: JSON.stringify(value), method: 8 },
     { name: "profiles/" }, { name: "profiles/source/" }, { name: statePath, data, method: 8 },
@@ -116,7 +116,7 @@ function multiSnapshot() {
   const meta = metadata();
   meta.profiles.push({ id: "native-one", name: "Native browser", storage: "native", typingMode: "keyboard", proxy: { url: "https://user:secret@proxy.example:8443" } });
   const files = new Map<string, string | Buffer>([
-    [statePath, checkpoint], ["profiles/source/fingerprint.json", '{"version":1,"opaque":true}'],
+    [statePath, payload], ["profiles/source/fingerprint.json", '{"version":2,"opaque":true}'], ["profiles/source/native-profile.json", '{"version":1}'],
     ["profiles/source/cookies/input.json", '[{"name":"reusable","value":"private"}]'],
     ["profiles/native-one/fingerprint.json", '{"version":2,"opaque":true}'],
     ["profiles/native-one/native-profile.json", '{"version":1}'],
@@ -167,10 +167,18 @@ test("empty native browser-data survives a round trip", async () => {
   expect(read).toEqual(written); expect(readdirSync(join(stagingDirectory, "profiles/empty-native/browser-data"))).toEqual([]);
 });
 
+test("never-started native profile survives an empty round trip", async () => {
+  const root = workspace(), snapshotDirectory = join(root, "snapshot"), outputFile = join(root, "empty-profile.zip"), meta = metadata();
+  meta.profiles = [{ id: "never-started", storage: "native" }];
+  mkdirSync(join(snapshotDirectory, "profiles/never-started"), { recursive: true, mode: 0o700 });
+  const written = await writeProfileArchive({ snapshotDirectory, metadata: meta, outputFile });
+  expect(await readProfileArchive({ archiveFile: outputFile, stagingDirectory: join(root, "staging") })).toEqual(written);
+});
+
 test("profile count is bounded by archive entries without a separate profile ceiling", async () => {
   await limits({ STELZ_TRANSFER_ENTRIES: "300" }, async () => {
     const root = workspace(), snapshotDirectory = join(root, "snapshot"), outputFile = join(root, "many.zip"), meta = metadata();
-    meta.profiles = Array.from({ length: 129 }, (_, index) => ({ id: `profile-${index}`, storage: "checkpoint" as const }));
+    meta.profiles = Array.from({ length: 129 }, (_, index) => ({ id: `profile-${index}`, storage: "native" as const }));
     for (const profile of meta.profiles) mkdirSync(join(snapshotDirectory, "profiles", profile.id), { recursive: true, mode: 0o700 });
     const written = await writeProfileArchive({ snapshotDirectory, metadata: meta, outputFile });
     const read = await readProfileArchive({ archiveFile: outputFile, stagingDirectory: join(root, "staging") });
@@ -182,7 +190,7 @@ test("reader accepts forced ZIP64 records and streaming ZIP64 data descriptors",
   const root = workspace(), archiveFile = join(root, "zip64.zip"), value = manifest(), zip = new ZipFile();
   const copying = pipeline(zip.outputStream, createWriteStream(archiveFile, { flags: "wx", mode: 0o600 }));
   for (const path of value.directories) zip.addEmptyDirectory(path, { mode: 0o40700 });
-  zip.addReadStreamLazy(statePath, { size: Buffer.byteLength(checkpoint), forceZip64Format: true, mode: 0o100600 }, callback => callback(null, Readable.from([Buffer.from(checkpoint)])));
+  zip.addReadStreamLazy(statePath, { size: Buffer.byteLength(payload), forceZip64Format: true, mode: 0o100600 }, callback => callback(null, Readable.from([Buffer.from(payload)])));
   zip.addBuffer(Buffer.from(JSON.stringify(value)), "manifest.json", { mode: 0o100600 });
   zip.end({ forceZip64Format: true, comment: "" }); await copying;
   expect(readFileSync(archiveFile).includes(Buffer.from([0x50, 0x4b, 0x06, 0x06]))).toBe(true);
@@ -257,10 +265,9 @@ const malformedManifests: [string, (value: ProfileArchiveManifest) => void][] = 
   ["uppercase profile ID", value => { value.profiles[0]!.id = "Source"; }],
   ["reserved profile ID", value => { value.profiles[0]!.id = "all"; }],
   ["duplicate profile IDs", value => { value.profiles.push({ ...value.profiles[0]! }); }],
-  ["orphan profile metadata", value => { value.profiles.push({ id: "orphan", storage: "checkpoint" }); }],
+  ["orphan profile metadata", value => { value.profiles.push({ id: "orphan", storage: "native" }); }],
   ["missing profiles", value => { value.profiles = []; }],
   ["unknown storage mode", value => { Object.assign(value.profiles[0]!, { storage: "unknown" }); }],
-  ["native storage checkpoint", value => { value.profiles[0]!.storage = "native"; }],
   ["unknown profile field", value => { Object.assign(value.profiles[0]!, { accessKey: "do-not-echo-this-secret" }); }],
   ["invalid typing mode", value => { Object.assign(value.profiles[0]!, { typingMode: "paced" }); }],
   ["invalid expected IP", value => { value.profiles[0]!.expectedIp = "proxy.example"; }],
@@ -316,12 +323,12 @@ test("reader verifies ZIP CRC even when the manifest hash is valid", async () =>
 
 for (const [name, mutate] of [
   ["local file name", (entry: RawEntry) => { entry.localName = "profiles/source/other.json"; }],
-  ["local expanded size", (entry: RawEntry) => { entry.localSize = Buffer.byteLength(checkpoint) + 1; }],
+  ["local expanded size", (entry: RawEntry) => { entry.localSize = Buffer.byteLength(payload) + 1; }],
   ["local compressed size", (entry: RawEntry) => { entry.localCompressedSize = 1; }],
   ["local encryption flag", (entry: RawEntry) => { entry.localFlags = 0x801; }],
-  ["actual expanded size too small", (entry: RawEntry) => { entry.size = Buffer.byteLength(checkpoint) + 1; }],
-  ["actual expanded size too large", (entry: RawEntry) => { entry.size = Buffer.byteLength(checkpoint) - 1; }],
-  ["compressed trailing bytes", (entry: RawEntry) => { entry.compressedSize = deflateRawSync(Buffer.from(checkpoint)).length + 1; }],
+  ["actual expanded size too small", (entry: RawEntry) => { entry.size = Buffer.byteLength(payload) + 1; }],
+  ["actual expanded size too large", (entry: RawEntry) => { entry.size = Buffer.byteLength(payload) - 1; }],
+  ["compressed trailing bytes", (entry: RawEntry) => { entry.compressedSize = deflateRawSync(Buffer.from(payload)).length + 1; }],
   ["invalid data descriptor", (entry: RawEntry) => { entry.flags = 0x808; entry.descriptor = Buffer.alloc(16); }],
 ] as const) test(`reader rejects inconsistent ZIP ${name}`, async () => {
   const value = entries(); mutate(value.at(-1)!); await rejectArchive(rawZip(value), 400);
@@ -369,7 +376,7 @@ test("writer abort during streaming removes only its partial output", async () =
     if (progress.bytes > 0) { observed = true; controller.abort("do-not-echo-this-secret"); }
   } })).rejects.toThrow("cancelled");
   expect(observed).toBe(true); expect(existsSync(fixture.outputFile)).toBe(false);
-  expect(readFileSync(join(fixture.snapshotDirectory, statePath), "utf8")).toBe(checkpoint);
+  expect(readFileSync(join(fixture.snapshotDirectory, statePath), "utf8")).toBe(payload);
 });
 test("reader abort during streaming empties an existing staging root", async () => {
   const fixture = multiSnapshot(); await writeProfileArchive(fixture);

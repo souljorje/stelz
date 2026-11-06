@@ -27,10 +27,9 @@ function field(tag = "input", type = "text") {
 test("typing defaults to auto and rejects invalid settings", () => {
   expect(parseTypingMode()).toBe("auto");
   expect(parseTypingMode("auto")).toBe("auto");
-  expect(parseTypingMode("paced")).toBe("auto");
   expect(parseTypingMode("keyboard")).toBe("keyboard");
   expect(parseTypingMode("instant")).toBe("instant");
-  for (const value of ["", "fast", "PACED"]) expect(() => parseTypingMode(value)).toThrow("STELZ_TYPING_MODE");
+  for (const value of ["", "fast", "paced", "PACED"]) expect(() => parseTypingMode(value)).toThrow("STELZ_TYPING_MODE");
 });
 
 test("paced input replaces existing text and preserves Unicode graphemes", async () => {

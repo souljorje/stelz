@@ -47,5 +47,5 @@ export function assertBundledPatches(upstream: string, launcher = join(upstream,
   check(join(upstream, "server.js"), "const context = await b.newContext(contextOptions);",
     "const context = await (await import('./plugins/local-profile/index.js')).claimProfileContext(b, contextOptions);");
   check(join(upstream, "plugins/persistence/index.js"), "export async function register(app, ctx, pluginConfig = {}) {",
-    "export async function register(app, ctx, pluginConfig = {}) {\n  if (process.env.STELZ_STORAGE_MODE === 'native') return; // Native Firefox profile owns storage.");
+    "export async function register(app, ctx, pluginConfig = {}) {\n  return; // Native Firefox profile owns storage.");
 }

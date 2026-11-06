@@ -9,8 +9,8 @@ function fixture() {
   const home = mkdtempSync(join(tmpdir(), "stelz-configuration-"));
   homes.push(home);
   mkdirSync(join(home, "profiles/test"), { recursive: true });
-  writeFileSync(join(home, "profiles.json"), JSON.stringify({ maxActive: 2, profiles: [
-    { id: "test", port: 19471, mode: "direct", storage: "native", proxyEnv: "DOMAIN_PROXY", expectedIPEnv: "DOMAIN_IP" },
+  writeFileSync(join(home, "profiles.json"), JSON.stringify({ profiles: [
+    { id: "test", port: 19471, storage: "native", proxyEnv: "DOMAIN_PROXY", expectedIPEnv: "DOMAIN_IP" },
   ] }), { mode: 0o600 });
   writeFileSync(join(home, "secrets.env"), "# preserve\nDOMAIN_PROXY=http://old.test:8080 # proxy\nDOMAIN_PROXY=http://old.test:8080\nDOMAIN_IP=198.51.100.1\nOTHER='line one\nline two'\n", { mode: 0o600 });
   return home;
@@ -124,12 +124,12 @@ test("a stale domain revision cannot overwrite a completed edit", async () => {
   const home = fixture();
   const result = await run(home, `
     const old = revision();
-    await domain.updateNetwork('test', { revision: old, proxyUrl: 'http://old.test:8080' });
+    await domain.updateNetwork('test', { revision: old, proxyUrl: 'http://updated.test:8080' });
     await domain.updateNetwork('test', { revision: old, proxyUrl: 'http://rejected.test:8080' });
   `);
   expect(result).toMatchObject({ ok: false, status: 409, message: expect.stringContaining("Refresh") });
   expect(JSON.parse(readFileSync(join(home, "profiles.json"), "utf8")).profiles[0]).not.toHaveProperty("mode");
-  expect(parseEnv(readFileSync(join(home, "secrets.env"), "utf8")).DOMAIN_PROXY).toBe("http://old.test:8080");
+  expect(parseEnv(readFileSync(join(home, "secrets.env"), "utf8")).DOMAIN_PROXY).toBe("http://updated.test:8080");
 });
 
 test("domain recovery rejects a reservation, then completes before revision validation", async () => {

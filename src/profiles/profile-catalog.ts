@@ -8,10 +8,8 @@ import { join } from "node:path";
 import { isDeepStrictEqual, parseEnv } from "node:util";
 import { CONFIG_FILE, HOME_DIR, STATE, dir, validateProxy, validateSettings, type Settings } from "./config.ts";
 import { assertStoppedProfile, lock } from "../runtime/profile-process.ts";
-import { existingProfilePath } from "./profile-compat.ts";
-import { hasProxy } from "./network-compat.ts";
 
-export const CATALOG_JOURNAL = existingProfilePath(HOME_DIR, ".profile-transaction.json", ".identity-transaction.json");
+export const CATALOG_JOURNAL = join(HOME_DIR, ".profile-transaction.json");
 const configFile = CONFIG_FILE, secretsFile = join(HOME_DIR, "secrets.env");
 const trash = join(HOME_DIR, "trash"), LIMIT = 1024 * 1024;
 type Files = { config: string; secrets: string | null };
@@ -103,7 +101,7 @@ function validate(value: unknown): Transaction {
       if (previousSecrets[name] === nextSecrets[name]) continue;
       if (!references.includes(name)) fail();
     }
-    if (hasProxy(next) && (!next.proxyEnv || !nextSecrets[next.proxyEnv])) fail();
+    if (next.proxyEnv && !nextSecrets[next.proxyEnv]) fail();
     if (next.proxyEnv) validateProxy(nextSecrets[next.proxyEnv] || "");
     if (next.expectedIPEnv && (!isIP(nextSecrets[next.expectedIPEnv] || "") || nextSecrets[next.expectedIPEnv]!.includes("%"))) fail();
   }
@@ -147,9 +145,9 @@ function archive(t: Transaction) {
   if (!directory(trash, true)) mkdirSync(trash, { mode: 0o700 });
   const target = archiveDirectory(t);
   if (!directory(target, true)) mkdirSync(target, { mode: 0o700 });
-  if (readdirSync(target).some(name => !["profile.json", "identity.json", "profile"].includes(name))) fail();
-  const metadataFile = existingProfilePath(target, "profile.json", "identity.json");
-  const metadata = JSON.stringify({ [metadataFile.endsWith("/identity.json") ? "identity" : "profile"]: validateSettings(JSON.parse(t.before.config)).profiles.find(p => p.id === t.id) }, null, 2) + "\n";
+  if (readdirSync(target).some(name => !["profile.json", "profile"].includes(name))) fail();
+  const metadataFile = join(target, "profile.json");
+  const metadata = JSON.stringify({ profile: validateSettings(JSON.parse(t.before.config)).profiles.find(p => p.id === t.id) }, null, 2) + "\n";
   const saved = read(metadataFile);
   if (saved !== null && saved !== metadata) fail();
   if (saved === null) replace(metadataFile, metadata, () => { unchanged(t); });

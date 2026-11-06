@@ -15,7 +15,6 @@ import {
   recoverNetworkTransaction, saveNetworkTransaction,
 } from "./network-transaction.ts";
 import type { ProfileCreate, ProfileRename, NetworkUpdate, TypingUpdate } from "./profile-configuration-types.ts";
-import { hasProxy, withoutLegacyConnectionMode } from "./network-compat.ts";
 import { recoverProfileImportTransaction } from "./profile-import-transaction.ts";
 export type { ProfileCreate, ProfileRename, NetworkUpdate } from "./profile-configuration-types.ts";
 export { ProfileCatalogError, recoverProfileCatalog } from "./profile-catalog.ts";
@@ -152,7 +151,7 @@ async function recoverNetworkConfiguration() {
   try {
     await lock(join(dir(id), "lifecycle.lock"), async () => {
       const o = observe(id);
-      if (o.record && (o.record.version !== undefined && o.record.version !== 2 || !o.clean ||
+      if (o.record && (o.record.version !== 2 || !o.clean ||
           [o.supervisor, o.server].some(value => value === "owned" || value === "unverified")))
         throw new NetworkTransactionError("Stop the journal profile cleanly before network recovery.", id);
       recoverNetworkTransaction();
@@ -222,7 +221,7 @@ async function createOrReuseProfile(input: ProfileCreate, reuse: boolean, direct
     if (reuse && existing) {
       const values = parseEnv(before.secrets || "");
       const value = (name?: string) => name ? process.env[name] ?? values[name] ?? "" : "";
-      const proxy = hasProxy(existing), proxyUrl = value(existing.proxyEnv);
+      const proxy = existing.proxyEnv !== undefined, proxyUrl = value(existing.proxyEnv);
       if (proxy) {
         try { validateProxy(proxyUrl); }
         catch { throw new ProfileCatalogError(409, "The existing profile needs valid proxy credentials. Preserve its reference and correct the configured secret."); }
@@ -261,7 +260,7 @@ async function createOrReuseProfile(input: ProfileCreate, reuse: boolean, direct
     }
     const next = validateSettings({ ...config, profiles: [...config.profiles, p] });
     commitCatalogTransaction({ version: 1, operation: "create", id: p.id, token: randomUUID(), before,
-      after: { config: serializeSettings(next, before.config), secrets: nextSecrets } });
+      after: { config: serializeSettings(next), secrets: nextSecrets } });
     return { profile: p, created: true };
   });
 }
@@ -278,7 +277,7 @@ export async function deleteProfile(id: string, revision: string): Promise<void>
       assertStoppedProfile(id);
       const next = { ...config, profiles: config.profiles.filter(p => p.id !== id) };
       commitCatalogTransaction({ version: 1, operation: "delete", id, token: randomUUID(), before,
-        after: { config: serializeSettings(next, before.config), secrets: before.secrets } });
+        after: { config: serializeSettings(next), secrets: before.secrets } });
     });
   });
 }
@@ -298,7 +297,7 @@ export async function updateNetwork(id: string, input: NetworkUpdate) {
       const recordFile = join(dir(id), "running.json");
       if (existsSync(recordFile)) {
         const record = data(JSON.parse(readFileSync(recordFile, "utf8")));
-        if (record.version !== undefined && record.version !== 2)
+        if (record.version !== 2)
           throw new ProfileConfigurationError(409, "The process record version is unknown. Inspect it before changing the network.");
       }
       const observation = observeStatus(p);
@@ -307,7 +306,7 @@ export async function updateNetwork(id: string, input: NetworkUpdate) {
       if (update.revision !== networkRevision(config, p, secrets))
         throw new ProfileConfigurationError(409, "Network configuration changed. Refresh it before saving.");
       const candidate = structuredClone(config), index = candidate.profiles.findIndex(item => item.id === id);
-      const next = update.proxyUrl === undefined ? candidate.profiles[index]! : withoutLegacyConnectionMode(candidate.profiles[index]!);
+      const next = candidate.profiles[index]!;
       candidate.profiles[index] = next;
       const updates = new Map<string, string>();
       const used = new Set([...Object.keys(secrets.values), ...Object.keys(process.env), ...config.profiles.flatMap(item => [item.proxyEnv, item.expectedIPEnv].filter((name): name is string => !!name))]);
@@ -330,7 +329,7 @@ export async function updateNetwork(id: string, input: NetworkUpdate) {
       const proxy = next.proxyEnv && (process.env[next.proxyEnv] ?? candidateSecrets.values[next.proxyEnv]);
       const expected = next.expectedIPEnv && (process.env[next.expectedIPEnv] ?? candidateSecrets.values[next.expectedIPEnv]);
       let error: string | null = null;
-      if (hasProxy(next)) {
+      if (next.proxyEnv !== undefined) {
         if (!proxy) error = "Proxy URL is missing. Configure a proxy before starting this profile.";
         else { try { validateProxy(proxy); } catch { error = "Proxy URL is invalid. Use HTTP(S) or unauthenticated SOCKS5."; } }
       }
@@ -339,7 +338,7 @@ export async function updateNetwork(id: string, input: NetworkUpdate) {
 
       const previousConfig = readFileSync(configFile, "utf8");
       const before = { config: previousConfig, secrets: existsSync(secretsFile) ? secrets.text : null };
-      saveNetworkTransaction(id, before, { config: serializeSettings(candidate, previousConfig), secrets: updates.size ? changedSecrets : before.secrets });
+      saveNetworkTransaction(id, before, { config: serializeSettings(candidate), secrets: updates.size ? changedSecrets : before.secrets });
       return { config: candidate, profile: next, secrets: candidateSecrets, observation };
     });
   });
@@ -361,7 +360,7 @@ export async function renameProfile(id: string, input: ProfileRename) {
     if (name === id) delete next.name;
     else next.name = name;
     validateSettings(candidate);
-    save(configFile, JSON.parse(serializeSettings(candidate, readFileSync(configFile, "utf8"))));
+    save(configFile, JSON.parse(serializeSettings(candidate)));
     return { config: candidate, profile: next, secrets };
   });
 }
@@ -380,7 +379,7 @@ export async function updateTyping(id: string, input: TypingUpdate) {
     else next.typingMode = input.mode;
     validateSettings(candidate);
     // A single atomic catalog replacement needs no secrets-file transaction.
-    save(configFile, JSON.parse(serializeSettings(candidate, readFileSync(configFile, "utf8"))));
+    save(configFile, JSON.parse(serializeSettings(candidate)));
     return { config: candidate, profile: next, secrets };
   });
 }

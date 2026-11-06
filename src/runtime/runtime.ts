@@ -15,8 +15,6 @@ import { spawn } from "node:child_process";
 import { lock, observe, observeStatus, isRuntimePhase, processStart, running, type Running } from "./profile-process.ts";
 export { assertStoppedProfile, lock, processStart, running, type Running } from "./profile-process.ts";
 import { prepareProfileConfiguration, recoverProfileCatalog } from "../profiles/profile-configuration.ts";
-import { normalizeProfileId } from "../profiles/profile-compat.ts";
-import { withoutLegacyConnectionMode } from "../profiles/network-compat.ts";
 import { assertRuntimePlugin } from "./runtime-plugin.ts";
 import {
   pendingNetworkTransaction,
@@ -39,10 +37,6 @@ import {
   type Profile,
 } from "../profiles/config.ts";
 
-function isLegacy(record: Running) {
-  return record.version === undefined && record.supervisorStart === undefined &&
-    record.serverStart === undefined && record.serverState === undefined;
-}
 export function status(id: string) {
   return observeStatus(profile(id));
 }
@@ -74,40 +68,11 @@ async function serviceRequest(p: Profile, method: string, action: string, timeou
     signal: AbortSignal.timeout(timeout),
     redirect: "error",
   });
-  const payload = withoutLegacyConnectionMode(normalizeProfileId(await response.json() as Record<string, unknown>));
+  const payload = await response.json() as Record<string, unknown>;
   if (!response.ok) throw Error(String(payload.error || `Profile control returned ${response.status}.`));
   return payload;
 }
 
-// Legacy records cannot establish PID ownership. An explicit stop can still use
-// the authenticated endpoint after matching its saved profile and instance.
-// Never promote these PIDs to verified ownership or use the signal fallback.
-async function stopLegacy(id: string, record: Running) {
-  const p = profile(id);
-  if (record.configurationHash !== configurationHash(p)) {
-    throw Error(`${id}: restore the legacy launch configuration before stopping this profile.`);
-  }
-  const saved = normalizeProfileId(json<Record<string, unknown>>(join(dir(id), "status.json")) || {});
-  if (saved?.profileId !== id || !saved.instanceId || typeof saved.instanceId !== "string") {
-    throw Error(`${id}: the saved legacy service profile is missing. Inspect the service before stopping it.`);
-  }
-  const remote = await serviceRequest(p, "GET", "status", 2000);
-  if (remote.profileId !== id || remote.instanceId !== saved.instanceId) {
-    throw Error(`${id}: the endpoint does not match the saved legacy service. No stop was requested.`);
-  }
-  const unchanged = () => JSON.stringify(observe(id).record) === JSON.stringify(record);
-  if (!unchanged()) throw Error(`${id}: the legacy process record changed. Retry the stop command.`);
-  const response = await serviceRequest(p, "POST", "stop", 75000);
-  if (response.stopping !== true) throw Error(`${id}: the legacy service did not acknowledge shutdown.`);
-  const deadline = Date.now() + 15000;
-  while (Date.now() < deadline) {
-    if (!unchanged()) throw Error(`${id}: the legacy process record changed during shutdown.`);
-    const current = observe(id);
-    if (current.supervisor === "missing" && current.server === "missing") return status(id);
-    await Bun.sleep(100);
-  }
-  throw Error(`${id}: legacy shutdown was not confirmed. State remains intact; inspect the service.`);
-}
 export async function reportStatus(id: string) {
   const local = status(id),
     o = observe(id);
@@ -226,7 +191,6 @@ export async function stop(id: string) {
         (o.clean && [o.supervisor, o.server].every((s) => s === "missing" || s === "different"))
       )
         return status(id);
-      if (isLegacy(o.record)) return stopLegacy(id, o.record);
       if (o.server !== "owned" || o.supervisor === "unverified")
         throw Error(`${id}: process ownership cannot be verified. Run stelz doctor ${id}.`);
       try {
