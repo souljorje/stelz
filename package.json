@@ -1,6 +1,6 @@
 {
   "name": "stelz",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Standalone persistent Camoufox profiles with exclusive MCP control",
   "license": "MIT",
   "homepage": "https://github.com/souljorje/stelz#readme",
