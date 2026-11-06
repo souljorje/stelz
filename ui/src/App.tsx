@@ -129,7 +129,7 @@ export function App({ session }: { session: Promise<void> }) {
     <a className="skip-link" href="#main-content">Skip to content</a>
     <header className="topbar">
       <div className="topbar-navigation">
-        <div className="brand"><Mark /><span>stelz</span></div>
+        <div className="brand" role="img" aria-label="stelz"><Mark full /></div>
         <div className="desktop-navigation">{nav()}</div>
         <button type="button" className="icon-button menu-toggle" aria-label="Open navigation" aria-expanded={menuOpen} onClick={() => setMenuOpen(true)}><Icon name="menu" /></button>
       </div>

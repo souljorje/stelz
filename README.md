@@ -1,4 +1,10 @@
-# stelz
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/brand/stelz-logo-full-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="assets/brand/stelz-logo-full.svg">
+    <img src="assets/brand/stelz-logo-full.svg" alt="stelz" width="280">
+  </picture>
+</h1>
 
 [MIT license](LICENSE)
 

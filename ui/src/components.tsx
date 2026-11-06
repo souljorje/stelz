@@ -29,8 +29,8 @@ export function Select({ className = "", children, ...props }: ComponentProps<"s
   return <div className={`select-control ${className}`}><select {...props}>{children}</select><Icon name="chevron-down" /></div>;
 }
 
-export function Mark() {
-  return <svg className="brand-mark" viewBox="0 0 20 24" width="20" height="24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M3 6h14M3 11h10M3 16h6" /></svg>;
+export function Mark({ full = false }: { full?: boolean }) {
+  return <span className={`brand-mark${full ? " brand-mark-full" : ""}`} aria-hidden="true" />;
 }
 
 export function Phase({ phase }: { phase: UiPhase }) {

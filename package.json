@@ -23,6 +23,7 @@
     "dist/supervisor.js",
     "dist/plugin.js",
     "dist/ui/",
+    "assets/brand/",
     "docs/",
     "examples/",
     "README.md",

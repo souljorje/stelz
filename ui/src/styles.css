@@ -103,8 +103,9 @@ code { overflow-wrap: anywhere; }
 .app-shell { min-height: 100dvh; padding: 0 8px 8px; }
 .topbar { display: flex; align-items: center; justify-content: space-between; gap: 24px; height: 56px; padding: 0 20px; }
 .topbar-navigation { display: flex; align-items: center; min-width: 0; gap: 32px; }
-.brand { display: flex; align-items: center; gap: 8px; flex: none; font-size: 16px; font-weight: 500; letter-spacing: -.02em; }
-.brand-mark { color: var(--text); flex: none; }
+.brand { display: flex; align-items: center; flex: none; }
+.brand-mark { display: block; width: 24px; height: 24px; flex: none; background: var(--text); mask: url("../../assets/brand/stelz-logo.svg") center / contain no-repeat; }
+.brand-mark-full { width: 90px; height: 36px; mask-image: url("../../assets/brand/stelz-logo-full.svg"); }
 .desktop-navigation nav { display: flex; align-items: center; gap: 4px; }
 .nav-item { display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 6px 12px; text-align: left; border: 0; border-radius: var(--radius-control); background: transparent; color: var(--muted); white-space: nowrap; }
 .nav-item:hover, .nav-item.is-active { color: var(--text); background: var(--active); }
@@ -365,8 +366,6 @@ input:disabled, select:disabled { color: var(--faint); background: var(--raised)
   .app-shell { padding: 0; }
   .topbar { height: 56px; padding: 0 16px; }
   .topbar-navigation { gap: 12px; }
-  .brand { font-size: 16px; }
-  .brand-mark { width: 18px; }
   .desktop-navigation { display: none; }
   .menu-toggle { display: inline-flex !important; order: -1; margin-left: -8px; }
   .workspace { min-height: calc(100dvh - 56px); border: 0; border-top: 1px solid var(--border); border-radius: 0; }

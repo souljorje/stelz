@@ -35,10 +35,10 @@ if (!uiFiles.some(file => file.path === "dist/ui/index.html") || !uiFiles.some(f
 const paths = candidate.files.map(file => file.path).sort();
 for (const path of ["docs/bootstrap.md", "docs/onboarding-acceptance.md", "examples/onboarding-fixture.html"])
   if (!paths.includes(path)) throw Error("Archive is missing " + path);
-for (const path of ["dist/cli.js", "dist/supervisor.js", "dist/plugin.js", "dist/ui/index.html", "README.md", "LICENSE", "docs/agents.md", "examples/profiles.json", "skills/stelz-browser/SKILL.md", "skills/stelz-browser/references/recovery.md", ...["react", "react-dom", "scheduler", "ibm-plex-mono", "ibm-plex-sans"].map(name => "dist/ui/licenses/" + name + ".txt")]) {
+for (const path of ["dist/cli.js", "dist/supervisor.js", "dist/plugin.js", "dist/ui/index.html", "README.md", "LICENSE", "docs/agents.md", "examples/profiles.json", "skills/stelz-browser/SKILL.md", "skills/stelz-browser/references/recovery.md", ...["README.md", "stelz-logo.svg", "stelz-logo-full.svg", "stelz-logo-full-dark.svg", "favicon.svg"].map(name => "assets/brand/" + name), ...["react", "react-dom", "scheduler", "ibm-plex-mono", "ibm-plex-sans"].map(name => "dist/ui/licenses/" + name + ".txt")]) {
   if (!paths.includes(path)) throw Error("Archive is missing " + path);
 }
-for (const path of paths) if (!/^(?:node_modules\/|dist\/|docs\/|examples\/|skills\/|package.json$|README.md$|CHANGELOG.md$|LICENSE$)/.test(path)) throw Error("Unexpected archive path: " + path);
+for (const path of paths) if (!/^(?:node_modules\/|dist\/|assets\/brand\/|docs\/|examples\/|skills\/|package.json$|README.md$|CHANGELOG.md$|LICENSE$)/.test(path)) throw Error("Unexpected archive path: " + path);
 await run([npm, "install", "--global", ...(input.flags.has("--native") ? [] : ["--ignore-scripts"]), "--no-audit", "--no-fund", "--prefix", prefix, archive]);
 const installed = join(prefix, "lib/node_modules/stelz");
 const installedDependencies = inspectBundledDependencies(installed);
@@ -86,15 +86,16 @@ try {
   const response = await fetch(`${origin}/api/state`, { headers: { Cookie } });
   const state = await response.json() as { home: string; profiles: unknown[] };
   if (!response.ok || state.home !== home || state.profiles.length !== 0) throw Error("The installed UI must use the selected service directory and an empty initial catalog.");
-  const assets = [...html.matchAll(/(?:src|href)="([^"]+\.(?:js|css))"/g)].map(match => match[1]!);
+  const assets = [...html.matchAll(/(?:src|href)="([^"]+\.(?:js|css|svg))"/g)].map(match => match[1]!);
   if (!assets.some(path => path.endsWith(".js")) || !assets.some(path => path.endsWith(".css"))) throw Error("The installed UI HTML is missing its bundled assets.");
   for (const path of assets) {
     const url = new URL(path, origin), asset = await fetch(url);
     if (!asset.ok) throw Error("An installed UI asset is unavailable.");
+    if (path.endsWith(".svg") && asset.headers.get("content-type") !== "image/svg+xml") throw Error("An installed UI SVG has the wrong content type.");
     if (path.endsWith(".css")) {
       for (const match of (await asset.text()).matchAll(/url\(["']?([^\s)"']+)["']?\)/g)) {
-        const font = new URL(match[1]!, url);
-        if (font.origin !== origin || !(await fetch(font)).ok) throw Error("An installed UI font is unavailable or remote.");
+        const resource = new URL(match[1]!, url);
+        if (resource.origin !== origin || !(await fetch(resource)).ok) throw Error("An installed UI resource is unavailable or remote.");
       }
     }
   }
