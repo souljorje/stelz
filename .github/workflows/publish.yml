@@ -144,8 +144,8 @@ jobs:
           artifact-ids: ${{ needs.pack.outputs.artifact_id }}
           merge-multiple: true
           path: release-artifacts
-      - run: sha256sum --check packages/*.sha256
-        working-directory: release-artifacts
+      - run: sha256sum --check *.sha256
+        working-directory: release-artifacts/packages
       - name: Publish, tag, and create the GitHub release
         uses: changesets/action/publish@v2.1.2
         with:
