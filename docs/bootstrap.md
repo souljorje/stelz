@@ -11,9 +11,10 @@ Installation lives in [Getting started](getting-started.md). Client registration
 3. Select the existing absolute `STELZ_HOME`, or use `~/.local/share/stelz`.
 4. For an existing installation, run `stelz --help`, `stelz doctor`, and `stelz status`.
 5. Inspect the requested profile and any existing client entry before creating or changing either.
+6. Follow [Migration](clients.md#migrate-an-existing-registration) if the entry uses the removed MCP `--profile` option.
 
 Preserve profile IDs, saved data, secret references, browser installations, and client configuration.
-Keep approvals, sandboxing, workspace trust, and authentication checks enabled.
+Keep approvals, sandboxing, workspace trust, and authentication checks enabled. Do not edit global harness configuration.
 Request intervention for permissions, missing credentials, authentication, or a required client restart.
 Do not overwrite a conflicting installation or use `sudo` without authorization.
 
@@ -27,10 +28,15 @@ Resolve the selected CLI's symlink to find its package directory.
 Reuse compatible dependencies and a working runtime.
 Run `stelz init` when needed. It preserves existing configuration.
 Run `stelz setup` only when runtime preparation is necessary and all profiles are safely stopped.
+Shared registration requires the updated runtime and explicit restarts of old browser services.
+Use the same `STELZ_HOME`. Preserve saved browser data without migration.
 Report an update blocked by unrelated running browsers as pending.
 
 The human first-use guide creates profiles through the UI.
-An agent can create or reuse its selected profile through the supported CLI:
+An agent with registered tools can use `profile_list({})` before selecting or creating a profile.
+Use `profile_create({profileId})` for direct creation or safe reuse without configuration changes.
+Use `profile_start({profileId})` to start it explicitly.
+For setup before registration, an agent can use the supported CLI:
 
 ```sh
 stelz profile create work --json
@@ -46,9 +52,12 @@ Open `stelz ui --open` when the user requests the manager.
 
 ## Connect and verify
 
-Use [Connect your agent](clients.md) to install the canonical skill and register the selected client.
+Use [Connect your agent](clients.md) to install the canonical skill and register `stelz mcp` once for the selected client.
+Use project scope when available. Give required global registration changes to the operator.
 Use the same CLI path, service directory, and runtime PATH throughout.
 Preserve unrelated client entries. Reuse a matching entry and report conflicts before replacing one.
+The 18 fixed tools serve all profiles. New profiles require no new registration.
+Acquire each profile with `{profileId}`. Retain its fresh `controlHandle` for control and browser calls on that connection.
 
 Complete [Verify the connection](clients.md#verify-the-connection) through the target session's actual MCP tools.
 A saved configuration, tool listing, or separate SDK probe is insufficient to report **Verified**.
@@ -60,7 +69,7 @@ For failures, follow [Troubleshooting](troubleshooting.md) and the skill's [reco
 | --- | --- |
 | Installed | Compatible dependency versions and a prepared Stelz runtime. |
 | Browser ready | The selected profile is running and its control interface responds. |
-| Client configured | The canonical skill and intended MCP entry are installed. |
+| Client configured | The canonical skill and one shared MCP entry are installed. |
 | Verified | The target agent completed the local interaction and release check. |
 
 Mark incomplete states as pending. Record absolute paths, profile ID, completed steps, and the next action without credentials.

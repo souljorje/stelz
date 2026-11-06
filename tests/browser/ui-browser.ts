@@ -287,6 +287,8 @@ if (process.argv.includes("--serve")) {
     await page.getByRole("button", { name: "Save network", exact: true }).click();
     await page.getByText("Network settings saved.", { exact: true }).waitFor();
     const beforeRename = JSON.stringify(states.get("profile-02")), renameCommands = commands.length;
+    const sharedMcpCommand = await page.getByLabel("Command", { exact: true }).innerText();
+    if (!/\bstelz mcp$/.test(sharedMcpCommand.trim()) || sharedMcpCommand.includes("--profile")) throw Error("The UI must show the shared MCP command.");
     const secretsBeforeRename = readFileSync(join(home, "secrets.env"), "utf8");
     await page.getByRole("button", { name: "Rename profile", exact: true }).click();
     await page.getByRole("textbox", { name: "Profile name", exact: true }).fill("Cancelled name");
@@ -303,7 +305,8 @@ if (process.argv.includes("--serve")) {
     await page.reload();
     await page.getByRole("button", { name: "Inspect Work browser", exact: true }).click();
     await page.getByRole("heading", { name: "Work browser", exact: true }).waitFor();
-    if (!/--profile (?:profile-02|'profile-02')(?=\s|$)/.test(await page.getByLabel("Command", { exact: true }).innerText())) throw Error("Renaming changed the MCP profile ID.");
+    if (await page.getByLabel("Command", { exact: true }).innerText() !== sharedMcpCommand) throw Error("Renaming changed the shared MCP command.");
+    if (await page.getByText("Profile ID for tools", { exact: true }).locator("..").locator("dd").innerText() !== "profile-02") throw Error("Renaming changed the profile ID for tool calls.");
     await page.getByRole("button", { name: "Rename profile", exact: true }).click();
     await page.getByRole("textbox", { name: "Profile name", exact: true }).fill("profile-02");
     await page.getByRole("button", { name: "Save profile name", exact: true }).click();

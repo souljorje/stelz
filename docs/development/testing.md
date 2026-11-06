@@ -38,8 +38,8 @@ Build also checks Markdown links in the packaged documentation.
 | `bun run pack` | Build a local candidate archive and checksum in `release-artifacts/`. |
 | `bun run test:install --archive FILE` | Inspect an unchanged archive, isolated npm installation with scripts disabled, CLI, HTTP UI, and staged setup. No browser. |
 | `bun run test:install --archive FILE --native` | Ordinary npm installation, SQLite queries, and Impit construction from the installation and staged runtime. No browser. |
-| `bun run test:package --archive FILE` | Install one unchanged archive and run integration, native persistence, and transfer acceptance. |
-| `bun run test:package --archive FILE --proxy --manual` | Add two-proxy and human acceptance to the installed-package checks. |
+| `bun run test:package --archive FILE` | Install one unchanged archive. Run integration, native persistence, transfer, concurrency, and typing acceptance. |
+| `bun run test:package --archive FILE --windows --proxy --manual` | Add window controls, two-proxy checks, and human acceptance. |
 
 Select suites according to changed behavior. Browser checks require an explicit command.
 The default tests do not establish browser persistence, proxy routing, or human takeover.
@@ -63,6 +63,14 @@ Network tests cover proxy, DNS, and connection errors, including structured upst
 They check queue order and status during recheck.
 Page contents and URLs must not serve as network diagnostics.
 Lifecycle and setup tests cover orphaned servers, interrupted setup, and concurrent lock recovery.
+
+For shared MCP changes, check all 18 tool schemas with an empty catalog and after profile creation.
+Check fresh catalogs, direct creation, unchanged reuse, and explicit start through one connection.
+Check concurrent control of separate profiles and exclusive control of each profile.
+Require fresh handles after acquisition, release, reconnect, restart, and forced operator handoff.
+Reject handles from another connection, profile, or browser lifetime.
+Check that list and status omit handles. Release and disconnect must preserve browsers and pages.
+Keep the MCP migration error separate from valid profile-import `--profile` selectors.
 
 Profile creation tests cover direct and proxy inputs, reuse, concurrent creation, conflicts, redaction, missing initialization, and interrupted transactions.
 Transfer tests cover ZIP64, unsafe paths and links, checksums, size limits, cancellation, credential redaction, conflicts, and recovery.
@@ -325,18 +333,24 @@ Use [Client verification](../clients.md#verify-the-connection) for the registere
    > Follow the bootstrap document. Install the supplied archive into the test prefix.
    > Use the temporary STELZ_HOME. Create or reuse profile work.
    > Install the canonical skill in this test project's supported location. Preserve global client configuration and approval protections.
-   > Configure a project-scoped MCP connection if supported. Otherwise record exact connection arguments for a new session.
+   > Register one shared `stelz mcp` connection at project scope if supported.
+   > Otherwise record exact connection arguments for the operator. Preserve the same STELZ_HOME.
    > Verify through your actual registered browser tools.
    > Report Installed, Browser ready, Client configured, and Verified separately.
    > State pending verification when tools are unavailable. Release control after verification. Leave the browser running.
 
 4. Record actions, errors, and intervention requests.
 5. Start a new client session if registration requires it. Resume verification with the same profile and saved connection.
-6. Require actual MCP acquisition, fresh snapshots, an observed fixture action, result verification, and release.
-7. Repeat the original onboarding request.
-8. Check the same profile ID, port, secret references, browser lifetime, and persistent fixture marker.
-9. Stop only the test profile after release and reuse evidence is complete.
-10. Stop the fixture server separately. Retain failed test state for inspection.
+6. Require a fresh profile catalog and actual acquisition with `{profileId}`.
+7. Require the returned handle on browser calls, fresh snapshots, an observed fixture action, result verification, and release.
+8. Repeat the original onboarding request through the same registration.
+9. Check the same profile ID, port, secret references, browser lifetime, and persistent fixture marker.
+10. Stop only the test profile after release and reuse evidence is complete.
+11. Stop the fixture server separately. Retain failed test state for inspection.
+
+For migration acceptance, preserve the original service directory, profile IDs, saved data, and secret references.
+Stop old services explicitly, prepare the updated runtime, and start those same profiles explicitly.
+Check the single registration through actual tools. Do not edit global harness configuration or migrate browser data.
 
 A model must perform browser interaction through its registered MCP tools.
 An SDK script can inspect resulting state. It cannot replace real-agent evidence.

@@ -150,14 +150,28 @@ See [Transfer profiles](profile-transfer.md) before exporting or importing.
 ## MCP connection
 
 ```sh
-stelz mcp --profile work
+stelz mcp
 ```
 
 The command serves MCP over stdio. Stdout carries protocol messages, not a CLI status report.
-Each connection selects exactly one configured profile.
-Start its browser through the UI or CLI before browser actions.
-MCP does not implicitly start a stopped browser.
+Register it once per client configuration. A connection can control multiple profiles through explicit tool arguments.
+The 18 tools remain available when the catalog is empty or changes.
+Call `profile_list({})` for the current catalog.
+Create, start, status, and acquire take `{profileId}`.
+Acquire returns status and a fresh opaque `controlHandle` for that connection, profile, and browser lifetime.
+Release, pause, resume, recheck, and all nine browser tools require `{profileId, controlHandle}`.
+Status and list return controller summaries without handles.
+
+`profile_create` makes direct profiles or safely reuses existing profiles unchanged.
+Start remains explicit through `profile_start`, the CLI, or the UI. Acquisition never starts a browser.
+Configuration, proxies, deletion, import, stop, recovery, and forced handoff remain CLI or UI operations.
 Release and disconnect preserve the browser and its open pages.
+Release explicitly before handoff.
+
+The removed MCP `--profile` option returns a migration error.
+Follow [Migration](clients.md#migrate-an-existing-registration) with the same `STELZ_HOME`, updated runtime setup, and explicit browser restarts.
+Profile-import `--profile` selectors remain supported.
+See [Shared MCP tools](mcp.md) for the complete contract.
 See [Client verification](clients.md#verify-the-connection) and [agent setup](bootstrap.md).
 
 ## Errors and exit status

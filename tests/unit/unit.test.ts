@@ -72,6 +72,7 @@ const a = { id: "connection-a", pid: 10, label: "Client A" }, b = { id: "connect
 test("one profile rejects a second controller until release", async () => {
   const lease = createControllerLease(() => true); lease.acquire(a);
   expect(() => lease.acquire(b)).toThrow("active controller");
+  expect(() => lease.acquire({ ...a, pid: b.pid, label: b.label })).toThrow("active controller");
   await lease.release(a.id); expect(lease.acquire(b).acquired).toBe(true);
   await expect(lease.run(a.id, async () => 1)).rejects.toThrow("Acquire");
 });
@@ -102,4 +103,66 @@ test("an action failure releases the service queue", async () => {
   const lease = createControllerLease(() => true); lease.acquire(a);
   await expect(lease.run(a.id, async () => { throw Error("action failed"); })).rejects.toThrow("action failed");
   await lease.release(a.id); expect(lease.acquire(b).acquired).toBe(true);
+});
+test("controller summaries omit credentials and acquisition does not retain caller state", async () => {
+  const lease = createControllerLease(() => true), input = { ...a, secret: "private" };
+  const summary = { pid: a.pid, label: a.label, activeActions: 0, releasing: false };
+  expect(lease.acquire(input)).toEqual({ acquired: true, controller: summary });
+  input.id = b.id; input.label = b.label;
+  expect(lease.status()).toEqual(summary);
+  expect(await lease.run(a.id, async () => 1)).toBe(1);
+  await expect(lease.run(b.id, async () => 1)).rejects.toThrow("Acquire");
+});
+test("cleanup before acquisition permanently revokes only the supplied controller ID", async () => {
+  const lease = createControllerLease(() => true);
+  expect(await lease.release(a.id)).toEqual({ released: true });
+  expect(() => lease.acquire(a)).toThrow("revoked");
+  lease.acquire(b);
+  expect(await lease.release(a.id)).toEqual({ released: true });
+  expect(lease.status()?.releasing).toBe(false);
+  expect(await lease.run(b.id, async () => 1)).toBe(1);
+  await lease.release(b.id);
+  expect(() => lease.acquire(a)).toThrow("revoked");
+  expect(() => lease.acquire(b)).toThrow("revoked");
+  expect(createControllerLease(() => true).acquire(a).acquired).toBe(true);
+});
+test("operator handoff invalidates the old ID and stale cleanup preserves the new owner", async () => {
+  const lease = createControllerLease(() => true); lease.acquire(a);
+  await lease.releaseCurrent(); lease.acquire(b);
+  expect(await lease.release(a.id)).toEqual({ released: true });
+  expect(() => lease.assertOwner(a.id)).toThrow("Acquire");
+  lease.assertOwner(b.id);
+  expect(() => lease.acquire(a)).toThrow("revoked");
+  await lease.releaseCurrent();
+  expect(() => lease.acquire(b)).toThrow("revoked");
+});
+test("release admission blocks dead-owner recovery even before its resolved queue drains", async () => {
+  let alive = true;
+  const lease = createControllerLease(() => alive); lease.acquire(a);
+  const first = lease.release(a.id), second = lease.release(a.id);
+  alive = false;
+  expect(() => lease.acquire(b)).toThrow("active controller");
+  expect(() => lease.assertOwner(a.id)).toThrow("Acquire");
+  await expect(lease.run(a.id, async () => 1)).rejects.toThrow("Acquire");
+  await Promise.all([first, second]);
+  lease.acquire(b);
+  await lease.release(a.id);
+  expect(lease.status()).toEqual({ pid: b.pid, label: b.label, activeActions: 0, releasing: false });
+});
+test("crash recovery waits for queued work and retires the crashed controller ID", async () => {
+  let alive = true;
+  const lease = createControllerLease(() => alive); lease.acquire(a);
+  const firstGate = Promise.withResolvers<void>(), secondGate = Promise.withResolvers<void>();
+  const secondStarted = Promise.withResolvers<void>();
+  const first = lease.run(a.id, () => firstGate.promise);
+  const second = lease.run(a.id, () => { secondStarted.resolve(); return secondGate.promise; });
+  alive = false;
+  expect(() => lease.acquire(b)).toThrow("active controller");
+  firstGate.resolve(); await first; await secondStarted.promise;
+  expect(() => lease.acquire(b)).toThrow("active controller");
+  secondGate.resolve(); await second;
+  lease.acquire(b);
+  expect(() => lease.acquire(a)).toThrow("revoked");
+  await lease.release(a.id);
+  expect(await lease.run(b.id, async () => 1)).toBe(1);
 });

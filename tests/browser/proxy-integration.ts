@@ -13,6 +13,7 @@ import {
 } from "../helpers/proxy-acceptance-helpers.ts";
 import { assertRelayTraffic, networkProbe, probeExit, proxyRelay } from "../helpers/proxy-network-fixture.ts";
 import { unusedPorts } from "../helpers/ports.ts";
+import { routeProfileTools } from "../helpers/mcp-client.ts";
 
 const root = resolve(import.meta.dir, "../.."), cli = process.env.STELZ_TEST_CLI || join(root, "dist/cli.js");
 const CACHE_MS = 120_000;
@@ -43,9 +44,9 @@ async function rejected(client: Client, name: string) {
   assert((await tool(client, name)).isError === true, `MCP ${name} unexpectedly succeeded.`);
 }
 async function client(id: string) {
-  const value = new Client({ name: "two-proxy-acceptance", version: "1.0.0" }); clients.push(value);
+  const value = routeProfileTools(new Client({ name: "two-proxy-acceptance", version: "1.0.0" }), id); clients.push(value);
   const transport = new StdioClientTransport({
-    command: Bun.which("bun")!, args: ["--no-env-file", cli, "mcp", "--profile", id], env, stderr: "pipe",
+    command: Bun.which("bun")!, args: ["--no-env-file", cli, "mcp"], env, stderr: "pipe",
   });
   // The SDK otherwise inherits stderr and could print upstream credentials.
   transport.stderr?.on("data", () => {});

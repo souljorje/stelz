@@ -95,7 +95,7 @@ For source or release preparation, see [Releasing](development/releasing.md).
 ## Agent tools are missing
 
 1. Run `stelz status work` to establish the browser state separately.
-2. Inspect the intended client's MCP entry for `mcp --profile work` and the correct service home.
+2. Inspect the intended client's single MCP entry for `stelz mcp` and the correct service home.
 3. Follow [Client connection verification](clients.md#verify-the-connection).
 4. Reconnect or restart only that client when its registration requires it.
 
@@ -103,14 +103,41 @@ A saved MCP entry or a separate probe does not establish that the target session
 Complete the fixture interaction and release check through the target client's actual tools.
 Use [Bootstrap](bootstrap.md) for agent orchestration.
 
+## Old MCP registration or control protocol
+
+The removed `stelz mcp --profile ID` command returns migration guidance.
+Follow [Migration](clients.md#migrate-an-existing-registration) to replace per-profile registrations with one shared entry.
+Keep the same `STELZ_HOME`. Stop old browser services explicitly before updating their runtime with `stelz setup`.
+Start each required profile explicitly afterward. Reconnecting the client alone does not update an old browser service.
+Preserve profile IDs, saved browser data, and secret references. Do not edit global harness configuration.
+Profile-import `--profile` selectors remain supported.
+
+## Missing or stale control handle
+
+1. Call `profile_status({profileId})` for the affected profile.
+2. Check whether its browser stopped, restarted, or changed controller.
+3. Resolve any controller conflict through the handoff procedure below.
+4. Start a stopped browser explicitly when necessary.
+5. Call `profile_acquire({profileId})` on the intended connection.
+6. Retain the new `controlHandle` with that profile ID.
+7. Read fresh tabs and snapshots with both fields before selecting an action.
+
+Every successful acquisition returns a fresh handle for that connection, profile, and browser lifetime.
+Status and list contain controller summaries without handles.
+An existing acquisition blocks another acquisition on the same connection. Release its current handle before acquiring again.
+If the handle is lost, arrange an operator release and reconnect the affected client.
+Do not reuse handles after release, disconnect, browser restart, or forced handoff.
+Never copy handles between connections or profiles. Do not replay an interrupted action automatically.
+
 ## Another client controls the profile
 
 1. Run `stelz status work`.
 2. Identify the active controller before taking control.
-3. Ask that client to call `profile_release` after its current action completes.
+3. Ask that client to call `profile_release({profileId, controlHandle})` after its current action completes.
 4. For an intended operator handoff, run `stelz release work` or select **Release controller** in the UI.
 5. Check that `controller` is `null` in live status.
-6. Acquire control from the next client's existing connection.
+6. Call `profile_acquire({profileId})` from the next client's existing shared connection.
+7. Use its new handle for that profile's control and browser calls.
 
 Release keeps the browser, pages, storage, and current phase.
 It does not transfer the previous client's reasoning or conversation history.
@@ -120,7 +147,7 @@ It does not transfer the previous client's reasoning or conversation history.
 1. Keep the same browser window open.
 2. Find it through the UI's window control and full profile title prefix.
 3. Complete authentication or manual work in that window.
-4. Run `stelz resume work` or call `profile_resume` from the controller.
+4. Run `stelz resume work` or call `profile_resume({profileId, controlHandle})` from the controller.
 5. Require `phase: "ready"`.
 6. Read a fresh snapshot before the next browser action.
 

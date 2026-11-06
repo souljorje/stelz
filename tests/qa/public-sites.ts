@@ -9,7 +9,9 @@ import { STELZ_VERSION } from "../../src/versions.ts";
 import { assessSite, detectHumanChallenge, type Assessment, type SiteId, type Verdict } from "../helpers/public-site-verdicts.ts";
 import { assertTestHome, createTestHome } from "../helpers/test-home.ts";
 import { proxyRedactor } from "../helpers/proxy-acceptance-helpers.ts";
+import { routeProfileTools } from "../helpers/mcp-client.ts";
 const ROOT = resolve(import.meta.dir, "../..");
+const cli = process.env.STELZ_TEST_CLI || join(ROOT, "src/cli/cli.ts");
 
 export const PUBLIC_SITES: ReadonlyArray<{ id: SiteId; name: string; url: string; screenshotHeading?: string; screenshotControl?: string }> = [
   { id: "fingerprint-web-scraping", name: "Fingerprint web scraping", url: "https://demo.fingerprint.com/web-scraping",
@@ -134,7 +136,7 @@ function serviceEnvironment(home: string): Record<string, string> {
 }
 
 async function stopProfile(profile: string, home: string): Promise<void> {
-  const child = Bun.spawn([process.execPath, "--no-env-file", join(ROOT, "src/cli/cli.ts"), "stop", profile], {
+  const child = Bun.spawn([process.execPath, "--no-env-file", cli, "stop", profile], {
     cwd: ROOT, env: serviceEnvironment(home), stdout: "pipe", stderr: "pipe",
   });
   const [out, error, code] = await Promise.all([
@@ -146,10 +148,10 @@ async function stopProfile(profile: string, home: string): Promise<void> {
 }
 
 async function connectMcp(profile: string, home: string): Promise<PublicConnection> {
-  const client = new Client({ name: "stelz-public-sites", version: STELZ_VERSION });
+  const client = routeProfileTools(new Client({ name: "stelz-public-sites", version: STELZ_VERSION }), profile);
   try {
     await client.connect(new StdioClientTransport({ command: process.execPath,
-      args: ["--no-env-file", join(ROOT, "src/cli/cli.ts"), "mcp", "--profile", profile], env: serviceEnvironment(home), stderr: "inherit" }));
+      args: ["--no-env-file", cli, "mcp"], env: serviceEnvironment(home), stderr: "inherit" }));
   } catch (error) { await client.close().catch(() => {}); throw error; }
   return {
     call: async (name, args) => await client.callTool({ name, arguments: args }, undefined, { timeout: 180_000 }) as ToolReply,
@@ -211,7 +213,7 @@ export async function runPublicSites(options: RunOptions): Promise<PublicReport>
     checkAbort(); connection = await (options.connect ?? (() => connectMcp(options.profile, home)))();
     report.initialInstanceId = String((await checkReady()).instanceId);
     const lease = await call("profile_acquire");
-    if (lease.acquired !== true) throw Error("The profile did not acknowledge controller acquisition.");
+    if (typeof lease.controlHandle !== "string" || !lease.controlHandle) throw Error("The profile did not return a control handle.");
     acquired = true;
     report.initialTabIds = tabIds(await call("camofox_list_tabs"));
     persist(report);
@@ -408,7 +410,7 @@ if (import.meta.main) {
       const redact = proxyRedactor([proxy]), env = serviceEnvironment(home);
       async function command(...args: string[]) {
         assertTestHome(home);
-        const child = Bun.spawn([process.execPath, "--no-env-file", join(ROOT, "src/cli/cli.ts"), ...args], {
+        const child = Bun.spawn([process.execPath, "--no-env-file", cli, ...args], {
           cwd: ROOT, env, stdout: "pipe", stderr: "pipe",
         });
         const [out, err, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);

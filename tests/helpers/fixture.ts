@@ -25,13 +25,15 @@ export async function fixture(port = 9410) {
     const challenge = crypto.randomUUID().slice(0, 8);
     const candidate = url.searchParams.get("profile") || "";
     const label = /^[a-z0-9-]{1,64}$/.test(candidate) ? ` — ${candidate}` : "";
+    const pagination = url.searchParams.has("pagination")
+      ? Array.from({ length: 900 }, (_, index) => `<p>Pagination row ${index}: independent browser state and observation coverage.</p>`).join("") : "";
     return new Response(`<!doctype html><html lang="en"><meta charset="utf-8"><title>Camoufox acceptance fixture${label}</title>
 <style>body{font:18px system-ui;max-width:850px;margin:40px auto;padding:20px;color:#17212b}button,input{font:inherit;margin:6px;padding:8px}pre{white-space:pre-wrap;background:#f2f4f5;padding:14px}section{margin:30px 0}</style>
 <h1>Camoufox acceptance fixture${label}</h1><p>Harmless local test data. Challenge: <strong id="challenge">${challenge}</strong></p>
 <button id="begin">Begin task</button><section id="task" hidden><label>Answer <input id="answer"></label><button id="submit">Check answer</button><p id="result" role="status">Waiting for an answer</p></section>
 <section><h2>Profile storage</h2><form id="marker-form"><label>Profile marker <input id="marker" required></label><button id="save" type="submit">Save profile marker</button></form><p id="marker-status">Storage marker is incomplete</p><pre id="markers">Loading</pre></section>
 <section><h2>Manual intervention</h2><button id="human">Human confirmation</button><p id="human-result">Waiting for human</p></section>
-<section><h2>Observable fingerprint</h2><pre id="observations">Loading</pre></section><script type="module" src="/fixture.js"></script></html>`, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
+<section><h2>Observable fingerprint</h2><pre id="observations">Loading</pre></section>${pagination}<script type="module" src="/fixture.js"></script></html>`, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
   } });
   return { url: `http://127.0.0.1:${server.port}`, observations, manualConfirmations, stop: () => server.stop() };
 }

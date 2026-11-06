@@ -44,7 +44,7 @@ function mockConnection(override?: Override) {
       const replaced = await override?.(call, state);
       if (replaced) return replaced;
       if (name === "profile_status") return reply({ profileId: state.profileId, phase: state.phase, instanceId: state.instanceId });
-      if (name === "profile_acquire") { state.controllerHeld = true; return reply({ acquired: true }); }
+      if (name === "profile_acquire") { state.controllerHeld = true; return reply({ acquired: true, controlHandle: "test-control-handle" }); }
       if (name === "profile_release") { state.controllerHeld = false; return reply({ released: true }); }
       if (name === "profile_pause") { state.phase = "paused"; return reply({ paused: true }); }
       if (name === "profile_resume") { state.phase = "ready"; return reply({ resumed: true }); }

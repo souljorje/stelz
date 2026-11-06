@@ -1,71 +1,122 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
-import { profile, control } from "../profiles/config.ts";
-import { assertRunning, processStart, reportStatus, running } from "../runtime/runtime.ts";
+import { settings } from "../profiles/config.ts";
+import { ensureProfile } from "../profiles/profile-configuration.ts";
+import { runLifecycle } from "../runtime/operations.ts";
+import { reportStatus } from "../runtime/runtime.ts";
 import { contracts, type Tool } from "../browser/upstream.ts";
-import { allowedBrowserTools } from "./tool-policy.ts";
+import { allowedBrowserTools, browserToolArguments } from "./tool-policy.ts";
+import { createControlRegistry } from "./control-registry.ts";
+import { serviceTransport } from "./service-binding.ts";
 import { STELZ_VERSION } from "../versions.ts";
 
-export async function runMcp(id: string) {
-  if (!id) throw Error("Select a profile: stelz mcp --profile ID");
-  const p = profile(id), controllerId = crypto.randomUUID();
-  const serviceProfile = () => {
-    const record = running(id);
-    if (!record?.port || !record.serverPid || !record.serverStart || processStart(record.serverPid) !== record.serverStart) {
-      throw Error(`${id}: server ownership is unavailable. Run stelz doctor ${id}.`);
-    }
-    return { ...p, port: record.port };
-  };
+const profileProperty = { type: "string", pattern: "^[a-z][a-z0-9-]{0,63}$", description: "Profile ID from profile_list or profile_create." };
+const handleProperty = { type: "string", minLength: 1, description: "Opaque controlHandle returned by profile_acquire on this connection for this profile and browser lifetime." };
+
+// Older services can still be inspected during migration. Never expose their
+// internal controller IDs through status or list responses.
+function publicStatus(value: Record<string, unknown>) {
+  const { controlHandle: _handle, controllerId: _id, accessKey: _key, ...result } = value;
+  if (result.controller && typeof result.controller === "object") {
+    const { pid, label, activeActions, releasing } = result.controller as Record<string, unknown>;
+    result.controller = { pid, label, activeActions, releasing };
+  }
+  return result;
+}
+function local(name: string, description: string, owned = false): Tool {
+  const properties = name === "profile_list" ? {} : { profileId: profileProperty, ...(owned ? { controlHandle: handleProperty } : {}) };
+  return { name, description, inputSchema: { type: "object", properties, required: Object.keys(properties), additionalProperties: false } };
+}
+export function routedTools(browserTools: Tool[]): Tool[] {
+  return [
+    local("profile_list", "List current profiles and their statuses. This tool does not acquire control or start browsers."),
+    local("profile_create", "Create a direct native profile, or reuse an existing profile without changing its configuration. This tool does not start a browser."),
+    local("profile_start", "Explicitly start this profile through the browser service. Repeated starts preserve the existing browser."),
+    local("profile_status", "Read this profile and controller status without acquiring control or starting a browser."),
+    local("profile_acquire", "Acquire exclusive control of a running profile. Save the returned controlHandle for all owned operations. An existing or pending controller cannot acquire again."),
+    local("profile_release", "Block new operations, finish admitted work, and release this handle. Preserve the browser, pages, storage, and fingerprint configuration.", true),
+    local("profile_pause", "Pause actions immediately, then wait for admitted work to finish before human work in the same window. Keep this controller.", true),
+    local("profile_resume", "Resume after human work. Read a fresh snapshot before the next action.", true),
+    local("profile_recheck", "Check the browser exit IP after a verification failure.", true),
+    ...browserTools.map(tool => ({ ...tool, inputSchema: { ...tool.inputSchema,
+      properties: { ...tool.inputSchema.properties, profileId: profileProperty, controlHandle: handleProperty },
+      required: [...new Set([...(tool.inputSchema.required || []), "profileId", "controlHandle"])], additionalProperties: false } })),
+  ];
+}
+export function routedArguments(tool: Tool, args: Record<string, unknown>) {
+  if (Object.keys(args).some(key => !Object.hasOwn(tool.inputSchema.properties || {}, key)))
+    throw Error("Unknown tool argument. Internal routing and controller fields are not accepted.");
+  for (const key of tool.inputSchema.required || []) if (!Object.hasOwn(args, key)) throw Error(`Missing required argument: ${key}.`);
+  if (tool.name !== "profile_list" && (typeof args.profileId !== "string" || !/^[a-z][a-z0-9-]{0,63}$/.test(args.profileId)))
+    throw Error("profileId must be a valid profile ID.");
+  if ("controlHandle" in (tool.inputSchema.properties || {}) && (typeof args.controlHandle !== "string" || !args.controlHandle))
+    throw Error("controlHandle must be the value returned by profile_acquire.");
+  const { profileId, controlHandle, ...canonical } = args;
+  return { profileId: profileId as string, controlHandle: controlHandle as string, canonical };
+}
+
+export async function runMcp() {
+  settings(); // An initialized empty catalog is valid.
   const upstream = await contracts();
   const browserTools = allowedBrowserTools(upstream.TOOL_DEFS);
-  const local = (name: string, description: string): Tool => ({ name, description, inputSchema: { type: "object", properties: {}, additionalProperties: false } });
-  const tools: Tool[] = [
-    local("profile_status", "Read the selected profile and controller status. This tool does not start a browser."),
-    local("profile_acquire", "Acquire exclusive control of the selected running profile. Start the browser with the standalone CLI first."),
-    local("profile_release", "Release control after current actions finish. Keep the same browser, pages, storage, and fingerprint configuration."),
-    local("profile_pause", "Pause browser actions for manual work in the same window. Keep the current controller."),
-    local("profile_resume", "Resume browser actions after manual work. Read a fresh snapshot before the next action."),
-    local("profile_recheck", "Check the browser exit IP again after a verification failure."),
-    ...browserTools,
-  ];
-  let acquired = false, closing: Promise<void> | undefined;
+  const tools = routedTools(browserTools);
+  const registry = createControlRegistry(serviceTransport);
+  const requests = new Set<Promise<unknown>>();
+  let closing: Promise<void> | undefined, shuttingDown = false;
   const server = new Server({ name: "stelz", version: STELZ_VERSION }, {
     capabilities: { tools: {} },
-    instructions: `This connection selects profile ${id}. Acquire control before browser actions. Read fresh snapshots. Pause for authentication. Release control for handoff. Disconnect does not stop the browser or transfer conversation history.`,
+    instructions: "Register Stelz once. Discover profiles with profile_list; create and start them explicitly. Every owned operation requires the profileId and controlHandle from this connection's profile_acquire. One profile has one browser and one controller. You may control multiple profiles in parallel. Read fresh snapshots. Pause for human authentication in the same window. Release each handle for handoff. Disconnect preserves browsers and pages. Never repeat an uncertain browser action automatically.",
   });
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }));
-  server.setRequestHandler(CallToolRequestSchema, async request => {
-    const { name, arguments: args = {} } = request.params;
-    try {
-      if (!tools.some(t => t.name === name)) throw Error("Unknown tool.");
-      let result: unknown;
-      if (name === "profile_status") result = await reportStatus(id);
-      else if (name === "profile_acquire") {
-        assertRunning(id);
-        result = await control(serviceProfile(), "POST", "acquire", { id: controllerId, pid: process.pid, label: server.getClientVersion()?.name || "MCP client" });
-        acquired = true;
-      } else if (name === "profile_release") {
-        result = await control(serviceProfile(), "POST", "release", { controllerId }); acquired = false;
-      } else {
-        if (!acquired) throw Error("Call profile_acquire before browser actions.");
-        assertRunning(id);
-        if (name === "profile_pause" || name === "profile_resume" || name === "profile_recheck") {
-          const action = name === "profile_pause" ? "pause" : name === "profile_resume" ? "resume" : "check";
-          result = await control(serviceProfile(), "POST", action, { controllerId });
+  server.setRequestHandler(CallToolRequestSchema, (request, extra) => {
+    const work = (async () => {
+      const { name, arguments: args = {} } = request.params;
+      try {
+        if (shuttingDown) throw Error("This MCP connection is closing.");
+        extra.signal.throwIfAborted();
+        const tool = tools.find(tool => tool.name === name);
+        if (!tool) throw Error("Unknown tool.");
+        const { profileId, controlHandle, canonical } = routedArguments(tool, args);
+        let result: Record<string, unknown>;
+        if (name === "profile_list") {
+          result = { profiles: await Promise.all(settings().profiles.map(async profile => {
+            try { return publicStatus(await reportStatus(profile.id)); }
+            catch (error) { return { profileId: profile.id, phase: "unavailable", error: (error as Error).message }; }
+          })) };
+        } else if (name === "profile_create") {
+          const created = await ensureProfile({ id: profileId });
+          result = { profileId, created: created.created, ...publicStatus(await reportStatus(profileId)) };
+        } else if (name === "profile_start") result = publicStatus(await runLifecycle("start", profileId));
+        else if (name === "profile_status") result = publicStatus(await reportStatus(profileId));
+        else if (name === "profile_acquire") {
+          const acquired = await registry.acquire(profileId, server.getClientVersion()?.name || "MCP client", extra.signal);
+          result = { ...publicStatus(acquired), controlHandle: acquired.controlHandle };
+        } else if (name === "profile_release") result = await registry.release(profileId, controlHandle);
+        else if (["profile_pause", "profile_resume", "profile_recheck"].includes(name))
+          result = publicStatus(await registry.run(profileId, controlHandle, name === "profile_recheck" ? "check" : name.slice("profile_".length)));
+        else {
+          const browserTool = browserTools.find(tool => tool.name === name)!;
+          return await registry.run(profileId, controlHandle, "tool", { name, args: browserToolArguments(browserTool, canonical) }) as { content: ReturnType<typeof upstream.adaptResponse> };
         }
-        else return await control(serviceProfile(), "POST", "tool", { controllerId, name, args }) as { content: Awaited<ReturnType<typeof upstream.adaptResponse>> };
-      }
-      return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
-    } catch (e) { return { isError: true, content: [{ type: "text" as const, text: (e as Error).message }] }; }
+        return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
+      } catch (error) { return { isError: true, content: [{ type: "text" as const, text: (error as Error).message }] }; }
+    })();
+    requests.add(work);
+    return work.finally(() => { requests.delete(work); });
   });
-  const detach = () => closing ||= (async () => {
-    if (acquired) {
-      try { await control(serviceProfile(), "POST", "release", { controllerId }); } catch {}
-      acquired = false;
-    }
-  })();
+  const detach = () => {
+    shuttingDown = true;
+    return closing ||= (async () => {
+      try { await registry.close(); }
+      catch (error) { console.error((error as Error).message); }
+      await Promise.allSettled([...requests]);
+    })();
+  };
+  const shutdown = () => { void detach().finally(() => server.close()).finally(() => process.exit(0)); };
   server.onclose = () => { void detach().finally(() => process.exit(0)); };
-  for (const signal of ["SIGTERM", "SIGINT"] as const) process.once(signal, () => { void detach().finally(() => server.close()).finally(() => process.exit(0)); });
+  process.stdin.once("end", shutdown);
+  process.stdin.once("error", shutdown);
+  for (const signal of ["SIGTERM", "SIGINT"] as const) process.once(signal, shutdown);
   await server.connect(new StdioServerTransport());
 }

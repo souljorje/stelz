@@ -428,7 +428,7 @@ test("renaming a running profile refreshes its display name without changing its
   expect(after).toMatchObject({ id: "test", name: "Work <&> team", storage: "native", proxyEnv: "DISPLAY_PROXY", expectedIPEnv: "DISPLAY_IP" });
   expect(after.port).toBe(before.profiles[0].port);
   expect(detail.directory).toBe(join(f.state, "test"));
-  expect(detail.mcpCommand).toEndWith("stelz mcp --profile test");
+  expect(detail.mcpCommand).toEndWith("stelz mcp");
   expect(result.value.titlePrefix).toBe("[test] ");
   expect(cleared).toMatchObject({ id: "test", name: "test", phase: "ready", instanceId: "existing" });
   expect(result.value.stable).toEqual({ hashUnchanged: true, lifetimeUnchanged: true, statusUnchanged: true });
@@ -710,7 +710,7 @@ test("public profile IDs and MCP commands stay usable when a proxy username matc
   expect(result.value.detail.profile.id).toBe("test");
   expect(result.value.detail.profile.name).toBe("test");
   expect(result.value.diagnostics.profiles[0].id).toBe("test");
-  expect(result.value.detail.mcpCommand).toBe(`env STELZ_HOME=${f.home} stelz mcp --profile test`);
+  expect(result.value.detail.mcpCommand).toBe(`env STELZ_HOME=${f.home} stelz mcp`);
   expect(JSON.stringify(result)).not.toContain("private-password");
 });
 
@@ -1091,15 +1091,19 @@ test("network saves reject symlinks instead of writing outside the service direc
   }
 });
 
-test("MCP commands quote STELZ_HOME and select the same service directory", async () => {
-  const f = fixture(), original = f.home;
+test("MCP commands quote STELZ_HOME and stay identical across profiles", async () => {
+  const f = fixture([{ id: "test", port: 19471 }, { id: "research", port: 19472 }]), original = f.home;
   const quotedHome = join(original, "service's $(literal) directory");
   mkdirSync(quotedHome);
-  mkdirSync(join(quotedHome, "profiles/test"), { recursive: true });
+  for (const p of f.profiles) mkdirSync(join(quotedHome, "profiles", p.id), { recursive: true });
   writeFileSync(join(quotedHome, "profiles.json"), readFileSync(f.config));
-  const result = await run({ ...f, home: quotedHome }, "return (await model.detail('test')).mcpCommand;");
+  const result = await run({ ...f, home: quotedHome }, `
+    const details = await Promise.all(['test', 'research'].map(id => model.detail(id)));
+    return details.map(detail => ({ id: detail.profile.id, command: detail.mcpCommand }));
+  `);
   expect(result.ok).toBe(true);
-  expect(result.value).toBe(`env STELZ_HOME='${quotedHome.replaceAll("'", "'\\''")}' stelz mcp --profile test`);
+  const command = `env STELZ_HOME='${quotedHome.replaceAll("'", "'\\''")}' stelz mcp`;
+  expect(result.value).toEqual([{ id: "test", command }, { id: "research", command }]);
   expect(existsSync(join(original, "literal"))).toBe(false);
 });
 

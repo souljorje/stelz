@@ -5,8 +5,9 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import type { TypingMode } from "../../src/browser/typing.ts";
 import { assertTestHome, createTestHome } from "../helpers/test-home.ts";
+import { routeProfileTools } from "../helpers/mcp-client.ts";
 
-const root = resolve(import.meta.dir, "../.."), cli = join(root, "dist/cli.js");
+const root = resolve(import.meta.dir, "../.."), cli = process.env.STELZ_TEST_CLI || join(root, "dist/cli.js");
 const args = process.argv.slice(2);
 if (args.length === 1 && ["--help", "-h"].includes(args[0]!)) {
   console.log("Use: bun run test:typing\nThe check creates and stops its own temporary profile.");
@@ -66,9 +67,9 @@ async function command(...args: string[]) {
   return out;
 }
 async function connect() {
-  client = new Client({ name: "typing-acceptance", version: "1.0.0" });
+  client = routeProfileTools(new Client({ name: "typing-acceptance", version: "1.0.0" }), profileId);
   await client.connect(new StdioClientTransport({ command: process.execPath,
-    args: ["--no-env-file", cli, "mcp", "--profile", profileId], env, stderr: "inherit" }));
+    args: ["--no-env-file", cli, "mcp"], env, stderr: "inherit" }));
   await call("profile_status"); await call("profile_acquire");
 }
 async function result(name: string, args: Record<string, unknown> = {}) {

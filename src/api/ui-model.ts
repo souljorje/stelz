@@ -310,7 +310,7 @@ export function createUiModel(): UiModel {
       return {
         profile: profile(config!, p, raw, secrets, redact), directory: join(redact(STATE), p.id), device: device(p.id, redact),
         logs: { server: redact(bounded.server, 65536), supervisor: redact(bounded.supervisor, 65536) },
-        mcpCommand: `env STELZ_HOME=${shellQuote(HOME_DIR)} stelz mcp --profile ${shellQuote(p.id)}`,
+        mcpCommand: `env STELZ_HOME=${shellQuote(HOME_DIR)} stelz mcp`,
       };
     }),
     diagnostics: () => safe(async () => {

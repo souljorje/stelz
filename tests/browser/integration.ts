@@ -6,6 +6,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { fixture } from "../helpers/fixture.ts";
 import { unusedPorts } from "../helpers/ports.ts";
 import { assertTestHome, createTestHome } from "../helpers/test-home.ts";
+import { routeProfileTools } from "../helpers/mcp-client.ts";
 const root = resolve(import.meta.dir, "../..");
 const home = process.env.STELZ_TEST_HOME ? assertTestHome(process.env.STELZ_TEST_HOME)
   : createTestHome("standalone-acceptance", join(root, ".state"));
@@ -22,8 +23,8 @@ async function command(...args: string[]) {
   if (code) throw Error(`${args.join(" ")}: ${err || out}`); return out;
 }
 async function connect(id: string, label: string) {
-  const client = new Client({ name: label, version: "1.0.0" }); clients.push(client);
-  const transport = new StdioClientTransport({ command: Bun.which("bun")!, args: ["--no-env-file", cli, "mcp", "--profile", id], env, stderr: "inherit" });
+  const client = routeProfileTools(new Client({ name: label, version: "1.0.0" }), id); clients.push(client);
+  const transport = new StdioClientTransport({ command: Bun.which("bun")!, args: ["--no-env-file", cli, "mcp"], env, stderr: "inherit" });
   await client.connect(transport); return { client, transport };
 }
 async function call(client: Client, name: string, args: Record<string, unknown> = {}) {
@@ -55,6 +56,7 @@ try {
   const before = instance("profile-01"), fingerprint = pin("profile-01");
   const a = await connect("profile-01", "sdk-client-a"), b = await connect("profile-01", "sdk-client-b"), second = await connect("profile-02", "sdk-client-second-profile");
   await call(a.client, "profile_acquire"); await call(second.client, "profile_acquire");
+  await rejection(a.client, "profile_acquire");
   await rejection(b.client, "profile_acquire");
   const tabs: Record<string, string> = {};
   for (const [id, client] of [["profile-01", a.client], ["profile-02", second.client]] as const) {
@@ -65,7 +67,7 @@ try {
     assert(String(snapshot.snapshot).includes(`Storage marker: ${id}`), "Storage marker is missing from the browser snapshot");
   }
   await rejection(a.client, "camofox_snapshot", { tabId: tabs["profile-02"] });
-  report.push({ check: "Two browsers, separate storage and bound MCP connections", result: "passed" });
+  report.push({ check: "Two browsers, separate storage, explicit profile routing, and duplicate acquire rejection", result: "passed" });
   await call(a.client, "profile_release"); await call(b.client, "profile_acquire");
   const checkSamePage = async (client: Client) => {
     const listing = await call(client, "camofox_list_tabs");

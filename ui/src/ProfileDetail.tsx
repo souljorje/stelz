@@ -59,7 +59,13 @@ export function ProfileDetail({ profile, snapshot, context, mutationVersion, onA
       <section className="detail-section network-section" aria-labelledby="profile-network-heading"><h2 id="profile-network-heading" className={profile.phase === "stopped" ? "sr-only" : undefined}>Connection</h2><NetworkForm profile={profile} connected={context.connected} busy={context.pending} onSave={onSave} onDirtyChange={handleDirtyChange} /></section>
       <TypingForm profile={profile} connected={context.connected} busy={context.pending} onSave={onTypingSave} />
       {tab === "Overview" && ["ready", "paused", "verification_failed"].includes(profile.phase) && <ProfileWindows profile={profile} context={context} mutationVersion={mutationVersion} onShow={onShow} />}
-      <section className="detail-section"><h2>Connect via MCP</h2><CopyCommand command={redact(detail.data?.mcpCommand ?? mcpCommand(profile.id, snapshot.home))} label={`Copy MCP command for ${profile.id}`} /></section>
+      <section className="detail-section">
+        <h2>Connect via MCP</h2>
+        <p className="field-help">Register this command once for all profiles. Pass the profile ID in tool arguments.</p>
+        <CopyCommand command={redact(detail.data?.mcpCommand ?? mcpCommand(profile.id, snapshot.home))} label="Copy shared MCP command" />
+        <KeyValues rows={[{ label: "Profile ID for tools", value: profile.id, mono: true }]} />
+        <p className="field-help">Call profile_acquire with this profile ID. Use its controlHandle with this ID for browser actions.</p>
+      </section>
     </section>
     <section className="tab-panel" id="profile-panel-Device" role="tabpanel" aria-labelledby="profile-tab-Device" hidden={tab !== "Device"} tabIndex={0}>
       <KeyValues rows={[

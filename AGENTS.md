@@ -14,13 +14,25 @@ stelz is a standalone browser service. It must run without Codex, Claude Code, H
 Do not add a reasoning loop, agent framework, generic plugin framework, or fleet platform.
 Enforce one browser instance per profile. Do not add global browser or saved-profile count limits.
 
-Each MCP connection selects one profile with `stelz mcp --profile ID`. The browser service enforces one controller per profile.
-A client releases control with `profile_release`. Disconnect must preserve the browser and its open pages.
+Register `stelz mcp` once per client configuration. Each connection can control many profiles.
+Keep the 18 fixed tools. Use `profile_list` for a fresh catalog.
+Pass `profileId` to create, start, status, and acquire.
+Acquisition returns status and a fresh opaque `controlHandle` for that connection, profile, and browser lifetime.
+Pass both fields to release, pause, resume, recheck, and all nine Camofox tools.
+Never expose handles in status or catalog summaries.
+Enforce one controller and one action queue per profile. Do not add agent identities or agent count limits.
+A client must call `profile_release` before handoff. Release and disconnect must preserve browsers and open pages.
 Only an explicit lifecycle command stops a browser.
+
+Runtime creation makes direct profiles or safely reuses existing profiles unchanged. Start remains explicit.
+Keep configuration, proxies, deletion, import, stop, recovery, and forced handoff in the CLI or UI.
+Reject the removed MCP `--profile` option with migration guidance. Preserve profile-import `--profile` selectors.
+Migration requires the same `STELZ_HOME`, updated runtime setup, and explicit restarts of old browser services.
+Do not migrate browser data or edit global harness configuration. Previously planned browser controls remain deferred.
 
 Keep profile state under `STELZ_HOME`. Never derive a profile from a client PID, conversation ID, or harness directory.
 Preserve existing profile IDs, data paths, and configured secret references.
-Reuse the upstream Camofox server and canonical MCP tool contracts.
+Reuse the upstream Camofox server and canonical browser arguments, with the required profile and control fields.
 
 Browser tasks must use fresh observations. Pause for human authentication in the same window.
 Do not bypass authentication challenges or write website-specific task scripts.

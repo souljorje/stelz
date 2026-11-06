@@ -120,7 +120,7 @@ export type Running = {
   serverState?: "not-started" | "started";
 };
 type Ownership = "owned" | "missing" | "different" | "unverified";
-function ownership(pid: number | undefined, expected: string | undefined): Ownership {
+export function ownership(pid: number | undefined, expected: string | undefined): Ownership {
   if (!Number.isInteger(pid) || !pid || pid <= 1) return "missing";
   const info = processInfo(pid);
   if (info?.zombie) return "missing";

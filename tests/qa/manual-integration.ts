@@ -5,11 +5,12 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { fixture } from "../helpers/fixture.ts";
 import { unusedPorts } from "../helpers/ports.ts";
+import { routeProfileTools } from "../helpers/mcp-client.ts";
 const root = resolve(import.meta.dir, "../.."); mkdirSync(join(root, ".state"), { recursive: true });
 const home = mkdtempSync(join(root, ".state/manual-acceptance-")), cli = process.env.STELZ_TEST_CLI || join(root, "dist/cli.js"), id = "manual-01";
 const env: Record<string, string> = { STELZ_HOME: home };
 for (const key of ["PATH", "HOME", "LANG", "TMPDIR", "CAMOUFOX_EXECUTABLE"]) if (process.env[key]) env[key] = process.env[key]!;
-const report: unknown[] = [], client = new Client({ name: "manual-acceptance", version: "1.0.0" });
+const report: unknown[] = [], client = routeProfileTools(new Client({ name: "manual-acceptance", version: "1.0.0" }), id);
 let site: Awaited<ReturnType<typeof fixture>> | undefined;
 const profileFile = (name: string) => join(home, "profiles", id, name);
 function assert(value: unknown, message: string): asserts value { if (!value) throw Error(message); }
@@ -27,7 +28,7 @@ try {
   const ports = await unusedPorts(2);
   await command("init"); writeFileSync(join(home, "profiles.json"), JSON.stringify({ profiles: [{ id, port: ports[0]!, storage: "native" }] }));
   await command("setup"); site = await fixture(ports[1]!); await command("start", id);
-  await client.connect(new StdioClientTransport({ command: Bun.which("bun")!, args: ["--no-env-file", cli, "mcp", "--profile", id], env }));
+  await client.connect(new StdioClientTransport({ command: Bun.which("bun")!, args: ["--no-env-file", cli, "mcp"], env }));
   await call("profile_acquire");
   const tab = await call("camofox_create_tab", { url: `${site.url}/?profile=manual-takeover&manual=takeover` });
   await call("camofox_snapshot", { tabId: tab.tabId });

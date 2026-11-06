@@ -17,6 +17,7 @@
 ## Reference
 
 - [CLI](cli.md): commands, options, outputs, and exit status.
+- [Shared MCP tools](mcp.md): the 18 tools, profile selection, control handles, and runtime workflow.
 - [Configuration](configuration.md): settings, environment variables, precedence, and saved data.
 - [Browser skill](../skills/stelz-browser/SKILL.md): the control protocol for agents using Stelz.
 

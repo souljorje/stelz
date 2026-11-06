@@ -28,7 +28,7 @@ function fixture(lifecycle?: (action: UiAction, id: string) => Promise<unknown>,
       const found = profiles.find(profile => profile.id === id);
       if (!found) throw Object.assign(Error("Unknown profile."), { status: 404 });
       return { profile: structuredClone(found), directory: `${snapshot.home}/profiles/${id}`, device: { version: null, properties: [] },
-        logs: { server: "", supervisor: "" }, mcpCommand: `stelz mcp --profile ${id}` };
+        logs: { server: "", supervisor: "" }, mcpCommand: "stelz mcp" };
     },
     async diagnostics() { return { home: snapshot.home, initialized: true, setup: true, node: true, browserExecutable: true, profiles: [] }; },
     async updateNetwork(id, update) {

@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { profileAppearance, type ProfileWindows } from "../../src/api/contracts.ts";
+import { routeProfileTools } from "../helpers/mcp-client.ts";
 
 const root = resolve(import.meta.dir, "../..");
 mkdirSync(join(root, ".state"), { recursive: true });
@@ -12,7 +13,7 @@ const home = mkdtempSync(join(root, ".state/profile-windows-"));
 process.env.STELZ_HOME = home;
 const { createWindowModel } = await import("../../src/api/window-model.ts");
 const windows = createWindowModel();
-const cli = join(root, "dist/cli.js"), bun = Bun.which("bun")!;
+const cli = process.env.STELZ_TEST_CLI || join(root, "dist/cli.js"), bun = Bun.which("bun")!;
 const env: Record<string, string> = { STELZ_HOME: home };
 for (const key of ["PATH", "HOME", "LANG", "TMPDIR", "CAMOUFOX_EXECUTABLE"]) if (process.env[key]) env[key] = process.env[key]!;
 const ids = ["window-check-01", "window-check-02"];
@@ -59,8 +60,8 @@ try {
   assert.notEqual(profileAppearance(ids[0]!).color, profileAppearance(ids[1]!).color);
   for (const id of ids) {
     await command("start", id);
-    const client = new Client({ name: "window-acceptance", version: "1.0.0" }); clients.push(client);
-    await client.connect(new StdioClientTransport({ command: bun, args: ["--no-env-file", cli, "mcp", "--profile", id], env }));
+    const client = routeProfileTools(new Client({ name: "window-acceptance", version: "1.0.0" }), id); clients.push(client);
+    await client.connect(new StdioClientTransport({ command: bun, args: ["--no-env-file", cli, "mcp"], env }));
     await call(client, "profile_status"); await call(client, "profile_acquire");
     const first = await call(client, "camofox_create_tab", { url: fixture.url + "alpha" });
     await call(client, "camofox_snapshot", { tabId: first.tabId });

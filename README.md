@@ -19,6 +19,7 @@ Powered by Camoufox, with browser tools delivered through MCP.
 - Give each profile its own browser and optional proxy.
 - Pause your agent for manual work in the same visible window.
 - Run agents in separate profiles at the same time. Practical capacity depends on your machine.
+- Register `stelz mcp` once. Each agent can control multiple profiles through explicit profile IDs and control handles.
 - Control pages through accessibility snapshots.
 
 Stelz manages the browsers. Your agent decides what to do.
@@ -43,6 +44,10 @@ stelz ui --open
 
 Create a profile named `work` in the UI. Leave the proxy blank for a direct connection, then select **Start**.
 [Connect your agent](docs/clients.md) to use that browser.
+Agents can also create direct profiles and start browsers through the shared MCP tools.
+Each profile permits one browser and one controller.
+
+For an existing profile-bound registration, follow the [one-time migration](docs/clients.md#migrate-an-existing-registration).
 
 ## Let your agent set it up
 
@@ -56,6 +61,7 @@ Give a local coding agent this request:
 - [Manage profiles and take over](docs/ui.md) · [Configure a proxy](docs/proxies.md)
 - [Move profiles](docs/profile-transfer.md) · [Troubleshoot](docs/troubleshooting.md)
 - [CLI reference](docs/cli.md) · [Configuration reference](docs/configuration.md)
+- [Shared MCP tools](docs/mcp.md)
 
 ## Contribute
 

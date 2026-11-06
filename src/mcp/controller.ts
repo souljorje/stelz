@@ -1,4 +1,5 @@
 import { alive } from "../profiles/config.ts";
+import type { ControllerSummary } from "./control-protocol.ts";
 export type Controller = { id: string; pid: number; label: string };
 // Ownership lives in the browser service. Client processes do not own browser lifetime.
 export function createControllerLease(isAlive: (pid: number) => boolean = alive) {
@@ -6,28 +7,36 @@ export function createControllerLease(isAlive: (pid: number) => boolean = alive)
   let releasing = false;
   let active = 0;
   let tail: Promise<void> = Promise.resolve();
+  const revoked = new Set<string>();
+  const unsettled = new Set<Promise<unknown>>();
 
-  function status() {
-    return owner ? { ...owner, activeActions: active, releasing } : null;
+  function status(): ControllerSummary | null {
+    return owner ? { pid: owner.pid, label: owner.label, activeActions: active + unsettled.size, releasing } : null;
   }
 
   function acquire(request: Controller) {
-    if (!request.id || !Number.isInteger(request.pid) || request.pid < 1 || typeof request.label !== "string") {
+    if (typeof request.id !== "string" || !request.id || !Number.isSafeInteger(request.pid) || request.pid < 1 || typeof request.label !== "string") {
       throw Error("Controller details are invalid.");
     }
-    if (owner && !isAlive(owner.pid) && active === 0) {
+    if (revoked.has(request.id)) throw Error("This controller ID has been revoked. Acquire with a new ID.");
+    if (owner?.id === request.id) throw Error("Profile has an active controller. Release that controller first.");
+    if (owner && !releasing && active === 0 && unsettled.size === 0 && !isAlive(owner.pid)) {
+      revoked.add(owner.id);
       owner = undefined;
-      releasing = false;
     }
-    if (owner && (owner.id !== request.id || releasing)) {
+    if (owner) {
       throw Error("Profile has an active controller. Release that controller first.");
     }
-    owner = request;
+    owner = { id: request.id, pid: request.pid, label: request.label };
     return { acquired: true, controller: status() };
   }
 
-  async function run<T>(id: string, action: () => Promise<T>): Promise<T> {
+  function assertOwner(id: string) {
     if (!owner || owner.id !== id || releasing) throw Error("Acquire this profile before browser actions.");
+  }
+
+  async function run<T>(id: string, action: () => Promise<T>): Promise<T> {
+    assertOwner(id);
     return runExclusive(action);
   }
 
@@ -42,12 +51,19 @@ export function createControllerLease(isAlive: (pid: number) => boolean = alive)
   }
 
   async function release(id: string) {
-    if (!owner) return { released: true };
-    if (owner.id !== id) throw Error("This connection does not control the profile.");
+    if (typeof id !== "string" || !id) throw Error("Controller ID is invalid.");
+    // Cleanup can arrive before acquire, or after another controller takes over.
+    // Retire only this ID for the whole service lifetime.
+    revoked.add(id);
+    if (!owner || owner.id !== id) return { released: true };
+    const previous = owner;
     releasing = true;
     await tail;
-    if (owner?.id === id) owner = undefined;
-    releasing = false;
+    await Promise.allSettled([...unsettled]);
+    if (owner === previous) {
+      owner = undefined;
+      releasing = false;
+    }
     return { released: true };
   }
 
@@ -59,5 +75,10 @@ export function createControllerLease(isAlive: (pid: number) => boolean = alive)
     await tail;
   }
 
-  return { status, acquire, run, runExclusive, release, releaseCurrent, drain };
+  function retain(work: Promise<unknown>) {
+    unsettled.add(work);
+    void work.then(() => unsettled.delete(work), () => unsettled.delete(work));
+  }
+
+  return { status, acquire, assertOwner, run, runExclusive, release, releaseCurrent, drain, retain };
 }

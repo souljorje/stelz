@@ -1,7 +1,7 @@
 # Start your first browser
 
 Create a persistent `work` profile and open its browser through the manager.
-Then connect your existing agent to that profile.
+Then connect your existing agent through one shared MCP registration.
 
 ## What you need
 
@@ -110,7 +110,10 @@ If `work` already exists, inspect and reuse it instead of replacing it.
 ## 5. Connect your agent
 
 Follow [Connect your agent](clients.md) for registration and a local first task.
+The shared `stelz mcp` registration serves every profile through explicit tool arguments.
+Agents can also create direct profiles and start browsers through MCP. New profiles require no new registration.
 That check confirms your agent can act through its real browser tools and release control without closing the browser.
+For an existing profile-bound registration, follow the [one-time migration](clients.md#migrate-an-existing-registration).
 
 Your first-use result is a ready browser, a connected agent, and a successful local interaction.
 [Troubleshooting](troubleshooting.md) explains failures at each stage.

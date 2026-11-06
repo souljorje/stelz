@@ -4,7 +4,7 @@ import { mkdirSync, readFileSync, writeFileSync, readdirSync, lstatSync, realpat
 import { join, resolve } from "node:path";
 import { STELZ_VERSION } from "../../src/versions.ts";
 const root = resolve(import.meta.dir, "../..");
-const input = packageArguments(process.argv.slice(2), ["--native", "--proxy", "--manual"]);
+const input = packageArguments(process.argv.slice(2), ["--native", "--proxy", "--manual", "--windows"]);
 const archive = input.archive ?? join(root, "release-artifacts", `stelz-${STELZ_VERSION}.tgz`);
 const { candidate, env: cleanEnv, cwd, home, prefix, node, bun, executable, installedCli, version, nativeCheck, uiChecked } = await installPackage(archive, { native: true, keep: true });
 async function run(args: string[], options: { cwd?: string; env?: Record<string, string>; inherit?: boolean } = {}) {
@@ -14,17 +14,23 @@ async function run(args: string[], options: { cwd?: string; env?: Record<string,
   if (code) throw Error(error || out); return out;
 }
 await run([executable, "setup"]);
-await run([bun, join(root, "tests/browser/integration.ts")], { env: { ...cleanEnv, STELZ_TEST_HOME: home, STELZ_TEST_CLI: installedCli }, inherit: true });
-const acceptance = { integration: true, native: false, transfer: false, proxy: false, manual: false };
+assertArchiveUnchanged(candidate);
+await run([bun, "--no-env-file", join(root, "tests/browser/integration.ts")], { env: { ...cleanEnv, STELZ_TEST_HOME: home, STELZ_TEST_CLI: installedCli }, inherit: true });
+const acceptance = { integration: true, native: false, transfer: false, concurrency: false, typing: false, windows: false, proxy: false, manual: false };
 for (const [flag, script, suite] of [
   ["--native", "tests/browser/native-integration.ts", "native"],
   ["--transfer", "tests/browser/profile-transfer.ts", "transfer"],
+  ["--concurrency", "tests/browser/concurrency.ts", "concurrency"],
+  ["--typing", "tests/browser/typing-browser.ts", "typing"],
+  ["--windows", "tests/browser/profile-windows-browser.ts", "windows"],
   ["--proxy", "tests/browser/proxy-integration.ts", "proxy"],
   ["--manual", "tests/qa/manual-integration.ts", "manual"],
 ] as const) {
-  if (suite !== "native" && suite !== "transfer" && !input.flags.has(flag)) continue;
+  // Foreground window checks and human/proxy checks need their explicit opt-in flags.
+  if (["windows", "proxy", "manual"].includes(suite) && !input.flags.has(flag)) continue;
   assertArchiveUnchanged(candidate);
   await run([bun, "--no-env-file", join(root, script)], { cwd, env: { ...cleanEnv, STELZ_TEST_CLI: installedCli,
+    ...(suite === "concurrency" ? { STELZ_CLI: installedCli } : {}),
     ...(suite === "proxy" && process.env.PROXY_TEST_ENV ? { PROXY_TEST_ENV: process.env.PROXY_TEST_ENV } : {}) }, inherit: true });
   acceptance[suite] = true;
 }

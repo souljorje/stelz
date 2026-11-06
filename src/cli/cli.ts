@@ -13,7 +13,7 @@ try {
   if (command === "--version" || command === "version") console.log(STELZ_VERSION);
   else if (command === "help" || command === "--help")
     console.log(
-      `stelz ${STELZ_VERSION}\n\nstelz init\nstelz setup\nstelz profile create ID [--direct | --proxy-url URL | --proxy-env NAME] [--expected-ip IP | --expected-ip-env NAME] [--json]\nstelz profile export ID...|--all --output FILE [--json]\nstelz profile import FILE [--profile SOURCE_ID]... [--rename SOURCE_ID=NEW_ID]... [--json]\nstelz ui [--port 1024-65535] [--open]\nstelz start ID|all\nstelz status [ID|all]\nstelz doctor [ID|all]\nstelz logs ID [--lines 1-500]\nstelz recover ID\nstelz stop ID|all\nstelz pause ID\nstelz resume ID\nstelz recheck ID\nstelz release ID\nstelz mcp --profile ID\n\nSTELZ_HOME selects the service data directory. Default: ${HOME_DIR}`,
+      `stelz ${STELZ_VERSION}\n\nstelz init\nstelz setup\nstelz profile create ID [--direct | --proxy-url URL | --proxy-env NAME] [--expected-ip IP | --expected-ip-env NAME] [--json]\nstelz profile export ID...|--all --output FILE [--json]\nstelz profile import FILE [--profile SOURCE_ID]... [--rename SOURCE_ID=NEW_ID]... [--json]\nstelz ui [--port 1024-65535] [--open]\nstelz start ID|all\nstelz status [ID|all]\nstelz doctor [ID|all]\nstelz logs ID [--lines 1-500]\nstelz recover ID\nstelz stop ID|all\nstelz pause ID\nstelz resume ID\nstelz recheck ID\nstelz release ID\nstelz mcp\n\nSTELZ_HOME selects the service data directory. Default: ${HOME_DIR}`,
     );
   else if (command === "profile") await (await import("./profile.ts")).runProfile(args);
   else if (command === "init") {
@@ -33,9 +33,10 @@ try {
     if (args.length !== 1 || args[0] === "all") throw Error("Select one profile: stelz recover ID");
     console.log(JSON.stringify(await recover(args[0]!), null, 2));
   } else if (command === "mcp") {
-    if (args.length !== 2 || args[0] !== "--profile" || !args[1] || args[1].startsWith("--"))
-      throw Error("Select a profile: stelz mcp --profile ID");
-    await runMcp(args[1]);
+    if (args.some(arg => arg === "--profile" || arg.startsWith("--profile=")))
+      throw Error("The MCP --profile option was removed. Register stelz mcp once, then supply profileId to its tools and use the controlHandle from profile_acquire. Keep the same STELZ_HOME.");
+    if (args.length) throw Error("Use: stelz mcp. Select profiles through tool arguments.");
+    await runMcp();
   } else if (["start", "status", "stop", "pause", "resume", "release", "recheck"].includes(command)) {
     const target = args[0] || (command === "status" ? "all" : "");
     if (!target) throw Error(`Select a profile: stelz ${command} ID`);

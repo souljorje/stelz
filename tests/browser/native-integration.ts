@@ -7,6 +7,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { fixture } from "../helpers/fixture.ts";
 import { unusedPorts } from "../helpers/ports.ts";
+import { routeProfileTools } from "../helpers/mcp-client.ts";
 import { STABLE_OBSERVATIONS, VARIABLE_OBSERVATIONS, summarizeStability, type Observation, type StabilitySample } from "../helpers/observations.ts";
 
 const LIFETIMES = 3, DOCUMENTS = 2, SAMPLES = 3;
@@ -69,8 +70,8 @@ async function command(...args: string[]) {
   if (code) throw Error(`${args.join(" ")}: ${err || out}`);
 }
 async function connect(id: string) {
-  const client = new Client({ name: "native-stability", version: "2.0.0" }); clients.add(client);
-  await client.connect(new StdioClientTransport({ command: Bun.which("bun")!, args: ["--no-env-file", cli, "mcp", "--profile", id], env }));
+  const client = routeProfileTools(new Client({ name: "native-stability", version: "2.0.0" }), id); clients.add(client);
+  await client.connect(new StdioClientTransport({ command: Bun.which("bun")!, args: ["--no-env-file", cli, "mcp"], env }));
   const status = await call(client, "profile_status");
   assert(status.phase === "ready", `${id}: profile is not ready`);
   await call(client, "profile_acquire");

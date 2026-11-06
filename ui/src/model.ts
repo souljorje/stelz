@@ -36,7 +36,7 @@ export function boundedLog(value: string): string {
 export const shellQuote = (value: string): string => `'${value.replaceAll("'", "'\"'\"'")}'`;
 export const homeCommand = (command: string, home: string): string => `STELZ_HOME=${shellQuote(home)} stelz ${command}`;
 export const profileCommand = (command: string, id: string, home: string): string => `${homeCommand(command, home)} ${shellQuote(id)}`;
-export const mcpCommand = (id: string, home: string): string => `${homeCommand("mcp", home)} --profile ${shellQuote(id)}`;
+export const mcpCommand = (_id: string, home: string): string => homeCommand("mcp", home);
 
 export function profileAttention(profile: UiProfile): string | null {
   if (profile.configurationError) return redact(profile.configurationError);

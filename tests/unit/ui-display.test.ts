@@ -3,6 +3,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { TypingForm } from "../../ui/src/TypingForm.tsx";
 import { NetworkForm } from "../../ui/src/NetworkForm.tsx";
+import { ProfileDetail } from "../../ui/src/ProfileDetail.tsx";
 import { ProxyField } from "../../ui/src/ProxyField.tsx";
 import { UI_ACTIONS } from "../../src/api/contracts.ts";
 import type { UiProfile, UiNetwork, UiPhase, UiSnapshot } from "../../src/api/contracts.ts";
@@ -159,10 +160,27 @@ describe("display boundaries", () => {
     expect(boundedLog(Array.from({ length: 400 }, (_, i) => `line ${i}`).join("\n")).split("\n")).toHaveLength(300);
     expect(boundedLog("a".repeat(60_000)).length).toBeLessThanOrEqual(48_000);
   });
-  test("commands quote both the service home and the profile", () => {
+  test("shared MCP commands quote the service home and stay identical across profiles", () => {
     const home = "/tmp/operator's browser home";
     expect(homeCommand("doctor", home)).toBe("STELZ_HOME='/tmp/operator'\"'\"'s browser home' stelz doctor");
-    expect(mcpCommand("profile-01", home)).toBe(`${homeCommand("mcp", home)} --profile 'profile-01'`);
+    expect(mcpCommand("profile-01", home)).toBe(homeCommand("mcp", home));
+    expect(mcpCommand("profile-02", home)).toBe(mcpCommand("profile-01", home));
     expect(shellQuote("$(touch /tmp/never-executed) 'value'")).toBe("'$(touch /tmp/never-executed) '\"'\"'value'\"'\"''");
+  });
+  test("profile details show the shared command and a separate profile ID for tools", () => {
+    for (const id of ["work", "research"]) {
+      const row = profile("stopped", { id, name: "Display name" }), ctx = context(row);
+      const html = renderToStaticMarkup(createElement(ProfileDetail, {
+        profile: row, snapshot: ctx.snapshot, context: ctx, mutationVersion: 0,
+        onAction: () => {}, onSave: async () => row, onTypingSave: async () => row,
+        onBack: () => {}, onDirtyChange: () => {}, onDelete: () => {}, onShow: async () => {}, onExport: () => {},
+      }));
+      expect(html).toContain("Copy shared MCP command");
+      expect(html).toContain("stelz mcp");
+      expect(html).not.toContain("--profile");
+      expect(html).toContain("Profile ID for tools");
+      expect(html).toContain(`>${id}</`);
+      expect(html).toContain("controlHandle");
+    }
   });
 });

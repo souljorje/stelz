@@ -10,7 +10,7 @@ It contains no reasoning loop, agent framework, generic plugin framework, or fle
 | Component | Responsibility |
 | --- | --- |
 | MCP | The Model Context Protocol advertises tools, accepts arguments, and returns results over standard input and output. |
-| Stelz MCP adapter | Selects one profile per connection. Adds profile controls and forwards browser calls to its service. |
+| Stelz MCP adapter | Exposes 18 fixed tools. Routes each call by profile ID and checks its control handle. |
 | Camofox server | The HTTP automation server. Manages tabs, resolves element references, and returns accessibility snapshots and screenshots. |
 | Stelz profile plugin | Runs inside Camofox. Enforces controller ownership, serializes actions, checks network state, and preserves the original browser context. |
 | Playwright | Starts and controls the browser. Executes clicks, typing, and navigation. |
@@ -33,12 +33,13 @@ Stelz adds persistent profile handling and reuses saved device properties before
 
 A browser tool call follows this path:
 
-1. The MCP adapter sends the tool name, arguments, and controller ID to `/local-profile/tool`.
-2. The plugin checks the tool and controller. It queues the operation for that profile.
-3. The plugin checks browser availability and performs any required IP check.
-4. The upstream dispatcher calls the corresponding Camofox HTTP route on the same local service.
-5. Camofox executes the action through Playwright.
-6. The response adapter returns text or image content to the client.
+1. The MCP adapter checks `profileId` and `controlHandle` against that connection's current acquisition and browser lifetime.
+2. It forwards the canonical browser arguments and private service control data to `/local-profile/tool`.
+3. The plugin checks the tool and controller. It queues the operation for that profile.
+4. The plugin checks browser availability and performs any required IP check.
+5. The upstream dispatcher calls the corresponding Camofox HTTP route on the same local service.
+6. Camofox executes the action through Playwright.
+7. The response adapter returns text or image content to the client.
 
 See [Camofox integration](camofox-integration.md) for pinned dependencies, compatibility patches, and setup.
 
@@ -49,16 +50,26 @@ Bun runs the CLI, MCP adapter, supervisor, and local UI server. Node.js runs Cam
 The supervisor runs separately from the client. Closing a chat or UI session preserves the browser.
 Several native windows and subprocesses can belong to that browser instance.
 
-`stelz start ID` or the UI starts a profile. MCP acquisition requires an already running profile.
+`profile_start({profileId})`, `stelz start ID`, or the UI starts a profile.
+MCP acquisition requires an already running profile.
 Startup locks, service instance IDs, and process start records prevent competing starts from replacing an existing browser.
 The service imposes no global browser or saved-profile count limit. Available system resources constrain capacity.
 
-One MCP connection selects one profile with `stelz mcp --profile ID`.
-The service permits one controller per profile and serializes its browser actions.
-Separate profiles can execute actions concurrently.
-The selected profile ID also supplies Camofox's `userId`. Its tab group remains `default` across connections.
+Each client registers `stelz mcp` once. One connection can acquire multiple profiles.
+Stelz has no agent identities or agent count limits.
+The service permits one controller per profile. Each profile has its own action queue.
+Separate profiles can execute actions concurrently, including through one connection.
+Each call's profile ID also supplies Camofox's `userId`. Its tab group remains `default` across connections.
+
+Every successful acquisition returns status and a fresh opaque public `controlHandle`.
+That handle belongs to one connection, one profile, and one browser lifetime.
+The adapter keeps acquisition state separately for each profile.
+Status and catalog results contain controller summaries without handles.
+Release, disconnect, restart, and forced operator handoff invalidate the affected control.
+Clients must acquire again and use the new handle before further control calls.
 
 Release waits for queued operations before it relinquishes control. Disconnect releases control without closing pages.
+Clients must release explicitly before planned handoff.
 After a client crash, acquisition can clear its controller when the client process is dead and no actions remain.
 The next controller receives the same live browser state. Conversation history stays with the previous client.
 
@@ -98,6 +109,9 @@ The catalog journal, `.profile-transaction.json`, stores complete before and aft
 Creation saves new secrets before it publishes their profile in the catalog.
 CLI creation can reuse a compatible profile without changing its ID, port, storage, or secret references.
 Conflicting network inputs fail without changing that profile.
+MCP `profile_create({profileId})` creates a direct profile or safely reuses an existing profile unchanged.
+It cannot reconfigure profiles. Creation leaves new browsers stopped.
+Configuration, proxies, deletion, import, stop, recovery, and forced handoff remain CLI or UI operations.
 
 Deletion requires a cleanly stopped profile with known process ownership.
 It archives the profile directory under `trash/ID-TOKEN/profile/` and its configuration in `profile.json`.
@@ -146,10 +160,15 @@ An HTTP capability reaches a client only when a tool schema, dispatcher, and res
 Camofox shares its MCP contracts with its OpenClaw plugin.
 Stelz reuses those contracts through its own adapter. Stelz does not run OpenClaw.
 
-Stelz adds six `profile_*` tools and filters the upstream browser tool list.
+Stelz exposes 18 fixed tools: nine profile tools and nine browser tools.
+`profile_list({})` reads a fresh catalog. The tool list remains fixed when profiles change or the catalog is empty.
+Create, start, status, and acquire take `profileId`.
+Release, pause, resume, recheck, and every browser tool require `profileId` and `controlHandle`.
+Browser tools preserve the canonical Camofox arguments alongside those two required fields.
 It excludes `camofox_evaluate` and `camofox_import_cookies`.
 Authentication requires human action in the existing browser.
 Clients read available tools through MCP `tools/list`.
+See [Shared MCP tools](../mcp.md) for names, arguments, and handle lifetimes.
 
 Stelz extends `camofox_type` with per-call modes.
 Camoufox's cursor behavior and Stelz's typing behavior are separate mechanisms.
@@ -161,7 +180,7 @@ Extensions need contract checks and browser acceptance while preserving existing
 
 ### Planned browser controls
 
-These controls are planned. They are not currently available through Stelz MCP.
+These controls remain deferred. Shared registration adds none of them to Stelz MCP.
 The inventory refers to the [pinned Camofox server source](https://github.com/jo-inc/camofox-browser/blob/39c82094013480b373df6600d44c7f036f58356e/server.js).
 Each addition requires integration and browser checks. Final tool names and arguments remain undecided.
 
@@ -268,6 +287,10 @@ After a source change that affects the runtime:
 4. Start the required profiles explicitly.
 
 Setup requires stopped profiles and known process ownership.
+The shared MCP protocol requires this update and explicit restarts of old browser services.
+Keep the same `STELZ_HOME`, profile IDs, data paths, and secret references.
+No browser data migration or global harness configuration edits are necessary.
+See [Registration migration](../clients.md#migrate-an-existing-registration) for the one-time procedure.
 It checks the complete staged runtime before atomic activation.
 Dependencies linked from that runtime still refer to the source checkout or installed package that supplied setup.
 The generated window add-on belongs under `profiles/ID/window-addon/`.

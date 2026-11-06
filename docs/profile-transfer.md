@@ -61,7 +61,9 @@ The import preview checks compatibility and refuses a mismatch.
 
 If an ID exists, import proposes `ID-copy`, then `ID-copy-2`, and later available names.
 Existing profiles stay unchanged. The destination assigns available loopback ports and new private secret references.
-Use the reported destination ID for later CLI commands and client registration.
+Use the reported destination ID for later CLI commands and MCP `profileId` arguments.
+Call `profile_list({})` through the existing shared registration to discover imported profiles.
+Import requires no new MCP registration.
 
 Imported profiles remain stopped.
 If the source proxy credentials were unavailable, configure the imported profile's proxy before starting it.

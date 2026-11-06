@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { createControllerLease } from "../mcp/controller.ts";
+import { CONTROL_PROTOCOL_VERSION, type ControlIdentity, type OwnedControlRequest, type AcquireControlRequest } from "../mcp/control-protocol.ts";
 import { applyFingerprint, type LaunchOptions } from "./fingerprint.ts";
 import { createIpVerification, parseIpCheckInterval, type Probe } from "./ip-verification.ts";
 import { allowedBrowserTools, browserToolArguments } from "../mcp/tool-policy.ts";
@@ -105,6 +106,7 @@ export async function register(app: App, ctx: PluginContext, options: {
   let launchAdmitted = false;
   let sessionAdmitted = false;
   let invalidated = false;
+  let pauseGeneration = 0;
   let restorePhase: "ready" | "paused" = "ready";
   const windows = createProfileWindows({ id, instanceId: state.instanceId, directory: stateDir,
     port: Number(process.env.CAMOFOX_PORT), accessKey: process.env.CAMOFOX_ACCESS_KEY!, phase: () => state.phase,
@@ -152,18 +154,38 @@ export async function register(app: App, ctx: PluginContext, options: {
     return elapsed >= 0 && elapsed < interval;
   }
   function snapshot() {
-    return { ...state, verificationFresh: verificationIsFresh(), typingModeDefault: parseTypingMode(process.env.STELZ_TYPING_MODE) };
+    return { ...state, controlProtocolVersion: CONTROL_PROTOCOL_VERSION,
+      verificationFresh: verificationIsFresh(), typingModeDefault: parseTypingMode(process.env.STELZ_TYPING_MODE) };
+  }
+  function assertIdentity(body: Record<string, unknown> | undefined): asserts body is Record<string, unknown> & ControlIdentity {
+    if (body?.profileId !== id || body?.instanceId !== state.instanceId) {
+      throw Error("Control request does not match this profile and service instance.");
+    }
+  }
+  function ownedController(body: Record<string, unknown> | undefined): string {
+    assertIdentity(body);
+    if (typeof body.controllerId !== "string" || !body.controllerId) throw Error("Controller ID is invalid.");
+    return (body as OwnedControlRequest).controllerId;
+  }
+  function optionalController(body: Record<string, unknown> | undefined): string | undefined {
+    if (body && ["controllerId", "profileId", "instanceId"].some(key => Object.hasOwn(body, key))) return ownedController(body);
+    return undefined;
+  }
+  function runControl<T>(controllerId: string | undefined, action: () => Promise<T>) {
+    return controllerId === undefined ? controller.runExclusive(action) : controller.run(controllerId, action);
   }
   async function bounded<T>(action: () => Promise<T>): Promise<T> {
     let timer: ReturnType<typeof setTimeout> | undefined;
+    const work = action();
     const deadline = new Promise<never>((_resolve, reject) => {
       timer = setTimeout(() => {
+        controller.retain(work);
         invalidate("A service operation exceeded its time limit. Stop the profile before another browser action.");
         reject(Error("A service operation exceeded its time limit. Stop the profile before another browser action."));
       }, timeout);
     });
     try {
-      return await Promise.race([action(), deadline]);
+      return await Promise.race([work, deadline]);
     } finally {
       if (timer) clearTimeout(timer);
     }
@@ -290,9 +312,10 @@ export async function register(app: App, ctx: PluginContext, options: {
   });
   app.post("/local-profile/acquire", ctx.auth(), (req, res) => {
     try {
+      const body = req.body;
+      assertIdentity(body);
       if (!["ready", "paused", "verification_failed"].includes(state.phase)) throw Error(`Profile is ${state.phase}.`);
-      const body = req.body || {};
-      const lease = controller.acquire({ id: String(body.id || ""), pid: Number(body.pid), label: String(body.label || "MCP client") });
+      const lease = controller.acquire(body as AcquireControlRequest);
       res.json({ ...snapshot(), ...lease });
     } catch (error) {
       res.status(409).json({ error: (error as Error).message });
@@ -300,7 +323,8 @@ export async function register(app: App, ctx: PluginContext, options: {
   });
   app.post("/local-profile/release", ctx.auth(), async (req, res) => {
     try {
-      res.json({ ...await controller.release(String(req.body?.controllerId || "")), profileId: id });
+      const controllerId = ownedController(req.body);
+      res.json({ ...await controller.release(controllerId), profileId: id });
     } catch (error) {
       res.status(409).json({ error: (error as Error).message });
     }
@@ -311,12 +335,13 @@ export async function register(app: App, ctx: PluginContext, options: {
   });
   app.post("/local-profile/tool", ctx.auth(), async (req, res) => {
     try {
+      const controllerId = ownedController(req.body);
       const body = req.body || {};
       const name = String(body.name || "");
       const tool = browserTools.get(name);
       if (!tool) throw Error("Unknown browser tool.");
       let args = browserToolArguments(tool, body.args);
-      const result = await controller.run(String(body.controllerId || ""), () => bounded(async () => {
+      const result = await controller.run(controllerId, () => bounded(async () => {
         await ensureVerified();
         if (name === "camofox_type") {
           const { mode, typingMode: _internal, ...input } = args;
@@ -345,33 +370,45 @@ export async function register(app: App, ctx: PluginContext, options: {
   app.post("/local-profile/stop", ctx.auth(), async (_req, res) => {
     stopping = true;
     persist({ phase: "stopping" });
-    await controller.releaseCurrent();
+    // Explicit stop may terminate an uncertain browser operation. Keep the
+    // controller closed to admission while shutdown ends the browser lifetime.
+    void controller.releaseCurrent();
     await controller.drain();
     res.json({ stopping: true });
     setTimeout(shutdown, 20);
   });
   app.post("/local-profile/check", ctx.auth(), async (req, res) => {
     try {
-      if (req.body?.controllerId && controller.status()?.id !== req.body.controllerId) throw Error("This connection does not control the profile.");
-      await controller.runExclusive(() => bounded(() => ensureVerified(true)));
+      const controllerId = optionalController(req.body);
+      await runControl(controllerId, () => bounded(() => ensureVerified(true)));
       res.json(snapshot());
     } catch (error) {
       res.status(409).json({ error: (error as Error).message });
     }
   });
   app.post("/local-profile/pause", ctx.auth(), async (req, res) => {
-    if (req.body?.controllerId && controller.status()?.id !== req.body.controllerId) return res.status(409).json({ error: "This connection does not control the profile." });
-    if (state.phase !== "ready") return res.status(409).json({ error: `Cannot pause ${state.phase} profile` });
-    persist({ phase: "paused" });
-    await controller.drain();
-    res.json(snapshot());
+    try {
+      const controllerId = optionalController(req.body);
+      if (controllerId !== undefined) controller.assertOwner(controllerId);
+      if (state.phase !== "ready" && state.phase !== "paused") throw Error(`Cannot pause ${state.phase} profile`);
+      pauseGeneration++;
+      persist({ phase: "paused" });
+      // Admit a barrier after changing phase so release also waits for this pause.
+      await runControl(controllerId, async () => {});
+      if (state.phase !== "paused") throw Error(`Cannot acknowledge human takeover of a ${state.phase} profile. Stop it before further work.`);
+      res.json(snapshot());
+    } catch (error) {
+      res.status(409).json({ error: (error as Error).message });
+    }
   });
   app.post("/local-profile/resume", ctx.auth(), async (req, res) => {
     try {
-      if (req.body?.controllerId && controller.status()?.id !== req.body.controllerId) throw Error("This connection does not control the profile.");
-      await controller.runExclusive(() => bounded(async () => {
+      const controllerId = optionalController(req.body);
+      const generation = pauseGeneration;
+      await runControl(controllerId, () => bounded(async () => {
         if (state.phase !== "paused") throw Error(`Cannot resume ${state.phase} profile`);
         await ensureVerified(true);
+        if (generation !== pauseGeneration) throw Error("A newer pause superseded this resume.");
         if (state.phase === "paused") persist({ phase: "ready" });
       }));
       res.json(snapshot());

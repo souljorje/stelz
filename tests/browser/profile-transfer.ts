@@ -6,6 +6,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { fixture } from "../helpers/fixture.ts";
 import { assertTestHome, createTestHome } from "../helpers/test-home.ts";
 import { unusedPorts } from "../helpers/ports.ts";
+import { routeProfileTools } from "../helpers/mcp-client.ts";
 
 const root = resolve(import.meta.dir, "../.."), home = createTestHome("transfer-native", join(root, ".state"));
 const cli = process.env.STELZ_TEST_CLI || join(root, "dist/cli.js");
@@ -29,8 +30,8 @@ async function call(client: Client, name: string, args: Record<string, unknown> 
   return JSON.parse(text) as Record<string, unknown>;
 }
 async function connect(id: string) {
-  const client = new Client({ name: "profile-transfer-acceptance", version: "1.0.0" }); clients.add(client);
-  await client.connect(new StdioClientTransport({ command: process.execPath, args: ["--no-env-file", cli, "mcp", "--profile", id], env }));
+  const client = routeProfileTools(new Client({ name: "profile-transfer-acceptance", version: "1.0.0" }), id); clients.add(client);
+  await client.connect(new StdioClientTransport({ command: process.execPath, args: ["--no-env-file", cli, "mcp"], env }));
   await call(client, "profile_status"); await call(client, "profile_acquire"); await call(client, "camofox_list_tabs");
   return client;
 }

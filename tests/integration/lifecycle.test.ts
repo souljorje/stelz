@@ -15,6 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { configurationHash, type Profile } from "../../src/profiles/config.ts";
 import { lock, processStart } from "../../src/runtime/runtime.ts";
+import { createControllerLease, type Controller } from "../../src/mcp/controller.ts";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { UPSTREAM_VERSION } from "../../src/versions.ts";
@@ -193,11 +194,28 @@ test("reused and unverified PIDs are never controlled or signalled", async () =>
 test("a changed configuration port cannot redirect control to another service", async () => {
   let intendedCalls = 0;
   let unrelatedCalls = 0;
+  const controller = createControllerLease();
+  const identity = { profileId: "test", instanceId: "test-service-instance" };
+  let acquiredId: string | undefined;
   const intended = Bun.serve({
     port: 0,
-    fetch() {
+    async fetch(req) {
       intendedCalls++;
-      return Response.json({ checked: true, profileId: "test", phase: "ready" });
+      const action = new URL(req.url).pathname.split("/").at(-1);
+      const status = () => ({ ...identity, controlProtocolVersion: 1, phase: "ready", controller: controller.status() });
+      if (action === "status") return Response.json(status());
+      const text = await req.text();
+      if (!text && action === "check") return Response.json({ ...status(), checked: true });
+      const body = JSON.parse(text) as Controller & { profileId: string; instanceId: string; controllerId: string };
+      expect(body).toMatchObject(identity);
+      if (action === "acquire") {
+        acquiredId = body.id;
+        return Response.json({ ...status(), ...controller.acquire(body) });
+      }
+      if (action === "release") return Response.json({ ...await controller.release(body.controllerId), profileId: identity.profileId });
+      expect(action).toBe("check");
+      controller.assertOwner(body.controllerId);
+      return Response.json({ ...status(), checked: true });
     },
   });
   const unrelated = Bun.serve({
@@ -227,7 +245,7 @@ test("a changed configuration port cannot redirect control to another service", 
     `);
     await client.connect(new StdioClientTransport({
       command: bun,
-      args: ["--no-env-file", f.cli, "mcp", "--profile", "test"],
+      args: ["--no-env-file", f.cli, "mcp"],
       env: { ...process.env, STELZ_HOME: f.home } as Record<string, string>,
     }));
     const listed = (await client.listTools()).tools.map(tool => tool.name);
@@ -235,15 +253,23 @@ test("a changed configuration port cannot redirect control to another service", 
     expect(listed).toContain("profile_recheck");
     expect(listed).not.toContain("camofox_evaluate");
     expect(listed).not.toContain("camofox_import_cookies");
-    expect((await client.callTool({ name: "profile_acquire", arguments: {} })).isError).not.toBe(true);
-    expect((await client.callTool({ name: "profile_recheck", arguments: {} })).isError).not.toBe(true);
-    expect((await client.callTool({ name: "profile_release", arguments: {} })).isError).not.toBe(true);
-    expect(intendedCalls).toBe(4);
+    const acquired = await client.callTool({ name: "profile_acquire", arguments: { profileId: "test" } });
+    expect(acquired.isError).not.toBe(true);
+    const { controlHandle } = JSON.parse((acquired.content as Array<{ text: string }>)[0]!.text);
+    expect(controlHandle).toBeString();
+    expect(controlHandle).not.toBe(acquiredId);
+    const owned = { profileId: "test", controlHandle };
+    expect((await client.callTool({ name: "profile_recheck", arguments: owned })).isError).not.toBe(true);
+    expect((await client.callTool({ name: "profile_release", arguments: owned })).isError).not.toBe(true);
+    expect(intendedCalls).toBe(5);
     expect(unrelatedCalls).toBe(0);
-    expect((await run(f, "mcp", "--profile", "test", "--identity", "test")).code).toBe(1);
-    expect(intendedCalls).toBe(4);
+    const removed = await run(f, "mcp", "--profile", "test");
+    expect(removed.code).toBe(1);
+    expect(removed.stderr).toContain("MCP --profile option was removed");
+    expect(removed.stderr).toContain("Keep the same STELZ_HOME");
+    expect((await run(f, "mcp", "--identity", "test")).code).toBe(1);
+    expect(intendedCalls).toBe(5);
     expect(unrelatedCalls).toBe(0);
-    expect((await run(f, "mcp", "--profile", "test", "--identity", "test")).stderr).toContain("stelz mcp --profile ID");
   } finally {
     await client.close();
     intended.stop(true);

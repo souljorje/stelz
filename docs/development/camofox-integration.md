@@ -101,4 +101,8 @@ See [Testing](testing.md) for procedures and [Releasing](releasing.md) for the s
 
 Runtime links still refer to the supplying installation. Keep it available while the runtime uses it.
 Profile IDs, storage paths, and controller rules remain unchanged by setup.
+The shared MCP protocol requires the updated runtime and explicit restarts of old browser services.
+Updating only the client registration leaves those old services unchanged.
+Keep the same `STELZ_HOME`. This protocol update requires no browser data migration.
+Follow [Registration migration](../clients.md#migrate-an-existing-registration) without editing global harness configuration.
 See [Configuration](../configuration.md), [Troubleshooting](../troubleshooting.md), and [Architecture](architecture.md#source-layout-and-runtime-updates).

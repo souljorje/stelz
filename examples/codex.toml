@@ -1,9 +1,9 @@
-[mcp_servers.stelz-work]
+[mcp_servers.stelz]
 command = "stelz"
-args = ["mcp", "--profile", "work"]
+args = ["mcp"]
 startup_timeout_sec = 20
 tool_timeout_sec = 180
 
-[mcp_servers.stelz-work.env]
+[mcp_servers.stelz.env]
 STELZ_HOME = "/absolute/service/home"
 PATH = "/absolute/bun/bin:/absolute/node/bin:/usr/bin:/bin"

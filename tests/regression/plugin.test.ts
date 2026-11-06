@@ -11,6 +11,7 @@ import { createHash } from "node:crypto";
 import { freezeDevice, replayFingerprint, launchPreferences, applyProxyLocale } from "../../src/browser/fingerprint.ts";
 import { register } from "../../src/browser/plugin.ts";
 import { allowedBrowserTools } from "../../src/mcp/tool-policy.ts";
+import { CONTROL_PROTOCOL_VERSION } from "../../src/mcp/control-protocol.ts";
 import type { Tool } from "../../src/browser/upstream.ts";
 import { upstreamTyping } from "../helpers/upstream-typing.ts";
 
@@ -177,6 +178,7 @@ async function harness(mode: "direct" | "proxy" = "direct", waitForIP?: Promise<
       shutdown: () => { shutdowns++; events.emit("server:shutdown"); } });
   const emit = async (name: string, value: unknown = {}) => { await Promise.all(events.listeners(name).map(fn => fn(value))); };
   const state = () => JSON.parse(readFileSync(join(stateDir, "status.json"), "utf8")) as {
+    profileId: string; instanceId: string;
     phase: string; verificationStatus: string; verificationRequired: boolean; error?: string; checkFailure?: string;
   };
   const options = () => ({ env: { CAMOU_CONFIG_1: JSON.stringify(generated) } as Record<string, string>,
@@ -187,13 +189,16 @@ async function harness(mode: "direct" | "proxy" = "direct", waitForIP?: Promise<
     await emit("session:creating", { userId: id, contextOptions: {} });
     await emit("session:created", { userId: id, context });
   };
-  const request = async (action: string, body: Record<string, unknown> = {}) => {
+  const rawRequest = async (action: string, body?: Record<string, unknown>) => {
     let code = 200, payload: unknown;
     const response = { status(value: number) { code = value; return response; }, json(value: unknown) { payload = value; } };
     await routes.get(`/local-profile/${action}`)!({ body }, response);
     return { code, payload };
   };
-  return { id, stateDir, binary, context, emit, state, options, launch, create, request,
+  const identity = { profileId: id, instanceId: state().instanceId };
+  const request = (action: string, body: Record<string, unknown> = {}) => rawRequest(action,
+    ["acquire", "release", "tool"].includes(action) || Object.hasOwn(body, "controllerId") ? { ...identity, ...body } : body);
+  return { id, identity, stateDir, binary, context, emit, state, options, launch, create, request, rawRequest,
     setIPGate(value: Promise<void> | undefined) { ipGate = value; },
     setIPError(value: string | undefined) { ipError = value; },
     setIP(value: string) { ip = value; },
@@ -395,6 +400,262 @@ test("pausing during an IP check does not become an irreversible context-loss bl
 
 const controller = { id: "controller-a", pid: process.pid, label: "test" };
 const snapshot = { controllerId: controller.id, name: "camofox_snapshot", args: { tabId } };
+
+test("control status pins protocol and service identity without disclosing controller credentials", async () => {
+  const h = await harness("direct", undefined, { expected: "" });
+  try {
+    await h.launch(); await h.create();
+    const acquired = await h.request("acquire", { ...controller, credential: "private-credential" });
+    assert.equal(acquired.code, 200);
+    const summary = { pid: controller.pid, label: controller.label, activeActions: 0, releasing: false };
+    for (const response of [acquired, await h.request("status")]) {
+      const value = response.payload as Record<string, unknown>;
+      assert.equal(value.controlProtocolVersion, CONTROL_PROTOCOL_VERSION);
+      assert.equal(value.controlProtocolVersion, 1);
+      assert.equal(value.profileId, h.id);
+      assert.equal(value.instanceId, h.identity.instanceId);
+      assert.deepEqual(value.controller, summary);
+      assert.ok(!JSON.stringify(value).includes(controller.id));
+      assert.ok(!JSON.stringify(value).includes("private-credential"));
+    }
+    assert.equal((await h.request("acquire", controller)).code, 409);
+    assert.equal((await h.request("tool", snapshot)).code, 200);
+  } finally { await h.close(); }
+});
+
+test("foreign and incomplete service envelopes fail before lease checks or effects", async () => {
+  const h = await harness();
+  let dispatched = 0;
+  const invalidIdentities = [
+    { profileId: "other-profile" }, { instanceId: "other-service" },
+    { profileId: undefined }, { instanceId: undefined },
+    { profileId: null }, { instanceId: 123 },
+  ];
+  try {
+    // Identity is checked even before the browser is ready.
+    const starting = await h.rawRequest("acquire", controller);
+    assert.equal(starting.code, 409);
+    assert.match((starting.payload as { error: string }).error, /profile and service instance/);
+    await h.launch(); await h.create(); await h.request("acquire", controller);
+    h.setTool(async () => { dispatched++; return { spec: {}, payload: "ok" }; });
+    const checks = h.checks(), before = (await h.request("status")).payload;
+    for (const action of ["acquire", "tool", "release", "pause", "resume", "check"]) {
+      for (const invalid of invalidIdentities) {
+        const body = { ...h.identity, ...controller, ...snapshot, ...invalid };
+        const result = await h.rawRequest(action, body);
+        assert.equal(result.code, 409, action);
+        assert.match((result.payload as { error: string }).error, /profile and service instance/, action);
+      }
+    }
+    for (const action of ["acquire", "tool", "release"]) assert.equal((await h.rawRequest(action)).code, 409);
+    for (const action of ["tool", "release", "pause", "resume", "check"]) {
+      for (const controllerId of [undefined, null, "", 123, [], {}]) {
+        assert.equal((await h.rawRequest(action, { ...h.identity, controllerId })).code, 409, action);
+      }
+    }
+    for (const invalid of invalidIdentities) {
+      assert.equal((await h.rawRequest("release", { ...h.identity, ...invalid, controllerId: "future-controller" })).code, 409);
+    }
+    assert.equal(h.checks(), checks);
+    assert.equal(dispatched, 0);
+    assert.deepEqual((await h.request("status")).payload, before);
+    assert.equal((await h.request("tool", snapshot)).code, 200);
+    await h.request("release", { controllerId: controller.id });
+    assert.equal((await h.request("acquire", { ...controller, id: "future-controller" })).code, 200);
+  } finally { await h.close(); }
+});
+
+test("acquisition validates controller fields without coercing malformed credentials", async () => {
+  const h = await harness("direct", undefined, { expected: "" });
+  try {
+    await h.launch(); await h.create();
+    for (const invalid of [{ id: "" }, { id: 123 }, { id: undefined }, { pid: String(process.pid) },
+      { pid: 0 }, { pid: 1.5 }, { label: undefined }, { label: 123 }]) {
+      assert.equal((await h.request("acquire", { ...controller, ...invalid })).code, 409);
+      assert.equal(((await h.request("status")).payload as { controller: unknown }).controller, null);
+    }
+    assert.equal((await h.request("acquire", controller)).code, 200);
+  } finally { await h.close(); }
+});
+
+test("release before delayed acquisition permanently revokes that ID while preserving other owners", async () => {
+  const h = await harness("direct", undefined, { expected: "" });
+  const next = { ...controller, id: "controller-b", label: "next" };
+  try {
+    // Interrupted acquisition cleanup is valid even before browser startup.
+    assert.equal((await h.request("release", { controllerId: controller.id })).code, 200);
+    await h.launch(); await h.create();
+    assert.equal((await h.request("acquire", controller)).code, 409);
+    assert.equal((await h.request("acquire", next)).code, 200);
+    assert.equal((await h.request("release", { controllerId: controller.id })).code, 200);
+    assert.equal((await h.request("release", { controllerId: "never-acquired" })).code, 200);
+    assert.equal((await h.request("tool", { ...snapshot, controllerId: next.id })).code, 200);
+    await h.request("release", { controllerId: next.id });
+    for (const id of [controller.id, next.id, "never-acquired"]) {
+      const result = await h.request("acquire", { ...controller, id });
+      assert.equal(result.code, 409);
+      assert.match((result.payload as { error: string }).error, /revoked/);
+    }
+  } finally { await h.close(); }
+});
+
+test("operator handoff fences every old-owner action and stale cleanup preserves the new lease", async () => {
+  const h = await harness("proxy");
+  const next = { ...controller, id: "controller-b", label: "next" };
+  try {
+    await h.launch(); await h.create(); await h.request("acquire", controller);
+    assert.equal((await h.request("handoff")).code, 200);
+    assert.equal((await h.request("acquire", next)).code, 200);
+    const before = (await h.request("status")).payload, checks = h.checks();
+    for (const action of ["tool", "pause", "resume", "check"]) {
+      assert.equal((await h.request(action, snapshot)).code, 409, action);
+    }
+    assert.equal((await h.request("release", { controllerId: controller.id })).code, 200);
+    assert.deepEqual((await h.request("status")).payload, before);
+    assert.equal(h.checks(), checks);
+    assert.equal((await h.request("acquire", controller)).code, 409);
+    assert.equal((await h.request("tool", { ...snapshot, controllerId: next.id })).code, 200);
+    // Operator controls remain available without a controller envelope.
+    assert.equal((await h.request("pause")).code, 200);
+    assert.equal((await h.request("check")).code, 200);
+    assert.equal((await h.request("resume")).code, 200);
+  } finally { await h.close(); }
+});
+
+test("a prior service lifetime cannot acquire, revoke, or operate the replacement service", async () => {
+  const old = await harness("direct", undefined, { expected: "" });
+  const previous = old.identity;
+  await old.close();
+  const h = await harness("direct", undefined, { expected: "" });
+  try {
+    await h.launch(); await h.create();
+    assert.notEqual(h.identity.instanceId, previous.instanceId);
+    assert.equal((await h.rawRequest("acquire", { ...previous, ...controller })).code, 409);
+    assert.equal((await h.rawRequest("release", { ...previous, controllerId: controller.id })).code, 409);
+    assert.equal((await h.request("acquire", controller)).code, 200);
+    for (const action of ["tool", "release", "pause", "resume", "check"]) {
+      assert.equal((await h.rawRequest(action, { ...previous, ...snapshot })).code, 409);
+    }
+    assert.equal((await h.request("tool", snapshot)).code, 200);
+  } finally { await h.close(); }
+});
+
+for (const operation of ["check", "resume"]) test(`release drains an admitted ${operation} and rejects further owned controls`, async () => {
+  const h = await harness("proxy");
+  const gate = Promise.withResolvers<void>();
+  const next = { ...controller, id: "controller-b", label: "next" };
+  let released = false;
+  try {
+    await h.launch(); await h.create(); await h.request("acquire", controller);
+    if (operation === "resume") await h.request("pause");
+    const phase = h.state().phase, checks = h.checks();
+    h.setIPGate(gate.promise);
+    const admitted = h.request(operation, { controllerId: controller.id });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(h.checks(), checks + 1);
+    const release = h.request("release", { controllerId: controller.id }).then(result => { released = true; return result; });
+    for (const action of ["pause", "resume", "check", "tool"]) {
+      const response = await h.request(action, snapshot);
+      assert.equal(response.code, 409, action);
+      assert.match((response.payload as { error: string }).error, /Acquire/, action);
+    }
+    assert.equal((await h.request("acquire", next)).code, 409);
+    const summary = ((await h.request("status")).payload as { controller: unknown }).controller;
+    assert.deepEqual(summary, { pid: controller.pid, label: controller.label, activeActions: 1, releasing: true });
+    assert.equal(released, false);
+    assert.equal(h.state().phase, phase);
+    assert.equal(h.checks(), checks + 1);
+    gate.resolve();
+    assert.equal((await admitted).code, 200);
+    assert.equal((await release).code, 200);
+    assert.equal(h.state().phase, "ready");
+    assert.equal((await h.request("acquire", next)).code, 200);
+    assert.equal((await h.request("release", { controllerId: controller.id })).code, 200);
+    assert.equal((await h.request("tool", { ...snapshot, controllerId: next.id })).code, 200);
+  } finally { gate.resolve(); await h.close(); }
+});
+
+test("owned pause changes phase immediately and release waits for its admitted work", async () => {
+  const h = await harness("direct", undefined, { expected: "" });
+  const gate = Promise.withResolvers<void>(), started = Promise.withResolvers<void>();
+  let paused = false, released = false, dispatched = 0;
+  try {
+    await h.launch(); await h.create(); await h.request("acquire", controller);
+    h.setTool(async () => { dispatched++; started.resolve(); await gate.promise; return { spec: {}, payload: "ok" }; });
+    const action = h.request("tool", snapshot);
+    await started.promise;
+    const queued = h.request("tool", snapshot);
+    const pause = h.request("pause", { controllerId: controller.id }).then(result => { paused = true; return result; });
+    assert.equal(h.state().phase, "paused");
+    const release = h.request("release", { controllerId: controller.id }).then(result => { released = true; return result; });
+    assert.equal((await h.request("resume", { controllerId: controller.id })).code, 409);
+    assert.equal((await h.request("pause", { controllerId: controller.id })).code, 409);
+    assert.equal((await h.request("acquire", { ...controller, id: "controller-b" })).code, 409);
+    assert.equal(paused, false); assert.equal(released, false);
+    assert.deepEqual(((await h.request("status")).payload as { controller: unknown }).controller,
+      { pid: controller.pid, label: controller.label, activeActions: 3, releasing: true });
+    gate.resolve();
+    assert.equal((await action).code, 200);
+    assert.equal((await queued).code, 409);
+    assert.equal((await pause).code, 200);
+    assert.equal((await release).code, 200);
+    assert.equal(dispatched, 1);
+    assert.equal(h.state().phase, "paused");
+    assert.equal((await h.request("acquire", { ...controller, id: "controller-b" })).code, 200);
+    assert.equal((await h.request("resume", { controllerId: "controller-b" })).code, 200);
+  } finally { gate.resolve(); await h.close(); }
+});
+
+for (const queued of [false, true]) test(`a newer pause supersedes a ${queued ? "queued" : "running"} resume`, async () => {
+  const h = await harness("proxy");
+  const gate = Promise.withResolvers<void>();
+  let pauseFinished = false;
+  try {
+    await h.launch(); await h.create(); await h.request("acquire", controller);
+    await h.request("pause", { controllerId: controller.id });
+    h.setIPGate(gate.promise);
+    const check = queued ? h.request("check", { controllerId: controller.id }) : undefined;
+    const resume = h.request("resume", { controllerId: controller.id });
+    await new Promise(resolve => setImmediate(resolve));
+    const checks = h.checks();
+    const pause = h.request("pause", { controllerId: controller.id }).then(result => { pauseFinished = true; return result; });
+    assert.equal(h.state().phase, "paused");
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(pauseFinished, false);
+    gate.resolve();
+    if (check) assert.equal((await check).code, 200);
+    const stale = await resume;
+    assert.equal(stale.code, 409);
+    assert.match((stale.payload as { error: string }).error, /newer pause/);
+    assert.equal((await pause).code, 200);
+    assert.equal(h.state().phase, "paused");
+    assert.equal(h.checks(), checks + (queued ? 1 : 0));
+    assert.equal((await h.request("resume", { controllerId: controller.id })).code, 200);
+    assert.equal(h.state().phase, "ready");
+  } finally { gate.resolve(); await h.close(); }
+});
+
+test("operator handoff waits for admitted browser work before another owner can acquire", async () => {
+  const h = await harness("direct", undefined, { expected: "" });
+  const gate = Promise.withResolvers<void>(), started = Promise.withResolvers<void>();
+  let handedOff = false;
+  try {
+    await h.launch(); await h.create(); await h.request("acquire", controller);
+    h.setTool(async () => { started.resolve(); await gate.promise; return { spec: {}, payload: "ok" }; });
+    const action = h.request("tool", snapshot);
+    await started.promise;
+    const handoff = h.request("handoff").then(result => { handedOff = true; return result; });
+    assert.equal((await h.request("pause", { controllerId: controller.id })).code, 409);
+    assert.equal((await h.request("acquire", { ...controller, id: "controller-b" })).code, 409);
+    assert.equal(handedOff, false);
+    gate.resolve(); await action;
+    assert.equal((await handoff).code, 200);
+    assert.equal((await h.request("acquire", controller)).code, 409);
+    assert.equal((await h.request("acquire", { ...controller, id: "controller-b" })).code, 200);
+    assert.equal((await h.request("release", { controllerId: controller.id })).code, 200);
+    assert.equal((await h.request("tool", { ...snapshot, controllerId: "controller-b" })).code, 200);
+  } finally { gate.resolve(); await h.close(); }
+});
 
 async function canonicalHarness(options: { timeout?: number; type?: (body: Record<string, unknown>) => Promise<{ code: number; payload: unknown }> } = {}) {
   const requests: Array<{ method: string; url: string; authorization?: string; body?: Record<string, unknown> }> = [];
@@ -905,7 +1166,7 @@ test("service rejects excluded upstream tools", async () => {
   } finally { await h.close(); }
 });
 
-test("a stalled action times out, releases the queue, and blocks overlapping actions", async () => {
+test("a stalled action times out but retains control until underlying work settles", async () => {
   const h = await harness("direct", undefined, { expected: "", timeout: 40 });
   let finish!: (value: unknown) => void;
   let entered!: () => void;
@@ -920,21 +1181,23 @@ test("a stalled action times out, releases the queue, and blocks overlapping act
     const action = h.request("tool", snapshot);
     await started;
     const queued = h.request("tool", snapshot);
-    const release = h.request("release", { controllerId: controller.id });
+    let released = false;
+    const release = h.request("release", { controllerId: controller.id }).then(result => { released = true; return result; });
     assert.equal((await action).code, 409);
     assert.equal((await queued).code, 409);
-    assert.equal((await release).code, 200);
+    assert.equal(released, false);
     assert.equal(calls, 1);
     assert.equal(h.state().phase, "blocked");
     assert.equal((await h.request("acquire", { ...controller, id: "controller-b" })).code, 409);
     assert.equal((await h.request("check")).code, 409);
     finish({ spec: {}, payload: "late" });
+    assert.equal((await release).code, 200);
     await new Promise(resolve => setTimeout(resolve, 0));
     assert.equal(h.state().phase, "blocked");
   } finally { finish?.({ spec: {}, payload: "done" }); await h.close(); }
 });
 
-test("pause finishes when an upstream action stalls", async () => {
+test("pause refuses to acknowledge human takeover when an upstream action remains uncertain", async () => {
   const h = await harness("direct", undefined, { expected: "", timeout: 40 });
   let finish!: (value: unknown) => void;
   let entered!: () => void;
@@ -949,7 +1212,7 @@ test("pause finishes when an upstream action stalls", async () => {
     await started;
     const pause = h.request("pause");
     assert.equal((await action).code, 409);
-    assert.equal((await pause).code, 200);
+    assert.equal((await pause).code, 409);
     assert.equal(h.state().phase, "blocked");
   } finally { finish?.({ spec: {}, payload: "done" }); await h.close(); }
 });

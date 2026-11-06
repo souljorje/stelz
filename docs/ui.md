@@ -29,9 +29,21 @@ Creation saves the profile without starting a browser.
 Select the whole profile row to open its details. Its Start and Stop buttons act independently.
 Overview contains connection settings, typing preferences, and browser windows. Device and Logs contain technical information.
 
-**Ready** describes the browser. A controller label identifies the agent that currently controls it.
+**Ready** describes the browser. A controller label describes the current connection, without a persistent agent identity.
 Reading status does not claim control.
 A disabled **Start** means the profile has an issue. Inspect its details or Diagnostics before retrying.
+
+## Connect through MCP
+
+Overview shows a shared MCP command and the profile ID for tool arguments.
+The command is identical across profiles in the same service directory.
+Register `stelz mcp` once. Copy the stable profile ID into `profileId` when selecting a profile through tools.
+Acquire with `{profileId}` to receive status and a fresh opaque `controlHandle`.
+Use both fields for control actions and browser tools on that connection.
+The UI and status summaries never show handles.
+
+Use `profile_list({})` to discover profiles after creation or import. New profiles require no new MCP registration.
+See [Connect your agent](clients.md) for setup and migration, or [Shared MCP tools](mcp.md) for the complete contract.
 
 ## Take over manually
 
@@ -105,7 +117,7 @@ Follow [safe recovery](troubleshooting.md) before retrying those profiles.
 
 Diagnostics checks installation, browser location, configuration, and process ownership.
 Profile details contain bounded server and supervisor logs.
-Settings shows the service directory, runtime versions, and MCP commands.
+Settings shows the service directory, runtime versions, and the shared MCP command for existing profiles.
 The UI does not change your agent's configuration.
 
 For technical session and transaction behavior, see [Architecture](development/architecture.md).
