@@ -1,10 +1,11 @@
-import { mkdtempSync, readFileSync, writeFileSync, readdirSync, rmSync, lstatSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, readdirSync, rmSync, lstatSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { checkBundledArchive } from "./bundled-dependencies.ts";
+import { inspectPackageArchive } from "./package-archive.ts";
 import { NATIVE_DEPENDENCIES } from "../src/browser/native-dependencies.ts";
 
-type PackResult = { filename: string; files: Array<{ path: string }>; size: number; shasum: string; integrity: string };
+type PackResult = { filename: string; files: Array<{ path: string }> };
 const nativePackages = NATIVE_DEPENDENCIES;
 const preparedPackages = ["@askjo/camofox-browser", "camoufox-js"] as const;
 
@@ -47,11 +48,12 @@ export function externalizeNativeDependencies(product: string) {
 }
 
 // Bun resolves dependency links. npm packs the prepared physical release tree.
-export async function packRelease(product: string, destination: string, options: {
+export async function packPackage(product: string, destination: string, options: {
   env?: Record<string, string>;
+  publishPlan?: string;
 } = {}): Promise<PackResult> {
   const temporary = mkdtempSync(join(tmpdir(), "stelz-release-tree-"));
-  const env = { ...(options.env ?? process.env), npm_config_cache: join(temporary, "npm-cache") };
+  const env = { ...(options.env ?? process.env), npm_config_cache: join(temporary, "npm-cache"), npm_config_ignore_scripts: "true" };
   async function run(command: string[], cwd: string) {
     const child = Bun.spawn(command, { cwd, env, stdout: "pipe", stderr: "pipe" });
     const [out, err, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
@@ -67,6 +69,18 @@ export async function packRelease(product: string, destination: string, options:
     await run(["tar", "-xzf", archive, "-C", temporary], product);
     const prepared = join(temporary, "package");
     externalizeNativeDependencies(prepared);
+    if (options.publishPlan) {
+      mkdirSync(join(prepared, ".changeset"));
+      writeFileSync(join(prepared, ".changeset/config.json"), readFileSync(join(product, ".changeset/config.json")));
+      await run([Bun.which("node")!, join(product, "node_modules/@changesets/cli/bin.js"), "pack",
+        "--from-publish-plan", resolve(options.publishPlan), "--out-dir", resolve(destination)], prepared);
+      const plan = JSON.parse(readFileSync(join(destination, "publish-plan.json"), "utf8"));
+      const releases = plan.plan.flat().filter((item: { kind: string }) => item.kind === "publish");
+      if (releases.length !== 1 || releases[0].name !== "stelz") throw Error("Expected one Stelz release.");
+      const filename = releases[0].tarball.path;
+      const candidate = inspectPackageArchive(join(destination, filename));
+      return { filename, files: candidate.files };
+    }
     const result = JSON.parse(await run([Bun.which("npm")!, "pack", "--ignore-scripts", "--json", "--pack-destination", destination], prepared)) as PackResult[];
     if (result.length !== 1) throw Error("Expected one release archive.");
     checkBundledArchive(result[0]!.files);

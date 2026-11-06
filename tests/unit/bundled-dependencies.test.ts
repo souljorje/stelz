@@ -3,7 +3,7 @@ import { resolve, join, dirname } from "node:path";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { checkBundledArchive, inspectBundledDependencies } from "../../scripts/bundled-dependencies.ts";
-import { externalizeNativeDependencies } from "../../scripts/release-archive.ts";
+import { externalizeNativeDependencies } from "../../scripts/bundle-package.ts";
 
 const required = [
   "node_modules/@askjo/camofox-browser/package.json",

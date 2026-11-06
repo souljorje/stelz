@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { checkBundledArchive } from "./bundled-dependencies.ts";
 
-export function releaseArguments(args: string[], allowed: readonly string[] = []) {
+export function packageArguments(args: string[], allowed: readonly string[] = []) {
   let archive: string | undefined;
   const flags = new Set<string>();
   for (let index = 0; index < args.length; index++) {
@@ -19,7 +19,7 @@ export function archiveSha256(archive: string) {
   return createHash("sha256").update(readFileSync(archive)).digest("hex");
 }
 
-export function inspectReleaseCandidate(file: string) {
+export function inspectPackageArchive(file: string) {
   const archive = resolve(file);
   const sha256 = archiveSha256(archive);
   function tar(args: string[]) {
@@ -40,6 +40,6 @@ export function inspectReleaseCandidate(file: string) {
   return { archive, sha256, files, manifest };
 }
 
-export function assertCandidateUnchanged(candidate: { archive: string; sha256: string }) {
+export function assertArchiveUnchanged(candidate: { archive: string; sha256: string }) {
   if (archiveSha256(candidate.archive) !== candidate.sha256) throw Error("The tested release archive changed. Repeat acceptance before publication.");
 }

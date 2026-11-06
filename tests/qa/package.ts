@@ -1,95 +1,20 @@
-import { inspectBundledDependencies } from "../../scripts/bundled-dependencies.ts";
-import { releaseArguments, inspectReleaseCandidate, assertCandidateUnchanged } from "../../scripts/release-candidate.ts";
-import { nativeSmoke } from "../../scripts/native-smoke.ts";
-import { MANUAL_WAIVER } from "../../scripts/check-publication.ts";
-import { mkdtempSync, mkdirSync, symlinkSync, readFileSync, writeFileSync, readdirSync, lstatSync, realpathSync, existsSync } from "node:fs";
-import { join, resolve, dirname } from "node:path";
-import { tmpdir } from "node:os";
+import { installPackage } from "../package/install.ts";
+import { packageArguments, assertArchiveUnchanged } from "../../scripts/package-archive.ts";
+import { mkdirSync, readFileSync, writeFileSync, readdirSync, lstatSync, realpathSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { STELZ_VERSION } from "../../src/versions.ts";
-import { createTestHome } from "../helpers/test-home.ts";
-const root = resolve(import.meta.dir, "../.."), temp = mkdtempSync(join(tmpdir(), "stelz-package-"));
-const input = releaseArguments(process.argv.slice(2), ["--native", "--proxy", "--manual", "--waive-manual"]);
-const manualWaiver = input.flags.has("--waive-manual") ? MANUAL_WAIVER.approval : undefined;
-if (manualWaiver && (STELZ_VERSION !== MANUAL_WAIVER.version || input.flags.has("--manual")))
-  throw Error("The owner-approved manual waiver applies only to 0.2.1. Do not combine it with --manual.");
-const prefix = join(temp, "global"), cwd = join(temp, "empty"), home = createTestHome("data", temp), bin = join(temp, "bin");
-for (const path of [cwd, bin]) mkdirSync(path, { recursive: true });
-const npm = Bun.which("npm")!, node = Bun.which("node")!, bun = Bun.which("bun")!;
-symlinkSync(node, join(bin, "node")); symlinkSync(bun, join(bin, "bun"));
-const env: Record<string, string> = { PATH: process.env.PATH!, HOME: process.env.HOME!, CAMOFOX_SKIP_DOWNLOAD: "1", npm_config_cache: join(temp, "npm-cache") };
-if (process.env.TMPDIR) env.TMPDIR = process.env.TMPDIR;
-async function run(args: string[], options: { cwd?: string; env?: Record<string, string>; inherit?: boolean } = {}) {
-  const p = Bun.spawn(args, { cwd: options.cwd || root, env: options.env || env, stdout: options.inherit ? "inherit" : "pipe", stderr: options.inherit ? "inherit" : "pipe" });
-  if (options.inherit) { if (await p.exited) throw Error(`${args[0]} failed.`); return ""; }
-  const [out, err, code] = await Promise.all([new Response(p.stdout as ReadableStream).text(), new Response(p.stderr as ReadableStream).text(), p.exited]);
-  if (code) throw Error(err || out); return out;
-}
-console.log("Install the release archive into an isolated global prefix.");
+const root = resolve(import.meta.dir, "../..");
+const input = packageArguments(process.argv.slice(2), ["--native", "--proxy", "--manual"]);
 const archive = input.archive ?? join(root, "release-artifacts", `stelz-${STELZ_VERSION}.tgz`);
-if (!existsSync(archive)) throw Error("Release archive not found. Run bun run pack first, or supply --archive FILE.");
-const candidate = inspectReleaseCandidate(archive);
-for (const file of candidate.files) if (/^(src|test|\.git|\.codex|\.state|sessions)\//.test(file.path)) throw Error(`Unexpected archive file: ${file.path}`);
-const uiFiles = candidate.files.filter(file => file.path.startsWith("dist/ui/"));
-if (!uiFiles.some(file => file.path === "dist/ui/index.html") || !uiFiles.some(file => file.path.endsWith(".js")) || !uiFiles.some(file => file.path.endsWith(".woff2"))) throw Error("The archive is missing built UI assets.");
-await run([npm, "install", "--global", "--prefix", prefix, archive]);
-inspectBundledDependencies(join(prefix, "lib/node_modules/stelz"));
-const cleanEnv: Record<string, string> = { PATH: `${join(prefix, "bin")}:${bin}:/usr/bin:/bin`, HOME: env.HOME!, STELZ_HOME: home };
-if (env.TMPDIR) cleanEnv.TMPDIR = env.TMPDIR;
-for (const harness of ["codex", "claude", "hermes"]) if (Bun.which(harness, { PATH: cleanEnv.PATH })) throw Error(`Unexpected harness command in isolated PATH: ${harness}`);
-const executable = join(prefix, "bin/stelz");
-const poisonHome = join(temp, "wrong-project-home");
-writeFileSync(join(cwd, ".env"), `STELZ_HOME=${poisonHome}\n`);
-const defaultEnv = { ...cleanEnv }; delete defaultEnv.STELZ_HOME;
-if ((await run([executable, "--help"], { cwd, env: defaultEnv })).includes(poisonHome)) throw Error("The global command loaded project environment state.");
-const version = (await run([executable, "--version"], { cwd, env: cleanEnv })).trim();
-if (version !== STELZ_VERSION) throw Error("Global command version does not match.");
-await run([executable, "init"], { cwd, env: cleanEnv });
-// The installed UI must serve without source files, dev dependencies, or a build server.
-const reservation = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() });
-const uiPort = reservation.port;
-reservation.stop(true);
-const ui = Bun.spawn([executable, "ui", "--port", String(uiPort)], { cwd, env: cleanEnv, stdout: "pipe", stderr: "pipe" });
-const uiTimeout = setTimeout(() => ui.kill("SIGTERM"), 15000);
-let uiChecked = false;
-try {
-  const reader = ui.stdout.getReader(), decoder = new TextDecoder();
-  let output = "";
-  while (!output.includes("\n")) {
-    const part = await reader.read();
-    if (part.done) throw Error("The installed UI exited before it printed a launch URL.");
-    output += decoder.decode(part.value, { stream: true });
-  }
-  reader.releaseLock();
-  const launchUrl = output.match(/http:\/\/127\.0\.0\.1:\d+\/#token=[a-f0-9]+/)?.[0];
-  if (!launchUrl) throw Error("The installed UI did not print its launch URL.");
-  const origin = new URL(launchUrl).origin;
-  const html = await (await fetch(origin)).text();
-  const token = new URLSearchParams(new URL(launchUrl).hash.slice(1)).get("token");
-  const session = await fetch(`${origin}/api/session`, { method: "POST", headers: { Origin: origin, "Content-Type": "application/json" }, body: JSON.stringify({ token }) });
-  if (!session.ok) throw Error("The installed UI session failed.");
-  const Cookie = session.headers.get("set-cookie")!.split(";")[0]!;
-  const response = await fetch(`${origin}/api/state`, { headers: { Cookie } });
-  const state = await response.json() as { home: string; profiles: unknown[] };
-  if (!response.ok || state.home !== home || state.profiles.length !== 0) throw Error("The installed UI must use the selected service directory and an empty initial catalog.");
-  const assets = [...html.matchAll(/(?:src|href)="([^"]+\.(?:js|css))"/g)].map(match => match[1]!);
-  if (!assets.some(path => path.endsWith(".js")) || !assets.some(path => path.endsWith(".css"))) throw Error("The installed UI HTML is missing its bundled assets.");
-  for (const path of assets) if (!(await fetch(new URL(path, origin))).ok) throw Error("An installed UI asset is unavailable.");
-  const shutdown = await fetch(`${origin}/api/shutdown`, { method: "POST", headers: { Cookie, Origin: origin, "Content-Type": "application/json" }, body: "{}" });
-  if (!shutdown.ok || !(await shutdown.json() as { stopped?: boolean }).stopped || !shutdown.headers.get("set-cookie")?.includes("Max-Age=0"))
-    throw Error("The installed UI did not end its session.");
-  if (await ui.exited !== 0) throw Error("The installed UI did not exit cleanly after shutdown.");
-  uiChecked = true;
-} finally {
-  clearTimeout(uiTimeout);
-  ui.kill("SIGTERM");
-  await ui.exited;
+const { candidate, env: cleanEnv, cwd, home, prefix, node, bun, executable, installedCli, version, nativeCheck, uiChecked } = await installPackage(archive, { native: true, keep: true });
+async function run(args: string[], options: { cwd?: string; env?: Record<string, string>; inherit?: boolean } = {}) {
+  const child = Bun.spawn(args, { cwd: options.cwd ?? cwd, env: options.env ?? cleanEnv, stdout: options.inherit ? "inherit" : "pipe", stderr: options.inherit ? "inherit" : "pipe" });
+  if (options.inherit) { if (await child.exited) throw Error(args[0] + " failed."); return ""; }
+  const [code, out, error] = await Promise.all([child.exited, new Response(child.stdout as ReadableStream).text(), new Response(child.stderr as ReadableStream).text()]);
+  if (code) throw Error(error || out); return out;
 }
-await run([executable, "setup"], { cwd, env: cleanEnv });
-const versions = JSON.parse(readFileSync(join(home, "runtime/versions.json"), "utf8"));
-const nativeCheck = await nativeSmoke(node, join(prefix, "lib/node_modules/stelz"),
-  join(home, "runtime", `camofox-${versions.upstreamVersion}`), { cwd, env: cleanEnv });
-const installedCli = join(prefix, "lib/node_modules/stelz/dist/cli.js");
-await run([bun, join(root, "tests/browser/integration.ts")], { cwd, env: { ...cleanEnv, STELZ_TEST_HOME: home, STELZ_TEST_CLI: installedCli }, inherit: true });
+await run([executable, "setup"]);
+await run([bun, join(root, "tests/browser/integration.ts")], { env: { ...cleanEnv, STELZ_TEST_HOME: home, STELZ_TEST_CLI: installedCli }, inherit: true });
 const acceptance = { integration: true, native: false, transfer: false, proxy: false, manual: false };
 for (const [flag, script, suite] of [
   ["--native", "tests/browser/native-integration.ts", "native"],
@@ -98,7 +23,7 @@ for (const [flag, script, suite] of [
   ["--manual", "tests/qa/manual-integration.ts", "manual"],
 ] as const) {
   if (suite !== "native" && suite !== "transfer" && !input.flags.has(flag)) continue;
-  assertCandidateUnchanged(candidate);
+  assertArchiveUnchanged(candidate);
   await run([bun, "--no-env-file", join(root, script)], { cwd, env: { ...cleanEnv, STELZ_TEST_CLI: installedCli,
     ...(suite === "proxy" && process.env.PROXY_TEST_ENV ? { PROXY_TEST_ENV: process.env.PROXY_TEST_ENV } : {}) }, inherit: true });
   acceptance[suite] = true;
@@ -112,18 +37,8 @@ function checkLinks(folder: string) {
   }
 }
 checkLinks(join(home, "runtime"));
-assertCandidateUnchanged(candidate);
-const evidence = { result: "passed", archive, sha256: candidate.sha256, version, acceptance, ...(manualWaiver ? { manualWaiver } : {}), nativeCheck, globalPrefix: prefix, cwd, serviceHome: home, bundledUiChecked: uiChecked, harnessExecutablesRequired: false, llmCredentialsProvided: false, runtimeLinksReferToSourceCheckout: false, browserChecks: JSON.parse(readFileSync(join(home, "report.json"), "utf8")) };
+assertArchiveUnchanged(candidate);
+const evidence = { result: "passed", archive, sha256: candidate.sha256, version, acceptance, nativeCheck, globalPrefix: prefix, cwd, serviceHome: home, bundledUiChecked: uiChecked, harnessExecutablesRequired: false, llmCredentialsProvided: false, runtimeLinksReferToSourceCheckout: false, browserChecks: JSON.parse(readFileSync(join(home, "report.json"), "utf8")) };
 mkdirSync(join(root, ".state/package-test"), { recursive: true, mode: 0o700 });
 writeFileSync(join(root, ".state/package-test/report.json"), JSON.stringify(evidence, null, 2), { mode: 0o600 });
-if (acceptance.integration && acceptance.native && acceptance.transfer && acceptance.proxy && uiChecked
-  && (acceptance.manual || manualWaiver) && /^\d+$/.test(process.env.STELZ_RELEASE_CANDIDATE_RUN || "")) {
-  const metadata = JSON.parse(readFileSync(join(dirname(archive), "candidate.json"), "utf8"));
-  if (metadata.sha256 !== candidate.sha256 || metadata.version !== version || !/^[a-f\d]{40}$/.test(metadata.sourceCommit)) throw Error("The candidate metadata does not match the tested release.");
-  mkdirSync(join(root, "release"), { recursive: true });
-  writeFileSync(join(root, "release", `acceptance-${version}.json`), JSON.stringify({ result: "passed", version,
-    sha256: candidate.sha256, candidateRunId: process.env.STELZ_RELEASE_CANDIDATE_RUN, candidateSourceCommit: metadata.sourceCommit,
-    platform: process.platform, arch: process.arch, bun: Bun.version, node: nativeCheck.node,
-    checks: { ...acceptance, ui: uiChecked }, ...(manualWaiver ? { manualWaiver } : {}) }, null, 2) + "\n");
-}
 console.log(JSON.stringify({ result: evidence.result, archive, globalPrefix: prefix, serviceHome: home, cwd }, null, 2));

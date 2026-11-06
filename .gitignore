@@ -6,5 +6,4 @@ node_modules/
 dist/
 *.tgz
 release-artifacts/
-candidate.json
 .DS_Store

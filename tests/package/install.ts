@@ -1,14 +1,17 @@
-import { inspectBundledDependencies } from "./bundled-dependencies.ts";
-import { releaseArguments, inspectReleaseCandidate, assertCandidateUnchanged } from "./release-candidate.ts";
-import { checkMarkdownLinks } from "./markdown-links.ts";
-import { nativeSmoke } from "./native-smoke.ts";
+import { inspectBundledDependencies } from "../../scripts/bundled-dependencies.ts";
+import { packageArguments, inspectPackageArchive, assertArchiveUnchanged } from "../../scripts/package-archive.ts";
+import { checkMarkdownLinks } from "../../scripts/markdown-links.ts";
+import { nativeSmoke } from "../helpers/native-dependencies.ts";
 import { mkdtempSync, mkdirSync, symlinkSync, readFileSync, writeFileSync, readdirSync, lstatSync, realpathSync, rmSync, existsSync, chmodSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
-import { STELZ_VERSION } from "../src/versions.ts";
-const root = resolve(import.meta.dir, ".."), temp = mkdtempSync(join(tmpdir(), "stelz-package-"));
-const input = releaseArguments(process.argv.slice(2), ["--native"]);
-const prefix = join(temp, "global"), cwd = join(temp, "empty"), home = join(temp, "data"), bin = join(temp, "bin");
+import { STELZ_VERSION } from "../../src/versions.ts";
+import { createTestHome } from "../helpers/test-home.ts";
+
+export async function installPackage(archive: string, options: { native?: boolean; keep?: boolean } = {}) {
+const root = resolve(import.meta.dir, "../.."), temp = mkdtempSync(join(tmpdir(), "stelz-package-"));
+const input = { flags: new Set(options.native ? ["--native"] : []) };
+const prefix = join(temp, "global"), cwd = join(temp, "empty"), home = createTestHome("data", temp), bin = join(temp, "bin");
 for (const path of [cwd, bin]) mkdirSync(path, { recursive: true });
 const npm = Bun.which("npm")!, node = Bun.which("node")!, bun = Bun.which("bun")!;
 symlinkSync(node, join(bin, "node")); symlinkSync(bun, join(bin, "bun"));
@@ -24,9 +27,8 @@ console.log(`Verify isolated browser-free installation (${input.flags.has("--nat
 try {
 const product = root;
 const preparedDependencies = inspectBundledDependencies(product);
-const archive = input.archive ?? join(root, "release-artifacts", `stelz-${STELZ_VERSION}.tgz`);
 if (!existsSync(archive)) throw Error("Release archive not found. Run bun run pack first, or supply --archive FILE.");
-const candidate = inspectReleaseCandidate(archive);
+const candidate = inspectPackageArchive(archive);
 for (const file of candidate.files) if (/^(src|test|\.git|\.codex|\.state|sessions)\//.test(file.path)) throw Error(`Unexpected archive file: ${file.path}`);
 const uiFiles = candidate.files.filter(file => file.path.startsWith("dist/ui/"));
 if (!uiFiles.some(file => file.path === "dist/ui/index.html") || !uiFiles.some(file => file.path.endsWith(".js")) || !uiFiles.some(file => file.path.endsWith(".woff2"))) throw Error("The archive is missing built UI assets.");
@@ -36,7 +38,7 @@ for (const path of ["docs/bootstrap.md", "docs/onboarding-acceptance.md", "examp
 for (const path of ["dist/cli.js", "dist/supervisor.js", "dist/plugin.js", "dist/ui/index.html", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md", "docs/agents.md", "examples/profiles.json", "skills/stelz-browser/SKILL.md", "skills/stelz-browser/references/recovery.md", ...["react", "react-dom", "scheduler", "ibm-plex-mono", "ibm-plex-sans"].map(name => "dist/ui/licenses/" + name + ".txt")]) {
   if (!paths.includes(path)) throw Error("Archive is missing " + path);
 }
-for (const path of paths) if (!/^(?:node_modules\/|dist\/|docs\/|examples\/|skills\/|package.json$|README.md$|LICENSE$|THIRD_PARTY_NOTICES.md$)/.test(path)) throw Error("Unexpected archive path: " + path);
+for (const path of paths) if (!/^(?:node_modules\/|dist\/|docs\/|examples\/|skills\/|package.json$|README.md$|CHANGELOG.md$|LICENSE$|THIRD_PARTY_NOTICES.md$)/.test(path)) throw Error("Unexpected archive path: " + path);
 await run([npm, "install", "--global", ...(input.flags.has("--native") ? [] : ["--ignore-scripts"]), "--no-audit", "--no-fund", "--prefix", prefix, archive]);
 const installed = join(prefix, "lib/node_modules/stelz");
 const installedDependencies = inspectBundledDependencies(installed);
@@ -141,7 +143,15 @@ function checkRuntimeLinks(folder: string) {
 checkRuntimeLinks(runtime);
 if (!links) throw Error("Setup did not stage dependency links.");
 const nativeCheck = input.flags.has("--native") ? await nativeSmoke(node, installed, upstream, { cwd, env: cleanEnv }) : undefined;
-assertCandidateUnchanged(candidate);
+assertArchiveUnchanged(candidate);
 console.log(JSON.stringify({ result: "passed", archive, sha256: candidate.sha256, nativeCheck,
   checks: "Archive contents, Markdown links, isolated CLI, HTTP UI, and installed setup/dependency validation" }));
-} finally { rmSync(temp, { recursive: true, force: true }); }
+return { candidate, env: cleanEnv, cwd, home, prefix, node, bun, executable, installedCli: join(installed, "dist/cli.js"), version, nativeCheck, uiChecked: true };
+} finally { if (!options.keep) rmSync(temp, { recursive: true, force: true }); }
+}
+
+if (import.meta.main) {
+  const input = packageArguments(process.argv.slice(2), ["--native"]);
+  await installPackage(input.archive ?? resolve(import.meta.dir, "../../release-artifacts", `stelz-${STELZ_VERSION}.tgz`), { native: input.flags.has("--native") });
+}
+

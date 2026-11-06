@@ -1,6 +1,6 @@
 {
   "name": "stelz",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Standalone persistent Camoufox profiles with exclusive MCP control",
   "license": "MIT",
   "homepage": "https://github.com/souljorje/stelz#readme",
@@ -27,6 +27,7 @@
     "examples/",
     "README.md",
     "LICENSE",
+    "CHANGELOG.md",
     "THIRD_PARTY_NOTICES.md",
     "skills/"
   ],
@@ -45,6 +46,8 @@
   "type": "module",
   "packageManager": "bun@1.4.4",
   "scripts": {
+    "changeset": "changeset",
+    "version:packages": "changeset version && bun install --lockfile-only --ignore-scripts",
     "build": "bun scripts/build.ts",
     "pack": "bun scripts/pack.ts",
     "setup": "bun src/cli/cli.ts setup",
@@ -71,10 +74,11 @@
     "test:public": "bun --no-env-file tests/qa/public-sites.ts",
     "test:package": "bun tests/qa/package.ts",
     "typecheck": "tsc --noEmit",
-    "verify:release": "bun scripts/verify-release.ts",
     "test:concurrency": "bun --no-env-file tests/browser/concurrency.ts",
     "check": "bun run build && bun run typecheck && bun run test",
-    "test:transfer": "bun --no-env-file tests/browser/profile-transfer.ts"
+    "test:transfer": "bun --no-env-file tests/browser/profile-transfer.ts",
+    "test:install": "bun tests/package/install.ts",
+    "release": "changeset publish --from-pack-dir release-artifacts"
   },
   "dependencies": {
     "@askjo/camofox-browser": "1.18.1",
@@ -92,6 +96,7 @@
     "camoufox-js"
   ],
   "devDependencies": {
+    "@changesets/cli": "3.0.3",
     "@fontsource/ibm-plex-mono": "5.3.0",
     "@fontsource/ibm-plex-sans": "5.3.0",
     "@types/bun": "1.4.4",
