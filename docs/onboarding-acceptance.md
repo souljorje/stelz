@@ -17,7 +17,7 @@ Do not stop or remove real service profiles. Keep failed test state for inspecti
 
 ## Automated coverage
 
-`tests/integration/profile-cli.test.ts` covers direct and proxy creation, environment input, repeated creation, concurrent creation, legacy catalogs, interrupted transactions, conflicts, redacted results, missing initialization, and unsafe service files.
+`tests/integration/profile-cli.test.ts` covers direct and proxy creation, environment input, repeated creation, concurrent creation, interrupted transactions, conflicts, redacted results, missing initialization, and unsafe service files.
 Existing catalog, lifecycle, and MCP suites cover port allocation, rollback, exclusive control, and browser survival after disconnect.
 The release verifier checks the installed CLI and bundled onboarding resources outside the source checkout.
 
@@ -72,8 +72,8 @@ Publish the document and release before testing that public path.
 Claude Code and Hermes setup paths follow their official documentation.
 The installed Hermes skill loader also supports directory symlinks.
 Neither client completed this onboarding acceptance run. Claude Code was unavailable.
-Proxy creation, conflicts, legacy references, and interrupted transactions passed automated CLI checks. This agent check used direct networking.
+Proxy creation, conflicts and interrupted transactions passed automated CLI checks. This agent check used direct networking.
 
 The implementation checks passed: 484 Bun tests, 97 Node regression tests, typecheck, build, and isolated release verification.
-Ten CLI tests include concurrent reuse, interrupted creation, and conflicting legacy paths.
+CLI checks cover concurrent reuse and interrupted creation.
 Local evidence is retained under `.state/onboarding-acceptance/` and the temporary acceptance project.

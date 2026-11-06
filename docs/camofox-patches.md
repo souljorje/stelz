@@ -20,7 +20,7 @@ Setup retains symlink rejection, stopped-profile checks, process ownership, admi
 | Proxy WebRTC policy | Disable WebRTC for proxied browsers. | Upstream enforces the same policy on every proxy browser start. |
 | Browser start | Route browser start through persistent profile and fingerprint handling. | Upstream provides equivalent persistent-context ownership and device replay. |
 | Context claim | Reuse the selected persistent profile context. | Upstream claims that context without creating a replacement. |
-| Native persistence guard | Prevent checkpoint restoration over native Firefox storage. | Upstream disables checkpoint persistence for native storage. |
+| Native persistence guard | Keep Firefox in charge of persistent browser data. | Disable upstream storage snapshots. |
 
 Remove a patch only after the replacement passes offline regression tests and explicit browser acceptance.
 An upstream version change requires a separate compatibility review. This restructuring does not change patch behavior.

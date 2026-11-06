@@ -29,7 +29,7 @@ The native packages `better-sqlite3` and `impit` remain separate direct dependen
 The temporary release tree moves their declarations from the bundled manifests to Stelz's manifest.
 This prevents npm from treating missing native packages as bundled dependencies.
 Their JavaScript and native binaries come from ordinary npm dependency installation on the target machine.
-The ZIP libraries `yazl` and `yauzl` and checkpoint parser `stream-json` also install as ordinary runtime dependencies.
+The ZIP libraries `yazl` and `yauzl` install as ordinary runtime dependencies.
 Setup links these native packages from the installed Stelz package into the staged runtime.
 Native addon execution requires separate checks after ordinary package installation.
 The packaging check does not establish browser execution with lifecycle scripts disabled.

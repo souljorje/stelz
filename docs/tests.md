@@ -29,7 +29,7 @@ See [Onboarding acceptance](onboarding-acceptance.md) for the real-agent install
 | `bun run test:ui` | UI sessions, lifecycle dispatch, profile creation and deletion, interrupted saves, safe network edits, and redaction. |
 | `bun run test:ui:browser` | Built UI in Chrome, local sessions, offline assets, forms, and responsive layouts. |
 | `bun run test` | Controller, lifecycle, setup, proxy, plugin, native storage, and observation tests. |
-| `bun run test:integration` | Two checkpoint profiles, exclusive control, handoff, disconnect, client crash, pause, and restart. |
+| `bun run test:integration` | Two native profiles, exclusive control, handoff, disconnect, client crash, pause, and restart. |
 | `bun run test:concurrency` | Three temporary native profiles, simultaneous starts, isolated storage, duplicate starts, and controller handoff on a local fixture. |
 | `bun run test:native` | Two native profiles, storage isolation, and repeated fingerprint samples across three browser lifetimes. |
 | `bun run test:transfer` | Native ZIP export/import, batch copies, saved sessions, fingerprint bytes, fresh access keys, and copied-profile window controls. |
@@ -41,7 +41,7 @@ See [Onboarding acceptance](onboarding-acceptance.md) for the real-agent install
 | `bun run pack` | Build once and save one release archive with its hash and source metadata in `release-artifacts/`. |
 | `bun run verify:release` | Check the saved archive, installed dependencies, CLI, HTTP UI, and staged setup with a fake executable. No browser or rebuild. |
 | `bun run verify:release --archive FILE --native` | Ordinary isolated npm installation, SQLite queries, and Impit construction from the installed package and staged runtime. No browser. |
-| `bun run test:package` | Install the saved archive in an isolated npm prefix. Run checkpoint and native browser acceptance. |
+| `bun run test:package` | Install the saved archive in an isolated npm prefix. Run native browser acceptance. |
 | `bun run test:package --archive FILE --native --proxy --manual` | Full supported-platform acceptance against one unchanged release candidate, including a real human action. |
 | `bun run test:package --archive FILE --native --proxy --waive-manual` | The owner-approved `0.2.1` release exception. All automated gates remain required. Human takeover remains untested in the record. |
 
@@ -114,14 +114,14 @@ Browser checks use independent MCP SDK clients. Most checks use two profiles. `t
 Routine tests use temporary catalogs and mocked browser or service interfaces.
 Lifecycle fixtures copy source into test packages and use mock plugin bytes. They do not require workspace build output.
 Live browser checks create disposable profiles in separate service directories. They never select an operator's saved profile.
-Checkpoint, native, and manual checks use explicit direct development mode. Proxy acceptance requires two supplied HTTP proxies.
+Native and manual checks use explicit direct development mode. Proxy acceptance requires two supplied HTTP proxies.
 The isolated acceptance checks stop their test browsers. The public-site check saves its artifacts, then stops its selected browser.
 These checks require no model credentials.
 
 - `test:integration` creates a fresh `.state/standalone-acceptance-*` directory.
   `STELZ_TEST_HOME` can select only a directory created by `tests/helpers/test-home.ts`.
 - `test:native` creates a fresh `.state/native-acceptance-*` directory.
-- `test:windows` creates a fresh `.state/profile-windows-*` directory with native and checkpoint profiles.
+- `test:windows` creates a fresh `.state/profile-windows-*` directory with native profiles.
 - `test:package` uses temporary install and service directories. Its report is `.state/package-test/report.json`.
 - `test:concurrency` uses a fresh temporary service directory and reports to `.state/concurrency-acceptance/report.json`.
   It stops only its test profiles. It removes their directory after success and preserves it for inspection after failure.
@@ -160,7 +160,7 @@ bun run test:windows
 ```
 
 This check requires desktop access for visible Camoufox windows.
-It starts two isolated profiles, one with native storage and one with checkpoint storage.
+It starts two isolated profiles, both with native storage.
 It stops only those test profiles during cleanup.
 The report is `.state/profile-windows-*/report.json`.
 
@@ -276,7 +276,6 @@ Native measurement passed on 2026-11-03 with Camoufox 152.0.4 beta.30 on macOS a
 Both profiles produced 18 complete samples across three lifetimes. All required device properties and storage markers remained stable.
 Each profile produced three canvas hashes, one per lifetime. Canvas hashes matched within each lifetime.
 Each profile produced one audio hash across all samples. These observations do not extend the stability contract.
-Checkpoint mode preserves cookies, localStorage, and IndexedDB. It does not preserve a complete Firefox profile.
 
 Earlier proxy acceptance used one shared endpoint. That evidence did not establish distinct profile exits.
 The current proxy check requires two distinct exits and repeated browser measurements before it can pass.

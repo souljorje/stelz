@@ -52,8 +52,7 @@ Import saves that mode as a profile preference.
 Import requires the same operating system, CPU architecture, and exact Camoufox executable SHA-256.
 Export also checks saved fingerprints against the local executable.
 Stelz does not migrate browser versions or storage modes during import.
-Both native profiles and legacy checkpoint profiles keep their storage mode.
-Import maps checkpoint storage to the destination profile ID.
+Profile archives contain native Firefox data.
 
 The ZIP64-compatible archive contains a versioned `manifest.json` and SHA-256 hashes for its files.
 Native browser data remains intact, including SQLite sidecar files.

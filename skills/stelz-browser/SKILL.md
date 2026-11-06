@@ -62,8 +62,7 @@ The operator can change each profile's default in the UI without restarting its 
 Do not add profile IDs, controller tokens, or conversation IDs to browser tool arguments.
 The connection already selects the profile.
 
-Legacy `--identity` and `identity_*` aliases remain supported.
-Preserve existing IDs, secret references, checkpoint storage, and legacy identity data paths.
+Keep profile IDs, secret references, and native browser data under `STELZ_HOME`.
 
 ## Handoff
 

@@ -132,7 +132,6 @@ After a source update, apply the browser labels and window controls:
 For an installed release, stop all profiles. Update the package.
 Run `stelz setup` with the same `STELZ_HOME`.
 For new profiles, the service creates its private add-on under `STELZ_HOME/profiles/ID/window-addon/`.
-Existing state paths remain supported. See [Compatibility](README.md#compatibility).
 The add-on communicates only with that profile's authenticated loopback service.
 The installed Camoufox app remains unchanged.
 

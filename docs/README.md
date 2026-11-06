@@ -59,7 +59,7 @@ There is no saved-profile count limit or global active-browser limit.
 Each profile has at most one browser instance. That browser can have multiple windows and subprocesses.
 Available memory, disk, and loopback ports constrain practical capacity. The service does not impose a CPU budget.
 Catalogs and their transaction journals have no fixed byte ceiling. Secret files, state files, and HTTP requests retain their size protections.
-Existing entries without a `storage` field keep `checkpoint` mode. Init never overwrites them.
+Profiles use native Firefox storage. Init never overwrites configured profiles.
 Enter a proxy URL in Overview to configure a proxy for a stopped profile. Clear the field to remove it.
 For manual proxy configuration on a new profile, set `proxyEnv: "PROFILE_01_PROXY_URL"`.
 Set `PROFILE_01_PROXY_URL` in `secrets.env`.
@@ -67,10 +67,10 @@ Optionally set `expectedIPEnv: "PROFILE_01_EXPECTED_IP"` and its value in `secre
 Camofox supports HTTP(S) proxy authentication and unauthenticated SOCKS5.
 Authenticated SOCKS5 is not supported.
 
-Stop the profile before you change its network or storage configuration.
+Stop the profile before you change its network configuration.
 The start command rejects changes to an active profile's configuration.
 Only loopback hosts bypass a configured proxy. Proxied profiles disable WebRTC.
-Current browser policy overrides saved device data. A legacy direct-mode pin cannot re-enable WebRTC in proxy mode.
+Current browser policy overrides saved device data. Saved device settings cannot re-enable WebRTC in proxy mode.
 Proxy policy disables direct failover and enables DNS resolution through SOCKS proxies.
 Browser-side IP checks reject failed proxies and unexpected IP addresses.
 Proxy profiles use the current GeoIP country's default language from Unicode CLDR.
@@ -108,18 +108,6 @@ After a failed check, correct the network and run `stelz recheck ID`.
 If the profile remains paused, resume it after the recheck succeeds.
 These settings do not change client LLM traffic.
 
-## Compatibility
-
-Existing `identities.json` files with an `identities` array and state under `identities/ID/` remain supported.
-The service does not require a move of running browser data.
-The legacy `--identity` option and `identity_*` MCP tools remain supported aliases.
-Existing `maxActive` values are ignored and preserved during edits and recovery. New catalogs omit this obsolete field.
-
-Existing IDs, such as `identity-01`, remain unchanged. Keep configured secret references unchanged.
-The `profile-01` IDs and `PROFILE_01_*` secret names in examples are suggestions for new configuration.
-Legacy `mode` fields remain readable. New profiles infer proxy use from their optional `proxyEnv` reference.
-A missing proxy secret blocks startup. It never enables a direct fallback.
-
 ## Typing
 
 The `camofox_type` tool accepts an optional `mode` for each call:
@@ -134,7 +122,7 @@ The UI saves the profile's `typingMode` in `profiles.json`. Changes apply to fut
 The UI shows one of three effective modes. Profiles without an override inherit the service setting until you choose another mode.
 A call's explicit `mode` overrides the profile default. The override applies only to that call.
 If the profile has no default, the service uses `STELZ_TYPING_MODE` from its environment or `secrets.env`, then `auto`.
-The legacy service value `paced` selects `auto`. Service environment changes still require a stop and start.
+Service environment changes require a stop and start.
 
 Typing replaces existing field contents. Empty text clears the field.
 The service preserves Unicode text and native newline normalization. It does not add deliberate errors.
@@ -178,9 +166,6 @@ Run `stelz doctor ID` to inspect the recorded processes. Run `stelz stop ID` to 
 Check for browser processes that outlived the server. Recovery cannot check browser descendants.
 Then run `stelz recover ID` to archive the unclean lifetime. Recovery refuses live processes and unknown ownership.
 If ownership is unknown, inspect the processes before you take further action.
-After an upgrade, `stelz stop ID` can stop a legacy service through its authenticated endpoint.
-The profile configuration must match its recorded start configuration.
-The command checks the saved profile and service instance. It never signals unverified PIDs.
 A clean-stop receipt does not override live PIDs with unknown ownership.
 Closing a browser window stops its profile. The UI reports Stopped after shutdown.
 Start the profile explicitly when you need it again.
@@ -195,22 +180,17 @@ An MCP client timeout does not cancel an operation in the service.
 ## Persistent state
 
 The service stores new profile data in `profiles/ID/` inside the service directory.
-Existing state paths remain supported. See [Compatibility](#compatibility).
 
-- `browser-data/` is the native Firefox profile in native mode. The agent controls that same persistent context.
-- `native-profile.json` marks a native profile. The service refuses to replace native data with potentially stale checkpoints.
-- `storage/` stores cookie, localStorage, and IndexedDB checkpoints in legacy checkpoint mode only.
-- `fingerprint.json` stores generated device properties. New pins use schema 2. Schema 1 pins remain readable and are not rewritten.
+- `browser-data/` is the native Firefox profile. The agent controls that same persistent context.
+- `native-profile.json` marks a native profile.
+- `fingerprint.json` stores generated device properties. Pins use schema 2.
 - `running.json` records the supervisor and browser service lifetime.
 - `window-addon/` contains the generated browser add-on for profile labels and window controls.
 
 A client PID identifies a controller. It never selects browser storage or fingerprint data.
 The service uses the configured ID for the upstream `userId`. It uses the stable `default` tab group.
 
-Native mode does not restore snapshots over an existing profile. A checkpoint profile cannot silently become a fresh native profile:
-startup refuses this change if saved checkpoints exist. Keep `storage: "checkpoint"` for that profile or create a new native profile.
-Automated conversion of existing checkpoints is not part of this change. No conversion deletes or renames saved data.
-An existing `browser-data/` directory also prevents checkpoint mode if the native marker is missing.
+The service uses the original persistent browser context.
 If a marked native profile loses its browser-data directory, startup fails. Restore the original directory before starting that profile.
 
 Saved device properties do not override current language, location, add-on paths, session history, or Firefox security preferences.

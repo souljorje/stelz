@@ -80,7 +80,6 @@ stelz profile create work --json
 Use the requested ID instead of `work` when supplied. New profiles use native storage and a free loopback port.
 An existing ID is reused without rewriting it. Omitted network options retain its existing route and expected IP.
 An unspecified route on a new profile is direct. Use `--direct` to require direct networking explicitly.
-Existing checkpoint profiles stay in checkpoint mode. This command does not migrate them.
 
 For a proxy, supply one of `--proxy-url URL` or `--proxy-env NAME`.
 For an expected IP, supply one of `--expected-ip IP` or `--expected-ip-env NAME`.

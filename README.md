@@ -33,8 +33,6 @@ Client disconnect releases control. The browser and its pages remain open.
 Use `stelz stop ID` to stop a browser and save its state.
 Closing its browser window also stops the profile. Closing the UI keeps browsers running.
 
-Legacy configuration, data paths, CLI options, and MCP names remain supported.
-See [Compatibility](docs/README.md#compatibility) before changing existing configuration.
 
 - [Use the local UI](docs/ui.md)
 - [Import and export profiles](docs/profile-transfer.md)

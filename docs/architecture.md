@@ -69,14 +69,10 @@ See [client handoff](clients.md#check-a-handoff) and [agent instructions](agents
 
 `STELZ_HOME` selects the service directory. The current workspace, client PID, and conversation ID never select browser storage.
 `profiles.json` stores profile configuration. `secrets.env` stores secret values referenced by configuration.
-Existing IDs, secret references, and legacy `identities.json` data paths remain supported.
 This lets different clients use the same profile without moving its data.
 
 New profiles use native storage under `profiles/ID/browser-data/`.
 Playwright starts Firefox with its persistent context, and Camofox claims that same context for browser actions.
-Existing profiles without an explicit storage mode retain checkpoint storage under `storage/`.
-Native mode prevents checkpoint restoration over native browser data.
-Switching storage modes requires deliberate migration. Startup rejects combinations that could replace existing state with stale checkpoints.
 
 `fingerprint.json` records selected device properties and the browser executable hash.
 On restart, Stelz reuses those device properties while retaining current locale, location, and security policy.
@@ -196,7 +192,7 @@ In the source workspace, `src/` separates responsibilities by directory:
 | Directory | Responsibility |
 | --- | --- |
 | `cli/` | Command parsing and user-facing operations. |
-| `profiles/` | Configuration, profile archives, catalog transactions, compatibility, and secret references. |
+| `profiles/` | Configuration, profile archives, catalog transactions and secret references. |
 | `runtime/` | Process ownership, locks, lifecycle operations, and supervision. |
 | `mcp/` | MCP transport, tool policy, and controller ownership. |
 | `browser/` | Camofox integration, persistent contexts, fingerprints, typing, and IP checks. |
