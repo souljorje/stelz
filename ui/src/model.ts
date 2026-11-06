@@ -97,7 +97,7 @@ export const networkDirty = (draft: NetworkDraft, baseline: NetworkDraft) => dra
 export function networkUpdate(draft: NetworkDraft, baseline: NetworkDraft, network: UiNetwork): UiNetworkUpdate {
   return {
     revision: draft.revision,
-    ...((!network.proxyReadOnly || !draft.proxyUrl.trim()) && draft.proxyUrl.trim() !== baseline.proxyUrl ? { proxyUrl: draft.proxyUrl.trim() || null } : {}),
+    ...((!network.proxyReadOnly || !draft.proxyUrl.trim()) && draft.proxyUrl.trim() !== baseline.proxyUrl ? { proxyUrl: draft.proxyUrl.trim() ? draft.proxyUrl : null } : {}),
     ...(!network.expectedIpReadOnly && draft.expectedIp.trim() !== baseline.expectedIp ? { expectedIp: draft.expectedIp.trim() } : {}),
   };
 }

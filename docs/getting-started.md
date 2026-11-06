@@ -98,7 +98,7 @@ If that port is occupied, use `stelz ui --port 9381 --open`.
 
 1. Open **Profiles** and select **New profile**.
 2. Enter `work` as the profile name.
-3. Leave **Proxy URL** blank for a direct connection.
+3. Leave **Proxy** blank for a direct connection.
 4. Select **Create profile**.
 5. Select **Start** for `work`.
 

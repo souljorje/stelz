@@ -58,6 +58,52 @@ test("domain operations create, edit, and archive profiles without a UI model", 
   expect(parseEnv(secrets).DOMAIN_PROXY).toBe("http://new.test:8080");
 });
 
+test("create and update normalize provider input without changing credential references or launching browsers", async () => {
+  const home = fixture();
+  const result = await run(home, `
+    const inputs = ['proxy.test:8080:reader:p@ss:#%zz', 'reader:p%40ss%3A%23%25zz@proxy.test:8080',
+      'curl -x proxy.test:8080 -U "reader:p@ss:#%zz" https://example.test'];
+    const observed = [];
+    for (const [index, proxyUrl] of inputs.entries()) {
+      const id = 'provider-' + index;
+      await domain.createProfile({ id, revision: domain.catalogRevision(settings()), proxyUrl });
+      const p = settings().profiles.find(p => p.id === id);
+      observed.push(readValues()[p.proxyEnv]);
+      await domain.updateNetwork('test', { revision: revision(), proxyUrl });
+      if (readValues().DOMAIN_PROXY !== observed.at(-1)) throw Error('Create and update disagree');
+    }
+    const previous = readValues().DOMAIN_PROXY;
+    await domain.updateNetwork('test', { revision: revision(), expectedIp: '203.0.113.9' });
+    return { observed, kept: readValues().DOMAIN_PROXY === previous, profile: settings().profiles[0],
+      running: fs.existsSync(join(home, 'profiles/test/running.json')) };
+  `);
+  expect(result.ok).toBe(true);
+  expect(result.value.observed).toEqual(Array(3).fill("http://reader:p%40ss%3A%23%25zz@proxy.test:8080"));
+  expect(result.value).toMatchObject({ kept: true, running: false, profile: { id: "test", proxyEnv: "DOMAIN_PROXY", storage: "native" } });
+});
+
+test("unclear provider inputs reject before writes and errors never contain the pasted secret", async () => {
+  const home = fixture();
+  const before = [readFileSync(join(home, "profiles.json"), "utf8"), readFileSync(join(home, "secrets.env"), "utf8")];
+  const result = await run(home, `
+    const results = [];
+    for (const proxyUrl of ['https://provider.test/download?token=private-secret', 'proxy.test:8080\\nother.test:8080',
+      'curl -x proxy.test:8080 -U reader:private-secret; false', 'user:8080:reader:private-secret@proxy.test:8080']) {
+      for (const action of [() => domain.createProfile({ id: 'rejected', revision: domain.catalogRevision(settings()), proxyUrl }),
+        () => domain.updateNetwork('test', { revision: revision(), proxyUrl })]) {
+        try { await action(); results.push({ accepted: true }); }
+        catch (error) { results.push({ status: error.status, message: error.message }); }
+      }
+    }
+    return results;
+  `);
+  expect(result.ok).toBe(true);
+  expect(result.value).toHaveLength(8);
+  expect(result.value.every((item: { status: number }) => item.status === 400)).toBe(true);
+  expect(JSON.stringify(result)).not.toContain("private-secret");
+  expect([readFileSync(join(home, "profiles.json"), "utf8"), readFileSync(join(home, "secrets.env"), "utf8")]).toEqual(before);
+});
+
 test("typing defaults save live without changing launch state, secrets, or profile data", async () => {
   const home = fixture();
   const secrets = readFileSync(join(home, "secrets.env"), "utf8");

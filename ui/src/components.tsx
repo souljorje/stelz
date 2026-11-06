@@ -98,7 +98,7 @@ export function Modal({ children, title, onClose, busy = false, className = "" }
       if (previousFocus instanceof HTMLElement && previousFocus.isConnected) previousFocus.focus();
     };
   }, []);
-  return <dialog ref={dialog} className={`modal ${className}`} aria-labelledby={titleId} aria-busy={busy} onCancel={(event) => { event.preventDefault(); if (!busy) onClose(); }}>
+  return <dialog ref={dialog} className={`modal ${className}`} aria-labelledby={titleId} aria-busy={busy} onCancel={(event) => { event.preventDefault(); event.stopPropagation(); if (!busy) onClose(); }}>
     <div className="modal-heading"><h2 id={titleId}>{title}</h2><button type="button" className="icon-button" aria-label="Close dialog" onClick={onClose} disabled={busy}><Icon name="close" /></button></div>
     {children}
   </dialog>;

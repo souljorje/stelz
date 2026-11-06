@@ -3,6 +3,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { TypingForm } from "../../ui/src/TypingForm.tsx";
 import { NetworkForm } from "../../ui/src/NetworkForm.tsx";
+import { ProxyField } from "../../ui/src/ProxyField.tsx";
 import { UI_ACTIONS } from "../../src/api/contracts.ts";
 import type { UiProfile, UiNetwork, UiPhase, UiSnapshot } from "../../src/api/contracts.ts";
 import { actionReason, boundedLog, hasProxy, homeCommand, mcpCommand, networkDirty, networkDraft, networkUpdate, proxyDisplay, redact, shellQuote } from "../../ui/src/model.ts";
@@ -61,6 +62,20 @@ describe("lifecycle guards", () => {
 
 describe("network updates", () => {
   const proxied: UiNetwork = { ...network, proxyEnv: "PROXY_URL", proxyDisplay: "http://proxy.example:8080", proxyConfigured: true };
+  test("provider previews hide credentials and expose the assumed protocol", () => {
+    const html = renderToStaticMarkup(createElement(ProxyField, { value: "proxy.test:8080:private-user:private-password", disabled: false,
+      onChange: () => { throw Error("Rendering must not change a proxy."); }, onValidityChange: () => {} }));
+    expect(html).toContain('value="http://proxy.test:8080"');
+    expect(html).toContain("HTTP assumed");
+    expect(html).toContain("Credentials hidden");
+    expect(html).not.toContain("private-user");
+    expect(html).not.toContain("private-password");
+    expect(html).not.toContain("fieldset");
+  });
+  test("network drafts preserve literal password spaces for shared normalization", () => {
+    const baseline = networkDraft(network), proxyUrl = "proxy.test:8080:user: password ";
+    expect(networkUpdate({ ...baseline, proxyUrl }, baseline, network).proxyUrl).toBe(proxyUrl);
+  });
   test("the saved address is visible, and an IP-only change preserves saved authentication", () => {
     const baseline = networkDraft(proxied);
     expect(baseline.proxyUrl).toBe("http://proxy.example:8080");

@@ -1,6 +1,6 @@
 # Configure a proxy or expected exit IP
 
-A proxy is optional. Leave **Proxy URL** blank for a direct connection.
+A proxy is optional. Leave **Proxy** blank for a direct connection.
 A missing, empty, or invalid configured proxy blocks startup. It never permits direct fallback.
 
 Use [Getting started](getting-started.md) to prepare the `work` profile first.
@@ -12,14 +12,15 @@ These settings affect that profile's browser traffic. They do not change the cli
 2. Open **Profiles** and select `work`.
 3. Select **Stop** if the profile is running. Wait for **Stopped**.
 4. Open **Overview** and find **Connection**.
-5. Enter a supported URL in **Proxy URL**, or leave it empty for direct networking.
+5. Paste the provider's proxy details in **Proxy**, or leave it empty for direct networking.
 6. Enter an optional **Expected exit IP**. Leave it empty if no fixed address is required.
 7. Select **Save network**. Require `Network settings saved.`.
 8. Select **Start**. Run `stelz status work` to check the result.
 
 An unchanged proxy address preserves its saved authentication when you change only the expected IP.
 The UI shows the saved address without its username or password.
-To replace credentials, enter the complete replacement URL, including the credentials.
+To replace credentials, paste the replacement details or select **Edit details**.
+Saved credentials remain hidden. Enter them again when you change a saved proxy through the separate fields.
 
 For a proxy, require `phase: "ready"`, `verificationRequired: true`, and `verificationStatus: "verified"` before browser work.
 Check `exitIp` against the intended route.
@@ -29,7 +30,7 @@ Such a profile does not perform an IP lookup.
 ## Remove a proxy or expected IP
 
 1. Stop `work` cleanly.
-2. Clear **Proxy URL**, or select **Remove proxy** for a managed proxy.
+2. Clear **Proxy**, or select **Remove proxy** for a managed proxy.
 3. Clear **Expected exit IP** if you also want to remove the fixed-address requirement.
 4. Select **Save network**.
 5. Start `work` explicitly.
@@ -53,9 +54,49 @@ Review the new configuration before entering the change again.
 Do not force a stale save or delete a transaction journal.
 See [Pending configuration recovery](troubleshooting.md#configuration-save-or-import-is-pending).
 
-## Supported proxy URLs
+## Paste provider details
 
-Use a complete URL with an explicit scheme:
+The UI and CLI profile creation accept these formats:
+
+```text
+http://user:password@proxy.example:8080
+user:password@proxy.example:8080
+proxy.example:8080:user:password
+proxy.example:8080
+```
+
+An omitted protocol uses HTTP. The UI shows **HTTP assumed** before saving.
+Explicit HTTPS and SOCKS5 protocols remain unchanged.
+Bracket IPv6 addresses, for example `[2001:db8::1]:8080`.
+
+You can also paste a cURL example with `--proxy` (`-x`) and optional `--proxy-user` (`-U`):
+
+```sh
+curl https://example.com -x proxy.example:8080 -U 'user:password'
+```
+
+Stelz reads the proxy options locally. It does not execute the command or contact the example website.
+Shell substitutions, variables, conflicting credentials, and multiple proxy endpoints require manual entry.
+
+The preview shows the address without credentials. Ambiguous input opens separate fields for confirmation.
+Select **Enter manually** to enter the protocol, host, port, username, and password directly.
+Shorthand passwords and separate credential fields are literal. Stelz encodes their reserved characters automatically.
+URL-style credentials can contain existing percent escapes. Stelz decodes them once before saving the canonical URL.
+
+### Import a proxy list
+
+1. Select **Import list** beside the proxy field.
+2. Choose a text file or paste a list with one proxy per line.
+3. Select one detected proxy.
+4. Select **Use proxy**. Then save the network settings or create the profile.
+
+For a download link, select **Import list**, then **Download the list**. Choose the downloaded file.
+Stelz does not automatically fetch the link or save it as a proxy endpoint.
+List parsing stays in the UI. Only the selected proxy reaches the local service when you save.
+Duplicate entries are combined. Invalid lines are reported without their credentials.
+Files can contain up to 1 MB and 10,000 lines. This limit does not restrict the saved profile count.
+
+## Supported proxy URLs
 
 | Form | Support |
 | --- | --- |
@@ -65,13 +106,13 @@ Use a complete URL with an explicit scheme:
 | `socks5://proxy.example:1080` | SOCKS5 without authentication. |
 
 An omitted port uses `80` for HTTP, `443` for HTTPS, or `1080` for SOCKS5.
-Percent-encode reserved characters in the username and password. Invalid percent encoding fails.
+For secrets edited directly in `secrets.env`, use a complete URL with percent-encoded credentials.
+Provider-format detection runs during profile creation and UI network edits, not at browser startup.
 Authenticated SOCKS5 is unsupported. Use an HTTP(S) endpoint when authentication is required.
 
 Paths other than `/`, query strings, and fragments are unsupported.
-UI and creation inputs reject whitespace, backslashes, control characters, and URLs longer than 8192 characters.
-Bare `host:port`, provider shorthand, and `host:port:user:password` are not supported inputs.
-Stelz does not infer a scheme or convert provider credential formats.
+Inputs reject control characters and normalized URLs longer than 8192 characters.
+Whitespace and backslashes in separate credentials are encoded. They are not permitted in proxy hosts.
 
 Expected IP accepts one literal IPv4 or IPv6 address.
 The check compares the returned address with the configured string exactly.

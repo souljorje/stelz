@@ -21,7 +21,7 @@ Your browser saves the choice locally.
 
 1. Open **Profiles** and select **New profile**.
 2. Enter `work`, or another unused name with lowercase letters, digits, and hyphens.
-3. Leave **Proxy URL** blank for a direct connection, or follow [Configure a proxy](proxies.md).
+3. Leave **Proxy** blank for a direct connection, or paste details from your provider. See [Configure a proxy](proxies.md).
 4. Select **Create profile**.
 5. Select **Start** when you want its browser to open.
 

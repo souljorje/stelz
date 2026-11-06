@@ -825,7 +825,7 @@ test("strict inputs reject bad proxies, IP addresses, extra fields, and unknown 
   const f = fixture(), configBefore = readFileSync(f.config, "utf8"), secretsBefore = readFileSync(f.secrets, "utf8");
   const result = await run(f, `${withRevision}
     const invalid = [
-      ...['', 'ftp://host:8080', 'socks4://host:1080', 'socks5://name:private-value@host:1080', 'http://name:private-value@host/path', 'http://host?token=private-query', 'http://host:99999', 'http://name:p%zz@host', 'http:host', 'http://host\\n'].map(proxyUrl => ({ revision, proxyUrl })),
+      ...['', 'ftp://host:8080', 'socks4://host:1080', 'socks5://name:private-value@host:1080', 'http://name:private-value@host/path', 'http://host?token=private-query', 'http://host:99999', 'http://name:p%FF@host', 'http:host', 'http://ho\\nst'].map(proxyUrl => ({ revision, proxyUrl })),
       ...['999.1.1.1', '127.1', '[::1]', '::g', '198.51.100.1\\n', 'fe80::1%en0', 'private-value'].map(expectedIp => ({ revision, expectedIp })),
       { revision, storage: 'checkpoint' }, { revision, id: 'other' },
       { revision, mode: 'other' }, { revision, mode: 'proxy' }, { revision, mode: 'direct' }, { revision, proxyUrl: false }, { revision, expectedIp: 4 },

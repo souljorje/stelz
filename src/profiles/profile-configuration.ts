@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { parseEnv } from "node:util";
 import { CONFIG_FILE, HOME_DIR, STATE, dir, save, settings, serializeSettings, parseProfileName, validateProxy, validateSettings, type Profile, type Settings } from "./config.ts";
 import { isTypingMode } from "../browser/typing.ts";
+import { normalizeProxyInput } from "./proxy-input.ts";
 import { assertStoppedProfile, lock, observe, observeStatus, running } from "../runtime/profile-process.ts";
 import {
   ProfileCatalogError, recoverProfileCatalog, readCatalogFiles, checkCatalogDirectory,
@@ -85,10 +86,8 @@ function validateUpdate(value: NetworkUpdate): NetworkUpdate {
       typeof item.revision !== "string" || !/^[a-f\d]{64}$/.test(item.revision))
     throw new ProfileConfigurationError(400, "Network input is invalid. Supply the current network revision.");
   if (Object.hasOwn(item, "proxyUrl") && item.proxyUrl !== null) {
-    if (typeof item.proxyUrl !== "string" || !item.proxyUrl || item.proxyUrl.length > 8192 ||
-        /[\s\\\x00-\x1f\x7f]/.test(item.proxyUrl) || !/^(?:https?|socks5):\/\//i.test(item.proxyUrl))
-      throw new ProfileConfigurationError(400, "Proxy URL must be a nonempty HTTP(S) or unauthenticated SOCKS5 URL.");
-    try { encodeURIComponent(item.proxyUrl); validateProxy(item.proxyUrl); } catch { throw new ProfileConfigurationError(400, "Proxy URL is invalid. Use HTTP(S) or unauthenticated SOCKS5."); }
+    try { value = { ...value, proxyUrl: normalizeProxyInput(item.proxyUrl) }; }
+    catch (error) { throw new ProfileConfigurationError(400, (error as Error).message); }
   }
   if (Object.hasOwn(item, "expectedIp") && (typeof item.expectedIp !== "string" || item.expectedIp !== "" && !ip(item.expectedIp)))
     throw new ProfileConfigurationError(400, "Expected IP must be empty or an IPv4 or IPv6 address.");
@@ -177,14 +176,12 @@ function validateInput(value: ProfileCreate) {
     throw new ProfileCatalogError(400, "Use a profile name with 1–64 lowercase letters, digits, or hyphens. Start with a letter.");
   if (value.id === "all") throw new ProfileCatalogError(400, "The profile name all is reserved for lifecycle commands. Choose another name.");
   if (value.proxyUrl !== undefined) {
-    if (typeof value.proxyUrl !== "string" || !value.proxyUrl || value.proxyUrl.length > 8192 ||
-        /[\s\\\x00-\x1f\x7f]/.test(value.proxyUrl) || !/^(?:https?|socks5):\/\//i.test(value.proxyUrl))
-      throw new ProfileCatalogError(400, "Proxy URL is invalid. Use HTTP(S) or unauthenticated SOCKS5.");
-    try { encodeURIComponent(value.proxyUrl); validateProxy(value.proxyUrl); }
-    catch { throw new ProfileCatalogError(400, "Proxy URL is invalid. Use HTTP(S) or unauthenticated SOCKS5."); }
+    try { value = { ...value, proxyUrl: normalizeProxyInput(value.proxyUrl) }; }
+    catch (error) { throw new ProfileCatalogError(400, (error as Error).message); }
   }
   if (value.expectedIp !== undefined && (typeof value.expectedIp !== "string" || value.expectedIp && (!isIP(value.expectedIp) || value.expectedIp.includes("%"))))
     throw new ProfileCatalogError(400, "Expected IP must be empty or an IPv4 or IPv6 address.");
+  return value;
 }
 // Complete all journals before the callback. Keep admission held until the callback returns.
 export async function prepareProfileConfiguration<T>(action: () => Promise<T>) {
@@ -213,7 +210,7 @@ export async function ensureProfile(input: Omit<ProfileCreate, "revision"> & { d
   return createOrReuseProfile({ ...create, revision: "" }, true, direct);
 }
 async function createOrReuseProfile(input: ProfileCreate, reuse: boolean, direct = false): Promise<{ profile: Profile; created: boolean }> {
-  validateInput(input);
+  input = validateInput(input);
   return prepareProfileConfiguration(async () => {
     const before = readCatalogFiles(), config = validateSettings(JSON.parse(before.config));
     if (!reuse) revisionMatches(input.revision, config);

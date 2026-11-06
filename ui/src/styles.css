@@ -229,6 +229,19 @@ input:disabled, select:disabled { color: var(--faint); background: var(--raised)
 .select-control > .icon { position: absolute; inset-inline-end: 12px; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
 .select-control select:disabled + .icon { color: var(--faint); }
 .form-field .select-control { max-width: 320px; }
+.proxy-field { min-width: 0; }
+.proxy-help .field-help { margin-top: 8px; }
+.proxy-tools { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 8px; font-size: 12px; }
+.proxy-details { min-width: 0; padding: 16px 0 0; margin: 16px 0 0; border: 0; border-top: 1px solid var(--border); }
+.proxy-details-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+.proxy-details-grid .form-field { margin: 0; }
+.proxy-details-grid .proxy-host { grid-column: 1 / -1; }
+.proxy-details > .field-help { margin: 0 0 16px; }
+.proxy-details > .button-row { justify-content: flex-end; margin-top: 16px; }
+.proxy-import .form-field:first-child { margin-top: 0; }
+.proxy-import .select-control { max-width: none; }
+.proxy-import input[type="file"] { padding: 8px; font-size: 12px; overflow: hidden; }
+.proxy-import input::file-selector-button { font: inherit; color: var(--text); background: var(--raised); border: 1px solid var(--control); border-radius: 3px; padding: 4px 8px; margin-right: 8px; cursor: pointer; }
 .form-actions { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 16px; }
 .form-actions .field-help { margin: 0; }
 .form-actions .button-row { flex: none; margin-left: auto; }
