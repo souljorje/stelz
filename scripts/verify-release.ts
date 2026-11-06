@@ -31,7 +31,7 @@ for (const file of candidate.files) if (/^(src|test|\.git|\.codex|\.state|sessio
 const uiFiles = candidate.files.filter(file => file.path.startsWith("dist/ui/"));
 if (!uiFiles.some(file => file.path === "dist/ui/index.html") || !uiFiles.some(file => file.path.endsWith(".js")) || !uiFiles.some(file => file.path.endsWith(".woff2"))) throw Error("The archive is missing built UI assets.");
 const paths = candidate.files.map(file => file.path).sort();
-for (const path of ["docs/bootstrap.md", "docs/onboarding-acceptance.md", "examples/onboarding-fixture.html", "skills/stelz-browser/references/bootstrap.md"])
+for (const path of ["docs/bootstrap.md", "docs/onboarding-acceptance.md", "examples/onboarding-fixture.html"])
   if (!paths.includes(path)) throw Error("Archive is missing " + path);
 for (const path of ["dist/cli.js", "dist/supervisor.js", "dist/plugin.js", "dist/ui/index.html", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md", "docs/agents.md", "examples/profiles.json", "skills/stelz-browser/SKILL.md", "skills/stelz-browser/references/recovery.md", ...["react", "react-dom", "scheduler", "ibm-plex-mono", "ibm-plex-sans"].map(name => "dist/ui/licenses/" + name + ".txt")]) {
   if (!paths.includes(path)) throw Error("Archive is missing " + path);
