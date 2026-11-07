@@ -122,6 +122,62 @@ test("stale inventory, browser loss, focus failure, and missing acknowledgements
   expect(() => f.exchange({ ...f.inventory, windows: [...f.inventory.windows, f.inventory.windows[0]] })).toThrow("Duplicate");
 });
 
+test("startup geometry binds one fresh blank tab to its privileged window", async () => {
+  const f = fixture(); f.phase("starting");
+  const token = "stelz-startup:11111111-1111-1111-1111-111111111111";
+  const window = { ...f.inventory.windows[1]!, width: 1200, height: 800,
+    tabs: [{ ...f.inventory.windows[1]!.tabs[0]!, title: token, url: "about:blank", width: 1200, height: 740, zoom: 1 }] };
+  f.exchange(f.inventory);
+  const waiting = f.observeStartup(token);
+  f.exchange({ instanceId: "lifetime-a", sampledAt: 10_000, windows: [window] });
+  expect(await waiting).toEqual({ instanceId: "lifetime-a", windowId: 1, tabId: 10, state: "normal", outerWidth: 1200,
+    outerHeight: 800, viewportWidth: 1200, viewportHeight: 740, zoom: 1, sampledAt: 10_000, receivedAt: 10_000 });
+  expect(f.snapshot().windows).toEqual([]);
+  f.phase("ready");
+  expect(f.snapshot().windows[0]).not.toHaveProperty("width");
+});
+
+test("startup geometry rejects ambiguous, stale, incomplete, and missing evidence", async () => {
+  const f = fixture(); f.phase("starting");
+  const token = "stelz-startup:11111111-1111-1111-1111-111111111111";
+  const tab = { id: 10, title: token, url: "about:blank", active: true, width: 1200, height: 740, zoom: 1 };
+  const window = { id: 1, title: "window", focused: true, state: "normal", width: 1200, height: 800, tabs: [tab] };
+  const ambiguous = f.observeStartup(token);
+  f.exchange({ instanceId: "lifetime-a", sampledAt: 10_000, windows: [window, { ...window, id: 2, tabs: [{ ...tab, id: 11 }] }] });
+  await expect(ambiguous).rejects.toThrow("ambiguous");
+  const incomplete = f.observeStartup(token);
+  f.exchange({ instanceId: "lifetime-a", sampledAt: 10_000, windows: [{ ...window, tabs: [{ ...tab, zoom: null }] }] });
+  await expect(incomplete).rejects.toThrow("incomplete or stale");
+  const stale = f.observeStartup(token);
+  f.advance(8001);
+  f.exchange({ instanceId: "lifetime-a", sampledAt: 10_000, windows: [window] });
+  await expect(stale).rejects.toThrow("incomplete or stale");
+  const missing = f.observeStartup(token, 10);
+  f.exchange(f.inventory);
+  await expect(missing).rejects.toThrow("unavailable");
+});
+
+test("the extension reports startup window, tab, and zoom measurements", async () => {
+  const f = fixture(); f.phase("starting");
+  const token = "stelz-startup:11111111-1111-1111-1111-111111111111", zoomed: number[] = [];
+  const native = [{ id: 1, title: "Window", focused: true, state: "normal", width: 1200, height: 800,
+    tabs: [{ id: 10, title: token, url: "about:blank", active: true, width: 1200, height: 740 }] }];
+  const event = { addListener() {} };
+  const browser = { windows: { getAll: async () => native, get: async () => native[0], getLastFocused: async () => native[0],
+    update: async () => {}, onCreated: event, onFocusChanged: event },
+    tabs: { update: async () => {}, getZoom: async (id: number) => { zoomed.push(id); return 1; } },
+    theme: { update: async () => {} }, browserAction: Object.fromEntries(["setTitle", "setBadgeText", "setBadgeBackgroundColor", "setBadgeTextColor"]
+      .map(name => [name, async () => {}])) };
+  const waiting = f.observeStartup(token);
+  runInNewContext(readFileSync(join(f.extensionPath, "background.js"), "utf8"), { browser, AbortSignal, TextEncoder, Date: { now: () => 10_000 },
+    setTimeout: () => {}, fetch: async (_url: string, options: RequestInit) => {
+      f.exchange(JSON.parse(String(options.body))); return { ok: true, json: async () => ({}) };
+    } });
+  expect(await waiting).toMatchObject({ windowId: 1, tabId: 10, outerWidth: 1200, outerHeight: 800,
+    viewportWidth: 1200, viewportHeight: 740, zoom: 1 });
+  expect(zoomed).toEqual([10, 10]);
+});
+
 test("the generated background script labels every window and restores a selected minimized page", async () => {
   const f = fixture();
   const updates: unknown[] = [], settings: unknown[] = [], posts: Record<string, any>[] = [], events = new Map<string, (...args: any[]) => unknown>();

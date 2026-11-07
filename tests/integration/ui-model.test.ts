@@ -53,6 +53,28 @@ function tree(folder: string): unknown[] {
 }
 const withRevision = `const revision = (await model.snapshot()).profiles[0].network.revision;`;
 const withCatalogRevision = `const revision = (await model.snapshot()).catalogRevision;`;
+const withLifetime = `
+  const fingerprintTransaction = await import(${JSON.stringify(join(root, "src/browser/fingerprint-transaction.ts"))});
+  const lifetimeConfig = await import(${JSON.stringify(join(root, "src/profiles/config.ts"))});
+  function installLifetime({ state, port, attemptId, browserInstanceId, phase, admit = true }) {
+    if (attemptId === browserInstanceId) throw Error('The reservation and browser IDs must differ.');
+    const stamp = runtime.processStart(process.pid);
+    if (!stamp) throw Error('The fixture process ownership is unavailable.');
+    const configurationHash = lifetimeConfig.configurationHash(lifetimeConfig.profile('test'));
+    const owner = { profileId: 'test', attemptId, browserInstanceId, configurationHash, serverPid: process.pid };
+    fs.writeFileSync(join(state, 'running.json'), JSON.stringify({ version: 2, pid: process.pid, supervisorStart: stamp,
+      serverPid: process.pid, serverStart: stamp, serverState: 'started', instanceId: attemptId, configurationHash, port }), { mode: 0o600 });
+    const engineSha256 = 'a'.repeat(64);
+    const journal = fingerprintTransaction.stageFingerprint(state, owner,
+      { version: 2, engineSha256, config: { 'navigator.userAgent': 'fixture browser' } }, engineSha256);
+    if (admit) {
+      fingerprintTransaction.commitFingerprint(state, owner, journal.sha256);
+      fingerprintTransaction.writeInitialized(state, { instanceId: attemptId, browserInstanceId, configurationHash, fingerprintSha256: journal.sha256 });
+    }
+    fs.writeFileSync(join(state, 'status.json'), JSON.stringify({ profileId: 'test', phase, instanceId: browserInstanceId, pinSha256: journal.sha256 }), { mode: 0o600 });
+    return { owner, pinSha256: journal.sha256 };
+  }
+`;
 
 test("the UI creates named profiles with optional proxies", async () => {
   const f = fixture([], "# keep this comment\nUNRELATED='literal # value'\n");
@@ -306,22 +328,27 @@ test("stopped observations preserve files but do not present an old controller o
 test("live observations call only authenticated status and expose no controller ID", async () => {
   const f = fixture();
   const result = await run(f, `
+    ${withLifetime}
     const calls = [], state = join(home, 'profiles/test');
+    const live = { profileId: 'test', instanceId: 'browser-live', pinSha256: '', phase: 'verification_failed',
+      error: 'Expected exit IP verification failed.', checkFailure: 'page.goto: NS_ERROR_UNKNOWN_HOST https://hidden-user:hidden-password@ip.example/?token=private-query',
+      windowControls: { available: true }, controller: { id: 'lease-secret', label: 'Live client', pid: process.pid, activeActions: 1, releasing: false } };
     const service = Bun.serve({ port: 0, fetch(request) {
       calls.push([request.method, new URL(request.url).pathname, request.headers.get('authorization')]);
-      return Response.json({ profileId: 'test', phase: 'verification_failed', error: 'Expected exit IP verification failed.', checkFailure: 'page.goto: NS_ERROR_UNKNOWN_HOST https://hidden-user:hidden-password@ip.example/?token=private-query', windowControls: { available: true }, controller: { id: 'lease-secret', label: 'Live client', pid: process.pid, activeActions: 1, releasing: false } });
+      return Response.json(live);
     }});
     try {
       fs.writeFileSync(join(home, 'profiles.json'), JSON.stringify({ profiles: [{ id: 'test', port: service.port }] }));
       fs.writeFileSync(join(state, 'access-key'), 'status-only-key');
-      const stamp = runtime.processStart(process.pid);
-      fs.writeFileSync(join(state, 'running.json'), JSON.stringify({ version: 2, pid: process.pid, supervisorStart: stamp, serverPid: process.pid, serverStart: stamp, serverState: 'started', instanceId: 'instance', configurationHash: 'unused', port: service.port }));
+      live.pinSha256 = installLifetime({ state, port: service.port, attemptId: 'reservation-live',
+        browserInstanceId: live.instanceId, phase: live.phase }).pinSha256;
       const snapshot = await model.snapshot(), detail = await model.detail('test'), diagnostics = await model.diagnostics();
       return { snapshot, detail, diagnostics, calls: calls.map(call => [call[0], call[1], call[2] === 'Bearer status-only-key']) };
     } finally { service.stop(true); }
   `);
   expect(result.ok).toBe(true);
-  expect(result.value.snapshot.profiles[0].phase).toBe("verification_failed");
+  expect(result.value.snapshot.profiles[0]).toMatchObject({ phase: "verification_failed", instanceId: "browser-live",
+    ownership: { supervisor: "owned", server: "owned" } });
   expect(result.value.snapshot.profiles[0].error).toContain("NS_ERROR_UNKNOWN_HOST");
   for (const value of ["hidden-user", "hidden-password", "private-query"]) expect(JSON.stringify(result.value)).not.toContain(value);
   expect(result.value.snapshot.profiles[0].controller.label).toBe("Live client");
@@ -330,11 +357,55 @@ test("live observations call only authenticated status and expose no controller 
   expect(JSON.stringify(result.value)).not.toContain("lease-secret");
 });
 
+test("UI waits for fingerprint commit and initialization before reporting a live phase", async () => {
+  const f = fixture();
+  const result = await run(f, `
+    ${withLifetime}
+    const state = join(home, 'profiles/test');
+    const live = { profileId: 'test', instanceId: 'browser-marker', pinSha256: '', phase: 'ready' };
+    const service = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => Response.json(live) });
+    try {
+      fs.writeFileSync(join(home, 'profiles.json'), JSON.stringify({ profiles: [{ id: 'test', port: service.port }] }));
+      fs.writeFileSync(join(state, 'access-key'), 'marker-status-only-key');
+      const lifetime = installLifetime({ state, port: service.port, attemptId: 'reservation-marker',
+        browserInstanceId: live.instanceId, phase: live.phase, admit: false });
+      live.pinSha256 = lifetime.pinSha256;
+      const save = () => fs.writeFileSync(join(state, 'status.json'), JSON.stringify(live));
+      const observe = async () => (await model.snapshot()).profiles[0];
+      const pinBeforeCommit = fs.existsSync(join(state, 'fingerprint.json'));
+      const beforeCommit = await observe();
+      live.phase = 'verification_failed'; save();
+      const beforeCommitFailure = await observe();
+      fingerprintTransaction.commitFingerprint(state, lifetime.owner, lifetime.pinSha256);
+      const markerBefore = fs.existsSync(join(state, 'initialized.json'));
+      const beforeMarker = await observe();
+      fingerprintTransaction.writeInitialized(state, { instanceId: lifetime.owner.attemptId,
+        browserInstanceId: lifetime.owner.browserInstanceId, configurationHash: lifetime.owner.configurationHash,
+        fingerprintSha256: lifetime.pinSha256 });
+      const admittedFailure = await observe();
+      live.phase = 'ready'; save();
+      const admittedReady = await observe();
+      return { rows: [beforeCommit, beforeCommitFailure, beforeMarker, admittedFailure, admittedReady],
+        reservationId: lifetime.owner.attemptId, browserInstanceId: lifetime.owner.browserInstanceId, pinBeforeCommit, markerBefore };
+    } finally { service.stop(true); }
+  `);
+  expect(result.ok).toBe(true);
+  expect(result.value.rows.map((row: { phase: string }) => row.phase)).toEqual(["starting", "starting", "starting", "verification_failed", "ready"]);
+  expect(result.value).toMatchObject({ reservationId: "reservation-marker", browserInstanceId: "browser-marker", pinBeforeCommit: false, markerBefore: false });
+  for (const row of result.value.rows) {
+    expect(row.instanceId).toBe("browser-marker");
+    expect(row.ownership).toEqual({ supervisor: "owned", server: "owned" });
+    expect(row.supervisorPid).toBeGreaterThan(1);
+    expect(row.serverPid).toBe(row.supervisorPid);
+  }
+}, 10000);
+
 test("typing inherits the active service fallback and permits explicit auto and clearing the override", async () => {
   const f = fixture();
   const result = await run(f, `
+    ${withLifetime}
     const state = join(home, 'profiles/test'), calls = [];
-    const live = { profileId: 'test', phase: 'ready', typingModeDefault: 'instant',
+    const live = { profileId: 'test', instanceId: 'browser-typing', pinSha256: '', phase: 'ready', typingModeDefault: 'instant',
       controller: { id: 'private-lease', label: 'Existing client', pid: process.pid, activeActions: 1, releasing: false } };
     const service = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(request) {
       calls.push([request.method, new URL(request.url).pathname]);
@@ -343,9 +414,9 @@ test("typing inherits the active service fallback and permits explicit auto and 
     try {
       fs.writeFileSync(join(home, 'profiles.json'), JSON.stringify({ profiles: [{ id: 'test', port: service.port }] }));
       fs.writeFileSync(join(state, 'access-key'), 'status-only-key');
-      const stamp = runtime.processStart(process.pid), running = join(state, 'running.json');
-      fs.writeFileSync(running, JSON.stringify({ version: 2, pid: process.pid, supervisorStart: stamp, serverPid: process.pid,
-        serverStart: stamp, serverState: 'started', instanceId: 'existing', configurationHash: 'fixture', port: service.port }));
+      const running = join(state, 'running.json');
+      live.pinSha256 = installLifetime({ state, port: service.port, attemptId: 'reservation-typing',
+        browserInstanceId: live.instanceId, phase: live.phase }).pinSha256;
       fs.writeFileSync(join(state, 'status.json'), JSON.stringify(live));
       const lifetime = fs.readFileSync(running, 'utf8'), savedState = fs.readFileSync(join(state, 'status.json'), 'utf8');
       const inherited = (await model.snapshot()).profiles[0], detail = (await model.detail('test')).profile;
@@ -368,7 +439,7 @@ test("typing inherits the active service fallback and permits explicit auto and 
   `, { STELZ_TYPING_MODE: "auto" });
   expect(result.ok).toBe(true);
   const { inherited, detail, explicit, cleared, older, invalid, stopped } = result.value;
-  for (const row of [inherited, detail, cleared]) expect(row).toMatchObject({ typingMode: "instant", typing: { mode: null, defaultMode: "instant" } });
+  for (const row of [inherited, detail, cleared]) expect(row).toMatchObject({ phase: "ready", typingMode: "instant", typing: { mode: null, defaultMode: "instant" } });
   expect(explicit).toMatchObject({ typingMode: "auto", typing: { mode: "auto", defaultMode: "instant" } });
   expect(explicit.typing.revision).not.toBe(inherited.typing.revision);
   for (const row of [older, invalid, stopped]) expect(row).toMatchObject({ typingMode: "auto", typing: { mode: null, defaultMode: "auto" } });
@@ -385,10 +456,11 @@ test("renaming a running profile refreshes its display name without changing its
   writeFileSync(join(f.state, "test/profile-data"), "existing profile data");
   const secrets = readFileSync(f.secrets, "utf8"), inode = lstatSync(join(f.state, "test")).ino;
   const result = await run(f, `
+    ${withLifetime}
     const config = await import(${JSON.stringify(join(root, "src/profiles/config.ts"))});
     const { profileAppearance } = await import(${JSON.stringify(join(root, "src/api/contracts.ts"))});
     const state = join(home, 'profiles/test'), calls = [];
-    const live = { profileId: 'test', name: 'Ignore service display metadata', phase: 'ready', instanceId: 'existing',
+    const live = { profileId: 'test', name: 'Ignore service display metadata', phase: 'ready', instanceId: 'existing', pinSha256: '',
       typingModeDefault: 'instant', controller: { id: 'private-rename-lease', label: 'Existing client', pid: process.pid, activeActions: 1, releasing: false } };
     const service = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(request) {
       calls.push([request.method, new URL(request.url).pathname]);
@@ -399,24 +471,29 @@ test("renaming a running profile refreshes its display name without changing its
       original.profiles[0].port = service.port;
       fs.writeFileSync(join(home, 'profiles.json'), JSON.stringify(original));
       fs.writeFileSync(join(state, 'access-key'), 'rename-status-only-key');
-      const stamp = runtime.processStart(process.pid), hash = config.configurationHash(original.profiles[0]);
-      fs.writeFileSync(join(state, 'running.json'), JSON.stringify({ version: 2, pid: process.pid, supervisorStart: stamp, serverPid: process.pid,
-        serverStart: stamp, serverState: 'started', instanceId: 'existing', configurationHash: hash, port: service.port }));
+      const hash = config.configurationHash(original.profiles[0]);
+      live.pinSha256 = installLifetime({ state, port: service.port, attemptId: 'reservation-rename',
+        browserInstanceId: live.instanceId, phase: live.phase }).pinSha256;
       fs.writeFileSync(join(state, 'status.json'), JSON.stringify(live));
       const lifetime = fs.readFileSync(join(state, 'running.json'), 'utf8'), savedState = fs.readFileSync(join(state, 'status.json'), 'utf8');
+      const proofFiles = ['fingerprint.json', 'fingerprint-transaction.json', 'initialized.json'];
+      const proof = proofFiles.map(name => fs.readFileSync(join(state, name), 'utf8'));
       const before = await model.snapshot();
       const saved = await model.renameProfile('test', { revision: before.catalogRevision, name: '  Work <&> team  ' });
       const snapshot = await model.snapshot(), detail = await model.detail('test'), after = config.settings().profiles[0];
       const stable = { hashUnchanged: hash === config.configurationHash(after),
         lifetimeUnchanged: lifetime === fs.readFileSync(join(state, 'running.json'), 'utf8'),
-        statusUnchanged: savedState === fs.readFileSync(join(state, 'status.json'), 'utf8') };
+        statusUnchanged: savedState === fs.readFileSync(join(state, 'status.json'), 'utf8'),
+        admissionUnchanged: proofFiles.every((name, index) => proof[index] === fs.readFileSync(join(state, name), 'utf8')) };
       const cleared = await model.renameProfile('test', { revision: snapshot.catalogRevision, name: 'test' });
       return { before, saved, snapshot, detail, after, cleared, stable, calls, titlePrefix: profileAppearance('test').titlePrefix };
     } finally { service.stop(true); }
   `);
   expect(result.ok).toBe(true);
   const { before, saved, snapshot, detail, after, cleared } = result.value;
-  expect(before.profiles[0]).toMatchObject({ id: "test", name: "test", phase: "ready" });
+  expect(before.profiles[0]).toMatchObject({ id: "test", name: "test", phase: "ready", instanceId: "existing",
+    ownership: { supervisor: "owned", server: "owned" } });
+  expect(before.profiles[0].location).toMatchObject({ status: "blocked", code: "GEOIP_RUNTIME_MISSING" });
   for (const row of [saved, snapshot.profiles[0], detail.profile]) {
     expect(row).toMatchObject({ id: "test", name: "Work <&> team", phase: "ready", instanceId: "existing" });
     expect(row.supervisorPid).toBe(before.profiles[0].supervisorPid);
@@ -431,7 +508,7 @@ test("renaming a running profile refreshes its display name without changing its
   expect(detail.mcpCommand).toEndWith("stelz mcp");
   expect(result.value.titlePrefix).toBe("[test] ");
   expect(cleared).toMatchObject({ id: "test", name: "test", phase: "ready", instanceId: "existing" });
-  expect(result.value.stable).toEqual({ hashUnchanged: true, lifetimeUnchanged: true, statusUnchanged: true });
+  expect(result.value.stable).toEqual({ hashUnchanged: true, lifetimeUnchanged: true, statusUnchanged: true, admissionUnchanged: true });
   expect(result.value.calls.every((call: string[]) => call[0] === "GET" && call[1] === "/local-profile/status")).toBe(true);
   expect(lstatSync(join(f.state, "test")).ino).toBe(inode);
   expect(readFileSync(join(f.state, "test/profile-data"), "utf8")).toBe("existing profile data");
@@ -490,11 +567,12 @@ test("window inventories redact whole values before truncation and load secrets 
   const f = fixture([{ id: "test", port: 19471, proxyEnv: "WINDOW_PROXY" }],
     `WINDOW_PROXY=http://window-user:${password}@proxy.test:8080\n`);
   const result = await run(f, `
+    ${withLifetime}
     const { createWindowModel } = await import(${JSON.stringify(join(root, "src/api/window-model.ts"))});
     const password = ${JSON.stringify(password)}, state = join(home, 'profiles/test');
-    let unsupported = false;
+    let unsupported = false, pinSha256 = '';
     const service = Bun.serve({ port: 0, fetch(request) {
-      if (new URL(request.url).pathname === '/local-profile/status') return Response.json({ profileId: 'test', instanceId: 'window-life', phase: 'ready' });
+      if (new URL(request.url).pathname === '/local-profile/status') return Response.json({ profileId: 'test', instanceId: 'window-life', pinSha256, phase: 'ready' });
       if (unsupported) return new Response('<html>Not found</html>', { status: 404 });
       return Response.json({ profileId: 'test', instanceId: 'window-life', available: true, reason: null, updatedAt: new Date().toISOString(),
         windows: [{ id: 1, title: 'x'.repeat(230) + password, focused: true, state: 'normal', tabs: Array.from({ length: 100 }, (_, index) => ({
@@ -505,10 +583,9 @@ test("window inventories redact whole values before truncation and load secrets 
     try {
       fs.writeFileSync(join(home, 'profiles.json'), JSON.stringify({ profiles: [{ id: 'test', port: service.port, proxyEnv: 'WINDOW_PROXY' }] }));
       fs.writeFileSync(join(state, 'access-key'), 'window-service-key');
-      fs.writeFileSync(join(state, 'status.json'), JSON.stringify({ profileId: 'test', instanceId: 'window-life', phase: 'ready' }));
-      const stamp = runtime.processStart(process.pid);
-      fs.writeFileSync(join(state, 'running.json'), JSON.stringify({ version: 2, pid: process.pid, supervisorStart: stamp,
-        serverPid: process.pid, serverStart: stamp, serverState: 'started', instanceId: 'reservation', configurationHash: 'fixture', port: service.port }));
+      pinSha256 = installLifetime({ state, port: service.port, attemptId: 'reservation-window',
+        browserInstanceId: 'window-life', phase: 'ready' }).pinSha256;
+      secretReads = 0;
       const windows = createWindowModel(), inventory = await windows.list('test'), reads = secretReads;
       unsupported = true;
       return { inventory, reads, unsupported: await windows.list('test') };
@@ -521,7 +598,7 @@ mock.module('node:fs', () => ({ ...originalFs, readFileSync(path, ...args) {
   return originalFs.readFileSync(path, ...args);
 } }));`);
   expect(result.ok).toBe(true);
-  expect(result.value.inventory.available).toBe(true);
+  expect(result.value.inventory).toMatchObject({ available: true, instanceId: "window-life" });
   expect(result.value.inventory.windows[0].tabs).toHaveLength(100);
   expect(result.value.reads).toBe(1);
   expect(JSON.stringify(result.value)).not.toMatch(/window-user|sensitive-window|private=value/);

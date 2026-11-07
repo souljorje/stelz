@@ -6,7 +6,7 @@ import { CONFIG_FILE, HOME_DIR, STATE } from "../profiles/config.ts";
 import { exportProfileArchive } from "../profiles/profile-export.ts";
 import { readProfileArchive } from "../profiles/profile-archive.ts";
 import { commitProfileImport, inspectProfileImport } from "../profiles/profile-import.ts";
-import { ProfileTransferError } from "../profiles/profile-transfer-types.ts";
+import { ProfileTransferError, type TransferFingerprintDiagnostic } from "../profiles/profile-transfer-types.ts";
 import { ProfileCatalogError, ProfileConfigurationError } from "../profiles/profile-configuration.ts";
 import { checkCatalogDirectory } from "../profiles/profile-catalog.ts";
 import { processStart } from "../runtime/profile-process.ts";
@@ -53,9 +53,29 @@ function parseImport(args: string[]) {
   return { file: resolve(file), ids, renames };
 }
 
+function fingerprintNotice(diagnostics?: readonly TransferFingerprintDiagnostic[]) {
+  if (!diagnostics?.length) return;
+  const invalid: string[] = [], uninitialized: string[] = [], notVerified: string[] = [], runtimeFailed: string[] = [];
+  for (const { sourceId, fingerprint } of diagnostics) {
+    if (fingerprint.status === "uninitialized") { uninitialized.push(sourceId); continue; }
+    if (!fingerprint.validation.staticValid) invalid.push(sourceId);
+    if (fingerprint.validation.runtime === "NOT_RUN") notVerified.push(sourceId);
+    if (fingerprint.validation.runtime === "FAIL") runtimeFailed.push(sourceId);
+  }
+  const describe = (ids: string[]) => ids.length <= 5 ? ids.join(", ") : `${ids.slice(0, 5).join(", ")} (+${ids.length - 5} more)`;
+  const parts = [
+    ...(invalid.length ? [`invalid: ${describe(invalid)}`] : []),
+    ...(uninitialized.length ? [`uninitialized: ${describe(uninitialized)}`] : []),
+    ...(notVerified.length ? [`runtime not verified: ${describe(notVerified)}`] : []),
+    ...(runtimeFailed.length ? [`runtime failed: ${describe(runtimeFailed)}`] : []),
+  ];
+  if (parts.length) console.error(`Fingerprint diagnostics (source IDs): ${parts.join("; ")}.`);
+}
+
 export async function runProfileTransfer(args: string[]) {
   const json = args.includes("--json");
   let work: string | undefined;
+  let rejectedDiagnostics: TransferFingerprintDiagnostic[] | undefined;
   const abort = new AbortController();
   const cancel = () => { abort.abort(); };
   try {
@@ -79,26 +99,43 @@ export async function runProfileTransfer(args: string[]) {
       catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
       const manifest = await exportProfileArchive({ profileIds: input.all ? undefined : input.ids, all: input.all,
         outputFile: input.output, workDirectory: work, signal: abort.signal });
-      console.log(json ? JSON.stringify({ ok: true, archive: input.output, profiles: manifest.profiles.map(p => ({ id: p.id, name: p.name ?? p.id })) })
+      console.log(json ? JSON.stringify({ ok: true, archive: input.output, profiles: manifest.profiles.map(p => ({ id: p.id, name: p.name ?? p.id })),
+        fingerprintDiagnostics: manifest.fingerprintDiagnostics ?? [] })
         : `Exported ${manifest.profiles.length} profile${manifest.profiles.length === 1 ? "" : "s"} to ${input.output}.`);
-      if (!json) console.error("The archive includes saved logins and available proxy credentials. Keep it private.");
+      if (!json) {
+        console.error("The archive includes saved logins and available proxy credentials. Keep it private.");
+        fingerprintNotice(manifest.fingerprintDiagnostics);
+      }
     } else {
       const stagingDirectory = join(work, "extracted");
       const manifest = await readProfileArchive({ archiveFile: input.file, stagingDirectory, signal: abort.signal });
       const preview = await inspectProfileImport(manifest, stagingDirectory);
-      if (!preview.compatible) throw new ProfileTransferError(409, preview.issues.join(" ") || "The archive requires the same operating system, architecture, and Camoufox executable.");
       const selected = input.ids.length ? input.ids : preview.profiles.map(p => p.sourceId);
+      const selectedIds = new Set(selected);
+      const previewDiagnostics = preview.profiles.flatMap(p => selectedIds.has(p.sourceId) && p.fingerprint
+        ? [{ sourceId: p.sourceId, fingerprint: p.fingerprint }] : []);
+      if (!preview.compatible) {
+        rejectedDiagnostics = previewDiagnostics;
+        throw new ProfileTransferError(409, preview.issues.join(" ") || "The archive requires the same operating system, architecture, and Camoufox executable.");
+      }
       if (selected.some(id => !preview.profiles.some(p => p.sourceId === id)) || [...input.renames.keys()].some(id => !selected.includes(id)))
         throw new ProfileTransferError(400, "Select and rename only profiles present in this archive.");
       const profiles = selected.map(sourceId => {
         const p = preview.profiles.find(p => p.sourceId === sourceId)!;
-        if (p.issues.length) throw new ProfileTransferError(409, p.issues.join(" "));
+        if (p.issues.length) {
+          rejectedDiagnostics = previewDiagnostics;
+          throw new ProfileTransferError(409, p.issues.join(" "));
+        }
         return { sourceId, id: input.renames.get(sourceId) ?? p.id, name: p.name };
       });
       const result = await commitProfileImport({ manifest, stagingDirectory, profiles, revision: preview.revision, signal: abort.signal });
-      console.log(json ? JSON.stringify({ ok: true, ...result }) : result.profiles.map(p => `Imported ${p.sourceId} as ${p.id}.`).join("\n"));
-      if (!json && preview.profiles.some(p => selected.includes(p.sourceId) && p.proxyUnavailable))
-        console.error("Some imported profiles need proxy credentials before they can start.");
+      console.log(json ? JSON.stringify({ ok: true, ...result, fingerprintDiagnostics: result.fingerprintDiagnostics ?? [] })
+        : result.profiles.map(p => `Imported ${p.sourceId} as ${p.id}.`).join("\n"));
+      if (!json) {
+        if (preview.profiles.some(p => selectedIds.has(p.sourceId) && p.proxyUnavailable))
+          console.error("Some imported profiles need proxy credentials before they can start.");
+        fingerprintNotice(result.fingerprintDiagnostics);
+      }
     }
   } catch (cause) {
     const known = cause instanceof ProfileTransferError || cause instanceof ProfileCatalogError || cause instanceof ProfileConfigurationError || cause instanceof ProfileImportTransactionError;
@@ -106,7 +143,9 @@ export async function runProfileTransfer(args: string[]) {
     const message = abort.signal.aborted ? "The profile transfer was cancelled."
       : known ? cause.message : (cause as NodeJS.ErrnoException).code === "ENOSPC" ? "Not enough free disk space. Free space and try again."
         : "The profile transfer failed. Run stelz doctor and inspect the service files.";
-    console.error(json ? JSON.stringify({ ok: false, error: { code: abort.signal.aborted ? "cancelled" : status === 400 ? "invalid_input" : status === 409 ? "conflict" : status === 413 ? "too_large" : "transfer_failed", message } }) : message);
+    console.error(json ? JSON.stringify({ ok: false, error: { code: abort.signal.aborted ? "cancelled" : status === 400 ? "invalid_input" : status === 409 ? "conflict" : status === 413 ? "too_large" : "transfer_failed", message },
+      ...(rejectedDiagnostics?.length ? { fingerprintDiagnostics: rejectedDiagnostics } : {}) }) : message);
+    if (!json) fingerprintNotice(rejectedDiagnostics);
     process.exitCode = 1;
   } finally {
     process.off("SIGINT", cancel); process.off("SIGTERM", cancel);

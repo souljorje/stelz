@@ -1,5 +1,5 @@
-import { createHash, randomUUID } from "node:crypto";
-import { constants, createReadStream, createWriteStream } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { constants, createWriteStream } from "node:fs";
 import { link, lstat, mkdir, open, readdir, readFile, rm } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { pipeline } from "node:stream/promises";
@@ -11,15 +11,17 @@ import { prepareProfileConfiguration } from "./profile-configuration.ts";
 import { checkCatalogDirectory, readCatalogFiles } from "./profile-catalog.ts";
 import { assertStoppedProfile, lock } from "../runtime/profile-process.ts";
 import { writeProfileArchive } from "./profile-archive.ts";
+import { checkSavedFingerprint, engineFileSha256, readSavedFingerprint } from "./fingerprint-check.ts";
 import { STELZ_VERSION } from "../versions.ts";
-import { ProfileTransferError, transferLimits, type ArchiveMetadata, type PortableProfile, type TransferOptions } from "./profile-transfer-types.ts";
+import { ProfileTransferError, transferLimits, type ArchiveMetadata, type PortableProfile, type ProfileArchiveManifest,
+  type TransferFingerprintDiagnostic, type TransferOptions } from "./profile-transfer-types.ts";
 
-export async function browserEngineSha256(): Promise<string> {
-  try {
-    const hash = createHash("sha256");
-    for await (const chunk of createReadStream(executable())) hash.update(chunk);
-    return hash.digest("hex");
-  } catch { throw new ProfileTransferError(409, "The Camoufox executable is unavailable. Correct its path before transferring profiles."); }
+export async function browserEngineSha256(signal?: AbortSignal): Promise<string> {
+  try { return await engineFileSha256(executable(), signal); }
+  catch {
+    signal?.throwIfAborted();
+    throw new ProfileTransferError(409, "The Camoufox executable is unavailable. Correct its path before transferring profiles.");
+  }
 }
 
 async function optionalInfo(path: string) {
@@ -36,7 +38,7 @@ export type ExportProfileOptions = TransferOptions & {
 };
 
 /** Keep admission and all selected lifecycle locks until the private snapshot is complete. */
-export async function exportProfileArchive(options: ExportProfileOptions) {
+export async function exportProfileArchive(options: ExportProfileOptions): Promise<ProfileArchiveManifest & { fingerprintDiagnostics?: TransferFingerprintDiagnostic[] }> {
   const { signal } = options, limits = transferLimits();
   if (!options.all && (!Array.isArray(options.profileIds) || !options.profileIds.length) ||
       options.all && options.profileIds?.length || options.profileIds?.some(id => !/^[a-z][a-z\d-]{0,63}$/.test(id) || id === "all") ||
@@ -46,6 +48,7 @@ export async function exportProfileArchive(options: ExportProfileOptions) {
   const temporary = join(dirname(options.outputFile), `.${basename(options.outputFile)}.${randomUUID()}.tmp`);
   await mkdir(snapshot, { mode: 0o700 });
   let bytes = 0, files = 0, entries = 0;
+  const fingerprintDiagnostics: TransferFingerprintDiagnostic[] = [];
   const count = () => { if (++entries > limits.entries - 1) throw new ProfileTransferError(413, "The profiles contain too many files for one archive."); };
   const progress = () => options.onProgress?.({ bytes, files });
   async function copy(source: string, target: string, nativeRoot = false) {
@@ -111,7 +114,7 @@ export async function exportProfileArchive(options: ExportProfileOptions) {
           try { assertStoppedProfile(p.id); }
           catch { throw new ProfileTransferError(409, "Stop every selected profile cleanly before exporting. Export does not stop browsers."); }
         }
-        const engineSha256 = await browserEngineSha256(), values = parseEnv(before.secrets || "");
+        const engineSha256 = await browserEngineSha256(signal), values = parseEnv(before.secrets || "");
         const value = (name?: string) => name ? process.env[name] ?? values[name] : undefined;
         const profiles: PortableProfile[] = [];
         await mkdir(join(snapshot, "profiles"), { mode: 0o700 }); count();
@@ -146,19 +149,31 @@ export async function exportProfileArchive(options: ExportProfileOptions) {
           const fingerprint = await optionalInfo(join(root, "fingerprint.json"));
           if (!fingerprint && (native || marker))
             throw new ProfileTransferError(409, "Saved browser data has no fingerprint pin. Restore the original pin before exporting.");
+          let pinBytesSha256: string | undefined;
           if (fingerprint) {
             if (!fingerprint.isFile() || fingerprint.isSymbolicLink() || fingerprint.nlink !== 1 || fingerprint.size > 16 * 1024 ** 2)
               throw new ProfileTransferError(409, "A selected profile has an unsafe fingerprint file.");
-            let valid = false;
-            try {
-              const pin = JSON.parse(await readFile(join(root, "fingerprint.json"), "utf8"));
-              valid = pin?.version === 2 && pin.engineSha256 === engineSha256 && typeof pin.config?.["navigator.userAgent"] === "string" && !!pin.config["navigator.userAgent"];
-            } catch { /* Report a safe error without saved properties. */ }
-            if (!valid) throw new ProfileTransferError(409, "A selected profile has an invalid fingerprint or a different Camoufox executable. Correct it before exporting.");
+            const read = await readSavedFingerprint(join(root, "fingerprint.json"));
+            if (read.status !== "present")
+              throw new ProfileTransferError(409, "A selected profile has an unsafe or unreadable fingerprint. Its browser executable cannot be checked.");
+            pinBytesSha256 = read.sha256;
           }
-          for (const name of ["fingerprint.json", "cookies", "uploads"]) {
+          if (fingerprint) await copy(join(root, "fingerprint.json"), join(target, "fingerprint.json"));
+          else if (await optionalInfo(join(root, "fingerprint.json")))
+            throw new ProfileTransferError(409, "The fingerprint changed during export. Inspect the profile and try again.");
+          for (const name of ["cookies", "uploads"]) {
             if (await optionalInfo(join(root, name))) await copy(join(root, name), join(target, name));
           }
+          if (fingerprint) {
+            // Diagnose the copied bytes, which are the bytes that enter the archive.
+            const read = await readSavedFingerprint(join(target, "fingerprint.json"));
+            if (read.status !== "present" || read.sha256 !== pinBytesSha256)
+              throw new ProfileTransferError(409, "The fingerprint changed during export. Inspect the profile and try again.");
+            const validation = checkSavedFingerprint(read, { expectedEngineSha256: engineSha256, admissionRequired: true });
+            if (validation.engineSha256 !== "PASS")
+              throw new ProfileTransferError(409, "A selected profile uses a different or unknown Camoufox executable. Restore the matching pin and executable.");
+            fingerprintDiagnostics.push({ sourceId: p.id, fingerprint: { status: "checked", validation } });
+          } else fingerprintDiagnostics.push({ sourceId: p.id, fingerprint: { status: "uninitialized" } });
           if (marker) await copy(join(root, "native-profile.json"), join(target, "native-profile.json"));
           if (native) await copy(join(root, "browser-data"), join(target, "browser-data"), true);
         }
@@ -179,6 +194,6 @@ export async function exportProfileArchive(options: ExportProfileOptions) {
       if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new ProfileTransferError(409, "The output file already exists. Choose a new archive filename.");
       throw error;
     }
-    return manifest;
+    return { ...manifest, fingerprintDiagnostics };
   } finally { await rm(snapshot, { recursive: true, force: true }); await rm(temporary, { force: true }); }
 }

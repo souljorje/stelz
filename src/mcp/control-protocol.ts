@@ -1,4 +1,5 @@
-export const CONTROL_PROTOCOL_VERSION = 1;
+// Version 2 requires durable fingerprint admission before control.
+export const CONTROL_PROTOCOL_VERSION = 2;
 
 export type ControlIdentity = { profileId: string; instanceId: string };
 export type AcquireControlRequest = ControlIdentity & { id: string; pid: number; label: string };

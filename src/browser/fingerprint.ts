@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
+import { isDeepStrictEqual } from "node:util";
+import { stageFingerprint, type FingerprintOwner } from "./fingerprint-transaction.ts";
+import { validateFingerprint } from "./fingerprint-validation.ts";
 
 /** Device profile is persistent; location, session state and security policy are not. */
 export type Fingerprint = Record<string, unknown>;
@@ -59,7 +61,11 @@ export function launchPreferences(current: Fingerprint | undefined, proxied: boo
   } : {}) };
 }
 
-export function applyFingerprint(options: LaunchOptions, stateDir: string, binary: string, proxied: boolean) {
+function requireStatic(result: ReturnType<typeof validateFingerprint>) {
+  if (!result.staticValid) throw Error(`Fingerprint validation failed: ${result.diagnostics.filter(d => d.severity === "error").map(d => d.code).join(", ")}`);
+}
+
+export function applyFingerprint(options: LaunchOptions, stateDir: string, binary: string, proxied: boolean, owner: FingerprintOwner) {
   if (proxied && !options.proxy) throw Error("Proxy launch configuration is missing; direct fallback is disabled");
   const env = options.env || {};
   const chunks = Object.entries(env)
@@ -70,31 +76,52 @@ export function applyFingerprint(options: LaunchOptions, stateDir: string, binar
   }
 
   const generated = JSON.parse(chunks.map(([, value]) => value).join("")) as Fingerprint;
-  const path = join(stateDir, "fingerprint.json");
   const engineSha256 = createHash("sha256").update(readFileSync(binary)).digest("hex");
   type Pin = { version: number; engineSha256: string; config: Fingerprint };
-  let pin: Pin;
-  if (existsSync(path)) {
-    pin = JSON.parse(readFileSync(path, "utf8")) as Pin;
-    if (pin.version !== 2 || pin.engineSha256 !== engineSha256 ||
-      typeof pin.config?.["navigator.userAgent"] !== "string" || !pin.config["navigator.userAgent"]) {
-      throw Error("Fingerprint pin is corrupt or browser binary changed; explicit migration required");
-    }
-  } else {
-    if (!generated["navigator.userAgent"]) throw Error("Generated fingerprint has no user agent");
-    pin = { version: 2, engineSha256, config: freezeDevice(generated) };
-    writeFileSync(path, JSON.stringify(pin, null, 2), { mode: 0o600, flag: "wx" });
-  }
-
+  const journal = stageFingerprint(stateDir, owner, () => {
+    const device = freezeDevice(generated);
+    const preferences = launchPreferences(options.firefoxUserPrefs, proxied, device);
+    requireStatic(validateFingerprint({ newIdentity: device, newPreferences: preferences }));
+    return { version: 2, engineSha256, config: device };
+  }, engineSha256);
+  const pin = JSON.parse(journal.candidate) as Pin;
   const effective = applyProxyLocale(replayFingerprint(pin.config, generated), proxied);
+  const preferences = launchPreferences(options.firefoxUserPrefs, proxied, pin.config);
+  const serializedPreferences = JSON.parse(JSON.stringify(preferences)) as Fingerprint;
+  if (!isDeepStrictEqual(preferences, serializedPreferences)) throw Error("Serialized Firefox preferences differ from effective preferences.");
+  const preferenceChunks = Object.entries(env).filter(([key]) => /^CAMOU_PREFS_[1-9]\d*$/.test(key))
+    .sort(([a], [b]) => Number(a.split("_").at(-1)) - Number(b.split("_").at(-1)));
+  if (preferenceChunks.length) {
+    if (preferenceChunks.some(([key], index) => key !== `CAMOU_PREFS_${index + 1}`)) throw Error("Serialized Firefox preferences are incomplete.");
+    let serialized: unknown;
+    try { serialized = JSON.parse(preferenceChunks.map(([, value]) => value).join("")); }
+    catch { throw Error("Serialized Firefox preferences are invalid."); }
+    if (!isDeepStrictEqual(serialized, preferences)) throw Error("Serialized Firefox preferences differ from effective preferences.");
+  }
+  requireStatic(validateFingerprint({ pin, effectiveIdentity: effective, effectivePreferences: preferences,
+    serialized: JSON.stringify(effective), serializedPreferences },
+    { expectedEngineSha256: engineSha256 }));
   for (const [key] of chunks) delete env[key];
   const serialized = JSON.stringify(effective);
   for (let offset = 0; offset < serialized.length; offset += 32767) {
     env[`CAMOU_CONFIG_${offset / 32767 + 1}`] = serialized.slice(offset, offset + 32767);
   }
   options.env = env;
-  options.firefoxUserPrefs = launchPreferences(options.firefoxUserPrefs, proxied, pin.config);
+  options.firefoxUserPrefs = preferences;
   if (options.proxy) options.proxy.bypass = "127.0.0.1,localhost";
   const fingerprintSha256 = createHash("sha256").update(JSON.stringify(freezeDevice(pin.config))).digest("hex");
-  return { fingerprintSha256, engineSha256 };
+  return { fingerprintSha256, engineSha256, pinSha256: journal.sha256, pin, effective, preferences, owner };
+}
+
+export function validateFinalLaunch(options: LaunchOptions, prepared: ReturnType<typeof applyFingerprint>) {
+  const env = options.env || {};
+  const chunks = Object.entries(env).filter(([key]) => /^CAMOU_CONFIG_[1-9]\d*$/.test(key))
+    .sort(([a], [b]) => Number(a.split("_").at(-1)) - Number(b.split("_").at(-1)));
+  if (!chunks.length || chunks.some(([key], index) => key !== `CAMOU_CONFIG_${index + 1}`)) throw Error("Serialized fingerprint is incomplete.");
+  const effective = JSON.parse(chunks.map(([, value]) => value).join("")) as Fingerprint;
+  if (!isDeepStrictEqual(freezeDevice(effective), freezeDevice(prepared.effective)) ||
+      !isDeepStrictEqual(options.firefoxUserPrefs, prepared.preferences)) throw Error("Fingerprint changed after validation.");
+  requireStatic(validateFingerprint({ pin: prepared.pin, effectiveIdentity: effective, effectivePreferences: prepared.preferences,
+    serialized: Object.fromEntries(chunks), serializedPreferences: JSON.parse(JSON.stringify(options.firefoxUserPrefs)) },
+    { expectedEngineSha256: prepared.engineSha256 }));
 }

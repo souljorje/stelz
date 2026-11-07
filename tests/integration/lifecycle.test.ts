@@ -16,6 +16,8 @@ import { join } from "node:path";
 import { configurationHash, type Profile } from "../../src/profiles/config.ts";
 import { lock, processStart } from "../../src/runtime/runtime.ts";
 import { createControllerLease, type Controller } from "../../src/mcp/controller.ts";
+import { CONTROL_PROTOCOL_VERSION } from "../../src/mcp/control-protocol.ts";
+import { commitFingerprint, stageFingerprint, writeInitialized } from "../../src/browser/fingerprint-transaction.ts";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { UPSTREAM_VERSION } from "../../src/versions.ts";
@@ -202,7 +204,7 @@ test("a changed configuration port cannot redirect control to another service", 
     async fetch(req) {
       intendedCalls++;
       const action = new URL(req.url).pathname.split("/").at(-1);
-      const status = () => ({ ...identity, controlProtocolVersion: 1, phase: "ready", controller: controller.status() });
+      const status = () => ({ ...identity, controlProtocolVersion: CONTROL_PROTOCOL_VERSION, phase: "ready", controller: controller.status() });
       if (action === "status") return Response.json(status());
       const text = await req.text();
       if (!text && action === "check") return Response.json({ ...status(), checked: true });
@@ -416,18 +418,26 @@ test("a zombie server does not block recovery", async () => {
 
 test("recheck maps to the check endpoint and initialized verification failures complete startup", async () => {
   const calls: string[] = [];
+  let pinSha256 = "";
   const service = Bun.serve({
     port: 0,
     async fetch(req) {
       calls.push(`${req.method} ${new URL(req.url).pathname}`);
       if (req.method === "POST") await Bun.sleep(120);
-      return Response.json({ profileId: "test", phase: "verification_failed" });
+      return Response.json({ profileId: "test", instanceId: "test-browser-instance", pinSha256, phase: "verification_failed" });
     },
   });
   const f = fixture(service.port!);
   try {
-    record(f);
-    writeFileSync(join(f.idDir, "initialized.json"), JSON.stringify({ instanceId: "test-instance" }));
+    const running = record(f);
+    const owner = { profileId: "test", attemptId: running.instanceId, browserInstanceId: "test-browser-instance",
+      configurationHash: running.configurationHash, serverPid: process.pid };
+    const staged = stageFingerprint(f.idDir, owner, { version: 2, engineSha256: "a".repeat(64),
+      config: { "navigator.userAgent": "fixture browser" } }, "a".repeat(64));
+    commitFingerprint(f.idDir, owner, staged.sha256);
+    pinSha256 = staged.sha256;
+    writeInitialized(f.idDir, { instanceId: owner.attemptId, browserInstanceId: owner.browserInstanceId,
+      configurationHash: owner.configurationHash, fingerprintSha256: pinSha256 });
     const start = await run(f, "start", "test");
     expect(start.code).toBe(0);
     expect(JSON.parse(start.stdout).phase).toBe("verification_failed");
@@ -438,6 +448,19 @@ test("recheck maps to the check endpoint and initialized verification failures c
     service.stop(true);
     dispose(f);
   }
+});
+
+test("status does not report ready from an old or incomplete initialization marker", async () => {
+  const service = Bun.serve({ port: 0, fetch: () => Response.json({ profileId: "test", phase: "ready",
+    instanceId: "test-browser-instance", pinSha256: "a".repeat(64) }) });
+  const f = fixture(service.port!);
+  try {
+    record(f);
+    writeFileSync(join(f.idDir, "initialized.json"), JSON.stringify({ instanceId: "test-instance" }));
+    const result = await run(f, "status", "test");
+    expect(result.code).toBe(0);
+    expect(JSON.parse(result.stdout).phase).toBe("starting");
+  } finally { service.stop(true); dispose(f); }
 });
 
 test("stop and interventions use deadlines longer than the action deadline", async () => {
@@ -548,41 +571,71 @@ test("startup creates one blank tab before a supervisor crash leaves its server 
   mkdirSync(upstream, { recursive: true });
   writeFileSync(
     join(upstream, "server.js"),
-    `const http=require('node:http'), fs=require('node:fs'), path=require('node:path');
+    `const http=require('node:http'), fs=require('node:fs'), path=require('node:path'), crypto=require('node:crypto');
     const status=path.join(process.env.STELZ_PROFILE_DIR,'status.json');
     const startup=path.join(process.env.STELZ_PROFILE_DIR,'startup.json');
+    const directory=process.env.STELZ_PROFILE_DIR, running=JSON.parse(fs.readFileSync(path.join(directory,'running.json'),'utf8'));
+    const state={profileId:'test',phase:'starting',instanceId:'browser-'+running.instanceId};
+    const marker=path.join(directory,'initialized.json'), hold=path.join(directory,'hold-bootstrap');
     let initialized=false, healthChecks=0;
     const tabs=[], requests=[];
-    fs.writeFileSync(status, JSON.stringify({profileId:'test',phase:'starting'}));
+    const save=()=>fs.writeFileSync(status,JSON.stringify(state)); save();
     const server=http.createServer(async (req,res)=>{
       res.setHeader('content-type','application/json');
       if(req.url==='/health' && req.method==='GET'){healthChecks++;res.end(JSON.stringify({browserRunning:healthChecks>=3}));return}
       if(req.url==='/tabs' && req.method==='POST'){
         let text='';for await(const chunk of req) text+=chunk;
         const body=JSON.parse(text);
-        requests.push({body,authorization:req.headers.authorization});
+        requests.push({body,authorization:req.headers.authorization,bootstrapAuthorized:req.headers['x-stelz-bootstrap']===process.env.STELZ_BOOTSTRAP_TOKEN,
+          markerAtTab:fs.existsSync(marker)});
         const tab={tabId:'startup-'+(tabs.length+1),url:body.url || 'about:blank'};
         tabs.push(tab);initialized=true;
         fs.writeFileSync(startup,JSON.stringify({healthChecks,requests,tabs}));
-        fs.writeFileSync(status,JSON.stringify({profileId:'test',phase:'ready'}));
+        while(fs.existsSync(hold)) await new Promise(resolve=>setTimeout(resolve,10));
+        const candidate=JSON.stringify({version:2,engineSha256:'a'.repeat(64),config:{'navigator.userAgent':'fixture'}});
+        const sha256=crypto.createHash('sha256').update(candidate).digest('hex'), id=crypto.randomUUID();
+        const name='.fingerprint-'+id+'.candidate', file=path.join(directory,name);
+        fs.writeFileSync(file,candidate,{flag:'wx',mode:0o600}); const info=fs.statSync(file);
+        fs.writeFileSync(path.join(directory,'fingerprint-transaction.json'),JSON.stringify({version:1,id,
+          owner:{profileId:'test',attemptId:running.instanceId,browserInstanceId:state.instanceId,configurationHash:running.configurationHash,serverPid:process.pid},
+          before:null,candidate,sha256,publication:{name,dev:info.dev,ino:info.ino}}),{mode:0o600});
+        state.pinSha256=sha256;state.startupPrepared=true;save();
         res.end(JSON.stringify(tab));return
       }
+      if(req.url==='/local-profile/startup-ack'){
+        const result=JSON.parse(fs.readFileSync(startup,'utf8'));result.markerAtAck=fs.existsSync(marker);
+        fs.writeFileSync(startup,JSON.stringify(result));state.phase='ready';save();res.end(JSON.stringify(state));return
+      }
       if(req.url==='/local-profile/stop'){res.end('{}');setTimeout(()=>process.kill(process.pid,'SIGTERM'),10);return}
-      res.end(JSON.stringify(req.url==='/local-profile/status'?{profileId:'test',phase:initialized?'ready':'starting'}:{}));
+      res.end(JSON.stringify(req.url==='/local-profile/status'?state:{}));
     }).listen(Number(process.env.CAMOFOX_PORT),'127.0.0.1');
     process.on('SIGTERM',()=>{fs.writeFileSync(status,JSON.stringify({profileId:'test',phase:'stopped'}));server.close(()=>process.exit(0))});`,
   );
   let started: { pid: number; supervisorStart: string; serverPid: number; serverStart: string; instanceId: string } | undefined;
+  const hold = join(f.idDir, "hold-bootstrap");
+  let starting: ReturnType<typeof run> | undefined;
   try {
-    const start = await run(f, "start", "test");
+    writeFileSync(hold, "");
+    starting = run(f, "start", "test");
+    const deadline = Date.now() + 10000;
+    while (!existsSync(join(f.idDir, "startup.json")) && Date.now() < deadline) await Bun.sleep(20);
+    expect(existsSync(join(f.idDir, "startup.json"))).toBe(true);
+    const denied = await fetch(`http://127.0.0.1:${port}/tabs`, { method: "POST", headers: { Authorization: "Bearer test-key",
+      "Content-Type": "application/json" }, body: JSON.stringify({ userId: "test", sessionKey: "default", stelzStartup: true }) });
+    expect(denied.status).toBe(409);
+    expect(existsSync(join(f.idDir, "initialized.json"))).toBe(false);
+    rmSync(hold);
+    const start = await starting;
     expect(start.code).toBe(0);
     expect(JSON.parse(start.stdout).phase).toBe("ready");
     started = JSON.parse(readFileSync(join(f.idDir, "running.json"), "utf8"));
     expect(processStart(started!.pid)).toBe(started!.supervisorStart);
-    expect(JSON.parse(readFileSync(join(f.idDir, "initialized.json"), "utf8"))).toEqual({ instanceId: started!.instanceId });
+    expect(JSON.parse(readFileSync(join(f.idDir, "initialized.json"), "utf8"))).toMatchObject({ instanceId: started!.instanceId });
     const startup = JSON.parse(readFileSync(join(f.idDir, "startup.json"), "utf8"));
     expect(startup.healthChecks).toBe(3);
-    expect(startup.requests).toEqual([{ body: { userId: "test", sessionKey: "default", stelzStartup: true }, authorization: "Bearer test-key" }]);
+    expect(startup.requests).toEqual([{ body: { userId: "test", sessionKey: "default", stelzStartup: true },
+      authorization: "Bearer test-key", bootstrapAuthorized: true, markerAtTab: false }]);
+    expect(startup.markerAtAck).toBe(true);
     expect(startup.tabs).toEqual([{ tabId: "startup-1", url: "about:blank" }]);
     process.kill(started!.pid, "SIGKILL");
     for (let n = 0; n < 50 && processStart(started!.pid) === started!.supervisorStart; n++)
@@ -594,6 +647,8 @@ test("startup creates one blank tab before a supervisor crash leaves its server 
     expect((await run(f, "stop", "test")).code).toBe(0);
     expect((await run(f, "recover", "test")).code).toBe(0);
   } finally {
+    rmSync(hold, { force: true });
+    if (starting) await starting;
     if (started && processStart(started.pid) === started.supervisorStart)
       process.kill(started.pid, "SIGKILL");
     if (started && processStart(started.serverPid) === started.serverStart)

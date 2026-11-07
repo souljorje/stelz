@@ -11,11 +11,12 @@ export type ProfileExtensionConfig = {
 // This function is serialized after TypeScript compilation. Keep its dependencies inside the function.
 export function profileExtensionMain(config: ProfileExtensionConfig) {
   type Event = { addListener(callback: (...args: any[]) => unknown): void };
-  type NativeWindow = ProfileWindow & { type?: string };
+  type NativeTab = ProfileWindow["tabs"][number] & { width?: number; height?: number };
+  type NativeWindow = Omit<ProfileWindow, "tabs"> & { type?: string; width?: number; height?: number; tabs?: NativeTab[] };
   const api = (globalThis as unknown as { browser: {
     windows: { getAll(options: object): Promise<NativeWindow[]>; get(id: number): Promise<NativeWindow>;
       update(id: number, options: object): Promise<unknown>; getLastFocused(): Promise<NativeWindow>; onCreated: Event; onFocusChanged: Event };
-    tabs: { update(id: number, options: object): Promise<unknown> };
+    tabs: { update(id: number, options: object): Promise<unknown>; getZoom(id: number): Promise<number> };
     theme: { update(options: object): Promise<unknown> };
     browserAction: { setBadgeText(options: object): Promise<void>; setBadgeBackgroundColor(options: object): Promise<void>;
       setBadgeTextColor(options: object): Promise<void>; setTitle(options: object): Promise<void> };
@@ -42,7 +43,7 @@ export function profileExtensionMain(config: ProfileExtensionConfig) {
       // Query the current window again with tabs before accepting a stale page selection.
       const current = (await api.windows.getAll({ populate: true, windowTypes: ["normal", "popup"] }))
         .find(item => item.id === command.windowId);
-      if (!current?.tabs.some(tab => tab.id === command.tabId)) throw Error("The page is no longer in this window.");
+      if (!current?.tabs?.some(tab => tab.id === command.tabId)) throw Error("The page is no longer in this window.");
       await api.tabs.update(command.tabId, { active: true });
     }
     if (window.state === "minimized") await api.windows.update(command.windowId, { state: "normal" });
@@ -64,21 +65,44 @@ export function profileExtensionMain(config: ProfileExtensionConfig) {
   let acknowledgement: { id: string; error: string | null } | undefined;
   async function tick() {
     try {
-      const native = await api.windows.getAll({ populate: true, windowTypes: ["normal", "popup"] });
+      const sampledAt = Date.now();
+      let native = await api.windows.getAll({ populate: true, windowTypes: ["normal", "popup"] });
       const live = new Set(native.map(window => window.id));
       for (const id of styled) if (!live.has(id)) styled.delete(id);
       for (const id of failedTitles) if (!live.has(id)) failedTitles.delete(id);
       native.sort((a, b) => Number(b.id === lastFocused) - Number(a.id === lastFocused));
       await Promise.all(native.map(styleWindow));
+      // Only the temporary startup title requests privileged zoom evidence.
+      const zooms = new Map<number, number>();
+      await Promise.all(native.flatMap(window => window.tabs ?? []).filter(tab =>
+        typeof tab.title === "string" && tab.title.startsWith("stelz-startup:")).map(async tab => {
+        try { zooms.set(tab.id, await api.tabs.getZoom(tab.id)); } catch { /* Missing zoom blocks startup admission. */ }
+      }));
+      if (zooms.size) {
+        const confirmed = await api.windows.getAll({ populate: true, windowTypes: ["normal", "popup"] });
+        const signature = (list: NativeWindow[], id: number) => {
+          for (const window of list) for (const tab of window.tabs ?? []) if (tab.id === id)
+            return JSON.stringify([window.id, window.state, window.width, window.height, tab.id, tab.title, tab.url, tab.active, tab.width, tab.height]);
+        };
+        await Promise.all([...zooms].map(async ([id, zoom]) => {
+          try {
+            const before = signature(native, id), after = signature(confirmed, id);
+            if (!before || before !== after || await api.tabs.getZoom(id) !== zoom) zooms.delete(id);
+          } catch { zooms.delete(id); }
+        }));
+        native = confirmed;
+        native.sort((a, b) => Number(b.id === lastFocused) - Number(a.id === lastFocused));
+      }
       let count = 0;
       const windows = native.slice(0, 100).map(window => ({
-        id: window.id, title: text(window.title), focused: !!window.focused, state: window.state,
+        id: window.id, title: text(window.title), focused: !!window.focused, state: window.state, width: window.width, height: window.height,
         tabs: (window.tabs ?? []).slice(0, Math.max(0, 100 - count)).map(tab => {
           count++;
-          return { id: tab.id, title: text(tab.title), url: text(tab.url), active: !!tab.active };
+          return { id: tab.id, title: text(tab.title), url: text(tab.url), active: !!tab.active,
+            width: tab.width, height: tab.height, zoom: zooms.get(tab.id) };
         }),
       }));
-      const payload = { instanceId: config.instanceId, windows, error: configurationError
+      const payload = { instanceId: config.instanceId, sampledAt, windows, error: configurationError
         ?? (failedTitles.size ? "A browser window could not receive its profile title." : null), acknowledgement };
       let body = JSON.stringify(payload);
       while (new TextEncoder().encode(body).length > 90_000 && windows.length) {

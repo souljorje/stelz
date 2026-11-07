@@ -32,10 +32,12 @@ function options(args: string[]) {
 
 export async function runProfile(args: string[]) {
   if (args[0] === "import" || args[0] === "export") return runProfileTransfer(args);
+  if (args[0] === "fingerprint") return (await import("./profile-fingerprint.ts")).runProfileFingerprint(args.slice(1));
   const json = args.includes("--json");
   try {
     if (args.length === 1 && args[0] === "--help" || args.length === 2 && args[0] === "create" && args[1] === "--help") {
-      console.log(args[0] === "--help" ? usage + "\n" + transferUsage : usage); return;
+      const { fingerprintUsage } = await import("./profile-fingerprint.ts");
+      console.log(args[0] === "--help" ? usage + "\n" + transferUsage + "\n" + fingerprintUsage : usage); return;
     }
     const input = options(args);
     if (!existsSync(CONFIG_FILE) || !existsSync(STATE)) {

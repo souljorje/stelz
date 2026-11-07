@@ -5,15 +5,20 @@ import { join } from "node:path";
 import { createProfileTransferManager } from "../../src/api/profile-transfers.ts";
 import { createUiApp, createUiSessionState } from "../../src/api/ui-app.ts";
 import type { UiModel } from "../../src/api/contracts.ts";
-import type { ProfileArchiveManifest } from "../../src/profiles/profile-transfer-types.ts";
+import type { ProfileArchiveManifest, TransferFingerprintDiagnostic } from "../../src/profiles/profile-transfer-types.ts";
 
 const cleanups: (() => Promise<unknown>)[] = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
 const manifest: ProfileArchiveManifest = { format: "stelz-profiles", version: 1, createdAt: new Date().toISOString(),
   source: { stelzVersion: "test", platform: process.platform, arch: process.arch, engineSha256: "a".repeat(64) },
   profiles: [{ id: "work", storage: "native", proxy: { url: "http://private-user:private-password@proxy.test:8080" } }], directories: ["profiles", "profiles/work"], files: [] };
+const fingerprintDiagnostics: TransferFingerprintDiagnostic[] = [{ sourceId: "work", fingerprint: { status: "checked", validation: {
+  staticValid: false, schema: "PASS", engineSha256: "PASS", runtime: "NOT_RUN", admissionBlocked: true,
+  diagnostics: [{ code: "webgl.renderer.direct3d_on_macos", path: "pin.config.webGl:renderer", severity: "error", message: "The renderer is incompatible." }],
+} } }];
 const preview = { revision: "b".repeat(64), source: manifest.source, compatible: true, issues: [],
-  profiles: [{ sourceId: "work", id: "work-copy", name: "work-copy", storage: "native" as const, proxyDisplay: "http://proxy.test:8080", proxyUnavailable: false, issues: [] }] };
+  profiles: [{ sourceId: "work", id: "work-copy", name: "work-copy", storage: "native" as const, proxyDisplay: "http://proxy.test:8080", proxyUnavailable: false, issues: [],
+    fingerprint: fingerprintDiagnostics[0]!.fingerprint }] };
 async function waitFor(predicate: () => boolean) {
   for (let n = 0; n < 1000; n++) { if (predicate()) return; await Bun.sleep(1); }
   throw Error("Transfer did not reach the expected phase.");
@@ -27,10 +32,10 @@ async function fixture(exportGate: Promise<void> = Promise.resolve()) {
     reserve: ids => { if (ids.some(id => state.pending.has(id))) throw Object.assign(Error("Busy profile"), { status: 409 }); for (const id of ids) state.pending.set(id, "export"); },
     release: ids => { for (const id of ids) state.pending.delete(id); },
     operations: {
-      async export(input) { await exportGate; input.signal?.throwIfAborted(); input.onPhase?.("packing"); await writeFile(input.outputFile, "PKsyntheticZIP"); return manifest; },
+      async export(input) { await exportGate; input.signal?.throwIfAborted(); input.onPhase?.("packing"); await writeFile(input.outputFile, "PKsyntheticZIP"); return { ...manifest, fingerprintDiagnostics }; },
       async read(input) { uploads.push(await readFile(input.archiveFile, "utf8")); input.signal?.throwIfAborted(); return manifest; },
       async inspect() { return preview; },
-      async import(input) { return { profiles: input.profiles.map(p => ({ sourceId: p.sourceId, id: p.id, name: p.name ?? p.id })) }; },
+      async import(input) { return { profiles: input.profiles.map(p => ({ sourceId: p.sourceId, id: p.id, name: p.name ?? p.id })), fingerprintDiagnostics }; },
     },
   });
   cleanups.push(() => manager.dispose());
@@ -54,14 +59,18 @@ test("transfer routes preserve session/origin checks and expose only sanitized i
   expect((await f.request(path + "/archive", { method: "PUT", headers: { "Content-Type": "application/zip" }, body: "PKfile" }, false)).status).toBe(401);
   expect((await f.request(path + "/archive", { method: "PUT", headers: { "Content-Type": "application/zip" }, body: "PKfile" })).status).toBe(202);
   await waitFor(() => f.manager.status(transfer.id).phase === "ready");
-  const status = await (await f.request(path)).json();
+  const previewText = await (await f.request(path)).text(), status = JSON.parse(previewText);
   expect(status.transfer.preview.profiles[0]).toMatchObject({ id: "work-copy", proxyDisplay: "http://proxy.test:8080" });
-  expect(JSON.stringify(status)).not.toMatch(/private-user|private-password/);
+  expect(status.transfer.preview.profiles[0].fingerprint).toEqual(fingerprintDiagnostics[0]!.fingerprint);
+  expect(previewText).not.toMatch(/private-user|private-password/);
   expect(f.uploads).toEqual(["PKfile"]);
   const commit = await f.request(path + "/import", { method: "POST", body: JSON.stringify({ revision: preview.revision, profiles: [{ sourceId: "work", id: "work-copy", name: "Copy" }] }) });
   expect(commit.status).toBe(202);
   await waitFor(() => f.manager.status(transfer.id).phase === "complete");
   expect(f.manager.status(transfer.id).result?.profiles).toEqual([{ sourceId: "work", id: "work-copy", name: "Copy" }]);
+  const resultText = await (await f.request(path)).text(), result = JSON.parse(resultText);
+  expect(result.transfer.result.fingerprintDiagnostics).toEqual(fingerprintDiagnostics);
+  expect(resultText).not.toMatch(/private-user|private-password/);
   expect(f.state.activeMutations).toBe(0);
 });
 
@@ -78,6 +87,10 @@ test("export reserves selected profiles and prevents shutdown until the native d
   complete();
   await waitFor(() => f.manager.status(transfer.id).phase === "ready");
   expect(f.state.pending.size).toBe(0);
+  const statusText = await (await f.request(`/api/profile-transfers/${transfer.id}`)).text(), status = JSON.parse(statusText);
+  expect(status.transfer.fingerprintDiagnostics).toEqual(fingerprintDiagnostics);
+  expect(status.transfer.manifest).toBeUndefined(); expect(status.transfer.source).toBeUndefined(); expect(status.transfer.profiles).toBeUndefined();
+  expect(statusText).not.toMatch(/private-user|private-password|proxy\.test:8080/);
   const download = await f.request(`/api/profile-transfers/${transfer.id}/download`);
   expect(download.headers.get("content-type")).toBe("application/zip");
   expect(download.headers.get("content-disposition")).toContain(".stelz-profiles.zip");

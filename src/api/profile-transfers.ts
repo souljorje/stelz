@@ -133,9 +133,10 @@ export function createProfileTransferManager(options: {
         } catch (error) { release(job); await rm(directory, { recursive: true, force: true }); throw error; }
         jobs.set(id, job); options.busy?.(1);
         if (input.kind === "export") run(job, async () => {
-          await operations.export({ profileIds, outputFile: job.archive, workDirectory: directory, signal: job.abort.signal,
+          const { fingerprintDiagnostics } = await operations.export({ profileIds, outputFile: job.archive, workDirectory: directory, signal: job.abort.signal,
             onProgress: progress(job), onPhase: phase => { job.view.phase = phase; if (phase === "packing") release(job); } });
           job.abort.signal.throwIfAborted();
+          if (fingerprintDiagnostics) job.view.fingerprintDiagnostics = fingerprintDiagnostics;
           job.view.phase = "ready"; job.view.downloadUrl = `/api/profile-transfers/${id}/download`;
         });
         return touch(job);

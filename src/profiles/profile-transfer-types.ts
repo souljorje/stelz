@@ -1,4 +1,10 @@
 import type { TypingMode } from "../browser/typing.ts";
+import type { FingerprintValidationResult } from "../browser/fingerprint-validation.ts";
+
+export type TransferFingerprint =
+  | { status: "uninitialized" }
+  | { status: "checked"; validation: FingerprintValidationResult };
+export type TransferFingerprintDiagnostic = { sourceId: string; fingerprint: TransferFingerprint };
 
 // This data is private. Only sanitized previews may cross the UI API.
 export type PortableProfile = {
@@ -51,7 +57,10 @@ export type ProfileImportPreview = {
   issues: string[];
   profiles: {
     sourceId: string; id: string; name: string; storage: "native";
-    proxyDisplay: string | null; proxyUnavailable: boolean; issues: string[];
+    proxyDisplay: string | null; proxyUnavailable: boolean; issues: string[]; fingerprint?: TransferFingerprint;
   }[];
 };
-export type ProfileImportResult = { profiles: { sourceId: string; id: string; name: string }[] };
+export type ProfileImportResult = {
+  profiles: { sourceId: string; id: string; name: string }[];
+  fingerprintDiagnostics?: TransferFingerprintDiagnostic[];
+};
