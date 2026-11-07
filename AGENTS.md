@@ -1,6 +1,8 @@
 # Working rules
 
 - Be brief. Use TypeScript and Bun for custom code.
+- Keep all documentation concise. Reference existing details instead of repeating them.
+- Review code for DRY and YAGNI. Fix only concrete findings.
 - Read `docs/README.md` for service operations.
 - Read `skills/stelz-browser/SKILL.md` for the MCP control protocol.
 - Use the installed ASD-STE100 skill for documentation.

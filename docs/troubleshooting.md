@@ -250,11 +250,15 @@ See [Configuration](configuration.md).
 ## Native data or fingerprint is unavailable
 
 Use `stelz logs work --lines 200` to distinguish missing native data from a fingerprint or engine mismatch.
+Run the [fingerprint check](cli.md#check-a-saved-fingerprint) without starting a browser.
+`fingerprint_uninitialized` means no pin exists. This does not indicate an invalid identity.
+`fingerprint_invalid` reports static pin errors. `fingerprint_engine_mismatch` requires the matching executable.
+`fingerprint_engine_unavailable` means the command could not read the configured executable.
 For missing `browser-data/`, restore the original matching directory while the profile is stopped.
 For an executable mismatch, restore the matching Camoufox executable path.
-For a corrupt or missing pin, restore the matching original pin and data from a trusted backup.
+For a corrupt or missing pin with saved native data, restore the matching pin and data from a trusted backup.
 Do not remove the native marker or fingerprint to generate replacement identity.
-This release has no engine migration command.
+There is no fingerprint repair or engine migration command.
 
 ## Configuration save or import is pending
 

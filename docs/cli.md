@@ -10,7 +10,7 @@ This page describes the installed `stelz` command.
 Use the same `STELZ_HOME` for the CLI, UI, and each MCP connection.
 See [Configuration](configuration.md) for environment settings and paths.
 
-Only `profile create`, `profile export`, and `profile import` accept `--json`. There is no global `--json` option.
+Profile commands accept `--json` where listed below. There is no global `--json` option.
 Help is available through `stelz --help`, `stelz help`, and the listed profile help commands.
 
 ## Installation and UI
@@ -81,6 +81,16 @@ With `--json`, success has this shape:
 Configured profiles also report their `proxyEnv` and `expectedIPEnv` reference names when present.
 Results omit secret values.
 
+### Check a saved fingerprint
+
+```sh
+stelz profile fingerprint check work --json
+```
+
+This read-only check inspects the saved pin and configured engine. It does not start a browser or establish runtime readiness.
+`fingerprint_uninitialized` means no pin exists. See [Fingerprint recovery](troubleshooting.md#native-data-or-fingerprint-is-unavailable) for other errors.
+Completed checks print to stdout. Input, missing-pin, and configuration errors go to stderr.
+
 ## Browser lifecycle and diagnostics
 
 These commands print formatted JSON by default.
@@ -137,16 +147,18 @@ Pending journals can add `networkRecovery` or `profileImportRecovery`.
 
 | Command | Options | Output |
 | --- | --- | --- |
-| `stelz profile export ID... --output FILE` | `--json` | Export count and absolute archive path. JSON contains `ok`, `archive`, and profile `id`/`name` summaries. |
+| `stelz profile export ID... --output FILE` | `--json` | Export count and absolute archive path. JSON contains `ok`, `archive`, profile `id`/`name` summaries, and `fingerprintDiagnostics`. |
 | `stelz profile export --all --output FILE` | `--json` | Same result for the complete catalog. All selected profiles must be cleanly stopped. |
-| `stelz profile import FILE` | Repeated `--profile SOURCE_ID`, repeated `--rename SOURCE_ID=NEW_ID`, `--json` | Source-to-destination mappings. JSON contains `ok` and `profiles` with `sourceId`, `id`, and `name`. |
+| `stelz profile import FILE` | Repeated `--profile SOURCE_ID`, repeated `--rename SOURCE_ID=NEW_ID`, `--json` | Source-to-destination mappings. JSON contains `ok`, `profiles`, and `fingerprintDiagnostics`. |
 | `stelz profile export --help` or `stelz profile import --help` | None | Prints transfer syntax. |
 
 Export requires either distinct IDs or `--all`, plus `--output`. It refuses an existing output file.
 Import selects the complete archive unless `--profile` selects a subset.
 Each rename must refer to a selected source profile and an unused destination ID.
 Import assigns ports and private secret references. It leaves imported profiles stopped.
-Without `--json`, transfer notices go to stderr. These notices do not indicate failure.
+JSON includes `fingerprintDiagnostics` for selected profiles. Import compatibility errors can include preview diagnostics.
+Transfer preserves pin bytes, including invalid identities. The archive and any saved pin must match the local engine.
+Diagnostics do not establish runtime readiness. Without `--json`, notices go to stderr and do not alone indicate failure.
 See [Transfer profiles](profile-transfer.md) before exporting or importing.
 
 ## MCP connection
@@ -198,6 +210,7 @@ Profile commands with `--json` write errors in this form:
 ```
 
 Create codes are `not_initialized`, `invalid_input`, `conflict`, and `profile_unavailable`.
+See [Fingerprint recovery](troubleshooting.md#native-data-or-fingerprint-is-unavailable) for fingerprint errors.
 Transfer codes are `cancelled`, `invalid_input`, `conflict`, `too_large`, and `transfer_failed`.
 An early configuration-loading failure can produce `profile_unavailable` for any profile command.
 Lifecycle commands without `--json` use plain stderr text for errors.
