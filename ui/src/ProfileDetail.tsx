@@ -5,7 +5,7 @@ import { profilePath } from "./api.ts";
 import { ActionButton, CopyCommand, Icon, KeyValues, Notice, Phase } from "./components";
 import { NetworkForm } from "./NetworkForm";
 import { TypingForm } from "./TypingForm";
-import { actionReason, boundedLog, dateTime, deleteReason, profileAttention, profileCommand, mcpCommand, redact } from "./model.ts";
+import { actionReason, locationLabel, homeCommand, boundedLog, dateTime, deleteReason, profileAttention, profileCommand, mcpCommand, redact } from "./model.ts";
 import type { ActionContext } from "./model.ts";
 import { useResource } from "./use-service.ts";
 import { ProfileWindows, type ShowWindow } from "./ProfileWindows";
@@ -43,7 +43,7 @@ export function ProfileDetail({ profile, snapshot, context, mutationVersion, onA
   const attention = profileAttention(profile);
   const needsDoctor = ["orphaned", "ownership_unknown", "unclean", "blocked"].includes(profile.phase);
   const profileHome = detail.data?.directory ?? null;
-  const actions = (["start", "pause", "resume", "recheck", "release", "stop"] as const).filter(action => action === "start" && ["stopped", "unclean"].includes(profile.phase) || !actionReason(profile, action, context));
+  const actions = (["start", "pause", "resume", "recheck", "release", "stop"] as const).filter(action => !(action === "recheck" && profile.phase === "stopped")).filter(action => action === "start" && ["stopped", "unclean"].includes(profile.phase) || !actionReason(profile, action, context));
   const canDelete = !deleteReason(profile, context) && !networkDirty;
   const exportReason = exportDisabled || networkDirty ? "Save or discard your edits before exporting." : !context.connected ? "Refresh the connection before exporting." : context.pending ? "Wait for the current UI operation." : exportUnavailable(profile);
 
@@ -55,6 +55,19 @@ export function ProfileDetail({ profile, snapshot, context, mutationVersion, onA
       {attention && <Notice kind="warning">{attention}</Notice>}
       {needsDoctor && <div className="recovery-commands"><p className="field-help">Inspect configuration and process ownership in a terminal.</p><CopyCommand command={profileCommand("doctor", profile.id, snapshot.home)} />{profile.phase === "unclean" && <><p className="field-help">Inspect any remaining browser processes. After the recorded processes exit, archive this lifetime.</p><CopyCommand command={profileCommand("recover", profile.id, snapshot.home)} /></>}</div>}
       {actions.length > 0 ? <div className="lifecycle-toolbar" role="group" aria-label="Browser lifecycle actions">{actions.map(action => <ActionButton key={action} profile={profile} action={action} context={context} onAction={onAction} primary={action === "start" || action === "resume"} disabledReason={action === "start" && networkDirty ? "Save or discard network changes before starting." : undefined} />)}</div> : profile.phase === "stopped" && <p className="unavailable-actions field-help">{actionReason(profile, "start", context)}</p>}
+      <section className="detail-section" aria-label="Location alignment">
+        <h2>Location alignment</h2>
+        <p role="status"><strong>{locationLabel(profile)}</strong></p>
+        <p className="field-help">{profile.location?.message ?? "Start checks this profile before launching its browser."}</p>
+        {profile.location?.checkedAt && <p className="field-help">Checked {dateTime(profile.location.checkedAt)}. {profile.location.valid ? "Applies to the current configuration." : "Check again for the current configuration."}</p>}
+        {profile.location?.timezone && <KeyValues rows={[{ label: "Timezone", value: profile.location.timezone }, { label: "Language policy", value: profile.location.language }]} />}
+        {profile.phase === "stopped" && profile.network.proxyEnv && <button type="button" className="button" disabled={networkDirty || !!actionReason(profile, "recheck", context)} onClick={() => onAction(profile, "recheck")}>{profile.location?.status === "checking" ? "Checking…" : profile.location?.status === "blocked" ? "Check again" : "Check connection"}</button>}
+        {profile.location?.nextAction?.kind === "run_setup" && <CopyCommand command={homeCommand("setup", snapshot.home)} />}
+        {profile.location?.nextAction?.kind === "edit_proxy" && <button type="button" className="text-button" onClick={() => document.getElementById("profile-network-heading")?.scrollIntoView({ block: "center" })}>Edit proxy below</button>}
+        {profile.location?.code && <details className="disclosure"><summary>Technical details</summary><p>{profile.location.code} · {profile.location.phase}</p>
+          {profile.location.observed && <KeyValues rows={[{ label: "Browser timezone", value: profile.location.observed.timezone }, { label: "Browser locale", value: profile.location.observed.locale }, { label: "Browser languages", value: profile.location.observed.languages.join(", ") }]} />}
+        </details>}
+      </section>
       {profile.controller && <KeyValues rows={[{ label: "Controller", value: redact(profile.controller.label) }]} />}
       <section className="detail-section network-section" aria-labelledby="profile-network-heading"><h2 id="profile-network-heading" className={profile.phase === "stopped" ? "sr-only" : undefined}>Connection</h2><NetworkForm profile={profile} connected={context.connected} busy={context.pending} onSave={onSave} onDirtyChange={handleDirtyChange} /></section>
       <TypingForm profile={profile} connected={context.connected} busy={context.pending} onSave={onTypingSave} />

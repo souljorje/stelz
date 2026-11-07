@@ -10,6 +10,7 @@ import { allowedBrowserTools, browserToolArguments } from "./tool-policy.ts";
 import { createControlRegistry } from "./control-registry.ts";
 import { serviceTransport } from "./service-binding.ts";
 import { STELZ_VERSION } from "../versions.ts";
+import { LocationError } from "../browser/location.ts";
 
 const profileProperty = { type: "string", pattern: "^[a-z][a-z0-9-]{0,63}$", description: "Profile ID from profile_list or profile_create." };
 const handleProperty = { type: "string", minLength: 1, description: "Opaque controlHandle returned by profile_acquire on this connection for this profile and browser lifetime." };
@@ -87,7 +88,7 @@ export async function runMcp() {
         } else if (name === "profile_create") {
           const created = await ensureProfile({ id: profileId });
           result = { profileId, created: created.created, ...publicStatus(await reportStatus(profileId)) };
-        } else if (name === "profile_start") result = publicStatus(await runLifecycle("start", profileId));
+        } else if (name === "profile_start") result = publicStatus(await runLifecycle("start", profileId, extra.signal));
         else if (name === "profile_status") result = publicStatus(await reportStatus(profileId));
         else if (name === "profile_acquire") {
           const acquired = await registry.acquire(profileId, server.getClientVersion()?.name || "MCP client", extra.signal);
@@ -100,7 +101,7 @@ export async function runMcp() {
           return await registry.run(profileId, controlHandle, "tool", { name, args: browserToolArguments(browserTool, canonical) }) as { content: ReturnType<typeof upstream.adaptResponse> };
         }
         return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
-      } catch (error) { return { isError: true, content: [{ type: "text" as const, text: (error as Error).message }] }; }
+      } catch (error) { return { isError: true, content: [{ type: "text" as const, text: error instanceof LocationError ? JSON.stringify({ error: { code: error.location.code, message: error.message }, location: error.location }) : (error as Error).message }] }; }
     })();
     requests.add(work);
     return work.finally(() => { requests.delete(work); });

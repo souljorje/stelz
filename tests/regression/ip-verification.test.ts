@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { runInNewContext } from "node:vm";
-import { createIpVerification, DEFAULT_IP_CHECK_INTERVAL_MS, parseIpCheckInterval, type Probe } from "../../src/browser/ip-verification.ts";
+import { setImmediate } from "node:timers/promises";
+import { createIpVerification, DEFAULT_IP_CHECK_INTERVAL_MS, parseIpCheckInterval } from "../../src/browser/ip-verification.ts";
 
 test("IP verification intervals default to two minutes and reject unbounded or invalid values", () => {
   assert.equal(parseIpCheckInterval(undefined), DEFAULT_IP_CHECK_INTERVAL_MS);
@@ -13,92 +13,92 @@ test("IP verification intervals default to two minutes and reject unbounded or i
   }
 });
 
-function harness(expected = "198.51.100.10") {
-  const session = {};
-  let href = "";
-  let created = 0, closed = 0;
-  const navigations: string[] = [], requests: string[] = [];
-  const responses = new Map<string, { status?: number; body?: string; fail?: boolean }>();
-  const probe: Probe = {
-    async goto(url) { href = url; navigations.push(new URL(url).hostname); },
-    async evaluate<T>(fn: (endpoint: string) => Promise<T>, endpoint: string): Promise<T> {
-      assert.equal(endpoint, href);
-      return runInNewContext(`(${fn.toString()})(endpoint)`, {
-        URL, Date, AbortSignal, endpoint,
-        fetch: async (url: URL, options: { cache: string; signal: AbortSignal }) => {
-          requests.push(url.hostname);
-          assert.equal(options.cache, "no-store");
-          assert.ok(url.searchParams.has("_"));
-          assert.ok(options.signal instanceof AbortSignal);
-          const response = responses.get(url.hostname);
-          if (response?.fail) throw Error("secret upstream error that must not escape");
-          return { ok: (response?.status ?? 200) === 200,
-            text: async () => response?.body ?? '{"ip":"198.51.100.10"}' };
-        },
-      }) as Promise<T>;
-    },
-    async close() {},
-  };
-  const ctx = {
-    sessions: new Map<string, unknown>([["profile-01", session]]),
-    async createLeasedPage(value: unknown) { assert.equal(value, session); created++; return { page: probe, lease: "lease" }; },
-    async closeLeasedPage(value: unknown, page: Probe, lease: unknown) {
-      assert.equal(value, session); assert.equal(page, probe); assert.equal(lease, "lease"); closed++;
-    },
-  };
-  return { verifier: createIpVerification(ctx, "profile-01", expected), ctx, responses, requests, navigations,
-    counts: () => ({ created, closed }) };
+function harness(expected = "198.51.100.10", timeout = 1000) {
+  const instanceId = "browser-a", verifier = createIpVerification(instanceId, expected, timeout);
+  const requests: string[] = [], ids: string[] = [];
+  const responses = new Map<string, { body?: string; fail?: boolean }>();
+  const poll = (result?: unknown) => verifier.exchange({ instanceId, result });
+  async function check() {
+    let done = false;
+    const work = verifier.check().finally(() => { done = true; });
+    void work.catch(() => {});
+    while (!done) {
+      const request = poll().request;
+      if (request) {
+        requests.push(request.provider); ids.push(request.id);
+        const response = responses.get(request.provider);
+        poll(response?.fail ? { id: request.id, failed: true } : { id: request.id, body: response?.body ?? '{"ip":"198.51.100.10"}' });
+      }
+      await setImmediate();
+    }
+    return work;
+  }
+  return { instanceId, verifier, requests, ids, responses, check, poll };
 }
 
-test("successful checks reuse a leased page in the selected browser context", async () => {
+test("fresh browser add-on checks need no visible page and use separate request IDs", async () => {
   const h = harness();
-  try {
-    assert.equal(await h.verifier.check(), "198.51.100.10");
-    assert.equal(await h.verifier.check(), "198.51.100.10");
-    assert.deepEqual(h.navigations, ["api.ipify.org"]);
-    assert.deepEqual(h.requests, ["api.ipify.org", "api.ipify.org"]);
-    assert.deepEqual(h.counts(), { created: 1, closed: 0 });
-  } finally { await h.verifier.close(); }
-  assert.deepEqual(h.counts(), { created: 1, closed: 1 });
+  assert.equal(await h.check(), "198.51.100.10");
+  assert.equal(await h.check(), "198.51.100.10");
+  assert.deepEqual(h.requests, ["ipify", "ipify"]);
+  assert.notEqual(h.ids[0], h.ids[1]);
+  assert.deepEqual(h.poll(), {});
+  await h.verifier.close();
 });
 
-for (const response of [{ fail: true }, { status: 503 }, { body: "invalid" }, { body: "null" }, { body: '{"ip":123}' }]) {
-  test(`a failed primary provider falls back to independent browser-side trace: ${JSON.stringify(response)}`, async () => {
+for (const response of [{ fail: true }, { body: "invalid" }, { body: "null" }, { body: '{"ip":123}' }]) {
+  test(`a failed primary provider falls back to an independent browser request: ${JSON.stringify(response)}`, async () => {
     const h = harness("2001:db8::1");
-    h.responses.set("api.ipify.org", response);
-    h.responses.set("www.cloudflare.com", { body: "fl=123\nip=2001:db8::1\nts=123\n" });
-    try {
-      assert.equal(await h.verifier.check(), "2001:db8::1");
-      assert.equal(await h.verifier.check(), "2001:db8::1");
-      assert.deepEqual(h.requests, ["api.ipify.org", "www.cloudflare.com", "www.cloudflare.com"]);
-      assert.deepEqual(h.navigations, ["api.ipify.org", "www.cloudflare.com"]);
-    } finally { await h.verifier.close(); }
+    h.responses.set("ipify", response);
+    h.responses.set("cloudflare", { body: "fl=123\nip=2001:db8::1\nts=123\n" });
+    assert.equal(await h.check(), "2001:db8::1");
+    assert.equal(await h.check(), "2001:db8::1");
+    assert.deepEqual(h.requests, ["ipify", "cloudflare", "cloudflare"]);
+    await h.verifier.close();
   });
 }
 
 test("a valid unexpected exit fails immediately without searching for another provider", async () => {
   const h = harness();
-  h.responses.set("api.ipify.org", { body: '{"ip":"203.0.113.1"}' });
-  await assert.rejects(h.verifier.check(), /does not match/);
-  assert.deepEqual(h.requests, ["api.ipify.org"]);
-  assert.deepEqual(h.counts(), { created: 1, closed: 1 });
+  h.responses.set("ipify", { body: '{"ip":"203.0.113.1"}' });
+  await assert.rejects(h.check(), /does not match/);
+  assert.deepEqual(h.requests, ["ipify"]);
+  assert.deepEqual(h.poll(), {});
 });
 
-test("all provider failures close the probe, hide upstream errors and allow an explicit new check", async () => {
+test("provider failures leave no pending request and allow an explicit new check", async () => {
   const h = harness();
-  for (const host of ["api.ipify.org", "www.cloudflare.com"]) h.responses.set(host, { fail: true });
-  await assert.rejects(h.verifier.check(), { message: "Browser exit IP verification failed at all configured providers" });
-  assert.deepEqual(h.counts(), { created: 1, closed: 1 });
+  for (const provider of ["ipify", "cloudflare"]) h.responses.set(provider, { fail: true });
+  await assert.rejects(h.check(), { message: "Browser exit IP verification failed at all configured providers" });
+  assert.deepEqual(h.poll(), {});
   h.responses.clear();
-  assert.equal(await h.verifier.check(), "198.51.100.10");
+  assert.equal(await h.check(), "198.51.100.10");
   await h.verifier.close();
-  assert.deepEqual(h.counts(), { created: 2, closed: 2 });
 });
 
-test("missing browser sessions and invalid expected addresses fail before network requests", async () => {
-  const h = harness();
-  h.ctx.sessions.clear();
-  await assert.rejects(h.verifier.check(), /session is unavailable/);
-  assert.deepEqual(h.requests, []);
+test("the bridge rejects foreign lifetimes and malformed responses without settling its current request", async () => {
+  const h = harness(), work = h.verifier.check();
+  const request = h.poll().request!;
+  for (const value of [null, { instanceId: "other" }, { instanceId: h.instanceId, unexpected: true },
+    { instanceId: h.instanceId, result: { id: request.id, body: "x".repeat(4097) } },
+    { instanceId: h.instanceId, result: { id: request.id, body: "private", failed: true } }]) {
+    assert.throws(() => h.verifier.exchange(value), { message: "Invalid browser network response." });
+  }
+  h.poll({ id: "old-request", body: '{"ip":"203.0.113.1"}' });
+  assert.equal(h.poll().request!.id, request.id);
+  h.poll({ id: request.id, body: '{"ip":"198.51.100.10"}' });
+  assert.equal(await work, "198.51.100.10");
+});
+
+test("missing background replies fail closed and shutdown cancels only the pending verification", async () => {
+  const h = harness("198.51.100.10", 5);
+  await assert.rejects(h.verifier.check(), /all configured providers/);
+  assert.deepEqual(h.poll(), {});
+  const pending = h.verifier.check();
+  await assert.rejects(h.verifier.check(), /already pending/);
+  const cancelled = assert.rejects(pending, /stopped/);
+  await h.verifier.close(); await cancelled;
+  assert.deepEqual(h.poll(), {});
+  await assert.rejects(h.verifier.check(), /stopped/);
   assert.throws(() => harness("not-an-IP"), /IPv4 or IPv6/);
 });

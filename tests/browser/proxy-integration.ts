@@ -1,5 +1,5 @@
 // Live acceptance only. The offline tests do not import or execute this file.
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { readFileSync, writeFileSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseEnv } from "node:util";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -14,6 +14,8 @@ import {
 import { assertRelayTraffic, networkProbe, probeExit, proxyRelay } from "../helpers/proxy-network-fixture.ts";
 import { unusedPorts } from "../helpers/ports.ts";
 import { routeProfileTools } from "../helpers/mcp-client.ts";
+import { assertSingleStartupWindow } from "../helpers/startup-window.ts";
+import { createTestHome } from "../helpers/test-home.ts";
 
 const root = resolve(import.meta.dir, "../.."), cli = process.env.STELZ_TEST_CLI || join(root, "dist/cli.js");
 const CACHE_MS = 120_000;
@@ -51,7 +53,10 @@ async function client(id: string) {
   // The SDK otherwise inherits stderr and could print upstream credentials.
   transport.stderr?.on("data", () => {});
   await value.connect(transport);
-  await call(value, "profile_status"); await call(value, "profile_acquire"); return value;
+  const status = await call(value, "profile_status"); await call(value, "profile_acquire");
+  await assertSingleStartupWindow(home!, id, status.phase === "ready" ? await call(value, "camofox_list_tabs") : undefined);
+  report.push({ check: "Startup leaves only one blank native window", profile: id, phase: status.phase, result: "passed" });
+  return value;
 }
 async function closeClients() {
   for (const value of clients.splice(0)) {
@@ -150,7 +155,7 @@ try {
   report.push({ check: "Two distinct HTTP proxy routes", endpointsSupplied: 2, independentRelays: 2,
     profiles: ids.map((profile, index) => ({ profile, exitIp: expected[index], pinSource: endpoints[index]!.expectedIP ? "supplied" : "preflight" })) });
 
-  mkdirSync(join(root, ".state"), { recursive: true }); home = mkdtempSync(join(root, ".state/proxy-acceptance-")); env.STELZ_HOME = home;
+  home = createTestHome("proxy-acceptance", join(root, ".state")); env.STELZ_HOME = home;
   console.log(redact(`Two-proxy acceptance. Evidence: ${home}`));
   const [firstPort, secondPort, fixturePort] = await unusedPorts(3);
   const configure = (mode: "direct" | "proxy", pins: Pair<string>) => {
@@ -184,6 +189,7 @@ try {
     for (const index of [0, 1]) {
       const id = ids[index]!, c = await client(id); active.push(c);
       await verified(c, index, expected, direct);
+      await assertSingleStartupWindow(home!, id, await call(c, "camofox_list_tabs"));
       const channel = await openProbe(c); channels.push(channel);
       const observed = await capture(c, id, `proxy-${lifetime}`, fixturePort!), result = await channel.sample();
       const sample = { ...observed, exitIp: successful(result, index, expected, direct), webRTCEnabled: result.webRTCEnabled };

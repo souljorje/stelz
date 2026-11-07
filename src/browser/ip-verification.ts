@@ -1,4 +1,5 @@
 import { isIP } from "node:net";
+import { randomUUID } from "node:crypto";
 
 export const DEFAULT_IP_CHECK_INTERVAL_MS = 120_000;
 
@@ -10,67 +11,66 @@ export function parseIpCheckInterval(value: string | undefined): number {
   return Number(value);
 }
 
-export type Probe = {
-  goto(url: string, options: object): Promise<unknown>;
-  evaluate<T>(fn: (endpoint: string) => Promise<T>, endpoint: string): Promise<T>;
-  close(): Promise<void>;
-};
+type Provider = "ipify" | "cloudflare";
+const record = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
 
-type ProbeContext = {
-  sessions: Map<string, unknown>;
-  createLeasedPage(session: unknown): Promise<{ page: Probe; lease: unknown }>;
-  closeLeasedPage(session: unknown, page: Probe, lease: unknown): Promise<void>;
-};
-
-export function createIpVerification(ctx: ProbeContext, id: string, expected: string) {
+/** Requests execute in this profile's Firefox add-on, through its actual browser proxy. */
+export function createIpVerification(instanceId: string, expected: string, timeoutMs = 15_000) {
   if (expected && !isIP(expected)) throw Error("Expected exit IP must be an IPv4 or IPv6 address");
-  let page: Probe | undefined;
-  let session: unknown;
-  let lease: unknown;
-  const providers = ["https://api.ipify.org?format=json", "https://www.cloudflare.com/cdn-cgi/trace"];
+  const providers: Provider[] = ["ipify", "cloudflare"];
   let provider = 0;
-  let navigated: number | undefined;
+  let checking = false, closed = false;
+  let pending: { id: string; provider: Provider; resolve(body: string): void; reject(error: Error): void } | undefined;
 
   async function close() {
-    const leasedPage = page;
-    const leasedSession = session;
-    const pageLease = lease;
-    page = undefined;
-    session = undefined;
-    lease = undefined;
-    navigated = undefined;
-    if (leasedPage) await ctx.closeLeasedPage(leasedSession, leasedPage, pageLease);
+    closed = true;
+    pending?.reject(Error("Browser IP verification stopped."));
+  }
+
+  function exchange(value: unknown) {
+    if (!record(value) || value.instanceId !== instanceId || Object.keys(value).some(key => !["instanceId", "result"].includes(key))) {
+      throw Error("Invalid browser network response.");
+    }
+    const result = value.result;
+    if (result !== undefined) {
+      if (!record(result) || typeof result.id !== "string" || Object.keys(result).some(key => !["id", "body", "failed"].includes(key))
+        || !(result.failed === true && result.body === undefined || result.failed === undefined && typeof result.body === "string" && result.body.length <= 4096)) {
+        throw Error("Invalid browser network response.");
+      }
+      if (pending?.id === result.id) {
+        if (result.failed) pending.reject(Error("IP provider request failed."));
+        else pending.resolve(result.body as string);
+      }
+    }
+    return !closed && pending ? { request: { id: pending.id, provider: pending.provider } } : {};
+  }
+
+  function request(provider: Provider) {
+    if (closed) return Promise.reject(Error("Browser IP verification stopped."));
+    return new Promise<string>((resolve, reject) => {
+      const id = randomUUID();
+      const timer = setTimeout(() => { if (pending?.id === id) pending.reject(Error("The browser did not complete IP verification.")); }, timeoutMs);
+      pending = { id, provider,
+        resolve(body) { clearTimeout(timer); pending = undefined; resolve(body); },
+        reject(error) { clearTimeout(timer); pending = undefined; reject(error); } };
+    });
   }
 
   async function check() {
-    if (!page) {
-      session = ctx.sessions.get(id);
-      if (!session) throw Error("Profile session is unavailable");
-      const leased = await ctx.createLeasedPage(session);
-      page = leased.page;
-      lease = leased.lease;
-    }
+    if (closed) throw Error("Browser IP verification stopped.");
+    if (checking) throw Error("Browser IP verification is already pending.");
+    checking = true;
     try {
       for (let attempt = 0; attempt < providers.length; attempt++) {
         const candidate = (provider + attempt) % providers.length;
         let value: { ip: string };
         try {
-          if (navigated !== candidate) {
-            await page.goto(providers[candidate]!, { waitUntil: "domcontentloaded", timeout: 10000 });
-            navigated = candidate;
-          }
-          value = await page.evaluate(async (endpoint) => {
-            const url = new URL(endpoint);
-            url.searchParams.set("_", String(Date.now()));
-            const response = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(10000) });
-            if (!response.ok) throw Error("IP provider request failed");
-            const body = await response.text();
-            try { return JSON.parse(body) as { ip: string }; }
-            catch { return { ip: /^ip=([^\r\n]+)$/m.exec(body)?.[1]?.trim() || "" }; }
-          }, providers[candidate]!);
+          const body = await request(providers[candidate]!);
+          try { value = JSON.parse(body) as { ip: string }; }
+          catch { value = { ip: /^ip=([^\r\n]+)$/m.exec(body)?.[1]?.trim() || "" }; }
           if (!value || typeof value.ip !== "string" || !isIP(value.ip)) throw Error("Invalid IP provider response");
         } catch {
-          navigated = undefined;
+          if (closed) throw Error("Browser IP verification stopped.");
           continue;
         }
         // A valid mismatch is evidence of a routing failure. Do not try another provider.
@@ -79,11 +79,8 @@ export function createIpVerification(ctx: ProbeContext, id: string, expected: st
         return value.ip;
       }
       throw Error("Browser exit IP verification failed at all configured providers");
-    } catch (error) {
-      await close().catch(() => {});
-      throw error;
-    }
+    } finally { checking = false; }
   }
 
-  return { check, close };
+  return { check, close, exchange };
 }

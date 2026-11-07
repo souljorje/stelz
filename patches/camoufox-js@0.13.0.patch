@@ -1,4 +1,105 @@
+diff --git a/dist/ip.js b/dist/ip.js
+index e6366a2a44ec78f9aebb5ce1d46af2617208bd91..5e88c6ddac7138a932dfe55d2f9e986e9aa18cf3 100644
+--- a/dist/ip.js
++++ b/dist/ip.js
+@@ -1,4 +1,5 @@
+ import { Impit } from "impit";
++import { isIP } from "node:net";
+ export class InvalidIP extends Error {
+ }
+ export class InvalidProxy extends Error {
+@@ -51,7 +52,7 @@ export function validIPv6(ip) {
+     return /^(([0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4})$/.test(ip);
+ }
+ export function validateIP(ip) {
+-    if (!validIPv4(ip) && !validIPv6(ip)) {
++    if (typeof ip !== "string" || !isIP(ip)) {
+         throw new InvalidIP(`Invalid IP address: ${ip}`);
+     }
+ }
+@@ -80,7 +81,7 @@ function getImpit(proxy) {
+     }
+     return impit;
+ }
+-export async function publicIP(proxy) {
++export async function publicIP(proxy, options = {}) {
+     const URLS = [
+         "https://api.ipify.org",
+         "https://checkip.amazonaws.com",
+@@ -90,22 +91,31 @@ export async function publicIP(proxy) {
+         "https://ipecho.net/plain",
+     ];
+     const errors = [];
++    let code = "PROXY_UNREACHABLE";
+     for (const url of URLS) {
+         try {
+-            const response = await getImpit(proxy).fetch(url);
++            options.signal?.throwIfAborted();
++            const response = await getImpit(proxy).fetch(url, { signal: options.signal, redirect: 'error' });
++            if (response.status === 407) throw Object.assign(new Error('Proxy authentication failed'), { code: 'PROXY_AUTHENTICATION' });
+             if (!response.ok) {
++                code = 'IP_DETECTION_FAILED';
+                 continue;
+             }
+             const ip = (await response.text()).trim();
++            code = 'IP_DETECTION_FAILED';
+             validateIP(ip);
+             return ip;
+         }
+         catch (error) {
++            options.signal?.throwIfAborted();
++            if (error?.code === 'PROXY_AUTHENTICATION' || /ProxyAuthRequired/.test(error?.name || '') || error?.status === 407) {
++                throw Object.assign(new Error('Proxy authentication failed'), { code: 'PROXY_AUTHENTICATION' });
++            }
+             errors.push(error);
+             if (process.env.CAMOUFOX_DEBUG) {
+                 console.warn(new InvalidProxy(`camoufox-js(warn): Failed to fetch public proxy IP from ${url}, retrying with another URL...`, { cause: error }));
+             }
+         }
+     }
+-    throw new InvalidIP("Failed to get a public proxy IP address from any API endpoint.", { cause: errors });
++    throw Object.assign(new InvalidIP("Failed to get a public proxy IP address from any API endpoint."), { code });
+ }
+diff --git a/dist/locale.js b/dist/locale.js
+index 9d60215871f1cf1480eef3f4dfdbb32cc8511a1a..166a98fcf811fa362acd5f507a2ccf26739825dc 100644
+--- a/dist/locale.js
++++ b/dist/locale.js
+@@ -185,22 +185,25 @@ export function removeMMDB() {
+     fs.unlinkSync(MMDB_FILE);
+     console.log("GeoIP database removed.");
+ }
+-export async function getGeolocation(ip) {
+-    if (!fs.existsSync(MMDB_FILE)) {
++export async function getGeolocation(ip, options = {}) {
++    const databasePath = options.databasePath || MMDB_FILE;
++    if (!options.reader && !fs.existsSync(databasePath)) {
++        if (options.databasePath) throw new UnknownIPLocation('Managed GeoIP data is missing');
+         await downloadMMDB();
+     }
+     validateIP(ip);
+-    const reader = await maxmind.open(MMDB_FILE);
++    const reader = options.reader || await maxmind.open(databasePath);
+     const resp = reader.get(ip);
+-    const isoCode = resp.country?.iso_code.toUpperCase();
+-    const location = resp.location;
+-    if (!location?.longitude ||
+-        !location?.latitude ||
++    const isoCode = resp?.country?.iso_code?.toUpperCase();
++    const location = resp?.location;
++    if (!Number.isFinite(location?.longitude) || Math.abs(location.longitude) > 180 ||
++        !Number.isFinite(location?.latitude) || Math.abs(location.latitude) > 90 ||
+         !location?.time_zone ||
+         !isoCode) {
+         throw new UnknownIPLocation(`Unknown IP location: ${ip}`);
+     }
+-    const locale = SELECTOR.fromRegion(isoCode);
++    const selected = options.localeForCountry?.(isoCode);
++    const locale = selected ? new Locale(selected['locale:language'], isoCode, selected['locale:script']) : SELECTOR.fromRegion(isoCode);
+     return new Geolocation(locale, location.longitude, location.latitude, location.time_zone);
+ }
+ async function getUnicodeInfo() {
 diff --git a/dist/utils.js b/dist/utils.js
+index 5a3f01732a100595806593405255043a58dc7759..74e2f8e00615e4de70f0568b17ce8feeff08a512 100644
 --- a/dist/utils.js
 +++ b/dist/utils.js
 @@ -62,7 +62,7 @@ function loadProperties(filePath) {
@@ -10,3 +111,23 @@ diff --git a/dist/utils.js b/dist/utils.js
      }
      else {
          propFile = getPath("properties.json");
+@@ -339,7 +339,7 @@ function getProxyUrl(proxy) {
+  * Callers must normalize `"virtual"` to `boolean` before calling this function.
+  * The virtual display setup is handled separately in the calling function.
+  */
+-export async function launchOptions({ config, os, block_images, block_webrtc, block_webgl, disable_coop, webgl_config, geoip, humanize, locale, addons, fonts, custom_fonts_only, exclude_addons, screen, window, fingerprint, ff_version, headless, main_world_eval, executable_path, firefox_user_prefs, proxy, enable_cache, args, env, i_know_what_im_doing, debug, virtual_display, ...launch_options }) {
++export async function launchOptions({ stelzGeoip, config, os, block_images, block_webrtc, block_webgl, disable_coop, webgl_config, geoip, humanize, locale, addons, fonts, custom_fonts_only, exclude_addons, screen, window, fingerprint, ff_version, headless, main_world_eval, executable_path, firefox_user_prefs, proxy, enable_cache, args, env, i_know_what_im_doing, debug, virtual_display, ...launch_options }) {
+     // Build the config
+     if (!config) {
+         config = {};
+@@ -472,8 +472,8 @@ export async function launchOptions({ config, os, block_images, block_webrtc, bl
+                 setInto(config, "webrtc:ipv6", geoip);
+             }
+         }
+-        const geolocation = await getGeolocation(geoip);
+-        config = { ...config, ...geolocation.asConfig() };
++        const locationConfig = stelzGeoip || (await getGeolocation(geoip)).asConfig();
++        config = { ...config, ...locationConfig };
+     }
+     // Raise a warning when a proxy is being used without spoofing geolocation.
+     // This is a very bad idea; the warning cannot be ignored with i_know_what_im_doing.

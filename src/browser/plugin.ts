@@ -6,13 +6,16 @@ import { pathToFileURL } from "node:url";
 import { createControllerLease } from "../mcp/controller.ts";
 import { CONTROL_PROTOCOL_VERSION, type ControlIdentity, type OwnedControlRequest, type AcquireControlRequest } from "../mcp/control-protocol.ts";
 import { applyFingerprint, type LaunchOptions } from "./fingerprint.ts";
-import { createIpVerification, parseIpCheckInterval, type Probe } from "./ip-verification.ts";
+import { createIpVerification, parseIpCheckInterval } from "./ip-verification.ts";
 import { allowedBrowserTools, browserToolArguments } from "../mcp/tool-policy.ts";
 import type { Contracts } from "./upstream.ts";
 import { addProfileExtension, createProfileWindows } from "./profile-windows.ts";
 import { activateProfileBrowser } from "./window-activation.ts";
 import { profileTypingMode } from "../profiles/typing-mode.ts";
 import { parseTypingMode } from "./typing.ts";
+import { launchLocation, checkLaunchLocation, verifyLaunchLocation, saveLaunchLocation, type LocationPage } from "./location-launch.ts";
+import { LocationError, locationFailure } from "./location.ts";
+export { prepareProfileLaunch } from "./location-launch.ts";
 export { typeIntoLocator } from "./typing.ts";
 
 type Page = { on(event: "close", listener: () => void): unknown };
@@ -37,9 +40,6 @@ type Handler = (req: { body?: Record<string, unknown> }, res: Response, next?: (
 type App = { get(path: string, ...handlers: Handler[]): void; post(path: string, ...handlers: Handler[]): void };
 type PluginContext = {
   auth(): Handler;
-  sessions: Map<string, unknown>;
-  createLeasedPage(session: unknown): Promise<{ page: Probe; lease: unknown }>;
-  closeLeasedPage(session: unknown, page: Probe, lease: unknown): Promise<void>;
   events: { on<K extends keyof Events>(name: K, fn: (payload: Events[K]) => unknown): void };
 };
 type Phase = "starting" | "ready" | "paused" | "verification_failed" | "blocked" | "stopping" | "stopped";
@@ -88,6 +88,7 @@ export async function register(app: App, ctx: PluginContext, options: {
   if (!id || !stateDir) throw Error("local-profile requires STELZ_PROFILE_ID and STELZ_PROFILE_DIR");
   const file = join(stateDir, "status.json");
   const proxied = !!process.env.PROXY_HOST;
+  const location = launchLocation();
   const interval = parseIpCheckInterval(options.ipCheckIntervalMs === undefined
     ? process.env.STELZ_IP_CHECK_INTERVAL_MS : String(options.ipCheckIntervalMs));
   const now = options.now ?? (() => performance.now());
@@ -99,7 +100,7 @@ export async function register(app: App, ctx: PluginContext, options: {
   const controller = createControllerLease();
   const upstream = await import(pathToFileURL(join(process.env.STELZ_UPSTREAM!, "mcp/lib/tool-contracts.mjs")).href) as Contracts;
   const browserTools = new Map(allowedBrowserTools(upstream.TOOL_DEFS).map(tool => [tool.name, tool]));
-  const ipVerification = createIpVerification(ctx, id, expected);
+  const ipVerification = createIpVerification(state.instanceId, expected);
   const timeout = options.actionTimeoutMs ?? ACTION_TIMEOUT_MS;
   let context: Context | undefined;
   let stopping = false;
@@ -110,7 +111,7 @@ export async function register(app: App, ctx: PluginContext, options: {
   let restorePhase: "ready" | "paused" = "ready";
   const windows = createProfileWindows({ id, instanceId: state.instanceId, directory: stateDir,
     port: Number(process.env.CAMOFOX_PORT), accessKey: process.env.CAMOFOX_ACCESS_KEY!, phase: () => state.phase,
-    activate: () => activateProfileBrowser(process.env.CAMOUFOX_EXECUTABLE!) });
+    activate: () => activateProfileBrowser(process.env.CAMOUFOX_EXECUTABLE!), verifyNetwork: requiresCheck });
 
   function persist(patch: Partial<ProfileState>) {
     state = { ...state, ...patch };
@@ -207,6 +208,14 @@ export async function register(app: App, ctx: PluginContext, options: {
     if (!explicit && verificationIsFresh()) return;
     try {
       const ip = await ipVerification.check();
+      if (location) {
+        const page = original.pages()[0] as unknown as LocationPage | undefined;
+        if (!page || state.phase === "starting" && page.url() !== "about:blank") throw locationFailure("BROWSER_LOCATION_MISMATCH");
+        const observed = await verifyLaunchLocation(location, ip, page);
+        if (invalidated || stopping || context !== original) throw Error("Original browser context was lost during verification");
+        saveLaunchLocation(location, { ...location.result, phase: "browser_verification", status: "ready", browserStarted: true,
+          browser: "passed", observed, geolocation: "configured", checkedAt: new Date().toISOString(), message: "Browser IP and location checks passed." });
+      }
       if (invalidated || stopping || context !== original) throw Error("Original browser context was lost during verification");
       const phase = state.phase === "verification_failed" && explicit ? restorePhase : state.phase;
       persist({ phase, exitIp: ip, expectedIp: expected || null, checkedAt: new Date().toISOString(),
@@ -214,6 +223,22 @@ export async function register(app: App, ctx: PluginContext, options: {
       lastVerifiedAt = now();
     } catch (error) {
       lastVerifiedAt = undefined;
+      if (location) {
+        const failure = locationFailure(error instanceof LocationError ? error.location.code as Parameters<typeof locationFailure>[0] : "BROWSER_IP_FAILED",
+          { ...location.result, phase: "browser_verification", browserStarted: true, browser: "failed", geolocation: "configured" });
+        if (error instanceof LocationError && error.location.observed) failure.location.observed = error.location.observed;
+        saveLaunchLocation(location, failure.location);
+        if (state.phase === "starting") {
+          invalidated = true;
+          stopping = true;
+          context = undefined;
+          persist({ phase: "blocked", error: failure.message, verificationStatus: "verification_failed" });
+          await controller.releaseCurrent();
+          await original.close().catch(() => {});
+          shutdown();
+          throw failure;
+        }
+      }
       if (!invalidated && !stopping && context === original) {
         if (state.phase !== "verification_failed") restorePhase = state.phase === "paused" ? "paused" : "ready";
         persist({ phase: "verification_failed", verificationStatus: "verification_failed", exitIp: null, fixedIpVerified: false,
@@ -243,6 +268,16 @@ export async function register(app: App, ctx: PluginContext, options: {
     }
     launchAdmitted = true;
     const hashes = applyFingerprint(launchOptions, stateDir, process.env.CAMOUFOX_EXECUTABLE!, proxied);
+    if (location) {
+      try { checkLaunchLocation(launchOptions, location); }
+      catch {
+        const failure = locationFailure("BROWSER_LOCATION_MISMATCH", location.result);
+        saveLaunchLocation(location, failure.location);
+        setTimeout(shutdown, 20);
+        throw failure;
+      }
+    }
+    windows.prepare(launchOptions.proxy);
     addProfileExtension(launchOptions, windows.extensionPath);
     persist({ phase: "starting", ...hashes });
   });
@@ -276,6 +311,19 @@ export async function register(app: App, ctx: PluginContext, options: {
       await controller.runExclusive(() => bounded(() => ensureVerified()));
       if (state.phase === "starting") persist({ phase: "ready" });
     } catch (error) {
+      if (location && !stopping) {
+        // A queue deadline can fire before ensureVerified settles. Close only
+        // this initial context, and prevent its late result from granting control.
+        invalidated = true;
+        stopping = true;
+        context = undefined;
+        const failure = locationFailure("BROWSER_IP_FAILED", { ...location.result,
+          phase: "browser_verification", browserStarted: true, browser: "failed" });
+        saveLaunchLocation(location, failure.location);
+        persist({ phase: "blocked", error: failure.message, verificationStatus: "verification_failed" });
+        await created.close().catch(() => {});
+        shutdown();
+      }
       if (verificationFailed()) return;
       if (!invalidated) invalidate("Original browser context initialization failed; explicit stop/start is required");
       throw error;
@@ -292,6 +340,7 @@ export async function register(app: App, ctx: PluginContext, options: {
     stopping = true;
     invalidated = true;
     context = undefined;
+    void ipVerification.close();
     persist({ phase: "stopped" });
   });
 
@@ -300,6 +349,10 @@ export async function register(app: App, ctx: PluginContext, options: {
     res.json({ ...snapshot(), controller: controller.status(), windowControls: { available, reason } });
   });
   app.get("/local-profile/windows", ctx.auth(), (_req, res) => res.json(windows.snapshot()));
+  app.post("/local-profile/network-bridge", ctx.auth(), (req, res) => {
+    try { res.json(ipVerification.exchange(req.body)); }
+    catch { res.status(400).json({ error: "Invalid browser network response." }); }
+  });
   app.post("/local-profile/window-bridge", ctx.auth(), (req, res) => {
     try { res.json(windows.exchange(req.body)); }
     catch { res.status(400).json({ error: "Invalid window inventory." }); }
@@ -418,4 +471,4 @@ export async function register(app: App, ctx: PluginContext, options: {
   });
 }
 
-export { launchProfileBrowser, claimProfileContext } from "./native-profile.ts";
+export { launchProfileBrowser, claimProfileContext, createProfilePage, protectProfileStartup } from "./native-profile.ts";

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { processStart, type Running } from "../../src/runtime/profile-process.ts";
 import { UPSTREAM_VERSION } from "../../src/versions.ts";
+import { fixtureLauncher } from "../helpers/geoip-fixture.ts";
 import { createMockPackage } from "../helpers/mock-package.ts";
 
 function fixture() {
@@ -32,6 +33,7 @@ const save = () => fs.writeFileSync(path.join(dir, 'status.json'), JSON.stringif
 save();
 const server = http.createServer((req, res) => {
   res.setHeader('content-type', 'application/json');
+  if (req.url === '/health') { res.end(JSON.stringify({ browserRunning: true })); return; }
   if (req.url === '/local-profile/stop') {
     res.end(JSON.stringify({ stopping: true })); setTimeout(stop, 10); return;
   }
@@ -103,11 +105,14 @@ test("racing starts reserve one supervisor, server, and lifetime for a profile",
 
 test("supervisors discard ambient proxy variables and forward only validated profile routing", async () => {
   const f = fixture(), [direct, proxy] = f.profiles;
+  fixtureLauncher(f.home);
+  writeFileSync(join(f.home, "browser"), "fixture browser");
   try {
     writeFileSync(join(f.home, "profiles.json"), JSON.stringify({ profiles: [direct, { ...proxy, proxyEnv: "ENV_TEST_PROXY" }] }));
     writeFileSync(join(f.home, "secrets.env"), "ENV_TEST_PROXY=https://fixture-user:fixture-password@configured.test:9443\n");
     const ambient = Object.fromEntries(["PROXY_HOST", "PROXY_PORT", "PROXY_PROTOCOL", "STELZ_MODE", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
       "http_proxy", "https_proxy", "all_proxy", "no_proxy"].map(name => [name, "untrusted-value"]));
+    ambient.CAMOUFOX_EXECUTABLE = join(f.home, "browser");
     ambient.NO_PROXY = ambient.no_proxy = "127.0.0.1,localhost";
     for (const p of [direct!, proxy!]) {
       const result = await f.command("start", p.id, ambient);

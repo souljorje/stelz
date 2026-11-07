@@ -5,7 +5,7 @@ import { assertBundledPatches } from "../src/browser/camofox-adapter.ts";
 
 const serverName = "@askjo/camofox-browser";
 const launcherName = "camoufox-js";
-const serverFiles = ["server.js", "lib/camoufox-executable.js", "plugins/persistence/index.js"];
+const serverFiles = ["server.js", "lib/camoufox-executable.js", "lib/browser-identity.js", "lib/new-page-recovery.js", "plugins/persistence/index.js"];
 
 function packageDirectory(name: string, from: string): string {
   const require = createRequire(join(from, "package.json"));
@@ -41,7 +41,7 @@ export function inspectBundledDependencies(product: string): Record<string, stri
   assertBundledPatches(server, nestedLauncher);
   const snapshot: Record<string, string> = {};
   for (const file of serverFiles) snapshot[`${serverName}/${file}`] = readFileSync(join(server, file), "utf8");
-  for (const file of ["dist/utils.js", "dist/pkgman.js"]) {
+  for (const file of ["dist/utils.js", "dist/pkgman.js", "dist/locale.js", "dist/ip.js"]) {
     snapshot[`${launcherName}/${file}`] = readFileSync(join(launcher, file), "utf8");
     if (readFileSync(join(nestedLauncher, file), "utf8") !== snapshot[`${launcherName}/${file}`]) {
       throw Error("Camofox resolves a different launcher implementation.");

@@ -1,33 +1,7 @@
-diff --git a/lib/camoufox-executable.js b/lib/camoufox-executable.js
-index e5d47544327a2b4b49e872fa35a0055be4dd11e1..c620fa8985b95dc2275612d6ee5d37189108c800 100644
---- a/lib/camoufox-executable.js
-+++ b/lib/camoufox-executable.js
-@@ -193,7 +193,7 @@ function ensureMacCamoufoxJsCompatibility(executablePath, resourceDir, cacheDir)
-     mkdirSync(cacheDir, { recursive: true });
-     writeFileSync(cacheVersion, readFileSync(bundledVersion));
-   }
--  if (!existsSync(executableProperties)) ensureSymlink(realpathSync(resourceProperties), executableProperties);
-+  // stelz: read macOS resources without changing the installed app bundle.
- }
- 
- export function prepareExternalCamoufoxExecutable(executablePath, { cacheDir } = {}) {
-diff --git a/plugins/persistence/index.js b/plugins/persistence/index.js
-index 7c5199d3b00c39325b660699581f4298a334808e..bc26fcdd5b5d76747d12329a9b986c97cddcf4e8 100644
---- a/plugins/persistence/index.js
-+++ b/plugins/persistence/index.js
-@@ -47,6 +47,7 @@ async function removeIfExists(p) {
- }
- 
- export async function register(app, ctx, pluginConfig = {}) {
-+  return; // Native Firefox profile owns storage.
-   const { events, config, log } = ctx;
- 
-   // Resolve profileDir: env var > plugin config > global config default (~/.camofox/profiles)
 diff --git a/server.js b/server.js
-index 4a737caba128a8f6a22f789ab9682167660a0589..cd37a168598856dd6fd7d7d7e200294f57d6cb33 100644
 --- a/server.js
 +++ b/server.js
-@@ -276,9 +276,9 @@ async function assertLocatorFillable(locator) {
+@@ -276,9 +276,9 @@
    });
  }
  
@@ -39,7 +13,7 @@ index 4a737caba128a8f6a22f789ab9682167660a0589..cd37a168598856dd6fd7d7d7e200294f
  }
  
  function safeError(err) {
-@@ -579,7 +579,8 @@ async function withTabLock(tabId, operation, timeoutMs = HANDLER_TIMEOUT_MS, onT
+@@ -579,7 +579,8 @@
    const lock = getTabLock(tabId);
    await lock.acquire(TAB_LOCK_TIMEOUT_MS);
    try {
@@ -49,7 +23,30 @@ index 4a737caba128a8f6a22f789ab9682167660a0589..cd37a168598856dd6fd7d7d7e200294f
    } catch (err) {
      if (onTimeout && isTimeoutError(err)) {
        await onTimeout();
-@@ -1172,9 +1173,12 @@ async function launchBrowserInstance() {
+@@ -1108,18 +1109,10 @@
+ const virtualDisplayRegistry = createVirtualDisplayRegistry(() => new DefaultVirtualDisplay());
+ 
+ async function buildLaunchOptionsWithGeoipFallback(baseOptions, attemptMeta) {
+-  try {
+-    return await withTimeout(launchOptions(baseOptions), GEOIP_SETUP_TIMEOUT_MS, 'GeoIP setup');
+-  } catch (err) {
+-    if (!baseOptions.geoip || !isCamoufoxGeoipError(err)) {
+-      throw err;
+-    }
+-    log('warn', 'camoufox geoip setup failed; retrying launch options without geoip', {
+-      ...attemptMeta,
+-      error: err.message,
+-    });
+-    return await launchOptions({ ...baseOptions, geoip: false });
+-  }
++  // Stelz preflight is authoritative. Never retry a proxied launch without GeoIP.
++  const prepared = await (await import('./plugins/local-profile/index.js')).prepareProfileLaunch(baseOptions,
++    options => withTimeout(launchOptions(options), GEOIP_SETUP_TIMEOUT_MS, 'Launch options'));
++  return prepared;
+ }
+ 
+ async function launchBrowserInstance() {
+@@ -1172,9 +1165,12 @@
          executable_path: externalCamoufox?.executablePath,
          headless: useVirtualDisplay ? false : !useDesktopWindow,
          os: hostOS,
@@ -62,7 +59,7 @@ index 4a737caba128a8f6a22f789ab9682167660a0589..cd37a168598856dd6fd7d7d7e200294f
          geoip: !!launchProxy,
          locale: launchLocale({ hasProxy: !!proxyPool, directIdentity: CONFIG.directIdentity }),
          virtual_display: vdDisplay,
-@@ -1196,7 +1200,7 @@ async function launchBrowserInstance() {
+@@ -1196,7 +1192,7 @@
        options.handleSIGHUP = false;
        await pluginEvents.emitAsync('browser:launching', { options });
  
@@ -71,7 +68,7 @@ index 4a737caba128a8f6a22f789ab9682167660a0589..cd37a168598856dd6fd7d7d7e200294f
  
        if (proxyPool?.canRotateSessions) {
          const probe = await probeGoogleSearch(candidateBrowser);
-@@ -1408,7 +1412,7 @@ async function getSession(userId, { trace = false } = {}) {
+@@ -1408,7 +1404,7 @@
          log('info', 'session proxy assigned', { userId: key, proxy: sessionProxy.server });
        }
        await pluginEvents.emitAsync('session:creating', { userId: key, contextOptions });
@@ -80,7 +77,62 @@ index 4a737caba128a8f6a22f789ab9682167660a0589..cd37a168598856dd6fd7d7d7e200294f
  
        let tracePath = null;
        if (trace) {
-@@ -4371,7 +4375,7 @@ app.post('/tabs/:tabId/type', async (req, res) => {
+@@ -1424,6 +1420,7 @@
+       }
+ 
+       const created = { context, tabGroups: new Map(), pageLeases: new Set(), lastAccess: Date.now(), proxySessionId: sessionProxy?.sessionId || null, tracePath };
++      created.releaseProfileStartup = (await import('./plugins/local-profile/index.js')).protectProfileStartup(created, { acquirePageLease, setLeasedPage, releasePageLease });
+       sessions.set(key, created);
+       await pluginEvents.emitAsync('session:created', { userId: key, context });
+       log('info', 'session created', {
+@@ -2909,6 +2906,7 @@
+  *             schema:
+  *               $ref: '#/components/schemas/Error'
+  */
++let stelzStartupAdmitted = false;
+ app.post('/tabs', async (req, res) => {
+   // The tab is registered before it navigates, and the route deadline can pass
+   // while navigation is still in flight. An error response carries no tabId, so
+@@ -2916,8 +2914,9 @@
+   // completed after abandonment attempts its own cleanup.
+   let createdTabId = null;
+   let abandoned = false;
++  let profileStartup = false;
+   const discardCreatedTab = async () => {
+-    if (!createdTabId) return;
++    if (!createdTabId || profileStartup) return;
+     const session = sessions.get(normalizeUserId(req.body.userId));
+     if (session) await destroyTimedOutTab(session, createdTabId, 'tab_create_failed', req.body.userId);
+     createdTabId = null;
+@@ -2928,6 +2927,18 @@
+     const resolvedSessionKey = sessionKey || listItemId;
+     if (!userId || !resolvedSessionKey) {
+       return res.status(400).json({ error: 'userId and sessionKey required' });
++    }
++
++    if (req.body.stelzStartup !== undefined) {
++      if (req.body.stelzStartup !== true || stelzStartupAdmitted || sessions.has(normalizeUserId(userId)) ||
++          userId !== process.env.STELZ_PROFILE_ID || sessionKey !== 'default' ||
++          Object.keys(req.body).some(key => !['userId', 'sessionKey', 'stelzStartup'].includes(key))) {
++        throw Object.assign(new Error('Invalid or repeated profile startup request'), { statusCode: 409 });
++      }
++      stelzStartupAdmitted = profileStartup = true;
++      // Startup verification has its own service deadline. Normal /tabs calls keep theirs.
++      // The supervisor waits for browser prewarm before this one-time initialization.
++      await getSession(userId);
+     }
+ 
+     // Session overflow redirect (Fly.io only) — if this machine is above its
+@@ -2978,6 +2989,8 @@
+       attachDownloadListener(tabState, tabId, log, pluginEvents, userId);
+       group.set(tabId, tabState);
+       createdTabId = tabId;
++      session.releaseProfileStartup?.();
++      delete session.releaseProfileStartup;
+       releasePageLease(session, lease);
+       attachPopupHandler(page, userId, resolvedSessionKey);
+       refreshActiveTabsGauge();
+@@ -4371,7 +4384,7 @@
    const tabId = req.params.tabId;
    
    try {
@@ -89,7 +141,7 @@ index 4a737caba128a8f6a22f789ab9682167660a0589..cd37a168598856dd6fd7d7d7e200294f
      const session = sessions.get(normalizeUserId(userId));
      const found = session && findTab(session, tabId);
      if (!found) return tabNotFoundResponse(res, req.params.tabId || req.body?.tabId);
-@@ -4409,9 +4413,9 @@ app.post('/tabs/:tabId/type', async (req, res) => {
+@@ -4409,9 +4422,9 @@
        
        if (mode === 'fill') {
          if (locator) {
@@ -101,7 +153,7 @@ index 4a737caba128a8f6a22f789ab9682167660a0589..cd37a168598856dd6fd7d7d7e200294f
          }
        } else {
          // keyboard mode -- char-by-char real key events (required for Ember/contenteditable)
-@@ -4423,12 +4427,19 @@ app.post('/tabs/:tabId/type', async (req, res) => {
+@@ -4423,12 +4436,19 @@
          await tabState.page.keyboard.type(text, { delay });
        }
        if (shouldSubmit) await tabState.page.keyboard.press('Enter');
@@ -122,3 +174,57 @@ index 4a737caba128a8f6a22f789ab9682167660a0589..cd37a168598856dd6fd7d7d7e200294f
      if (err.message?.includes('timed out') || err.message?.includes('not an <input>')) {
        try {
          const session = sessions.get(normalizeUserId(req.body.userId));
+diff --git a/lib/browser-identity.js b/lib/browser-identity.js
+--- a/lib/browser-identity.js
++++ b/lib/browser-identity.js
+@@ -1,5 +1,5 @@
+ export function contextIdentityOptions({ hasProxy, directIdentity }) {
+-  if (hasProxy) return { permissions: ['geolocation'] };
++  if (hasProxy) return {}; // Stelz never grants location access to arbitrary sites.
+   return directIdentity ? { ...directIdentity } : {};
+ }
+ 
+diff --git a/lib/camoufox-executable.js b/lib/camoufox-executable.js
+--- a/lib/camoufox-executable.js
++++ b/lib/camoufox-executable.js
+@@ -193,7 +193,7 @@
+     mkdirSync(cacheDir, { recursive: true });
+     writeFileSync(cacheVersion, readFileSync(bundledVersion));
+   }
+-  if (!existsSync(executableProperties)) ensureSymlink(realpathSync(resourceProperties), executableProperties);
++  // stelz: read macOS resources without changing the installed app bundle.
+ }
+ 
+ export function prepareExternalCamoufoxExecutable(executablePath, { cacheDir } = {}) {
+diff --git a/lib/new-page-recovery.js b/lib/new-page-recovery.js
+--- a/lib/new-page-recovery.js
++++ b/lib/new-page-recovery.js
+@@ -15,7 +15,7 @@
+ }) {
+   let lease = acquirePageLease(session);
+   try {
+-    const page = setLeasedPage(lease, await withTimeout(session.context.newPage(), timeoutMs, 'new page'));
++    const page = setLeasedPage(lease, await withTimeout((await import('../plugins/local-profile/index.js')).createProfilePage(session.context), timeoutMs, 'new page'));
+     return { session, page, lease };
+   } catch (err) {
+     releasePageLease(session, lease);
+@@ -35,7 +35,7 @@
+     session = await getSession(userId, { trace });
+     lease = acquirePageLease(session);
+     try {
+-      const page = setLeasedPage(lease, await withTimeout(session.context.newPage(), timeoutMs, 'new page retry'));
++      const page = setLeasedPage(lease, await withTimeout((await import('../plugins/local-profile/index.js')).createProfilePage(session.context), timeoutMs, 'new page retry'));
+       return { session, page, lease };
+     } catch (retryErr) {
+       releasePageLease(session, lease);
+diff --git a/plugins/persistence/index.js b/plugins/persistence/index.js
+--- a/plugins/persistence/index.js
++++ b/plugins/persistence/index.js
+@@ -47,6 +47,7 @@
+ }
+ 
+ export async function register(app, ctx, pluginConfig = {}) {
++  return; // Native Firefox profile owns storage.
+   const { events, config, log } = ctx;
+ 
+   // Resolve profileDir: env var > plugin config > global config default (~/.camofox/profiles)

@@ -19,6 +19,8 @@ import {
 } from "../profiles/config.ts";
 import { key, lock, processStart, rotateLog, type Running } from "./runtime.ts";
 import { assertRuntimePlugin } from "./runtime-plugin.ts";
+import { assertLocationCurrent } from "./location-preflight.ts";
+import { locationFailure, readLocationRecord, writeLocationRecord } from "../browser/location.ts";
 
 process.umask(0o077);
 const p = profile(process.argv[2]!);
@@ -28,10 +30,7 @@ const runtimeDir = dir(p.id),
 if (!instanceId) throw Error("A supervisor requires a reserved service instance.");
 for (const name of ["storage", "cookies", "uploads", "traces", "tmp"])
   mkdirSync(join(runtimeDir, name), { recursive: true, mode: 0o700 });
-const proxy = proxyEnvironment(p),
-  secrets = [proxy.PROXY_USERNAME, proxy.PROXY_PASSWORD]
-    .filter(Boolean)
-    .flatMap((s) => [s!, decodeURIComponent(s!)]) as string[];
+const secrets: string[] = [];
 function redact(s: string) {
   let value = s.replace(/(https?|socks5):\/\/[^\s/@]+:[^\s/@]+@/g, "$1://[redacted]@");
   for (const secret of secrets) {
@@ -50,7 +49,6 @@ for (const name of ["PATH", "HOME", "LANG", "LC_ALL", "USER", "LOGNAME", "SHELL"
   if (process.env[name]) inherited[name] = process.env[name]!;
 const env = {
   ...inherited,
-  ...proxy,
   CAMOUFOX_EXECUTABLE: executable(),
   CAMOFOX_BIND_HOST: "127.0.0.1",
   CAMOFOX_PORT: String(p.port),
@@ -71,7 +69,7 @@ const env = {
   STELZ_IP_CHECK_INTERVAL_MS: String(ipCheckIntervalMs()),
   STELZ_PROFILE_ID: p.id,
   STELZ_PROFILE_DIR: runtimeDir,
-  STELZ_EXPECTED_IP: p.expectedIPEnv ? secret(p.expectedIPEnv) || "" : "",
+  STELZ_EXPECTED_IP: "",
   STELZ_HOME: HOME_DIR,
   STELZ_UPSTREAM: UPSTREAM,
 };
@@ -97,9 +95,30 @@ const server = await lock(join(STATE, "admission.lock"), async () => {
     (record.pid && (record.pid !== process.pid || record.supervisorStart !== supervisorStart))
   )
     throw Error("The service reservation is no longer valid.");
-  if (record.configurationHash !== configurationHash(p))
-    throw Error("Profile configuration changed during startup.");
-  assertRuntimePlugin();
+  try {
+    const current = profile(p.id);
+    if (record.configurationHash !== configurationHash(current)) throw Error("Profile configuration changed during startup.");
+    assertRuntimePlugin();
+    const proxy = proxyEnvironment(current);
+    secrets.push(...[proxy.PROXY_USERNAME, proxy.PROXY_PASSWORD].filter(Boolean).flatMap(value => [value!, decodeURIComponent(value!)]));
+    Object.assign(env, proxy, { STELZ_EXPECTED_IP: current.expectedIPEnv ? secret(current.expectedIPEnv) || "" : "" });
+    if (current.proxyEnv) {
+      const location = readLocationRecord(runtimeDir);
+      if (!location?.prepared || location.attemptId !== instanceId || location.result.status !== "ready") throw Error("Location preflight is missing for this startup.");
+      await assertLocationCurrent(current.id, location.inputId);
+      Object.assign(env, { STELZ_LOCATION_LAUNCH: JSON.stringify(location), STELZ_START_ID: instanceId });
+    }
+  } catch (error) {
+    const location = readLocationRecord(runtimeDir);
+    if (location?.attemptId === instanceId) {
+      const failure = locationFailure("LOCATION_INPUT_CHANGED", location.result);
+      writeLocationRecord(runtimeDir, { ...location, result: failure.location });
+    }
+    // This owned reservation has not created a server or browser.
+    save(join(runtimeDir, "stopped.json"), { instanceId });
+    save(join(runtimeDir, "status.json"), { profileId: p.id, phase: "stopped" });
+    throw error;
+  }
   const reserved = { ...record, pid: process.pid, supervisorStart };
   save(file, reserved);
   const child = Bun.spawn(["node", "-e", bootstrap, join(UPSTREAM, "server.js")], {
@@ -179,11 +198,11 @@ const initialize = async () => {
   for (let n = 0; n < 240 && !stopping; n++) {
     try {
       const health = await fetch(`${base(p)}/health`, { signal: AbortSignal.timeout(1000) });
-      if (health.ok) {
+      if (health.ok && (await health.json() as { browserRunning?: boolean }).browserRunning === true) {
         const r = await fetch(`${base(p)}/tabs`, {
           method: "POST",
           headers: { Authorization: `Bearer ${key(p.id)}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ userId: p.id, sessionKey: "default", url: `${base(p)}/health` }),
+          body: JSON.stringify({ userId: p.id, sessionKey: "default", stelzStartup: true }),
           signal: AbortSignal.timeout(65000),
         });
         if (!r.ok) throw Error("Original browser context could not be initialized");

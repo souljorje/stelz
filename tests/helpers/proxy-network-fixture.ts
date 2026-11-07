@@ -27,10 +27,21 @@ export async function probeExit(request: (url: string, init: { cache: "no-store"
   return { outcome: invalid ? "invalid-response" : httpError ? "http-error" : "network-error" };
 }
 
-export function proxyRelay(endpoint: URL) {
+export function proxyRelay(endpoint: URL, observe?: (host: string) => void) {
   const sockets = new Set<Socket>();
   let port = 0, sent = 0, received = 0;
   const server = createServer(incoming => {
+    if (observe) {
+      let header = "";
+      const firstRequest = (data: Buffer) => {
+        header += data.toString("latin1");
+        if (!header.includes("\r\n") && header.length < 8192) return;
+        incoming.off("data", firstRequest);
+        const [method, target] = header.split("\r\n")[0]!.split(" ");
+        try { observe(new URL(method === "CONNECT" ? `https://${target}` : target!).hostname); } catch {}
+      };
+      incoming.on("data", firstRequest);
+    }
     const upstream = connect(Number(endpoint.port || 80), endpoint.hostname.replace(/^\[|\]$/g, ""));
     for (const socket of [incoming, upstream]) {
       sockets.add(socket); socket.on("close", () => sockets.delete(socket));

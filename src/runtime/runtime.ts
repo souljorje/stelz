@@ -16,6 +16,8 @@ import { lock, observe, observeStatus, isRuntimePhase, processStart, running, ty
 export { assertStoppedProfile, lock, processStart, running, type Running } from "./profile-process.ts";
 import { prepareProfileConfiguration, recoverProfileCatalog } from "../profiles/profile-configuration.ts";
 import { assertRuntimePlugin } from "./runtime-plugin.ts";
+import { assertLocationCurrent, checkProfileLocation, profileLocation } from "./location-preflight.ts";
+import { LocationError, readLocationRecord, writeLocationRecord, type LocationRecord } from "../browser/location.ts";
 import {
   pendingNetworkTransaction,
 } from "../profiles/network-transaction.ts";
@@ -73,8 +75,8 @@ async function serviceRequest(p: Profile, method: string, action: string, timeou
   return payload;
 }
 
-export async function reportStatus(id: string) {
-  const local = status(id),
+export async function reportStatus(id: string, includeLocation = true) {
+  const local = { ...status(id), ...(includeLocation ? { location: await profileLocation(profile(id)) } : {}) },
     o = observe(id);
   if (o.supervisor !== "owned" || o.server !== "owned") return local;
   try {
@@ -82,14 +84,49 @@ export async function reportStatus(id: string) {
     // Re-observe: a supervisor can die while the request is in flight.
     const current = status(id);
     if (current.phase === "orphaned" || current.phase === "ownership_unknown" || current.phase === "unclean")
-      return current;
-    return { ...remote, ...current, phase: isRuntimePhase(remote.phase) ? remote.phase : current.phase };
+      return { ...current, location: local.location };
+    return { ...remote, ...current, location: local.location, phase: isRuntimePhase(remote.phase) ? remote.phase : current.phase };
   } catch (e) {
-    return { ...status(id), controlError: (e as Error).message };
+    return { ...status(id), location: local.location, controlError: (e as Error).message };
   }
 }
 
-export async function start(id: string) {
+export async function recheck(id: string, signal?: AbortSignal) {
+  const requestedAt = Date.now();
+  if (running(id)) return intervention(id, "check");
+  await prepareProfileConfiguration(async () => { profile(id); initDir(id); });
+  return lock(join(dir(id), "location.lock"), async () => {
+    if (running(id)) return intervention(id, "check");
+    const previous = await profileLocation(profile(id));
+    if (previous.valid && previous.status !== "checking" && Date.parse(previous.checkedAt || "") >= requestedAt) {
+      if (previous.status === "blocked") throw new LocationError(previous);
+      return reportStatus(id);
+    }
+    await checkProfileLocation(id, signal);
+    return reportStatus(id);
+  });
+}
+
+export async function start(id: string, signal?: AbortSignal) {
+  await prepareProfileConfiguration(async () => { profile(id); initDir(id); });
+  if (running(id)) return startPrepared(id);
+  return lock(join(dir(id), "location.lock"), async () => {
+    const active = await prepareProfileConfiguration(async () => {
+      const p = profile(id), o = observe(id);
+      if (running(id)) return true;
+      if (o.record && !o.clean) throw Error(`${id}: previous stop was not clean. Run stelz recover ${id} after inspecting its processes.`);
+      if (!existsSync(join(HOME_DIR, "runtime/versions.json"))) throw Error("Run stelz setup first.");
+      assertRuntimePlugin();
+      return false;
+    });
+    const prepared = active ? undefined : await checkProfileLocation(id, signal);
+    signal?.throwIfAborted();
+    return startPrepared(id, prepared);
+  }, 120000);
+}
+
+async function startPrepared(id: string, prepared?: LocationRecord) {
+  let attemptId: string | undefined;
   await prepareProfileConfiguration(async () => {
     const p = profile(id), configHash = configurationHash(p);
     initDir(id);
@@ -109,6 +146,10 @@ export async function start(id: string) {
         `${id}: previous stop was not clean. Run stelz recover ${id} after inspecting its processes.`,
       );
     assertRuntimePlugin();
+    if (p.proxyEnv) {
+      if (!prepared) throw Error("A fresh location check is required before launch.");
+      await assertLocationCurrent(id, prepared.inputId);
+    }
     const profiles = readdirSync(STATE, { withFileTypes: true });
     if (profiles.some((item) => item.isSymbolicLink()))
       throw Error("Profile state contains a symbolic link.");
@@ -116,6 +157,8 @@ export async function start(id: string) {
       writeFileSync(join(dir(id), "access-key"), crypto.randomUUID(), { mode: 0o600, flag: "wx" });
     const instanceId = crypto.randomUUID(),
       file = join(dir(id), "running.json");
+    attemptId = instanceId;
+    if (prepared) writeLocationRecord(dir(id), { ...prepared, attemptId: instanceId });
     const reservation: Running = {
       version: 2,
       pid: 0,
@@ -152,6 +195,13 @@ export async function start(id: string) {
   const deadline = Date.now() + 90000;
   while (Date.now() < deadline) {
     const o = observe(id);
+    const location = readLocationRecord(dir(id));
+    if (attemptId && location?.attemptId === attemptId && location.result.status === "blocked") {
+      // The plugin closes its own failed startup. Keep ownership checks authoritative.
+      const end = Date.now() + 15000;
+      while (Date.now() < end && running(id)?.instanceId === attemptId) await Bun.sleep(100);
+      throw new LocationError(location.result);
+    }
     if (!o.record || o.supervisor !== "owned")
       throw Error(`${id}: supervisor stopped during launch. Run stelz doctor ${id}.`);
     if (o.server === "owned") {
@@ -159,10 +209,10 @@ export async function start(id: string) {
         const s = await request(id, "GET", "status", 2000);
         const initialized = json<{ instanceId: string }>(join(dir(id), "initialized.json"));
         if (
-          ["ready", "paused", "verification_failed"].includes(String(s.phase)) &&
+          ["ready", "paused", ...(attemptId ? [] : ["verification_failed"])].includes(String(s.phase)) &&
           initialized?.instanceId === o.record.instanceId
         )
-          return s;
+          return { ...s, location: await profileLocation(profile(id)) };
         if (s.phase === "blocked") throw Error(String(s.error || "Profile is blocked."));
         if (["stopping", "stopped"].includes(String(s.phase))) throw Error("The browser closed during launch. Wait for shutdown before starting it again.");
       } catch (e) {

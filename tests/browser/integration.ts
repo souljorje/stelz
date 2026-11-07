@@ -7,6 +7,7 @@ import { fixture } from "../helpers/fixture.ts";
 import { unusedPorts } from "../helpers/ports.ts";
 import { assertTestHome, createTestHome } from "../helpers/test-home.ts";
 import { routeProfileTools } from "../helpers/mcp-client.ts";
+import { assertSingleStartupWindow } from "../helpers/startup-window.ts";
 const root = resolve(import.meta.dir, "../..");
 const home = process.env.STELZ_TEST_HOME ? assertTestHome(process.env.STELZ_TEST_HOME)
   : createTestHome("standalone-acceptance", join(root, ".state"));
@@ -60,12 +61,17 @@ try {
   await rejection(b.client, "profile_acquire");
   const tabs: Record<string, string> = {};
   for (const [id, client] of [["profile-01", a.client], ["profile-02", second.client]] as const) {
-    const tab = await call(client, "camofox_create_tab", { url: `${pageServer.url}/?profile=${id}` }); tabs[id] = String(tab.tabId);
+    const tabId = await assertSingleStartupWindow(home, id, await call(client, "camofox_list_tabs"));
+    await call(client, "profile_recheck");
+    await assertSingleStartupWindow(home, id, await call(client, "camofox_list_tabs"));
+    tabs[id] = tabId!;
+    await call(client, "camofox_navigate", { tabId, url: `${pageServer.url}/?profile=${id}` });
     await call(client, "camofox_type", { tabId: tabs[id], selector: "#marker", text: id });
     await call(client, "camofox_click", { tabId: tabs[id], selector: "#save" });
     const snapshot = await call(client, "camofox_snapshot", { tabId: tabs[id] });
     assert(String(snapshot.snapshot).includes(`Storage marker: ${id}`), "Storage marker is missing from the browser snapshot");
   }
+  report.push({ check: "Startup and recheck leave one blank native window with one usable MCP tab", result: "passed" });
   await rejection(a.client, "camofox_snapshot", { tabId: tabs["profile-02"] });
   report.push({ check: "Two browsers, separate storage, explicit profile routing, and duplicate acquire rejection", result: "passed" });
   await call(a.client, "profile_release"); await call(b.client, "profile_acquire");
@@ -113,8 +119,9 @@ try {
   await command("stop", "all"); await command("start", "all");
   for (const id of ["profile-01", "profile-02"]) {
     const next = await connect(id, `restart-${id}`); await call(next.client, "profile_acquire");
-    const tab = await call(next.client, "camofox_create_tab", { url: pageServer.url });
-    const snapshot = await call(next.client, "camofox_snapshot", { tabId: tab.tabId });
+    const tabId = await assertSingleStartupWindow(home, id, await call(next.client, "camofox_list_tabs"));
+    await call(next.client, "camofox_navigate", { tabId, url: pageServer.url });
+    const snapshot = await call(next.client, "camofox_snapshot", { tabId });
     assert(String(snapshot.snapshot).includes(`Storage marker: ${id}`), "Storage did not survive restart");
     assert(pin(id) === pins[id as keyof typeof pins], "Restart changed a saved fingerprint"); await next.client.close();
   }

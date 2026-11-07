@@ -68,7 +68,7 @@ try {
     await call(client, "camofox_create_tab", { url: fixture.url + "beta" });
     const before = await call(client, "profile_status");
     const servicePort = JSON.parse(readFileSync(join(home, "profiles.json"), "utf8")).profiles.find((row: { id: string }) => row.id === id).port;
-    for (const [path, method] of [["windows", "GET"], ["window-bridge", "POST"], ["window-show", "POST"]]) {
+    for (const [path, method] of [["windows", "GET"], ["window-bridge", "POST"], ["network-bridge", "POST"], ["window-show", "POST"]]) {
       const unauthenticated = await fetch(`http://127.0.0.1:${servicePort}/local-profile/${path}`, { method,
         ...(method === "POST" ? { headers: { "Content-Type": "application/json" }, body: "{}" } : {}) });
       assert.equal(unauthenticated.status, 401, "Window endpoints require the profile service key");

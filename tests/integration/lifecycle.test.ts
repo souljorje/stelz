@@ -539,7 +539,7 @@ test("doctor and logs provide bounded operational output", async () => {
   }
 });
 
-test("a real supervisor crash leaves its server visible until explicit stop and recovery", async () => {
+test("startup creates one blank tab before a supervisor crash leaves its server for explicit recovery", async () => {
   const socket = Bun.serve({ port: 0, fetch: () => new Response() }),
     port = socket.port!;
   socket.stop(true);
@@ -550,21 +550,40 @@ test("a real supervisor crash leaves its server visible until explicit stop and 
     join(upstream, "server.js"),
     `const http=require('node:http'), fs=require('node:fs'), path=require('node:path');
     const status=path.join(process.env.STELZ_PROFILE_DIR,'status.json');
-    fs.writeFileSync(status, JSON.stringify({profileId:'test',phase:'ready'}));
-    const server=http.createServer((req,res)=>{
+    const startup=path.join(process.env.STELZ_PROFILE_DIR,'startup.json');
+    let initialized=false, healthChecks=0;
+    const tabs=[], requests=[];
+    fs.writeFileSync(status, JSON.stringify({profileId:'test',phase:'starting'}));
+    const server=http.createServer(async (req,res)=>{
       res.setHeader('content-type','application/json');
+      if(req.url==='/health' && req.method==='GET'){healthChecks++;res.end(JSON.stringify({browserRunning:healthChecks>=3}));return}
+      if(req.url==='/tabs' && req.method==='POST'){
+        let text='';for await(const chunk of req) text+=chunk;
+        const body=JSON.parse(text);
+        requests.push({body,authorization:req.headers.authorization});
+        const tab={tabId:'startup-'+(tabs.length+1),url:body.url || 'about:blank'};
+        tabs.push(tab);initialized=true;
+        fs.writeFileSync(startup,JSON.stringify({healthChecks,requests,tabs}));
+        fs.writeFileSync(status,JSON.stringify({profileId:'test',phase:'ready'}));
+        res.end(JSON.stringify(tab));return
+      }
       if(req.url==='/local-profile/stop'){res.end('{}');setTimeout(()=>process.kill(process.pid,'SIGTERM'),10);return}
-      res.end(JSON.stringify(req.url==='/local-profile/status'?{profileId:'test',phase:'ready'}:{}));
+      res.end(JSON.stringify(req.url==='/local-profile/status'?{profileId:'test',phase:initialized?'ready':'starting'}:{}));
     }).listen(Number(process.env.CAMOFOX_PORT),'127.0.0.1');
     process.on('SIGTERM',()=>{fs.writeFileSync(status,JSON.stringify({profileId:'test',phase:'stopped'}));server.close(()=>process.exit(0))});`,
   );
-  let started: { pid: number; supervisorStart: string; serverPid: number; serverStart: string } | undefined;
+  let started: { pid: number; supervisorStart: string; serverPid: number; serverStart: string; instanceId: string } | undefined;
   try {
     const start = await run(f, "start", "test");
     expect(start.code).toBe(0);
     expect(JSON.parse(start.stdout).phase).toBe("ready");
     started = JSON.parse(readFileSync(join(f.idDir, "running.json"), "utf8"));
     expect(processStart(started!.pid)).toBe(started!.supervisorStart);
+    expect(JSON.parse(readFileSync(join(f.idDir, "initialized.json"), "utf8"))).toEqual({ instanceId: started!.instanceId });
+    const startup = JSON.parse(readFileSync(join(f.idDir, "startup.json"), "utf8"));
+    expect(startup.healthChecks).toBe(3);
+    expect(startup.requests).toEqual([{ body: { userId: "test", sessionKey: "default", stelzStartup: true }, authorization: "Bearer test-key" }]);
+    expect(startup.tabs).toEqual([{ tabId: "startup-1", url: "about:blank" }]);
     process.kill(started!.pid, "SIGKILL");
     for (let n = 0; n < 50 && processStart(started!.pid) === started!.supervisorStart; n++)
       await Bun.sleep(50);

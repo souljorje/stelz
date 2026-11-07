@@ -9,6 +9,7 @@ import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createHash } from "node:crypto";
 import { freezeDevice, replayFingerprint, launchPreferences, applyProxyLocale } from "../../src/browser/fingerprint.ts";
+import { locationResult } from "../../src/browser/location.ts";
 import { register } from "../../src/browser/plugin.ts";
 import { allowedBrowserTools } from "../../src/mcp/tool-policy.ts";
 import { CONTROL_PROTOCOL_VERSION } from "../../src/mcp/control-protocol.ts";
@@ -137,7 +138,7 @@ type App = Parameters<typeof register>[0];
 type Handler = Parameters<App["post"]>[1];
 async function harness(mode: "direct" | "proxy" = "direct", waitForIP?: Promise<void>,
   fixture: { expected?: string; timeout?: number; ipError?: string; canonical?: boolean; port?: number;
-    interval?: number; now?: () => number } = {}) {
+    interval?: number; now?: () => number; observedTimezone?: string } = {}) {
   const root = mkdtempSync(join(tmpdir(), "stelz-regression-")), id = "profile-01";
   const stateDir = join(root, id), upstream = join(root, "upstream"), binary = join(root, "browser");
   mkdirSync(stateDir); mkdirSync(join(upstream, "mcp/lib"), { recursive: true });
@@ -148,7 +149,10 @@ async function harness(mode: "direct" | "proxy" = "direct", waitForIP?: Promise<
     export async function runTool(name, args) { return globalThis.__stelzTool(name, args); }
     export function adaptResponse(_spec, payload) { return [{ type: "text", text: JSON.stringify(payload) }]; }
   `);
-  const settings = { STELZ_HOME: root, STELZ_PROFILE_ID: id, STELZ_PROFILE_DIR: stateDir, STELZ_UPSTREAM: upstream,
+  const locationConfig = { timezone: "America/New_York", "locale:language": "en", "locale:region": "US", "geolocation:latitude": 40, "geolocation:longitude": -73 };
+  const location = { version: 1, inputId: "fixture", attemptId: "test-start", result: { ...locationResult("ready"), valid: true, network: "passed", geoip: "passed" },
+    prepared: { ip: "198.51.100.10", config: locationConfig, dataId: "fixture", engineId: "fixture" } };
+  const settings = { STELZ_LOCATION_LAUNCH: JSON.stringify(location), STELZ_START_ID: "test-start", STELZ_HOME: root, STELZ_PROFILE_ID: id, STELZ_PROFILE_DIR: stateDir, STELZ_UPSTREAM: upstream,
     CAMOUFOX_EXECUTABLE: binary, PROXY_HOST: mode === "proxy" ? "127.0.0.1" : "", STELZ_EXPECTED_IP: fixture.expected ?? "198.51.100.10",
     CAMOFOX_PORT: String(fixture.port ?? 0), CAMOFOX_ACCESS_KEY: "fixture-key" };
   const previous = Object.fromEntries(Object.keys(settings).map(key => [key, process.env[key]]));
@@ -164,16 +168,11 @@ async function harness(mode: "direct" | "proxy" = "direct", waitForIP?: Promise<
   const globals = globalThis as typeof globalThis & { __stelzTool?: typeof runTool };
   const previousTool = globals.__stelzTool;
   globals.__stelzTool = (name, args) => runTool(name, args);
-  const probe = { async goto() {}, async close() {}, async evaluate<T>(): Promise<T> {
-    checks++;
-    await ipGate;
-    if (ipError) throw Error(ipError);
-    return { ip } as T;
-  } };
-  const pages = new Set<EventEmitter>([new EventEmitter()]);
-  const context = Object.assign(new EventEmitter(), { pages: () => [...pages], async newPage() { return probe; }, async close() { context.emit("close"); } });
-  await register(app, { auth: () => () => {}, sessions: new Map([[id, {}]]), events,
-    async createLeasedPage() { return { page: probe, lease: {} }; }, async closeLeasedPage() {} },
+  const pages = new Set<EventEmitter>([Object.assign(new EventEmitter(), { url: () => "about:blank", async evaluate() {
+    return { timezone: fixture.observedTimezone ?? "America/New_York", locale: "en-US", language: "en-US", languages: ["en-US"] };
+  } })]);
+  const context = Object.assign(new EventEmitter(), { pages: () => [...pages], async close() { context.emit("close"); } });
+  await register(app, { auth: () => () => {}, events },
     { actionTimeoutMs: fixture.timeout, ipCheckIntervalMs: fixture.interval ?? 0, now: fixture.now,
       shutdown: () => { shutdowns++; events.emit("server:shutdown"); } });
   const emit = async (name: string, value: unknown = {}) => { await Promise.all(events.listeners(name).map(fn => fn(value))); };
@@ -181,7 +180,7 @@ async function harness(mode: "direct" | "proxy" = "direct", waitForIP?: Promise<
     profileId: string; instanceId: string;
     phase: string; verificationStatus: string; verificationRequired: boolean; error?: string; checkFailure?: string;
   };
-  const options = () => ({ env: { CAMOU_CONFIG_1: JSON.stringify(generated) } as Record<string, string>,
+  const options = () => ({ env: { CAMOU_CONFIG_1: JSON.stringify({ ...generated, ...(mode === "proxy" ? locationConfig : {}) }) } as Record<string, string>,
     firefoxUserPrefs: { fresh: true, "media.peerconnection.enabled": mode !== "proxy" } as Record<string, unknown>,
     ...(mode === "proxy" ? { proxy: { server: "http://127.0.0.1:9999" } } : {}) });
   const launch = async () => { const value = options(); await emit("browser:launching", { options: value }); return value; };
@@ -196,6 +195,20 @@ async function harness(mode: "direct" | "proxy" = "direct", waitForIP?: Promise<
     return { code, payload };
   };
   const identity = { profileId: id, instanceId: state().instanceId };
+  let bridgeStopped = false, bridgeTimer: ReturnType<typeof setTimeout>;
+  let networkResult: { id: string; body?: string; failed?: true } | undefined;
+  async function networkTick() {
+    const response = await rawRequest("network-bridge", { instanceId: identity.instanceId, result: networkResult });
+    networkResult = undefined;
+    const pending = (response.payload as { request?: { id: string } }).request;
+    if (pending) {
+      checks++;
+      await ipGate;
+      networkResult = ipError ? { id: pending.id, failed: true } : { id: pending.id, body: JSON.stringify({ ip }) };
+    }
+    if (!bridgeStopped) bridgeTimer = setTimeout(networkTick, 0);
+  }
+  bridgeTimer = setTimeout(networkTick, 0);
   const request = (action: string, body: Record<string, unknown> = {}) => rawRequest(action,
     ["acquire", "release", "tool"].includes(action) || Object.hasOwn(body, "controllerId") ? { ...identity, ...body } : body);
   return { id, identity, stateDir, binary, context, emit, state, options, launch, create, request, rawRequest,
@@ -203,11 +216,17 @@ async function harness(mode: "direct" | "proxy" = "direct", waitForIP?: Promise<
     setIPError(value: string | undefined) { ipError = value; },
     setIP(value: string) { ip = value; },
     checks() { return checks; },
+    async waitForChecks(count: number) {
+      const deadline = Date.now() + 1000;
+      while (checks < count && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 1));
+      assert.equal(checks, count, "The browser add-on did not receive the admitted IP check.");
+    },
     shutdowns() { return shutdowns; },
     openPage() { const page = new EventEmitter(); pages.add(page); context.emit("page", page); return page; },
     closePage(page = [...pages][0]!) { pages.delete(page); page.emit("close"); },
     setTool(value: typeof runTool) { runTool = value; },
     async close() {
+      bridgeStopped = true; clearTimeout(bridgeTimer);
       await emit("server:shutdown");
       globals.__stelzTool = previousTool;
       for (const [key, value] of Object.entries(previous)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
@@ -234,7 +253,7 @@ test("the launch hook applies current-country language without changing an exist
     const before = JSON.stringify(pin);
     writeFileSync(join(h.stateDir, "fingerprint.json"), before);
     const options = h.options();
-    options.env.CAMOU_CONFIG_1 = JSON.stringify({ ...generated, "locale:region": "US", "locale:language": "it" });
+    options.env.CAMOU_CONFIG_1 = JSON.stringify({ ...JSON.parse(options.env.CAMOU_CONFIG_1!), "locale:region": "US", "locale:language": "it" });
     await h.emit("browser:launching", { options });
     const effective = JSON.parse(options.env.CAMOU_CONFIG_1!);
     assert.equal(effective["locale:language"], "en");
@@ -551,7 +570,7 @@ for (const operation of ["check", "resume"]) test(`release drains an admitted ${
     const phase = h.state().phase, checks = h.checks();
     h.setIPGate(gate.promise);
     const admitted = h.request(operation, { controllerId: controller.id });
-    await new Promise(resolve => setImmediate(resolve));
+    await h.waitForChecks(checks + 1);
     assert.equal(h.checks(), checks + 1);
     const release = h.request("release", { controllerId: controller.id }).then(result => { released = true; return result; });
     for (const action of ["pause", "resume", "check", "tool"]) {
@@ -614,9 +633,10 @@ for (const queued of [false, true]) test(`a newer pause supersedes a ${queued ? 
     await h.launch(); await h.create(); await h.request("acquire", controller);
     await h.request("pause", { controllerId: controller.id });
     h.setIPGate(gate.promise);
+    const before = h.checks();
     const check = queued ? h.request("check", { controllerId: controller.id }) : undefined;
     const resume = h.request("resume", { controllerId: controller.id });
-    await new Promise(resolve => setImmediate(resolve));
+    await h.waitForChecks(before + 1);
     const checks = h.checks();
     const pause = h.request("pause", { controllerId: controller.id }).then(result => { pauseFinished = true; return result; });
     assert.equal(h.state().phase, "paused");
@@ -1122,18 +1142,18 @@ test("proxy mode verifies its exit even without an expected IP", async () => {
   } finally { await h.close(); }
 });
 
-test("a startup IP failure leaves the original context available for recheck", async () => {
+test("a startup IP failure closes only its attempt and denies acquisition", async () => {
   const h = await harness("proxy", undefined, { ipError: "network unavailable" });
   try {
     await h.launch();
-    await h.create();
-    assert.equal(h.state().phase, "verification_failed");
-    assert.equal((await h.request("acquire", controller)).code, 200);
-    h.setIPError(undefined);
-    assert.equal((await h.request("check")).code, 200);
-    assert.equal(h.state().phase, "ready");
-    assert.equal((await h.request("tool", snapshot)).code, 200);
-    await assert.rejects(h.create(), /Replacement browser context refused/);
+    await assert.rejects(h.create(), /browser exit IP check failed/);
+    assert.equal(h.state().phase, "stopped");
+    assert.equal(h.shutdowns(), 1);
+    assert.equal((await h.request("acquire", controller)).code, 409);
+    const failure = JSON.parse(readFileSync(join(h.stateDir, "location.json"), "utf8")).result;
+    assert.equal(failure.phase, "browser_verification");
+    assert.equal(failure.code, "BROWSER_IP_FAILED");
+    assert.equal(failure.browserStarted, true);
   } finally { await h.close(); }
 });
 
@@ -1291,4 +1311,27 @@ test("an upstream timeout error blocks further browser actions", async () => {
     assert.equal(h.state().phase, "blocked");
     assert.equal((await h.request("tool", snapshot)).code, 409);
   } finally { await h.close(); }
+});
+
+test("initial browser location mismatch closes the attempt and persists its specific failure", async () => {
+  const h = await harness("proxy", undefined, { observedTimezone: "Europe/London" });
+  try {
+    await h.launch(); await assert.rejects(h.create(), /browser location/);
+    const failure = JSON.parse(readFileSync(join(h.stateDir, "location.json"), "utf8"));
+    assert.equal(failure.result.code, "BROWSER_LOCATION_MISMATCH"); assert.equal(failure.result.browserStarted, true);
+    assert.equal((await h.request("acquire", controller)).code, 409);
+    assert.equal(h.state().phase, "stopped");
+  } finally { await h.close(); }
+});
+test("a startup verification deadline closes its attempt and a late reply cannot make it ready", async () => {
+  let release!: () => void; const gate = new Promise<void>(resolve => { release = resolve; });
+  const h = await harness("proxy", gate, { timeout: 40 });
+  try {
+    await h.launch(); await assert.rejects(h.create(), /time limit/);
+    release(); await new Promise(resolve => setTimeout(resolve, 50));
+    const failure = JSON.parse(readFileSync(join(h.stateDir, "location.json"), "utf8"));
+    assert.equal(failure.result.status, "blocked"); assert.equal(failure.result.browserStarted, true);
+    assert.equal((await h.request("acquire", controller)).code, 409);
+    assert.equal(h.state().phase, "stopped");
+  } finally { release(); await h.close(); }
 });

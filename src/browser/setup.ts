@@ -1,4 +1,5 @@
 import { assertBundledPatches } from "./camofox-adapter.ts";
+import { prepareGeoip } from "./geoip-setup.ts";
 import { NATIVE_DEPENDENCIES } from "./native-dependencies.ts";
 import {
   copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync,
@@ -166,7 +167,7 @@ function validate(upstream: string) {
     if (!Array.isArray(contract.TOOL_DEFS) || typeof contract.runTool !== "function" || typeof contract.adaptResponse !== "function") {
       throw Error("Invalid Camofox tool contracts.");
     }
-    for (const name of ["register", "launchProfileBrowser", "claimProfileContext", "typeIntoLocator"]) {
+    for (const name of ["register", "launchProfileBrowser", "claimProfileContext", "createProfilePage", "protectProfileStartup", "prepareProfileLaunch", "typeIntoLocator"]) {
       if (typeof plugin[name] !== "function") throw Error("Missing local-profile export: " + name);
     }
   `;
@@ -239,7 +240,7 @@ function activate(stage: string) {
   if (result !== 0) throw Error("Cannot atomically replace the runtime on this filesystem.");
 }
 
-export async function setup() {
+export async function setup(options: { prepareGeoip?: typeof prepareGeoip } = {}) {
   directory(HOME_DIR);
   directory(STATE);
   directory(join(HOME_DIR, "runtime"));
@@ -269,6 +270,7 @@ export async function setup() {
     let activated = false;
     try {
       stageRuntime(stage, source, browser, plugin);
+      await (options.prepareGeoip ?? prepareGeoip)(stage, join(HOME_DIR, "runtime"), join(stage, basename(UPSTREAM), "node_modules/camoufox-js"));
       activate(stage);
       activated = true;
     } finally {

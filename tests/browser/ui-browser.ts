@@ -6,6 +6,8 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { chromium } from "playwright-core";
 import type { UiAction } from "../../src/api/contracts.ts";
+import { fixtureLauncher, managedFixture } from "../helpers/geoip-fixture.ts";
+import { UPSTREAM_VERSION } from "../../src/versions.ts";
 
 const root = resolve(import.meta.dir, "../.."), home = mkdtempSync(join(tmpdir(), "stelz-ui-browser-"));
 process.env.STELZ_HOME = home;
@@ -90,9 +92,18 @@ writeFileSync(join(home, "profiles.json"), JSON.stringify({ profiles: profiles }
 writeFileSync(join(home, "secrets.env"), "UI_FIXTURE_PROXY_URL=http://fixture-user:fixture-password@proxy.example:8080\nUI_FIXTURE_EXPECTED_IP=203.0.113.8\n", { mode: 0o600 });
 mkdirSync(join(home, "runtime"), { mode: 0o700 });
 writeFileSync(join(home, "runtime/versions.json"), "{}", { mode: 0o600 });
+const upstream = join(home, `runtime/camofox-${UPSTREAM_VERSION}`);
+mkdirSync(join(upstream, "plugins/local-profile"), { recursive: true });
+writeFileSync(join(upstream, "server.js"), "// UI fixture");
+writeFileSync(join(upstream, "plugins/local-profile/index.js"), readFileSync(join(root, "dist/plugin.js")));
+fixtureLauncher(home);
 
 const sessionState = createUiSessionState();
 const ui = createUiServer({ port: 0, sessionState, async lifecycle(action: UiAction, id: string) {
+  if (action === "recheck" && states.get(id)?.phase === "stopped") {
+    await (await import("../../src/runtime/runtime.ts")).recheck(id);
+    return;
+  }
   commands.push(`${action}:${id}`);
   const state = states.get(id)!;
   if (action === "start") state.phase = "ready";
@@ -194,7 +205,8 @@ if (process.argv.includes("--serve")) {
     await page.setViewportSize({ width: 1440, height: 900 });
     const configFile = join(home, "profiles.json"), initialConfig = readFileSync(configFile, "utf8");
     const broken = JSON.parse(initialConfig);
-    Object.assign(broken.profiles[1], { proxyEnv: "UI_FIXTURE_UNSET_PROXY" });
+    Object.assign(broken.profiles[1], { proxyEnv: "UI_FIXTURE_PROXY_URL" });
+    rmSync(join(home, "runtime/geoip"), { recursive: true });
     writeFileSync(configFile, JSON.stringify(broken), { mode: 0o600 });
     await page.getByRole("button", { name: "Refresh service state", exact: true }).click();
     await page.waitForFunction(() => document.querySelector<HTMLButtonElement>('button[aria-label="Start profile-02"]')?.disabled === true);
@@ -204,6 +216,16 @@ if (process.argv.includes("--serve")) {
     await page.getByRole("row").filter({ has: page.getByRole("button", { name: "Inspect profile-02", exact: true }) }).locator(".profile-connection").click();
     await page.getByRole("heading", { name: "profile-02", exact: true }).waitFor();
     if (!await page.getByRole("button", { name: "Start profile-02", exact: true }).isDisabled()) throw Error("A blocked detail Start is not visible and disabled.");
+    const alignment = page.getByRole("region", { name: "Location alignment", exact: true });
+    await alignment.getByText("Start blocked", { exact: true }).waitFor();
+    await alignment.getByText("Location data is missing. Run stelz setup, then check again.", { exact: true }).waitFor();
+    if (!await alignment.getByRole("button", { name: "Check again", exact: true }).isEnabled()) throw Error("The location blocker has no usable recovery action.");
+    managedFixture(join(home, "runtime"));
+    await page.getByRole("button", { name: "Refresh service state", exact: true }).click();
+    await alignment.getByText("Not checked", { exact: true }).waitFor();
+    await alignment.getByRole("button", { name: "Check connection", exact: true }).click();
+    await alignment.getByText("Ready to start", { exact: true }).waitFor();
+    if (commands.length) throw Error("Check connection launched a browser.");
     writeFileSync(configFile, initialConfig, { mode: 0o600 });
     await page.getByRole("button", { name: "All profiles", exact: true }).click();
     await page.getByRole("button", { name: "Refresh service state", exact: true }).click();
@@ -268,7 +290,7 @@ if (process.argv.includes("--serve")) {
     if (!readFileSync(join(home, "secrets.env"), "utf8").includes("http://provider-user:provider-password@proxy.example:8080")) throw Error("Provider shorthand was not normalized.");
     await page.getByRole("button", { name: "Edit details", exact: true }).click();
     await page.getByRole("button", { name: "Use details", exact: true }).click();
-    if (await page.getByRole("button", { name: "Save network", exact: true }).count()) throw Error("Opening unchanged manual fields replaced saved credentials.");
+    await page.getByRole("button", { name: "Save network", exact: true }).waitFor({ state: "hidden" });
     await page.getByLabel(/^Proxy Optional/).fill("user:8080:reader:secret@proxy.example:8080");
     await page.getByLabel(/^Expected exit IP/).focus();
     await page.getByLabel("Host", { exact: true }).waitFor();
@@ -287,6 +309,7 @@ if (process.argv.includes("--serve")) {
     await page.getByRole("button", { name: "Save network", exact: true }).click();
     await page.getByText("Network settings saved.", { exact: true }).waitFor();
     const beforeRename = JSON.stringify(states.get("profile-02")), renameCommands = commands.length;
+    await page.waitForFunction(() => document.querySelector('[aria-label="Command"]')?.textContent?.startsWith("env "));
     const sharedMcpCommand = await page.getByLabel("Command", { exact: true }).innerText();
     if (!/\bstelz mcp$/.test(sharedMcpCommand.trim()) || sharedMcpCommand.includes("--profile")) throw Error("The UI must show the shared MCP command.");
     const secretsBeforeRename = readFileSync(join(home, "secrets.env"), "utf8");
@@ -305,7 +328,7 @@ if (process.argv.includes("--serve")) {
     await page.reload();
     await page.getByRole("button", { name: "Inspect Work browser", exact: true }).click();
     await page.getByRole("heading", { name: "Work browser", exact: true }).waitFor();
-    if (await page.getByLabel("Command", { exact: true }).innerText() !== sharedMcpCommand) throw Error("Renaming changed the shared MCP command.");
+    await page.waitForFunction(expected => document.querySelector('[aria-label="Command"]')?.textContent === expected, sharedMcpCommand);
     if (await page.getByText("Profile ID for tools", { exact: true }).locator("..").locator("dd").innerText() !== "profile-02") throw Error("Renaming changed the profile ID for tool calls.");
     await page.getByRole("button", { name: "Rename profile", exact: true }).click();
     await page.getByRole("textbox", { name: "Profile name", exact: true }).fill("profile-02");

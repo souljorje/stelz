@@ -40,6 +40,7 @@ export const mcpCommand = (_id: string, home: string): string => homeCommand("mc
 
 export function profileAttention(profile: UiProfile): string | null {
   if (profile.configurationError) return redact(profile.configurationError);
+  if (profile.location?.status === "blocked") return profile.location.message;
   if (profile.error) return redact(profile.error);
   if (profile.controlError) return redact(profile.controlError);
   switch (profile.phase) {
@@ -73,10 +74,13 @@ export function actionReason(profile: UiProfile, action: UiAction, context: Acti
       if (!context.snapshot.initialized) return "Run stelz init first.";
       if (!context.snapshot.setup) return "Run stelz setup first.";
       if (profile.configurationError) return "Correct the configuration before starting.";
+      if (profile.location?.status === "blocked") return profile.location.message;
+      if (profile.location?.status === "checking") return "Wait for the location check to finish.";
       return null;
     case "pause": return profile.phase === "ready" ? null : "Pause is available when the browser is ready.";
     case "resume": return profile.phase === "paused" ? null : "Resume is available when the browser is paused.";
     case "recheck":
+      if (profile.phase === "stopped" && hasProxy(profile.network)) return profile.location?.status === "checking" ? "Wait for the location check to finish." : null;
       if (!hasProxy(profile.network) && !profile.network.expectedIp) return "IP verification is not enabled for this profile.";
       return ["ready", "paused", "verification_failed"].includes(profile.phase) ? null : "Start the browser before checking its IP.";
     case "release":
@@ -87,6 +91,12 @@ export function actionReason(profile: UiProfile, action: UiAction, context: Acti
 }
 
 export const hasProxy = (network: UiNetwork) => !!(network.proxyEnv || network.proxyDisplay);
+export function locationLabel(profile: UiProfile) {
+  const location = profile.location;
+  if (!location) return hasProxy(profile.network) ? "Not checked" : "Not applicable";
+  if (location.phase === "browser_verification" && location.status === "ready") return "Verified in browser";
+  return { not_applicable: "Not applicable", not_checked: "Not checked", checking: "Checking", ready: "Ready to start", blocked: "Start blocked" }[location.status];
+}
 
 export type NetworkDraft = { revision: string; proxyUrl: string; expectedIp: string };
 export const networkDraft = (network: UiNetwork): NetworkDraft => ({

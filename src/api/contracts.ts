@@ -1,4 +1,5 @@
 import type { TypingMode } from "../browser/typing.ts";
+import type { LocationResult } from "../browser/location.ts";
 export type { TypingMode } from "../browser/typing.ts";
 
 export const UI_ACTIONS = ["start", "stop", "pause", "resume", "release", "recheck"] as const;
@@ -23,6 +24,7 @@ export type UiTyping = {
 };
 
 export type UiProfile = {
+  location?: LocationResult;
   id: string;
   name: string;
   port: number;

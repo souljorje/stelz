@@ -1,6 +1,6 @@
 import type { UiAction, UiDiagnostics, UiProfile, UiSnapshot } from "../../src/api/contracts.ts";
 import { ActionButton, CopyCommand, Icon, KeyValues, Notice, Phase, Select } from "./components";
-import { actionReason, hasProxy, homeCommand, profileAttention, profileCommand, mcpCommand, proxyDisplay, redact } from "./model.ts";
+import { actionReason, hasProxy, homeCommand, profileAttention, profileCommand, mcpCommand, proxyDisplay, redact, locationLabel } from "./model.ts";
 import type { ActionContext } from "./model.ts";
 import { useResource } from "./use-service.ts";
 import type { ThemePreference } from "./theme.ts";
@@ -26,7 +26,7 @@ export function Profiles({ snapshot, context, onInspect, onAction, onShow, expor
         {exportSelection && <td className="profile-select-cell"><label className="profile-export-check" data-row-control title={exportReason ?? `Export ${profile.name}`}><input type="checkbox" aria-label={`Export ${profile.name}`} aria-describedby={exportReason ? `export-reason-${profile.id}` : undefined} checked={selected.has(profile.id) && !exportUnavailable(profile)} disabled={!!exportReason} onChange={() => exportSelection.onToggle(profile.id)} />{exportReason && <span id={`export-reason-${profile.id}`} className="sr-only">{exportReason}</span>}</label></td>}
         <th scope="row"><button type="button" className="profile-name" aria-label={`Inspect ${profile.name}`} onClick={() => onInspect(profile.id)}><ProfileMark id={profile.id} /><span>{profile.name}</span></button></th>
         <td className="browser-phase"><Phase phase={profile.phase} />{profile.controller && <span className="cell-secondary">{profile.controller.releasing ? "Releasing " : ""}{redact(profile.controller.label)}</span>}{issue && <span className="cell-secondary profile-issue inline-attention" title={issue}>{issue}</span>}</td>
-        <td className="profile-connection"><span title={hasProxy(profile.network) ? proxyDisplay(profile.network.proxyDisplay) : undefined}>{hasProxy(profile.network) ? profile.network.proxyConfigured ? "Proxy" : "Proxy missing" : "Direct"}</span></td>
+        <td className="profile-connection"><span title={hasProxy(profile.network) ? proxyDisplay(profile.network.proxyDisplay) : undefined}>{hasProxy(profile.network) ? profile.network.proxyConfigured ? "Proxy" : "Proxy missing" : "Direct"}</span><span className="cell-secondary" aria-label={`Location alignment: ${locationLabel(profile)}`}>{locationLabel(profile)}</span></td>
         <td className="row-actions"><div className="button-row"><ShowWindowButton profile={profile} context={context} onShow={onShow} compact /><ActionButton profile={profile} action={action} context={context} onAction={onAction} compact /></div></td>
       </tr>;
     })}</tbody>

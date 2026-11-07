@@ -9,7 +9,21 @@ function check(file: string, before: string, after: string) {
   }
 }
 
+export function assertLocationPatches(upstream: string, launcher = join(upstream, "node_modules/camoufox-js")) {
+  check(join(upstream, "server.js"), "return await launchOptions({ ...baseOptions, geoip: false });",
+    "const prepared = await (await import('./plugins/local-profile/index.js')).prepareProfileLaunch(baseOptions,");
+  check(join(upstream, "lib/browser-identity.js"), "if (hasProxy) return { permissions: ['geolocation'] };",
+    "if (hasProxy) return {}; // Stelz never grants location access to arbitrary sites.");
+  check(join(launcher, "dist/utils.js"), "const geolocation = await getGeolocation(geoip);",
+    "const locationConfig = stelzGeoip || (await getGeolocation(geoip)).asConfig();");
+  check(join(launcher, "dist/locale.js"), "export async function getGeolocation(ip) {",
+    "export async function getGeolocation(ip, options = {}) {");
+  check(join(launcher, "dist/ip.js"), "export async function publicIP(proxy) {",
+    "export async function publicIP(proxy, options = {}) {");
+}
+
 export function assertBundledPatches(upstream: string, launcher = join(upstream, "node_modules/camoufox-js")) {
+  assertLocationPatches(upstream, launcher);
   check(join(upstream, "server.js"),
     "    return await withTimeout(operation(), timeoutMs, 'action');",
     "    // Stelz owns the deadline for typing. Keep its tab lock until input settles.\n    return await (timeoutMs === null ? operation() : withTimeout(operation(), timeoutMs, 'action'));");
@@ -46,6 +60,33 @@ export function assertBundledPatches(upstream: string, launcher = join(upstream,
     "candidateBrowser = await (await import('./plugins/local-profile/index.js')).launchProfileBrowser(firefox, options, { viewport: null, ...contextIdentityOptions({ hasProxy: !!proxyPool, directIdentity: CONFIG.directIdentity }) });");
   check(join(upstream, "server.js"), "const context = await b.newContext(contextOptions);",
     "const context = await (await import('./plugins/local-profile/index.js')).claimProfileContext(b, contextOptions);");
+  check(join(upstream, "server.js"), "      sessions.set(key, created);\n      await pluginEvents.emitAsync('session:created', { userId: key, context });",
+    "      created.releaseProfileStartup = (await import('./plugins/local-profile/index.js')).protectProfileStartup(created, { acquirePageLease, setLeasedPage, releasePageLease });\n      sessions.set(key, created);\n      await pluginEvents.emitAsync('session:created', { userId: key, context });");
+  check(join(upstream, "server.js"), "app.post('/tabs', async (req, res) => {",
+    "let stelzStartupAdmitted = false;\napp.post('/tabs', async (req, res) => {");
+  check(join(upstream, "server.js"), "  let abandoned = false;\n  const discardCreatedTab = async () => {\n    if (!createdTabId) return;",
+    "  let abandoned = false;\n  let profileStartup = false;\n  const discardCreatedTab = async () => {\n    if (!createdTabId || profileStartup) return;");
+  check(join(upstream, "server.js"), "    // Session overflow redirect (Fly.io only)", [
+    "    if (req.body.stelzStartup !== undefined) {",
+    "      if (req.body.stelzStartup !== true || stelzStartupAdmitted || sessions.has(normalizeUserId(userId)) ||",
+    "          userId !== process.env.STELZ_PROFILE_ID || sessionKey !== 'default' ||",
+    "          Object.keys(req.body).some(key => !['userId', 'sessionKey', 'stelzStartup'].includes(key))) {",
+    "        throw Object.assign(new Error('Invalid or repeated profile startup request'), { statusCode: 409 });",
+    "      }",
+    "      stelzStartupAdmitted = profileStartup = true;",
+    "      // Startup verification has its own service deadline. Normal /tabs calls keep theirs.",
+    "      // The supervisor waits for browser prewarm before this one-time initialization.",
+    "      await getSession(userId);",
+    "    }", "",
+    "    // Session overflow redirect (Fly.io only)",
+  ].join("\n"));
+  check(join(upstream, "server.js"), "      createdTabId = tabId;\n      releasePageLease(session, lease);",
+    "      createdTabId = tabId;\n      session.releaseProfileStartup?.();\n      delete session.releaseProfileStartup;\n      releasePageLease(session, lease);");
+  for (const label of ["new page", "new page retry"]) {
+    check(join(upstream, "lib/new-page-recovery.js"),
+      `const page = setLeasedPage(lease, await withTimeout(session.context.newPage(), timeoutMs, '${label}'));`,
+      `const page = setLeasedPage(lease, await withTimeout((await import('../plugins/local-profile/index.js')).createProfilePage(session.context), timeoutMs, '${label}'));`);
+  }
   check(join(upstream, "plugins/persistence/index.js"), "export async function register(app, ctx, pluginConfig = {}) {",
     "export async function register(app, ctx, pluginConfig = {}) {\n  return; // Native Firefox profile owns storage.");
 }

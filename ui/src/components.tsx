@@ -80,7 +80,7 @@ export function ActionButton({ profile, action, context, onAction, compact = fal
   const icon = action === "start" || action === "resume" ? "play" : action === "stop" ? "stop" : action === "pause" ? "pause" : null;
   return <span className={`action-with-reason${compact ? " compact" : ""}`} data-row-control title={reason ?? undefined}>
     <button type="button" className={`button${action === "stop" ? " button-stop" : ""}${primary ? " button-primary" : ""}`} disabled={!!reason} aria-label={`${actionLabels[action]} ${profile.name}`} aria-describedby={reason ? reasonId : undefined} title={reason ?? `${actionLabels[action]} ${profile.name}`} onClick={() => onAction(profile, action)}>
-      {icon && <Icon name={icon} />}{actionLabels[action]}
+      {icon && <Icon name={icon} />}{action === "start" && profile.location?.status === "checking" ? "Checking…" : actionLabels[action]}
     </button>
     {reason && <span id={reasonId} className="sr-only">{reason}</span>}
   </span>;

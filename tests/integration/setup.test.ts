@@ -17,12 +17,19 @@ function fixture() {
   mkdirSync(project); mkdirSync(home);
   cpSync(join(root, "src"), join(project, "src"), { recursive: true });
   file(join(project, "src/setup-driver.ts"), `import { setup } from "./browser/setup.ts";
+import {mkdirSync,writeFileSync} from 'node:fs';
+import {join} from 'node:path';
 import { start } from "./runtime/runtime.ts";
-if (process.argv[2] === "setup") await setup();
+if (process.argv[2] === "setup") await setup({ prepareGeoip: async stage => {
+  if(process.env.SETUP_TEST_GEOIP_FAIL) {
+    mkdirSync(join(stage,'geoip'));writeFileSync(join(stage,'geoip/GeoLite2-City.mmdb'),'incomplete download');
+    throw Error('Location-data integrity check failed');
+  }
+} });
 else await start(process.argv[3]!);
 `);
   file(join(project, "package.json"), JSON.stringify({ type: "module", version: "0.2.0", dependencies: { "@askjo/camofox-browser": "1.18.1", "@modelcontextprotocol/sdk": "1.30.0", "better-sqlite3": "13.0.1", impit: "0.14.8" } }));
-  file(join(project, "dist/plugin.js"), "export function register() {}\nexport function launchProfileBrowser() {}\nexport function claimProfileContext() {}\nexport function typeIntoLocator() {}\n");
+  file(join(project, "dist/plugin.js"), "export function register() {}\nexport function launchProfileBrowser() {}\nexport function claimProfileContext() {}\nexport function createProfilePage() {}\nexport function protectProfileStartup() {}\nexport function prepareProfileLaunch() {}\nexport function typeIntoLocator() {}\n");
   const upstream = join(project, "node_modules/@askjo/camofox-browser");
   file(join(upstream, "package.json"), JSON.stringify({ name: "@askjo/camofox-browser", version: "1.18.1", type: "module", dependencies: { "camoufox-js": "0.13.0", "playwright-core": "1.62.1" } }));
   file(join(upstream, "server.js"), `async function fillLocator(locator, text, typingMode) {
@@ -38,10 +45,42 @@ const options = { os: hostOS,
         humanize: true, proxy: launchProxy,
         block_webrtc: !!launchProxy,
         geoip: !!launchProxy, };
+async function prepare() {
+  const prepared = await (await import('./plugins/local-profile/index.js')).prepareProfileLaunch(baseOptions, async options => options);
+}
 async function launch() {
   candidateBrowser = await (await import('./plugins/local-profile/index.js')).launchProfileBrowser(firefox, options, { viewport: null, ...contextIdentityOptions({ hasProxy: !!proxyPool, directIdentity: CONFIG.directIdentity }) });
   const context = await (await import('./plugins/local-profile/index.js')).claimProfileContext(b, contextOptions);
+      created.releaseProfileStartup = (await import('./plugins/local-profile/index.js')).protectProfileStartup(created, { acquirePageLease, setLeasedPage, releasePageLease });
+      sessions.set(key, created);
+      await pluginEvents.emitAsync('session:created', { userId: key, context });
 }
+let stelzStartupAdmitted = false;
+app.post('/tabs', async (req, res) => {
+  let createdTabId = null;
+  let abandoned = false;
+  let profileStartup = false;
+  const discardCreatedTab = async () => {
+    if (!createdTabId || profileStartup) return;
+  };
+    if (req.body.stelzStartup !== undefined) {
+      if (req.body.stelzStartup !== true || stelzStartupAdmitted || sessions.has(normalizeUserId(userId)) ||
+          userId !== process.env.STELZ_PROFILE_ID || sessionKey !== 'default' ||
+          Object.keys(req.body).some(key => !['userId', 'sessionKey', 'stelzStartup'].includes(key))) {
+        throw Object.assign(new Error('Invalid or repeated profile startup request'), { statusCode: 409 });
+      }
+      stelzStartupAdmitted = profileStartup = true;
+      // Startup verification has its own service deadline. Normal /tabs calls keep theirs.
+      // The supervisor waits for browser prewarm before this one-time initialization.
+      await getSession(userId);
+    }
+
+    // Session overflow redirect (Fly.io only)
+      createdTabId = tabId;
+      session.releaseProfileStartup?.();
+      delete session.releaseProfileStartup;
+      releasePageLease(session, lease);
+});
 async function typeRoute(req, locator, tabState, selector, text, mode) {
   try {
     const { userId, ref, selector, text, typingMode, mode = 'fill', delay = 30, submit = false, pressEnter = false } = req.body;
@@ -70,13 +109,28 @@ async function typeRoute(req, locator, tabState, selector, text, mode) {
 }
 `);
   file(join(upstream, "LICENSE"), "fixture license");
+  file(join(upstream, "lib/browser-identity.js"), "function contextIdentityOptions(hasProxy) { if (hasProxy) return {}; // Stelz never grants location access to arbitrary sites.\n}\n");
   file(join(upstream, "lib/camoufox-executable.js"), "// stelz: read macOS resources without changing the installed app bundle.\n");
+  file(join(upstream, "lib/new-page-recovery.js"), `async function createPageWithSessionRecovery(session) {
+  try {
+    const page = setLeasedPage(lease, await withTimeout((await import('../plugins/local-profile/index.js')).createProfilePage(session.context), timeoutMs, 'new page'));
+    return { session, page, lease };
+  } catch (err) {
+    const page = setLeasedPage(lease, await withTimeout((await import('../plugins/local-profile/index.js')).createProfilePage(session.context), timeoutMs, 'new page retry'));
+    return { session, page, lease };
+  }
+}
+`);
   file(join(upstream, "mcp/server.mjs"), "export {};\n");
   file(join(upstream, "mcp/lib/tool-contracts.mjs"), "export const TOOL_DEFS = [];\nexport function runTool() {}\nexport function adaptResponse() {}\n");
   file(join(upstream, "plugins/persistence/index.js"), "export async function register(app, ctx, pluginConfig = {}) {\n  return; // Native Firefox profile owns storage.\n}\n");
   const camoufox = join(project, "node_modules/camoufox-js");
   file(join(camoufox, "package.json"), JSON.stringify({ name: "camoufox-js", version: "0.13.0", dependencies: {} }));
+  file(join(camoufox, "dist/pkgman.js"), "return new Version(versionData.build ?? versionData.release, versionData.version);\n");
   file(join(camoufox, "dist/utils.js"), 'propFile = process.platform === "darwin" && filePath.includes(".app/Contents/MacOS/") ? path.join(path.dirname(filePath), "../Resources/properties.json") : path.join(path.dirname(filePath), "properties.json");\n');
+  file(join(camoufox, "dist/locale.js"), "export async function getGeolocation(ip, options = {}) {}\n");
+  file(join(camoufox, "dist/ip.js"), "export async function publicIP(proxy, options = {}) {}\n");
+  file(join(camoufox, "dist/utils.js"), readFileSync(join(camoufox, "dist/utils.js"), "utf8") + "const locationConfig = stelzGeoip || (await getGeolocation(geoip)).asConfig();\n");
   for (const [name, version] of [["playwright-core", "1.62.1"], ["@modelcontextprotocol/sdk", "1.30.0"], ["better-sqlite3", "13.0.1"], ["impit", "0.14.8"]]) {
     file(join(project, "node_modules", name!, "package.json"), JSON.stringify({ name, version }));
   }
@@ -142,6 +196,9 @@ test("activates a complete runtime and manifest, replacing the installed runtime
     expect(server).toContain("launchProfileBrowser");
     expect(server).toContain("block_webrtc: !!launchProxy");
     expect(server).toContain("typeIntoLocator(locator, text, typingMode)");
+    const recovery = readFileSync(join(f.home, "runtime/camofox-1.18.1/lib/new-page-recovery.js"), "utf8");
+    expect(recovery.split("createProfilePage(session.context)")).toHaveLength(3);
+    expect(recovery).not.toContain("session.context.newPage()");
     expect(existsSync(join(f.home, "runtime/camofox-1.18.1/plugins/local-profile/index.js"))).toBe(true);
     for (const name of ["better-sqlite3", "impit"]) expect(existsSync(join(f.home, "runtime/camofox-1.18.1/node_modules", name, "package.json"))).toBe(true);
   }
@@ -157,9 +214,37 @@ test("validation failure preserves the previous runtime and manifest", async () 
   expect(readdirSync(f.home).filter(name => name.startsWith(".runtime-setup-"))).toEqual([]);
 });
 
+test("a failed location download cannot replace active data or unrelated settings", async () => {
+  const f = fixture(); installedRuntime(f);
+  const files = { "runtime/geoip/GeoLite2-City.mmdb": "previous validated bytes", "runtime/geoip/manifest.json": '{"release":"previous"}',
+    "profiles.json": '{"profiles":[]}', "secrets.env": "UNCHANGED=private-fixture\n" };
+  for (const [name, value] of Object.entries(files)) file(join(f.home, name), value);
+  const result = await finish(launch(f, "setup", { SETUP_TEST_GEOIP_FAIL: "1" }));
+  expect(result.code).not.toBe(0); expect(result.stderr).toContain("Location-data integrity");
+  oldRuntime(f);
+  for (const [name, value] of Object.entries(files)) expect(readFileSync(join(f.home, name), "utf8")).toBe(value);
+  expect(readdirSync(f.home).filter(name => name.startsWith(".runtime-setup-"))).toEqual([]);
+});
+
+test("setup rejects a missing, reverted, or duplicate native page patch in either creation attempt", async () => {
+  for (const label of ["new page", "new page retry"]) for (const change of ["missing", "reverted", "duplicate"]) {
+    const f = fixture(); installedRuntime(f);
+    const path = join(f.upstream, "lib/new-page-recovery.js");
+    const patched = `const page = setLeasedPage(lease, await withTimeout((await import('../plugins/local-profile/index.js')).createProfilePage(session.context), timeoutMs, '${label}'));`;
+    const replacement = change === "missing" ? "" : change === "duplicate" ? `${patched}\n${patched}`
+      : `const page = setLeasedPage(lease, await withTimeout(session.context.newPage(), timeoutMs, '${label}'));`;
+    file(path, readFileSync(path, "utf8").replace(patched, replacement));
+    const result = await finish(launch(f));
+    expect(result.code).not.toBe(0);
+    expect(result.stderr).toContain("missing a required Stelz patch");
+    expect(result.stderr).toContain("new-page-recovery.js");
+    oldRuntime(f);
+  }
+}, 30000);
+
 test("missing contract modules or required exports cannot replace the runtime", async () => {
   const contractExports = ["TOOL_DEFS", "runTool", "adaptResponse"];
-  const pluginExports = ["register", "launchProfileBrowser", "claimProfileContext"];
+  const pluginExports = ["register", "launchProfileBrowser", "claimProfileContext", "createProfilePage", "protectProfileStartup", "prepareProfileLaunch", "typeIntoLocator"];
   const cases = ["missing-contract", ...contractExports.map(name => `contract:${name}`), ...pluginExports.map(name => `plugin:${name}`)];
   for (const item of cases) {
     const f = fixture();

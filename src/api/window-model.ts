@@ -30,7 +30,7 @@ export function createWindowModel(): WindowModel {
   return {
     async list(id) {
       profile(id);
-      const status = await reportStatus(id) as Record<string, unknown>;
+      const status = await reportStatus(id, false) as Record<string, unknown>;
       const unavailable = (reason: string): ProfileWindows => ({ profileId: id,
         instanceId: typeof status.instanceId === "string" ? status.instanceId : null, available: false,
         reason, updatedAt: null, windows: [] });

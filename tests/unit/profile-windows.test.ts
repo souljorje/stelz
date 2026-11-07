@@ -65,6 +65,28 @@ test("generated extension keeps its service key private and refuses a symlink de
     port: 9378, accessKey: "key", phase: () => "ready" })).toThrow("unsafe");
 });
 
+test("network verification grants only its fixed providers to the private background add-on", () => {
+  const f = fixture();
+  const bridge = createProfileWindows({ id: "profile-02", instanceId: "lifetime-a", directory: f.directory,
+    port: 9378, accessKey: "private-network-key", phase: () => "starting", verifyNetwork: true });
+  const manifest = JSON.parse(readFileSync(join(bridge.extensionPath, "manifest.json"), "utf8"));
+  expect(manifest.permissions).toEqual(["tabs", "theme", "http://127.0.0.1/*", "https://api.ipify.org/*", "https://www.cloudflare.com/*"]);
+  expect(manifest.web_accessible_resources).toBeUndefined();
+  expect(readFileSync(join(bridge.extensionPath, "background.js"), "utf8")).toContain("/local-profile/network-bridge");
+  expect(readFileSync(join(bridge.extensionPath, "profile.html"), "utf8")).not.toContain("private-network-key");
+  bridge.prepare({ server: "http://proxy.test:3128", username: "private-proxy-user", password: "already decoded@password" });
+  const authenticated = JSON.parse(readFileSync(join(bridge.extensionPath, "manifest.json"), "utf8"));
+  expect(authenticated.permissions.slice(-2)).toEqual(["webRequest", "webRequestBlocking"]);
+  for (const file of ["manifest.json", "profile.html", "profile.svg"]) {
+    expect(readFileSync(join(bridge.extensionPath, file), "utf8")).not.toContain("private-proxy-user");
+    expect(readFileSync(join(bridge.extensionPath, file), "utf8")).not.toContain("already decoded@password");
+  }
+  const script = readFileSync(join(bridge.extensionPath, "background.js"), "utf8");
+  expect(script).toContain('"host":"proxy.test","port":3128');
+  expect(script).toContain('"password":"already decoded@password"');
+  expect(statSync(join(bridge.extensionPath, "background.js")).mode & 0o777).toBe(0o600);
+});
+
 test("window selection is delivered once, requires acknowledgement, and rejects stale or foreign pages", async () => {
   const f = fixture(); f.exchange(f.inventory);
   const selection = f.show({ instanceId: "lifetime-a", windowId: 2, tabId: 20 });

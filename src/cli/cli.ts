@@ -1,8 +1,16 @@
 #!/usr/bin/env -S bun --no-env-file
 import type { UiAction } from "../api/contracts.ts";
 import { STELZ_VERSION } from "../versions.ts";
+import { LocationError } from "../browser/location.ts";
 
-const [command = "help", ...args] = process.argv.slice(2);
+const [command = "help", ...rawArgs] = process.argv.slice(2);
+const jsonMode = ["start", "recheck", "status", "doctor"].includes(command) && rawArgs.includes("--json");
+const args = jsonMode ? rawArgs.filter(arg => arg !== "--json") : rawArgs;
+function diagnostic(error: unknown) {
+  const message = (error as Error).message;
+  return jsonMode ? JSON.stringify({ ok: false, error: { code: error instanceof LocationError ? error.location.code : "service_unavailable", message },
+    ...(error instanceof LocationError ? { location: error.location } : {}) }) : message;
+}
 try {
   // Configuration paths can fail during module initialization. Keep CLI errors structured too.
   const { HOME_DIR, initialize, settings } = await import("../profiles/config.ts");
@@ -13,7 +21,7 @@ try {
   if (command === "--version" || command === "version") console.log(STELZ_VERSION);
   else if (command === "help" || command === "--help")
     console.log(
-      `stelz ${STELZ_VERSION}\n\nstelz init\nstelz setup\nstelz profile create ID [--direct | --proxy-url URL | --proxy-env NAME] [--expected-ip IP | --expected-ip-env NAME] [--json]\nstelz profile export ID...|--all --output FILE [--json]\nstelz profile import FILE [--profile SOURCE_ID]... [--rename SOURCE_ID=NEW_ID]... [--json]\nstelz ui [--port 1024-65535] [--open]\nstelz start ID|all\nstelz status [ID|all]\nstelz doctor [ID|all]\nstelz logs ID [--lines 1-500]\nstelz recover ID\nstelz stop ID|all\nstelz pause ID\nstelz resume ID\nstelz recheck ID\nstelz release ID\nstelz mcp\n\nSTELZ_HOME selects the service data directory. Default: ${HOME_DIR}`,
+      `stelz ${STELZ_VERSION}\n\nstelz init\nstelz setup\nstelz profile create ID [--direct | --proxy-url URL | --proxy-env NAME] [--expected-ip IP | --expected-ip-env NAME] [--json]\nstelz profile export ID...|--all --output FILE [--json]\nstelz profile import FILE [--profile SOURCE_ID]... [--rename SOURCE_ID=NEW_ID]... [--json]\nstelz ui [--port 1024-65535] [--open]\nstelz start ID|all [--json]\nstelz status [ID|all] [--json]\nstelz doctor [ID|all] [--json]\nstelz logs ID [--lines 1-500]\nstelz recover ID\nstelz stop ID|all\nstelz pause ID\nstelz resume ID\nstelz recheck ID [--json]\nstelz release ID\nstelz mcp\n\nSTELZ_HOME selects the service data directory. Default: ${HOME_DIR}`,
     );
   else if (command === "profile") await (await import("./profile.ts")).runProfile(args);
   else if (command === "init") {
@@ -47,7 +55,7 @@ try {
         const result = await runLifecycle(command as UiAction | "status", id);
         console.log(JSON.stringify(result, null, 2));
       } catch (e) {
-        console.error((e as Error).message);
+        console.error(diagnostic(e));
         process.exitCode = 1;
       }
     }
@@ -55,6 +63,6 @@ try {
 } catch (e) {
   console.error(command === "profile" && args.includes("--json")
     ? JSON.stringify({ ok: false, error: { code: "profile_unavailable", message: "Cannot open the service configuration. Run stelz doctor and inspect the service files." } })
-    : (e as Error).message);
+    : diagnostic(e));
   process.exitCode = 1;
 }

@@ -5,6 +5,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { extname, join } from "node:path";
 import { ROOT } from "../profiles/config.ts";
 import { runLifecycle } from "../runtime/operations.ts";
+import { LocationError } from "../browser/location.ts";
 import { createUiModel, redactUiText } from "./ui-model.ts";
 import { UI_ACTIONS, type UiAction, type UiProfileCreate, type UiProfileRename, type UiModel, type UiNetworkUpdate, type UiTypingUpdate } from "./contracts.ts";
 import { createWindowModel, type WindowModel } from "./window-model.ts";
@@ -26,7 +27,7 @@ export type UiAppOptions = {
   sessionState?: UiSessionState;
   model?: UiModel;
   windows?: WindowModel;
-  lifecycle?: (action: UiAction, id: string) => Promise<unknown>;
+  lifecycle?: (action: UiAction, id: string, signal?: AbortSignal) => Promise<unknown>;
   transfers?: ProfileTransferManager;
   onShutdown?: () => void;
 };
@@ -112,6 +113,7 @@ const methodNotAllowed = (c: Context<UiEnvironment>, allow: string) => c.json({ 
 const cookieName = (c: Context<UiEnvironment>) => "stelz_ui_" + new URL(c.env.origin).port;
 
 function errorResponse(c: Context<UiEnvironment>, error: unknown) {
+  if (error instanceof LocationError) return c.json({ error: error.message, location: error.location }, 409);
   const value = error as { status?: unknown; message?: unknown } | null;
   const status = typeof value?.status === "number" && errorStatuses.has(value.status) ? value.status as ErrorStatus : 500;
   return c.json({ error: redactUiText(typeof value?.message === "string" ? value.message : "The request failed.") }, status);
@@ -240,8 +242,8 @@ export function createUiApp(options: UiAppOptions = {}) {
     const profile = await exclusive(id, body.action as UiAction, async () => {
       const before = await model.snapshot();
       if (!before.profiles.some(profile => profile.id === id)) throw new UiHttpError("Unknown profile.", 404);
-      try { await lifecycle(body.action as UiAction, id); }
-      catch (error) { throw new UiHttpError(redactUiText((error as Error).message), 409); }
+      try { await lifecycle(body.action as UiAction, id, c.req.raw.signal); }
+      catch (error) { if (error instanceof LocationError) throw error; throw new UiHttpError(redactUiText((error as Error).message), 409); }
       return (await model.snapshot()).profiles.find(profile => profile.id === id);
     });
     return c.json({ profile });

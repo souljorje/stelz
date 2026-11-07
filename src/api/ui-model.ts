@@ -216,6 +216,7 @@ function profile(config: Settings, p: Profile, raw: Data, secrets: ReturnType<ty
   const checkedAt = typeof raw.checkedAt === "string" && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,3})?Z$/.test(raw.checkedAt) && Number.isFinite(Date.parse(raw.checkedAt)) ? new Date(raw.checkedAt).toISOString() : null;
   return {
     id: p.id, name: p.name === undefined ? p.id : redact(p.name), port: p.port, storage: "native", phase: currentPhase,
+    location: raw.location as UiProfile["location"],
     instanceId: typeof raw.instanceId === "string" && /^[\w.-]{1,128}$/.test(raw.instanceId) ? text(raw.instanceId, 128) : null,
     exitIp: ip(raw.exitIp) ? raw.exitIp : null,
     checkedAt, fixedIpVerified: raw.fixedIpVerified === true,
