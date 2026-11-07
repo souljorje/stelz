@@ -8,7 +8,7 @@
         "@askjo/camofox-browser": "1.18.1",
         "@modelcontextprotocol/sdk": "1.30.0",
         "better-sqlite3": "13.0.1",
-        "camoufox-js": "0.11.5",
+        "camoufox-js": "0.13.0",
         "hono": "4.13.16",
         "impit": "0.14.8",
         "playwright-core": "1.62.1",
@@ -33,7 +33,10 @@
   },
   "patchedDependencies": {
     "@askjo/camofox-browser@1.18.1": "patches/@askjo%2Fcamofox-browser@1.18.1.patch",
-    "camoufox-js@0.11.5": "patches/camoufox-js@0.11.5.patch",
+    "camoufox-js@0.13.0": "patches/camoufox-js@0.13.0.patch",
+  },
+  "overrides": {
+    "camoufox-js": "0.13.0",
   },
   "packages": {
     "@apidevtools/json-schema-ref-parser": ["@apidevtools/json-schema-ref-parser@14.0.1", "", { "dependencies": { "@types/json-schema": "^7.0.15", "js-yaml": "^4.1.0" } }, "sha512-Oc96zvmxx1fqoSEdUmfmvvb59/KDOnUoJ7s2t7bISyAn0XEz57LCCw8k2Y4Pf3mwKaZLMciESALORLgfe2frCw=="],
@@ -194,7 +197,7 @@
 
     "callsites": ["callsites@3.1.0", "", {}, "sha512-P8BjAsXvZS+VIDUI11hHCQEv74YT67YUi5JJFNWIqL235sBmjX4+qx9Muvls5ivyNENctx46xQLQ3aTuE7ssaQ=="],
 
-    "camoufox-js": ["camoufox-js@0.11.5", "", { "dependencies": { "adm-zip": "^0.6.0", "better-sqlite3": "^13.0.1", "cli-progress": "^3.12.0", "commander": "^14.0.0", "fingerprint-generator": "^2.1.86", "glob": "^13.0.0", "impit": "^0.14.1", "language-tags": "^2.0.1", "maxmind": "^5.0.0", "pretty-bytes": "^7.1.0", "ua-parser-js": "^2.0.2", "xml2js": "^0.6.2" }, "peerDependencies": { "playwright-core": "*" }, "bin": { "camoufox-js": "dist/__main__.js" } }, "sha512-N7lZazKop9V+KZNcNlCa6unhachjXOSD4ZVo8L8dQ+PULMV810/8p1F3fu8wRWX4fvcsee1kUFyXRv3GxSzg0w=="],
+    "camoufox-js": ["camoufox-js@0.13.0", "", { "dependencies": { "adm-zip": "^0.6.0", "better-sqlite3": "^13.0.1", "cli-progress": "^3.12.0", "commander": "^14.0.0", "fingerprint-generator": "^2.1.86", "glob": "^13.0.0", "impit": "^0.14.1", "language-tags": "^2.0.1", "maxmind": "^5.0.0", "pretty-bytes": "^7.1.0", "ua-parser-js": "^2.0.10", "xml2js": "^0.6.2" }, "peerDependencies": { "playwright-core": "<1.63.0" }, "bin": { "camoufox-js": "dist/__main__.js" } }, "sha512-XVT9ErgpLaDyUKA/R/mGsDhiVtcE14TaJHELmKNZxGCCwkXBjFdyx6JG3D2KX+MwdGnfKGWE96otSO3FfVh44w=="],
 
     "caniuse-lite": ["caniuse-lite@1.0.30001820", "", {}, "sha512-gfWD6MxqVCqAOwmODfZf7DchWvlrA+SRdNX7ceLfg3xRqe5ssjjpF7EgslC/0tiLiNTajdaNN/q8c/5u/7Gz8w=="],
 

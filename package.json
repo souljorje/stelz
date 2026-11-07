@@ -85,13 +85,16 @@
   "dependencies": {
     "@askjo/camofox-browser": "1.18.1",
     "@modelcontextprotocol/sdk": "1.30.0",
-    "camoufox-js": "0.11.5",
+    "camoufox-js": "0.13.0",
     "hono": "4.13.16",
     "playwright-core": "1.62.1",
     "better-sqlite3": "13.0.1",
     "impit": "0.14.8",
     "yauzl": "3.4.0",
     "yazl": "3.3.1"
+  },
+  "overrides": {
+    "camoufox-js": "0.13.0"
   },
   "bundleDependencies": [
     "@askjo/camofox-browser",
@@ -113,6 +116,6 @@
   },
   "patchedDependencies": {
     "@askjo/camofox-browser@1.18.1": "patches/@askjo%2Fcamofox-browser@1.18.1.patch",
-    "camoufox-js@0.11.5": "patches/camoufox-js@0.11.5.patch"
+    "camoufox-js@0.13.0": "patches/camoufox-js@0.13.0.patch"
   }
 }

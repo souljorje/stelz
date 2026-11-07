@@ -41,9 +41,11 @@ export function inspectBundledDependencies(product: string): Record<string, stri
   assertBundledPatches(server, nestedLauncher);
   const snapshot: Record<string, string> = {};
   for (const file of serverFiles) snapshot[`${serverName}/${file}`] = readFileSync(join(server, file), "utf8");
-  snapshot[`${launcherName}/dist/utils.js`] = readFileSync(join(launcher, "dist/utils.js"), "utf8");
-  if (readFileSync(join(nestedLauncher, "dist/utils.js"), "utf8") !== snapshot[`${launcherName}/dist/utils.js`]) {
-    throw Error("Camofox resolves a different launcher implementation.");
+  for (const file of ["dist/utils.js", "dist/pkgman.js"]) {
+    snapshot[`${launcherName}/${file}`] = readFileSync(join(launcher, file), "utf8");
+    if (readFileSync(join(nestedLauncher, file), "utf8") !== snapshot[`${launcherName}/${file}`]) {
+      throw Error("Camofox resolves a different launcher implementation.");
+    }
   }
   return snapshot;
 }

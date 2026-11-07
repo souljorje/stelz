@@ -15,9 +15,10 @@ const required = [
 
 test("the installed Camofox and both launcher resolution paths contain the committed patches", () => {
   const files = inspectBundledDependencies(resolve(import.meta.dir, "../.."));
-  expect(Object.keys(files)).toHaveLength(4);
+  expect(Object.keys(files)).toHaveLength(5);
   expect(files["@askjo/camofox-browser/server.js"]).toContain("launchProfileBrowser");
   expect(files["camoufox-js/dist/utils.js"]).toContain("../Resources/properties.json");
+  expect(files["camoufox-js/dist/pkgman.js"]).toContain("versionData.build ?? versionData.release");
 });
 
 test("bundled dependency sources and notices are permitted", () => {
