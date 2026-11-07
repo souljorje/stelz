@@ -49,7 +49,7 @@ Find the window through the local UI's profile icon or **Browser windows** list.
 Check its full profile ID in the title. Showing it preserves control and does not pause actions.
 
 Do not bypass authentication challenges.
-Do not close the reserved IP-check tab.
+Network checks run in the browser background. Startup exposes one blank page that agents can navigate through MCP.
 
 ## Tool interface
 
@@ -99,3 +99,12 @@ Preserve profile IDs, saved data, and secret references. Do not edit global harn
 Profile-import `--profile` selectors remain supported.
 
 This skill is optional client guidance. Stelz does not load skills.
+
+## Location readiness
+
+For a proxied profile, Start checks location before launch and verifies the browser before Ready.
+Read `location` in status or a tool error. Follow its reason and next action.
+For missing location data, use the operator setup procedure. MCP does not download prerequisites.
+Use the CLI or UI to check a stopped profile without starting it.
+`profile_recheck` still requires the current controller handle and a running browser.
+Never bypass a location blocker or change a running browser's location settings.

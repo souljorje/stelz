@@ -15,7 +15,8 @@ These settings affect that profile's browser traffic. They do not change the cli
 5. Paste the provider's proxy details in **Proxy**, or leave it empty for direct networking.
 6. Enter an optional **Expected exit IP**. Leave it empty if no fixed address is required.
 7. Select **Save network**. Require `Network settings saved.`.
-8. Select **Start**. Run `stelz status work` to check the result.
+8. Select **Check connection**. Read **Location alignment** and resolve any blocker.
+9. Select **Start**. Run `stelz status work` to check the result.
 
 An unchanged proxy address preserves its saved authentication when you change only the expected IP.
 The UI shows the saved address without its username or password.
@@ -126,10 +127,18 @@ It describes proxy environment inputs, compatible reuse, and conflicts.
 
 ## IP check policy
 
-Proxy connections always require a successful browser-side IP check.
+Each new proxied browser requires a preflight check before launch. This check has a 30-second deadline.
+It checks the proxy exit IP, any expected IP, and the managed location data.
+**Ready to start** applies only to the checked inputs. Start repeats preflight with current inputs.
+Proxy connections also require a successful browser-side IP check.
+Before Ready, Stelz checks the browser timezone and language against the prepared settings.
+Geolocation coordinates are checked in the launch configuration. They are not browser-observed coordinates.
+Stelz does not grant websites location permission.
+A rotated exit is allowed only when its location settings and the expected-IP rule remain compatible.
+A failed initial check closes that startup attempt. It preserves native data and the failure reason.
 Direct connections require one only when you set an expected IP.
 A failed check blocks agent actions. Repair the connection, then use the recovery steps below.
-Keep the service's reserved IP-check tab open.
+The profile's private browser add-on performs checks in the background. No IP-check tab is required.
 
 Checks can reuse recent successful results. They do not guarantee continuous IP stability.
 See [IP check policy](configuration.md#ip-check-policy) for providers, cache timing, and routing limits.
@@ -137,7 +146,7 @@ See [IP check policy](configuration.md#ip-check-policy) for providers, cache tim
 ## Recover from a failed check
 
 1. Run `stelz doctor work` and `stelz status work`.
-2. Read `configuration`, `error`, and `checkFailure`.
+2. Read `location`, `configuration`, `error`, and `checkFailure`.
 3. Correct the provider connection without changing the running configuration, if possible.
 4. Run `stelz recheck work` after the connection works again.
 5. Require `verificationStatus: "verified"`.

@@ -155,6 +155,26 @@ Do not automate authentication challenges.
 Showing a window does not pause actions. Pause before manual work.
 If resume fails verification, use the next procedure. Release does not resume a paused profile.
 
+## Location alignment blocks Start
+
+Read **Location alignment** in the profile details, or run `stelz status work --json`.
+The `location` result includes the check phase, time, reason, and recovery action.
+A failed check remains visible after its startup attempt closes.
+
+| Problem | Action |
+| --- | --- |
+| Location data is missing, damaged, or incompatible | Safely stop profiles, run `stelz setup`, then select **Check again**. |
+| Proxy credentials are missing or rejected | Edit the proxy credentials, then check again. |
+| Proxy connection fails or times out | Check the provider connection, then check again. |
+| IP detection fails | Check again after the IP services respond. |
+| Expected IP does not match | Check the proxy route and expected IP setting. |
+| Exit IP has no complete location | Check the provider's exit location. Setup does not repair a missing location record. |
+| Browser location does not match | Check the route, then start again. Inspect logs if the failure repeats. |
+
+For a stopped profile, `stelz recheck work` runs preflight without starting a browser.
+A successful check shows **Ready to start**. Start repeats the check before launch.
+Do not delete the fingerprint or native data to repair location alignment.
+
 ## IP verification failed
 
 1. Run `stelz doctor work` and `stelz status work`.

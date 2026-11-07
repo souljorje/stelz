@@ -83,7 +83,9 @@ Results omit secret values.
 
 ## Browser lifecycle and diagnostics
 
-These commands print formatted JSON without a `--json` option.
+These commands print formatted JSON by default.
+Start, status, doctor, and recheck also accept `--json` for structured errors on stderr.
+Progress goes to stderr. JSON mode does not prompt.
 
 | Command | Scope | Result and effect |
 | --- | --- | --- |
@@ -94,7 +96,7 @@ These commands print formatted JSON without a `--json` option.
 | `stelz pause ID` | One profile for manual work | Blocks new actions and waits for current work. Keeps the browser and controller. |
 | `stelz resume ID` | One paused profile | Performs any required fresh IP check, then permits actions. Keeps the controller. |
 | `stelz release ID` | One profile for handoff | Releases the current controller after its actions finish. Prints `released` and `profileId`. Keeps the browser and phase. |
-| `stelz recheck ID` | One profile only | Performs any required fresh browser-side IP check. Prints verification state. Preserves a pause. |
+| `stelz recheck ID` | One profile only | Checks connection and location before launch for a stopped profile. Checks the browser for a running profile. Preserves a pause. |
 | `stelz stop ID` | Also accepts `all` | Stops the browser service after current actions finish. Prints observed state. Preserves saved data. |
 | `stelz recover ID` | One profile only | Archives an eligible process record. Prints state, `recovered: true`, and `archived` when recovery occurs. |
 
@@ -183,7 +185,10 @@ See [Client verification](clients.md#verify-the-connection) and [agent setup](bo
 | Any failed target in a lifecycle or status `all` operation | `1` | Successful targets still print their results. |
 
 `status` and `doctor` can exit `0` while reporting unhealthy state or failed checks.
-`start` can exit `0` with `phase: "verification_failed"`. That phase blocks browser actions.
+A new proxied lifetime must pass preflight and browser verification. A blocker makes `start` exit `1`.
+Repeated start preserves an existing lifetime, including its `verification_failed` state. That state blocks browser actions.
+Location failures with `--json` include `location.phase`, `code`, `message`, `nextAction`, and actual `browserStarted`.
+Status also reports separate network, location-resolution, and browser-verification outcomes.
 An MCP tool failure returns `isError: true` within the protocol. It does not necessarily end the MCP process.
 
 Profile commands with `--json` write errors in this form:
@@ -195,6 +200,6 @@ Profile commands with `--json` write errors in this form:
 Create codes are `not_initialized`, `invalid_input`, `conflict`, and `profile_unavailable`.
 Transfer codes are `cancelled`, `invalid_input`, `conflict`, `too_large`, and `transfer_failed`.
 An early configuration-loading failure can produce `profile_unavailable` for any profile command.
-Other CLI errors use plain stderr text.
+Lifecycle commands without `--json` use plain stderr text for errors.
 
 For implementation details, read [Architecture](development/architecture.md) and [Testing](development/testing.md).

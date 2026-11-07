@@ -92,7 +92,10 @@ stelz setup
 stelz ui --open
 ```
 
-Setup checks the browser and prepares the service runtime. It leaves the installed Camoufox app unchanged.
+Setup checks the browser and prepares the service runtime and location data. It leaves the installed Camoufox app unchanged.
+Setup reuses valid location data. A missing or damaged database requires a download.
+For a proxy, **Location alignment** shows known problems before Start. **Check connection** checks the route without launching a browser.
+Start always checks the current route again. **Ready to start** does not mean that a browser is running.
 An existing installation must have all profiles safely stopped before setup can replace its runtime.
 Do not stop unrelated work to repeat this guide. Reuse a working runtime instead.
 

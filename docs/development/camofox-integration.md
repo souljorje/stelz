@@ -12,7 +12,7 @@ The `camoufox-js` override makes Camofox use that same launcher version.
 Its `patchedDependencies` field selects the files under `patches/`.
 The upstream source commit is recorded in `src/versions.ts`.
 
-The patches cover eight compatibility areas:
+The patches cover nine compatibility areas:
 
 | Area | Purpose | Removal criterion |
 | --- | --- | --- |
@@ -23,6 +23,7 @@ The patches cover eight compatibility areas:
 | Proxy WebRTC policy | Disable WebRTC for proxied browsers. | Upstream enforces the same policy on every proxy browser start. |
 | Browser start | Use persistent profile and saved device handling. | Upstream provides equivalent persistent-context ownership and device replay. |
 | Context claim | Reuse the selected persistent profile context. | Upstream claims that context without creating a replacement. |
+| Initial page claim | Register the original blank page as the first managed tab. Protect startup with canonical page leases and a separate initialization deadline. | Upstream reuses and protects the native startup page without opening a duplicate. |
 | Native persistence guard | Keep Firefox in charge of persistent browser data. | The replacement leaves upstream storage snapshots disabled for native profiles. |
 
 Typing retains the tab lock until input finishes.
@@ -46,6 +47,20 @@ Keep exact versions until a separate compatibility review approves an upgrade.
 Update `src/browser/camofox-adapter.ts` when required prepared-source checks change.
 Its checks reject missing, duplicate, or changed matches.
 Setup validates prepared source. Setup does not rewrite it.
+
+## Location preparation and verification
+
+The pinned launcher supplies IP discovery and the MaxMind reader. Stelz does not add an IP provider.
+Its small integration patch accepts prepared location settings and a managed database path or reader.
+Stelz supplies the existing deterministic country-language policy. Valid zero coordinates remain valid.
+Camofox cannot retry a failed proxied launch with GeoIP disabled. It no longer grants blanket geolocation permission.
+
+The shared lifecycle path checks current inputs before reservation and again before server launch.
+A per-profile lock serializes checks. Network requests do not hold the global admission lock.
+Private result identities bind the resolved secrets, profile, policy, engine, launcher, and database.
+Public results contain no credential identities. Configuration changes invalidate old results.
+The plugin verifies IP, timezone, and languages before Ready. It checks geolocation as configured, not observed.
+Blank startup and MCP gating do not establish that Firefox sends no background website traffic.
 
 ## Runtime setup
 

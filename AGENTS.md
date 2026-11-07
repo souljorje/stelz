@@ -33,6 +33,9 @@ Do not migrate browser data or edit global harness configuration. Previously pla
 Keep profile state under `STELZ_HOME`. Never derive a profile from a client PID, conversation ID, or harness directory.
 Preserve existing profile IDs, data paths, and configured secret references.
 Reuse the upstream Camofox server and canonical browser arguments, with the required profile and control fields.
+Require fresh location preflight for each new proxied lifetime. Verify the browser before Ready or acquisition.
+Use `stelz setup` to prepare shared location data. Never download prerequisites during Start or MCP calls.
+A failed startup closes only its owned attempt and preserves the location failure and native data.
 
 Browser tasks must use fresh observations. Pause for human authentication in the same window.
 Do not bypass authentication challenges or write website-specific task scripts.

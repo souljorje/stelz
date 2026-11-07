@@ -143,10 +143,13 @@ A stopped profile can retain old status fields. Check `phase` and process owners
 
 ## IP check policy
 
-Every proxy requires a successful browser-side IP check. An expected IP adds an exact address requirement.
+Every new proxied lifetime first checks its route and managed location data. See [Location alignment](proxies.md#ip-check-policy).
+This preflight uses the pinned launcher's existing IP providers. It never authorizes a later start from cached network evidence.
+Each browser then requires a successful browser-side IP check. An expected IP adds an exact address requirement.
 A direct profile requires a check only when its effective expected IP is nonempty.
 Checks use the selected persistent browser and its configured route, including the proxy.
-Keep the service's reserved IP-check tab open.
+The profile's private add-on sends these requests in the browser background. Checks do not open or navigate visible pages.
+Startup retains one blank window and makes its page available through MCP.
 
 The first provider is ipify. Cloudflare trace is the independent fallback for failed requests or invalid responses.
 After fallback succeeds, later checks try that successful provider first.
@@ -160,7 +163,8 @@ Idle browsers do not poll IP providers. The first action after expiry must check
 
 Recognized browser proxy, DNS, or connection failures invalidate cached verification.
 The same action queue performs a fresh check. It does not replay the failed browser action.
-A failed check blocks browser actions and records `verification_failed`.
+A failed check in an existing session blocks browser actions and records `verification_failed`.
+A failed initial location check closes only that startup attempt and retains its `location` diagnostic.
 An expired successful verdict remains visible, but `verificationFresh` becomes false.
 See [Verification fields](#ip-verification-fields).
 
@@ -174,6 +178,15 @@ Stelz does not install host firewall or container egress rules.
 Saved device properties cannot override the current proxy security policy.
 Proxy locale uses the current GeoIP country's default language, unless an explicit upstream locale list takes precedence.
 See [Camofox integration](development/camofox-integration.md) for launch and locale details.
+
+## Managed location data
+
+`stelz setup` prepares one database under `runtime/geoip/` for all profiles.
+It checks the release SHA-256 and opens the database with the pinned reader before activation.
+The manifest records the release, content hash, database metadata, and acquisition time.
+Repeated setup reuses valid data without contacting its download service. Dataset age does not block startup.
+Setup stages replacements with the runtime. An interrupted download preserves the active runtime and database.
+All profiles must be safely stopped before setup. Start does not download missing data.
 
 ## Files and private state
 
