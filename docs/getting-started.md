@@ -57,6 +57,7 @@ By default, Stelz checks this location:
 For another location, set `CAMOUFOX_EXECUTABLE` to its absolute path in the service directory's `secrets.env`.
 Preserve other assignments and keep the file private.
 An environment variable with the same name takes precedence over the file.
+The `camoufox` command on PATH is the Python management CLI. Use the browser executable inside `Camoufox.app`.
 Use `file /absolute/path/to/camoufox` to check the executable's architecture.
 Keep an existing profile's compatible browser. Changing the browser can require a migration that Stelz does not provide.
 
@@ -65,15 +66,20 @@ Find the installed package and choose a new, unoccupied directory outside existi
 
 ```sh
 STELZ_PACKAGE="$(npm root --global)/stelz"
-CAMOUFOX_INSTALL_DIR="/absolute/new/camoufox-directory" \
+STELZ_BROWSER_DIR="/absolute/new/camoufox-directory"
+CAMOUFOX_INSTALL_DIR="$STELZ_BROWSER_DIR" \
   node "$STELZ_PACKAGE/node_modules/camoufox-js/dist/__main__.js" fetch
+CAMOUFOX_INSTALL_DIR="$STELZ_BROWSER_DIR" \
+  node --input-type=module -e \
+  'const { launchPath } = await import(process.argv[1]); console.log(launchPath());' \
+  "$STELZ_PACKAGE/node_modules/camoufox-js/dist/pkgman.js"
 ```
 
 Replace the example directory with your selected absolute path before running the command.
-Then add its executable to `secrets.env`:
+The downloader uses versioned directories. Add the printed executable path to `secrets.env`:
 
 ```dotenv
-CAMOUFOX_EXECUTABLE=/absolute/new/camoufox-directory/Camoufox.app/Contents/MacOS/camoufox
+CAMOUFOX_EXECUTABLE=/absolute/path/printed/by/launchPath
 ```
 
 The default secret file is `~/.local/share/stelz/secrets.env`.

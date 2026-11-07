@@ -7,7 +7,8 @@ See [Architecture](architecture.md) for the request path and service boundaries.
 ## Pinned dependencies and patches
 
 Bun applies committed compatibility patches during workspace installation.
-The root `package.json` pins Camofox (`@askjo/camofox-browser`) to `1.18.1` and `camoufox-js` to `0.11.5`.
+The root `package.json` pins Camofox (`@askjo/camofox-browser`) to `1.18.1` and `camoufox-js` to `0.13.0`.
+The `camoufox-js` override makes Camofox use that same launcher version.
 Its `patchedDependencies` field selects the files under `patches/`.
 The upstream source commit is recorded in `src/versions.ts`.
 
