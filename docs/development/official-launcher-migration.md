@@ -18,7 +18,7 @@ Replace `camoufox-js` with the official published TypeScript `camoufox` package.
 - proxy isolation, WebRTC restrictions, location preflight, and fail-closed network behavior;
 - no replay after any uncertain browser action, including direct or proxied actions, timeouts, disconnects, or unexpected exits.
 
-Preserve profile IDs, data paths, secret references, and saved valid pins. Do not change global harness configuration. Do not introduce Python runtime, a general framework, extra MCP controls, canvas fixes, engine migration, or support for incompatible existing engines and profile classes. An incompatible existing engine or contract profile class blocks cutover.
+Preserve profile IDs, data paths, secret references, and saved valid pins. Do not change global harness configuration. Do not introduce Python runtime, a general framework, extra MCP controls, canvas fixes, or implicit engine migration. Stelz supports only the paired engine in the launcher's `browser-pin.json`. The user approved dropping Camoufox 152. A profile pinned to another engine fails Start on the engine hash until an explicit [repair](#phase-5-explicit-repair) upgrades it. Startup never upgrades a profile.
 
 ## Execution protocol
 
@@ -33,7 +33,7 @@ Preserve profile IDs, data paths, secret references, and saved valid pins. Do no
 
 Every declared supported macOS class must appear in the Phase 3 matrix and produce a usable candidate under its required controls. An all-rejected corpus does not pass. A rejected or unresolved mandatory candidate must not be admitted. Keep existing valid pin bytes unchanged and use the same engine hash. Under fixed conditions, core observables, schemas, controller/queue ownership, and network behavior must have zero unexplained differences. Native canvas variation is allowed.
 
-The declared strata are fresh direct, fresh proxy, saved-valid direct, saved-valid proxy, and custom-compatible. Native verification in Phase 3 covers at least three lifetimes per supported class. Geometry tolerances remain engine- and mode-specific. They do not assume universal chrome geometry.
+The declared strata are fresh direct, fresh proxy, saved-valid direct, and saved-valid proxy on the paired engine. Native verification in Phase 3 covers at least three lifetimes per supported class. Window sizes are runtime values. Startup requires the page to report the real window exactly.
 
 The Phase 2 corpus has at least 500 candidates. Reconcile accepted, rejected, and unresolved counts to the total. The exact validator replay must reproduce the result. Every rejected or unresolved candidate is accounted for in the mandatory admission decision.
 
@@ -44,7 +44,7 @@ The Phase 2 corpus has at least 500 candidates. Reconcile accepted, rejected, an
 | 0 | Baseline, exact package evidence, support matrix, and preregistered tolerances | Metadata/provenance validator PASS. Independent Sol/high review PASS. Orchestrator PASS. Baseline report commit `f2fcac2d39f47a5eec9952d69afc57218015dc39`. Gate evidence: `.state/official-launcher-migration/phase0/phase0doc-validation.json` |
 | 1 | Independent fingerprint validator and check/import/export diagnostics | PASS. Core: `a43ba2fb671946b1c08869010f90a78e2363ae63`. Evidence: `.state/official-launcher-migration/phase1/final-phase1.json` |
 | 2 | Isolated candidate evidence for macOS | PASS (rescoped). Corpus 500/500 and exact replay. Native admission observed. See the [closeout](reports/official-launcher-phase2-2026-11-09.md). |
-| 3 | Prepared runtime, production cutover, and service contracts | Pending |
+| 3 | Prepared runtime, production cutover, and service contracts | In progress. Implementation checkpoint; acceptance remains blocked. See [current status](#phase-3-current-status). |
 | 4 | Merged into Phase 3 | — |
 | 5 | Explicit previewed fingerprint repair | Pending |
 | 6 | Installed-archive and real-world acceptance | Pending |
@@ -53,7 +53,7 @@ The Phase 2 corpus has at least 500 candidates. Reconcile accepted, rejected, an
 
 Add one shared validator for new, saved, effective, and serialized identities plus derived preferences. Add a JSON CLI fingerprint check with stable diagnostic and error codes. Import and export must expose diagnostics. Safe export remains available when a fingerprint is invalid.
 
-Validate definite contradictions and unknown mandatory checks. Block start for either. Do not reject advisory unknown fields when they remain plausible. Cover OS, UA, platform, architecture, backend GPU, WebGL preferences and renderer, screen and available screen, window and viewport geometry, pixel depth, DPR, schema, and engine hash. Use conservative rules. A macOS Direct3D mismatch is not a blanket NVIDIA ANGLE prohibition. Geometry rules are engine- and mode-specific, with no universal 86-pixel chrome height. Do not mutate existing pins.
+Validate definite contradictions and unknown mandatory checks. Block start for either. Do not reject advisory unknown fields when they remain plausible. Cover OS, UA, platform, architecture, backend GPU, WebGL preferences and renderer, screen and available screen, window and viewport geometry, pixel depth, DPR, schema, and engine hash. Use conservative rules. Phase 3 replaces the GPU and geometry rules with upstream coherence. Do not mutate existing pins.
 
 The per-profile lifecycle owner covers the attempt. Hold the global admission lock only for a short reservation or atomic commit section. Release it before launch, probing, or network readiness work. Reacquire it before final admission and recheck the profile instance and generation. Slow work stays under per-profile lifecycle ownership and must not depend on a held global lock or create parent/child deadlock.
 
@@ -66,19 +66,48 @@ Readiness is a controller-admission gate, not only a CLI start condition. Status
 
 ## Phase 2: compatibility evidence
 
-Done. The official candidate passed the corpus, exact replay, and native admission. The [closeout](reports/official-launcher-phase2-2026-11-09.md) classifies the open findings. Service-contract checks move to Phase 3, where the production code and the existing suites test them. The Python comparison is an optional, options-level diagnostic. The paired engine is outside this migration.
+Done. The official candidate passed the corpus, exact replay, and native admission. The [closeout](reports/official-launcher-phase2-2026-11-09.md) classifies the open findings. Service-contract checks move to Phase 3, where the production code and the existing suites test them. The Python comparison is an optional, options-level diagnostic.
 
 ## Phase 3: production cutover
 
 Phase 3 merges runtime provisioning and the production cutover into one atomic delivery on a branch.
 
-Provision the pinned browser, model, location, and other explicit runtime assets under `STELZ_HOME`. Setup must be atomic and idempotent. Do not assume npm contains the browser or model. Start, MCP calls, and repair must not download or write global caches. A missing asset fails with setup guidance. Keep explicit external executables read-only and resolve their resources from the bundle.
+Scope: the browser stays user-provided or explicit, and setup and launch reject an unpaired build. Setup provisions the fingerprint model and location data. Stelz keeps its own exit-IP check and location resolver. The official helpers memoize per proxy, cannot be cancelled, have no error codes, and download into the shared cache.
+
+Provision the model, location, and other explicit runtime assets under `STELZ_HOME`. Setup must be atomic and idempotent. Do not assume npm contains the browser or model. Start, MCP calls, and repair must not download or write global caches. A missing asset fails with setup guidance. Keep explicit external executables read-only and resolve their resources from the bundle.
 
 Use this pipeline: candidate, saved device replay, runtime policy and location, preferences, effective and serialized validation, launch, observable and network verification, new pin commit, Ready. Upstream warnings do not count as validation. Runtime fields do not become device pins. Coordinates must not grant the website geolocation permission. `firefoxUserPrefs` and `CAMOU_PREFS_*` must agree. Keep the Playwright `BrowserContext`/`Browser` contract with one original context and no `launchServer` workaround.
+
+Upstream `coherence.validate` owns device plausibility. It rejects every ANGLE renderer on macOS. The 86-pixel window-chrome rule only gives a warning: saved identities can predate it, and startup checks the real window. Stelz adds OS agreement for UA, platform, `oscpu`, and `userAgentData`. It also checks WebGL preferences, the pin schema, the engine hash, serialized equality, and runtime observations. The saved device fields overlay the launcher output after `coherence.apply`, so apply never changes a pin. Only `src/browser/camoufox.ts` imports camoufox internals. The exact version pin and its unit test protect those imports.
 
 Remove every `camoufox-js` import, transitive dependency, prepared manifest edge, and obsolete patch. Audit staging, manifests, native dependencies, `VirtualDisplay` and `xvfbArgs`, the GeoIP path and name, the retained Camofox downloader, and every patch. Do not add implicit fallback or location-disable retry.
 
 The validator runs `bun run check` and the existing real-browser suites: native, proxy, concurrency, typing, window close, windows, transfer, package, install, and location. They must cover clean, interrupted, repeated, and offline setup; every supported macOS class across three lifetimes; one blank window and cleanup of owned processes; parallel profiles; deadlines; uncertain actions; DNS; and the supported Node, Bun, and Playwright ranges. Retest the fresh-proxy scroll timeout.
+
+### Phase 3 current status
+
+The 9 November 2026 checkpoint uses launcher `0.5.8` with Camoufox `156.0.1-beta.36`.
+The implementation and static review are complete for this checkpoint. The acceptance gate has not passed.
+
+| Validation | Result |
+|---|---|
+| `bun run check` before the final error-message change | PASS |
+| Native persistence, two profiles across three lifetimes | PASS |
+| Package installation, with and without native dependency checks | PASS |
+| Location acceptance, two profiles across three lifetimes, including six scroll actions | PASS |
+| Actual window close, clean shutdown, explicit restart, and saved pin preservation | PASS |
+| Installed package acceptance with windows and proxy checks requested | FAIL in integration, before the later suites |
+| Three fresh integration runs with temporary protocol tracing | PASS; the intermittent failure remains unresolved |
+| Final error-message unit suite and build after tracing removal | PASS |
+
+The installed integration run timed out after 30 seconds in `camofox_scroll` after client crash and pause/resume checks.
+The uncertain action was not replayed. Passing diagnostic runs do not establish a fix or pass the package gate.
+The tested archive SHA-256 is `25dbfa2708e9cada28b3d601d50b89b5b456bd9d01092935d85ba47c2274459d`.
+That archive predates the final setup error-message change. The validation host used macOS arm64, Bun `1.4.4`, and Node `24.14.0`.
+
+Next, identify and fix the intermittent scroll timeout. Then complete the Phase 3 matrix against the final candidate.
+After Phase 3 passes, implement [Phase 5 repair](#phase-5-explicit-repair), then run [Phase 6 acceptance](#phase-6-acceptance-and-delivery).
+Phase 4 remains merged into Phase 3. Committing this checkpoint does not approve a release.
 
 ## Phase 5: explicit repair
 
@@ -86,7 +115,9 @@ Provide `profile fingerprint check --json`, `repair --preview --json`, and `repa
 
 The immutable preview shows exact changed bytes and profile, source, candidate, engine, runtime, generator, configuration, and policy hashes. Run a required disposable real-browser preflight before approval and bind the observed results and validity conditions. Apply rejects stale or missing evidence. The opaque ID cannot be replaced with an arbitrary path.
 
-A user approves the exact preview for a real profile. `setup --yes`, a generic CLI flag, or orchestrator sign-off is not identity approval. Back up atomically, journal, and replace only the exact candidate. Support idempotence and crash recovery. Make no engine change. REPLACE coupled GPU, WebGL, and dependent preference fields atomically when the approved identity change requires them. Preserve cookies, storage, IDB, proxy settings, and unrelated configuration.
+A user approves the exact preview for a real profile. `setup --yes`, a generic CLI flag, or orchestrator sign-off is not identity approval. Back up atomically, journal, and replace only the exact candidate. Support idempotence and crash recovery. An engine upgrade, such as from a 152 pin, is a repair: it pins the new engine hash and re-validates the identity on that engine. REPLACE coupled GPU, WebGL, and dependent preference fields atomically when the approved identity change requires them. Preserve cookies, storage, IDB, proxy settings, and unrelated configuration.
+
+Reuse upstream parts. `coherence.validate` finds the contradictions. `gpu-matches-os` has no upstream repair, so the seeded `sampleWebglForScreen` replaces only the coupled WebGL group. Store the seed in the preview. For an engine upgrade, check each saved field against the new engine's `properties.json` with `validateType`. `validateConfig` stops at the first error.
 
 ## Phase 6: acceptance and delivery
 
@@ -112,7 +143,7 @@ Check startup, window close, shutdown, and probe cleanup. Check prepared offline
 | 1 | `bun run check`, existing regression/integration entry points, PLANNED fingerprint validator replay | `.state/official-launcher-migration/phase1/` | Validator matrix, JSON diagnostics, lock and readiness tests pass |
 | 2 | Private candidate corpus, replay, and service prototype | `.state/official-launcher-migration/phase2/evidence/` | [Closeout](reports/official-launcher-phase2-2026-11-09.md) |
 | 3 | `bun run check` and the existing real-browser suites in [Phase 3](#phase-3-production-cutover) | `.state/official-launcher-migration/phase3/` | Atomic idempotent setup, no start downloads, and full contracts pass with no `camoufox-js` edge |
-| 5 | PLANNED repair preview, stale-preview, apply, and crash-recovery entries | `.state/official-launcher-migration/phase5/` | Exact approved bytes apply atomically without engine change |
+| 5 | PLANNED repair preview, stale-preview, apply, and crash-recovery entries | `.state/official-launcher-migration/phase5/` | Exact approved bytes apply atomically, including an approved engine upgrade |
 | 6 | `bun run check`, existing regression/integration entries, PLANNED installed-archive acceptance entries | `.state/official-launcher-migration/phase6/` | The unchanged candidate archive passes every required check |
 
 Each evidence directory records source commit, diff identity, relevant archive hashes, environment, commands, and pass/fail/unexecuted results. Exact commands that depend on an API may freeze before first execution. Mark those commands conditional. Do not pretend a later command was preregistered or already exists.
