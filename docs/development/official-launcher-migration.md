@@ -3,7 +3,7 @@
 ## Authority and status
 
 This document is the canonical contract for the approved migration. The original plan is context.
-Phase 0 passed its [gate](#phase-ledger). Phase 1 passed its gate. Phase 2 has not started.
+Phase 0 and Phase 1 passed their [gates](#phase-ledger). Phase 2 is BLOCKED; see the [compatibility report](reports/official-launcher-compatibility-2026-11-09.md).
 `main` is not release authority. Historical reports are context only. Do not mark a command passed unless supplied evidence proves it.
 
 ## Fixed objective
@@ -22,9 +22,9 @@ Preserve profile IDs, data paths, secret references, and saved valid pins. Do no
 
 ## Execution protocol
 
-- Phase workers use `gpt-6.1-terra` with `max`. All validation commands use `gpt-6-luna` with `low`. Each phase has a separate review with `gpt-6.1-sol` at `high`.
-- Each review checks code for DRY and YAGNI. Workers fix findings. The validator retests, then the reviewer checks again. The orchestrator owns the semantic gate.
-- Explorer may do broad discovery. Editors may make targeted edits and read diffs. They may not broaden exploration ad hoc.
+- Each phase uses exactly three agents: a `gpt-6.1-terra` worker at `max`, a `gpt-6.1-sol` reviewer at `high`, and a `gpt-6-luna` validator at `low`. Do not add agents.
+- The worker completes edits before review and validation. Return findings to the same worker. The same reviewer and validator recheck fixes. The orchestrator owns the semantic gate.
+- Review code for DRY and YAGNI. Fix concrete findings. Run required tests. Avoid speculative work.
 - No hidden model substitution is allowed.
 - No phase advances with missing required evidence. Human-authentication and real-agent checks occur only in Phase 6.
 
@@ -42,7 +42,7 @@ The Phase 2 corpus has at least 500 candidates. Reconcile accepted, rejected, an
 |---|---|---|
 | 0 | Baseline, exact package evidence, support matrix, and preregistered tolerances | Metadata/provenance validator PASS. Independent Sol/high review PASS. Orchestrator PASS. Baseline report commit `f2fcac2d39f47a5eec9952d69afc57218015dc39`. Gate evidence: `.state/official-launcher-migration/phase0/phase0doc-validation.json` |
 | 1 | Independent fingerprint validator and check/import/export diagnostics | PASS. Core: `a43ba2fb671946b1c08869010f90a78e2363ae63`. Evidence: `.state/official-launcher-migration/phase1/final-phase1.json` |
-| 2 | Isolated compatibility experiment across every supported class | NOT STARTED. Every required row is NOT RUN |
+| 2 | Isolated compatibility experiment across every supported class | BLOCKED. Saved-direct evidence is partial. The other required rows remain NOT RUN. See the [report](reports/official-launcher-compatibility-2026-11-09.md). |
 | 3 | Prepared runtime and pinned asset provisioning | Pending |
 | 4 | Narrow adapter and production dependency cutover | Pending |
 | 5 | Explicit previewed fingerprint repair | Pending |
@@ -61,7 +61,7 @@ Launch the original native context and observe identity, WebGL effects, and netw
 Reuse the existing `O_EXCL`, `fsync`, and atomic journal conventions. Clean up only owned processes on failure.
 Recover before or after pin commit without implicit restart or resampling. Phase 1 does not replace the launcher.
 
-Readiness is a controller-admission gate, not only a CLI start condition. Status and `initialized.json` must both prevent MCP acquisition until the pin commit is durable and the instance/generation recheck succeeds. Implementation may commit in the verified hook under the correct lock, or use startup-prepared state with a supervisor commit/ack. The architecture choice remains open.
+Readiness is a controller-admission gate, not only a CLI start condition. Status and `initialized.json` must both prevent MCP acquisition until the pin commit is durable and the instance/generation recheck succeeds. The supervisor rechecks the instance and generation and commits under the admission lock.
 
 ## Phase 2: compatibility evidence
 
@@ -97,6 +97,12 @@ A user approves the exact preview for a real profile. `setup --yes`, a generic C
 
 The validator runs `bun run check`, then one unchanged installed candidate archive in a clean consumer. A changed archive requires renewed acceptance. Check invalid pins, repair, and hash faults. Check two headed profiles through shared MCP, all 18 schemas, all nine tools, typing, ownership races, handoff, cookies/storage/IDB/preferences across three lifetimes, and duplicate starts and windows. Use a real agent in a fresh workspace with two TodoMVC profiles, creating the second in the same chat.
 
+Run `tests/qa/public-sites.ts` and its verdict reader in final acceptance only. Visit Fingerprint Playground first, then web scraping, Pixelscan, and Rebrowser. Reorder the existing runner before execution. Do not add site-specific task automation or detector-evasion patches.
+
+The root `.state/public-sites/2026-11-03T14-14-14-955Z-oQoH0c/report.json` records Playground, web scraping, and Rebrowser passes. Playground had a proxy warning, Rebrowser skipped 11 probes, and Pixelscan was inconclusive. The `2026-11-03T13-51-57-338Z-gyZa1G/report.json` records a separate Pixelscan pass. These signals are not a full-suite pass. The later `2026-11-03T14-47-34-732Z-fTkmqQ/report.json` records Playground high activity and an inconclusive Pixelscan.
+
+Require live results and preserve their snapshots and reports. Separate site, traffic, and transient effects from measured identity failures. Keep incomplete observations unresolved. Results do not promise future nondetection. Native canvas variation remains allowed.
+
 Keep profile B Ready and usable. With profile A already operational, block or interrupt A during proxy/location failure. Confirm B remains Ready and usable. Correct and recheck A as separate operations. Check proxy exit IP, DNS, WebRTC, and location fail-closed behavior. Also check that uncertain actions are never replayed.
 
 Always test pause, an actual human action in the same window, resume, and a fresh snapshot that proves the action. Authentication is conditional. Do not require a third-party login merely to complete the test.
@@ -109,7 +115,7 @@ Check startup, window close, shutdown, and probe cleanup. Check prepared offline
 |---|---|---|---|
 | 0 | Completed Phase 0 metadata collector | `.state/official-launcher-migration/phase0/baseline-evidence.json` | [Phase 0 gate](#phase-ledger) |
 | 1 | `bun run check`, existing regression/integration entry points, PLANNED fingerprint validator replay | `.state/official-launcher-migration/phase1/` | Validator matrix, JSON diagnostics, lock and readiness tests pass |
-| 2 | PLANNED compatibility runner and exact validator replay | `.state/official-launcher-migration/phase2/` | Every required row and preregistered corpus criterion passes |
+| 2 | Private options and service probes; corpus replay NOT RUN | `.state/official-launcher-migration/phase2/` | Every required row and preregistered corpus criterion passes; currently BLOCKED |
 | 3 | PLANNED provisioning, interruption, repetition, and offline entries | `.state/official-launcher-migration/phase3/` | Atomic idempotent setup and no-start-download checks pass |
 | 4 | `bun run check`, existing regression/integration entry points, PLANNED adapter and installed-consumer entries | `.state/official-launcher-migration/phase4/` | Full contracts pass with no `camoufox-js` edge |
 | 5 | PLANNED repair preview, stale-preview, apply, and crash-recovery entries | `.state/official-launcher-migration/phase5/` | Exact approved bytes apply atomically without engine change |
