@@ -47,6 +47,10 @@ async function withTabLock(tabId, operation, timeoutMs) {
     // Stelz owns the deadline for typing. Keep its tab lock until input settles.
     return await (timeoutMs === null ? operation() : withTimeout(operation(), timeoutMs, 'action'));
 }
+async function scrollRoute(tabState, isVertical, delta) {
+      await tabState.page.bringToFront();
+      await tabState.page.mouse.wheel(isVertical ? 0 : delta, isVertical ? delta : 0);
+}
 const options = { os: hostOS,
         window: [1200, 800],
         screen: { minWidth: 1280, minHeight: 900, maxWidth: 1920, maxHeight: 1200 },

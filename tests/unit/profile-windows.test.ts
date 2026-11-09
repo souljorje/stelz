@@ -137,7 +137,7 @@ test("startup geometry binds one fresh blank tab to its privileged window", asyn
   expect(f.snapshot().windows[0]).not.toHaveProperty("width");
 });
 
-test("startup geometry rejects ambiguous, stale, incomplete, and missing evidence", async () => {
+test("startup geometry waits for complete fresh evidence without extending its deadline", async () => {
   const f = fixture(); f.phase("starting");
   const token = "stelz-startup:11111111-1111-1111-1111-111111111111";
   const tab = { id: 10, title: token, url: "about:blank", active: true, width: 1200, height: 740, zoom: 1 };
@@ -147,14 +147,29 @@ test("startup geometry rejects ambiguous, stale, incomplete, and missing evidenc
   await expect(ambiguous).rejects.toThrow("ambiguous");
   const incomplete = f.observeStartup(token);
   f.exchange({ instanceId: "lifetime-a", sampledAt: 10_000, windows: [{ ...window, tabs: [{ ...tab, zoom: null }] }] });
-  await expect(incomplete).rejects.toThrow("incomplete or stale");
+  f.exchange({ instanceId: "lifetime-a", sampledAt: 7_000, windows: [window] });
+  f.exchange({ instanceId: "lifetime-a", sampledAt: 10_000, windows: [window] });
+  expect(await incomplete).toMatchObject({ zoom: 1, sampledAt: 10_000 });
   const stale = f.observeStartup(token);
   f.advance(8001);
   f.exchange({ instanceId: "lifetime-a", sampledAt: 10_000, windows: [window] });
   await expect(stale).rejects.toThrow("incomplete or stale");
   const missing = f.observeStartup(token, 10);
-  f.exchange(f.inventory);
+  for (let attempt = 0; attempt < 3; attempt++)
+    f.exchange({ instanceId: "lifetime-a", sampledAt: 18_001, windows: [{ ...window, tabs: [{ ...tab, zoom: null }] }] });
   await expect(missing).rejects.toThrow("unavailable");
+  f.exchange({ instanceId: "lifetime-a", sampledAt: 18_001, windows: [window] });
+  const absent = f.observeStartup(token, 10);
+  f.exchange(f.inventory);
+  await expect(absent).rejects.toThrow("unavailable");
+  for (const invalid of [{ ...tab, url: "https://example.test/" }, { ...tab, active: false }]) {
+    const changed = f.observeStartup(token);
+    f.exchange({ instanceId: "lifetime-a", sampledAt: 18_001, windows: [{ ...window, tabs: [{ ...invalid, zoom: null }] }] });
+    await expect(changed).rejects.toThrow("incomplete or stale");
+  }
+  const changedPhase = f.observeStartup(token); f.phase("ready");
+  f.exchange({ instanceId: "lifetime-a", sampledAt: 18_001, windows: [window] });
+  await expect(changedPhase).rejects.toThrow("incomplete or stale");
 });
 
 test("the extension reports startup window, tab, and zoom measurements", async () => {
@@ -176,6 +191,32 @@ test("the extension reports startup window, tab, and zoom measurements", async (
   expect(await waiting).toMatchObject({ windowId: 1, tabId: 10, outerWidth: 1200, outerHeight: 800,
     viewportWidth: 1200, viewportHeight: 740, zoom: 1 });
   expect(zoomed).toEqual([10, 10]);
+});
+
+test("startup waits when the extension observes a window resize before its zoom confirmation", async () => {
+  const f = fixture(); f.phase("starting");
+  const token = "stelz-startup:11111111-1111-1111-1111-111111111111";
+  const window = { id: 1, title: "Window", focused: true, state: "normal", width: 1200, height: 800,
+    tabs: [{ id: 10, title: token, url: "about:blank", active: true, width: 1200, height: 740 }] };
+  let reads = 0, tick: (() => Promise<void>) | undefined, settled = false;
+  const event = { addListener() {} };
+  const browser = { windows: { getAll: async () => {
+    const value = structuredClone(window);
+    if (reads++ > 0) { value.width = 1180; value.tabs[0]!.width = 1180; }
+    return [value];
+  }, get: async () => window, getLastFocused: async () => window, update: async () => {}, onCreated: event, onFocusChanged: event },
+  tabs: { update: async () => {}, getZoom: async () => 1 }, theme: { update: async () => {} },
+  browserAction: Object.fromEntries(["setTitle", "setBadgeText", "setBadgeBackgroundColor", "setBadgeTextColor"].map(name => [name, async () => {}])) };
+  const waiting = f.observeStartup(token);
+  void waiting.then(() => { settled = true; }, () => { settled = true; });
+  runInNewContext(readFileSync(join(f.extensionPath, "background.js"), "utf8"), { browser, AbortSignal, TextEncoder, Date: { now: () => 10_000 },
+    setTimeout: (callback: () => Promise<void>) => { tick = callback; }, fetch: async (_url: string, options: RequestInit) => {
+      f.exchange(JSON.parse(String(options.body))); return { ok: true, json: async () => ({}) };
+    } });
+  for (let n = 0; n < 30 && !tick; n++) await Bun.sleep(1);
+  expect(tick).toBeDefined(); expect(settled).toBe(false);
+  await tick!();
+  expect(await waiting).toMatchObject({ outerWidth: 1180, viewportWidth: 1180, zoom: 1 });
 });
 
 test("the generated background script labels every window and restores a selected minimized page", async () => {

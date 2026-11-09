@@ -106,12 +106,15 @@ try {
   assert(acquired, "The service did not release the dead controller after its action");
   await pendingAction; await checkSamePage(d.client);
   report.push({ check: "A crashed MCP client retains its action lock until the service finishes the action", result: "passed" });
+  // A tab ID must keep routing input to the original page after another tab opens.
+  const foreground = await call(d.client, "camofox_create_tab", { url: pageServer.url });
   await call(d.client, "profile_pause");
   await rejection(d.client, "camofox_click", { tabId: tabs["profile-01"], selector: "#human" });
   await call(d.client, "profile_resume");
   await call(d.client, "camofox_snapshot", { tabId: tabs["profile-01"] });
   await call(d.client, "camofox_scroll", { tabId: tabs["profile-01"], direction: "down", amount: 100 });
   await checkSamePage(d.client);
+  await call(d.client, "camofox_close_tab", { tabId: foreground.tabId });
   report.push({ check: "Pause and resume keep the selected browser", result: "passed" });
   await d.client.close(); await second.client.close();
   const pins = { "profile-01": pin("profile-01"), "profile-02": pin("profile-02") };

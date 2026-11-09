@@ -23,6 +23,9 @@ export function assertBundledPatches(upstream: string) {
     "const externalCamoufox = null; // stelz: the plugin passes the executable to the official launcher.");
   check(join(upstream, "server.js"), "get xvfb_args() {", "constructor() { super(false, DEFAULT_VIRTUAL_DISPLAY_RESOLUTION); }");
   check(join(upstream, "server.js"),
+    "      const delta = (direction === 'up' || direction === 'left') ? -amount : amount;\n      await tabState.page.mouse.wheel(isVertical ? 0 : delta, isVertical ? delta : 0);",
+    "      await tabState.page.bringToFront();\n      await tabState.page.mouse.wheel(isVertical ? 0 : delta, isVertical ? delta : 0);");
+  check(join(upstream, "server.js"),
     "    return await withTimeout(operation(), timeoutMs, 'action');",
     "    // Stelz owns the deadline for typing. Keep its tab lock until input settles.\n    return await (timeoutMs === null ? operation() : withTimeout(operation(), timeoutMs, 'action'));");
   check(join(upstream, "server.js"),

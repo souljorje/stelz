@@ -118,12 +118,14 @@ export function createProfileWindows(options: {
         const { window, tab } = matches[0]!;
         const positive = (number: unknown): number is number => typeof number === "number" && Number.isFinite(number) && number > 0;
         if (options.phase() !== "starting" || receivedAt < pendingStartup.startedAt || receivedAt > pendingStartup.deadline ||
-            typeof value.sampledAt !== "number" || !Number.isFinite(value.sampledAt) || value.sampledAt > receivedAt ||
-            receivedAt - value.sampledAt > 2000 || value.sampledAt < pendingStartup.startedAt - 2000 ||
-            tab.url !== "about:blank" || tab.active !== true || !integer(window.id) || !integer(tab.id) || typeof window.state !== "string" ||
-            !positive(window.width) || !positive(window.height) || !positive(tab.width) || !positive(tab.height) || !positive(tab.zoom))
+            tab.url !== "about:blank" || tab.active !== true || !integer(window.id) || !integer(tab.id) || typeof window.state !== "string")
           pendingStartup.reject(Error("Startup window geometry evidence is incomplete or stale."));
-        else pendingStartup.resolve({ instanceId, windowId: window.id, tabId: tab.id, state: window.state,
+        // The extension omits zoom when the window changes between its two reads.
+        // Wait for complete evidence within the original deadline; never admit a partial or stale sample.
+        else if (typeof value.sampledAt === "number" && Number.isFinite(value.sampledAt) && value.sampledAt <= receivedAt &&
+            receivedAt - value.sampledAt <= 2000 && value.sampledAt >= pendingStartup.startedAt - 2000 &&
+            positive(window.width) && positive(window.height) && positive(tab.width) && positive(tab.height) && positive(tab.zoom))
+          pendingStartup.resolve({ instanceId, windowId: window.id, tabId: tab.id, state: window.state,
           outerWidth: window.width, outerHeight: window.height, viewportWidth: tab.width, viewportHeight: tab.height,
           zoom: tab.zoom, sampledAt: value.sampledAt, receivedAt });
       }

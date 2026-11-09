@@ -145,6 +145,18 @@ try {
   for (const result of interleaved) if (result.status === "rejected") throw result.reason;
   report.checks.push("Cookie, localStorage, and IndexedDB markers remain isolated across three profiles");
 
+  const parallelWheels = await Promise.allSettled(ids.map(async id => {
+    const foreground = await call(client, "camofox_create_tab", { profileId: id, url: site!.url });
+    const tabId = tabs.get(id)!;
+    await call(client, "camofox_snapshot", { profileId: id, tabId });
+    await call(client, "camofox_scroll", { profileId: id, tabId, direction: "down", amount: 200 });
+    const observed = await call(client, "camofox_snapshot", { profileId: id, tabId });
+    assert(String(observed.snapshot).includes(`Storage marker: ${id}`), `${id}: background-tab scroll lost profile state`);
+    await call(client, "camofox_close_tab", { profileId: id, tabId: foreground.tabId });
+  }));
+  for (const result of parallelWheels) if (result.status === "rejected") throw result.reason;
+  report.checks.push("Parallel profiles scroll their original tabs after opening another tab, with isolated page state");
+
   const first = ids[0]!, second = ids[1]!, competitor = await connect();
   const page = tabs.get(first)!;
   await call(client, "camofox_scroll", { profileId: first, tabId: page, direction: "down", amount: 200 });
