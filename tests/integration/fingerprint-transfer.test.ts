@@ -60,7 +60,7 @@ test("invalid identity exports with diagnostics and imports exact bytes with sel
   expect(exported.json.fingerprintDiagnostics).toContainEqual({ sourceId: "empty", fingerprint: { status: "uninitialized" } });
   const work = exported.json.fingerprintDiagnostics.find((item: { sourceId: string }) => item.sourceId === "work");
   expect(work.fingerprint).toMatchObject({ status: "checked", validation: { staticValid: false, engineSha256: "PASS", runtime: "NOT_RUN", admissionBlocked: true } });
-  expect(work.fingerprint.validation.diagnostics).toContainEqual(expect.objectContaining({ code: "webgl.renderer.direct3d_on_macos" }));
+  expect(work.fingerprint.validation.diagnostics).toContainEqual(expect.objectContaining({ code: "coherence.gpu-matches-os" }));
   expect(exported.out).not.toMatch(/private-user|private-secret|private session/);
   expect(readFileSync(join(from.directory, "profiles/work/fingerprint.json"), "utf8")).toBe(from.pin);
 

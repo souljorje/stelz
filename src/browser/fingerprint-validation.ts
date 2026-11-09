@@ -1,9 +1,5 @@
-/** Pure fingerprint checks. This module must not load launchers or files. */
-
-export type SerializedFingerprint =
-  | string
-  | readonly string[]
-  | Readonly<Record<string, string>>;
+/** Pure fingerprint checks. Upstream coherence owns device plausibility; Stelz adds OS agreement and pin checks. */
+import { coherenceViolations } from "./camoufox.ts";
 
 export type DiagnosticSeverity = "error" | "warning";
 export type CheckStatus = "PASS" | "FAIL" | "NOT_RUN" | "NOT_APPLICABLE";
@@ -20,10 +16,8 @@ export interface FingerprintValidationInput {
   readonly pin?: unknown;
   readonly newIdentity?: unknown;
   readonly effectiveIdentity?: unknown;
-  readonly serialized?: SerializedFingerprint;
   readonly newPreferences?: unknown;
   readonly effectivePreferences?: unknown;
-  readonly serializedPreferences?: unknown;
 }
 
 export interface FingerprintValidationOptions {
@@ -58,12 +52,10 @@ type CheckKind = "schema" | "identity" | "engine";
 type InternalDiagnostic = FingerprintDiagnostic & { readonly kind: CheckKind };
 type RecordValue = Readonly<Record<string, unknown>>;
 type OsFamily = "android" | "chromeos" | "ios" | "linux" | "macos" | "windows";
-type Architecture = "arm" | "x86";
+const COHERENCE_OS: Partial<Record<OsFamily, string>> = { macos: "mac", windows: "win", linux: "lin" };
 
 const PIN_VERSION = 2;
 const ENGINE_SHA256 = /^[0-9a-f]{64}$/;
-const CHUNK_NAME = /^CAMOU_CONFIG_([1-9]\d*)$/;
-const DIRECT3D = /\b(?:direct3d(?:9|10|11|12)?|d3d(?:9|10|11|12)?)\b|\b(?:vs|ps)_[0-9]+_[0-9]+\b/i;
 const RUNTIME_PATHS = [
   "navigator.userAgent",
   "navigator.platform",
@@ -174,15 +166,6 @@ function compatibleOs(left: OsFamily, right: OsFamily): boolean {
   return false;
 }
 
-function classifyArchitecture(value: string): Architecture | undefined {
-  const normalized = value.trim().toLowerCase();
-  if (/^(?:arm|arm64|aarch64|armv[6-9][a-z0-9_-]*)$/.test(normalized)) return "arm";
-  if (/^(?:x86|x64|x86_64|amd64|i[3-6]86|win32|win64|wow64)$/.test(normalized)) return "x86";
-  if (/aarch64|\barm64\b|\barmv[6-9]/.test(normalized)) return "arm";
-  if (/\bx86_64\b|\bx64\b|\bamd64\b|\bi[3-6]86\b|\bwin64\b|\bwow64\b/.test(normalized)) return "x86";
-  return undefined;
-}
-
 function checkString(
   identity: RecordValue,
   key: string,
@@ -227,7 +210,6 @@ function validateIdentity(identity: unknown, prefix: string, diagnostics: Intern
   }
   const platformValue = checkString(identity, "navigator.platform", prefix, diagnostics);
   const oscpu = checkString(identity, "navigator.oscpu", prefix, diagnostics);
-  const architectureValue = checkString(identity, "navigator.architecture", prefix, diagnostics);
 
   let userAgentData: RecordValue | undefined;
   if (hasOwn(identity, "navigator.userAgentData")) {
@@ -239,9 +221,6 @@ function validateIdentity(identity: unknown, prefix: string, diagnostics: Intern
     }
   }
   const userAgentDataPlatform = userAgentData ? checkString(userAgentData, "platform", `${prefix}navigator.userAgentData.`, diagnostics) : undefined;
-  const userAgentDataArchitecture = userAgentData
-    ? checkString(userAgentData, "architecture", `${prefix}navigator.userAgentData.`, diagnostics)
-    : undefined;
 
   const userAgentOs = userAgent ? detectUserAgentOs(userAgent) : undefined;
   if (userAgent && !userAgentOs) {
@@ -270,45 +249,9 @@ function validateIdentity(identity: unknown, prefix: string, diagnostics: Intern
     }
   }
 
-  const explicitArchitectures = [
-    ["navigator.architecture", architectureValue],
-    ["navigator.userAgentData.architecture", userAgentDataArchitecture],
-  ] as const;
-  const knownArchitectures: { path: string; family: Architecture }[] = [];
-  for (const [path, value] of explicitArchitectures) {
-    if (!value) continue;
-    const family = classifyArchitecture(value);
-    if (!family) {
-      add(diagnostics, "identity", "identity.architecture.unknown", `${prefix}${path}`, "warning", "The architecture is not a known form.");
-    } else {
-      knownArchitectures.push({ path, family });
-    }
-  }
-  if (userAgent) {
-    const userAgentArchitecture = classifyArchitecture(userAgent);
-    if (userAgentArchitecture) knownArchitectures.push({ path: "navigator.userAgent", family: userAgentArchitecture });
-  }
-  if (knownArchitectures.length > 1) {
-    const first = knownArchitectures[0]!;
-    for (const current of knownArchitectures.slice(1)) {
-      if (first.family !== current.family) {
-        add(diagnostics, "identity", "identity.architecture.mismatch", `${prefix}${current.path}`, "error", "The architecture disagrees with another identity field.");
-      }
-    }
-  }
-
-  const screenWidth = checkPositiveNumber(identity, "screen.width", prefix, diagnostics);
-  const screenHeight = checkPositiveNumber(identity, "screen.height", prefix, diagnostics);
-  const availWidth = checkPositiveNumber(identity, "screen.availWidth", prefix, diagnostics);
-  const availHeight = checkPositiveNumber(identity, "screen.availHeight", prefix, diagnostics);
+  for (const key of ["screen.width", "screen.height", "screen.availWidth", "screen.availHeight"]) checkPositiveNumber(identity, key, prefix, diagnostics);
   const colorDepth = checkPositiveNumber(identity, "screen.colorDepth", prefix, diagnostics);
   const pixelDepth = checkPositiveNumber(identity, "screen.pixelDepth", prefix, diagnostics);
-  if (screenWidth !== undefined && availWidth !== undefined && availWidth > screenWidth) {
-    add(diagnostics, "identity", "screen.available.width.invalid", `${prefix}screen.availWidth`, "error", "The available width exceeds the screen width.");
-  }
-  if (screenHeight !== undefined && availHeight !== undefined && availHeight > screenHeight) {
-    add(diagnostics, "identity", "screen.available.height.invalid", `${prefix}screen.availHeight`, "error", "The available height exceeds the screen height.");
-  }
   if (colorDepth !== undefined && pixelDepth !== undefined && colorDepth !== pixelDepth) {
     add(diagnostics, "identity", "screen.depth.mismatch", `${prefix}screen.pixelDepth`, "error", "The pixel depth disagrees with the color depth.");
   }
@@ -327,15 +270,23 @@ function validateIdentity(identity: unknown, prefix: string, diagnostics: Intern
   checkPositiveNumber(identity, "navigator.hardwareConcurrency", prefix, diagnostics);
   checkPositiveNumber(identity, "navigator.deviceMemory", prefix, diagnostics, "finite");
 
-  const macOs = userAgentOs === "macos" || (oscpu ? detectOscpuOs(oscpu) === "macos" : false);
-  for (const prefixName of ["webGl:", "webGl2:"]) {
-    for (const suffix of ["vendor", "renderer", "version"]) {
-      const key = `${prefixName}${suffix}`;
-      const value = checkString(identity, key, prefix, diagnostics);
-      if (macOs && suffix === "renderer" && value && DIRECT3D.test(value)) {
-        add(diagnostics, "identity", "webgl.renderer.direct3d_on_macos", `${prefix}${key}`, "error", "A macOS GPU renderer cannot report a Direct3D backend.");
-      }
+  // Upstream rules cover GPU, cores, color depth, touch, DPR, screen shape, available bounds, and architecture.
+  // Window chrome is advisory: saved identities may predate the rule, and the real window is checked at startup.
+  const targetOs = (userAgentOs && COHERENCE_OS[userAgentOs]) ?? "";
+  const violations = coherenceViolations(identity, targetOs);
+  for (const { rule, detail } of violations) {
+    add(diagnostics, "identity", `coherence.${rule}`, prefix.slice(0, -1), rule === "window-chrome" ? "warning" : "error", detail);
+  }
+  // Coherence reads the WebGL1 renderer only. Check a distinct WebGL2 renderer against the same device rules.
+  if (typeof identity["webGl2:renderer"] === "string" && identity["webGl2:renderer"] !== identity["webGl:renderer"]) {
+    const webGl2 = { ...identity, "webGl:renderer": identity["webGl2:renderer"] };
+    for (const { rule, detail } of coherenceViolations(webGl2, targetOs)) {
+      if (violations.some(existing => existing.rule === rule && existing.detail === detail)) continue;
+      add(diagnostics, "identity", `coherence.${rule}`, `${prefix}webGl2:renderer`, rule === "window-chrome" ? "warning" : "error", detail);
     }
+  }
+  for (const prefixName of ["webGl:", "webGl2:"]) {
+    for (const suffix of ["vendor", "renderer", "version"]) checkString(identity, `${prefixName}${suffix}`, prefix, diagnostics);
     if (hasOwn(identity, `${prefixName}parameters`) && !isRecord(identity[`${prefixName}parameters`])) {
       add(diagnostics, "schema", "webgl.parameters.object", `${prefix}${prefixName}parameters`, "error", "The WebGL parameters must be an object.");
     }
@@ -385,38 +336,6 @@ function validatePreferences(
   }
 }
 
-function decodeSerialized(serialized: unknown): unknown {
-  let text: string;
-  if (typeof serialized === "string") {
-    text = serialized;
-  } else if (Array.isArray(serialized)) {
-    if (serialized.some(chunk => typeof chunk !== "string")) throw new Error("Every serialized fingerprint chunk must be a string.");
-    text = serialized.join("");
-  } else if (isRecord(serialized)) {
-    const chunks: { index: number; value: unknown }[] = [];
-    for (const [name, value] of Object.entries(serialized)) {
-      const match = CHUNK_NAME.exec(name);
-      if (match) chunks.push({ index: Number(match[1]), value });
-    }
-    chunks.sort((a, b) => a.index - b.index);
-    if (!chunks.length) throw new Error("No CAMOU_CONFIG chunks are present.");
-    if (chunks.some((chunk, index) => chunk.index !== index + 1)) throw new Error("CAMOU_CONFIG chunks must be consecutive and start at 1.");
-    const values: string[] = [];
-    for (const chunk of chunks) {
-      if (typeof chunk.value !== "string") throw new Error("Every CAMOU_CONFIG chunk must be a string.");
-      values.push(chunk.value);
-    }
-    text = values.join("");
-  } else {
-    throw new Error("The serialized fingerprint must be a JSON string, string array, or CAMOU_CONFIG object.");
-  }
-  try {
-    return JSON.parse(text) as unknown;
-  } catch {
-    throw new Error("The serialized fingerprint is not valid JSON.");
-  }
-}
-
 function deepEqual(left: unknown, right: unknown): boolean {
   if (Object.is(left, right)) return true;
   if (Array.isArray(left) || Array.isArray(right)) {
@@ -431,7 +350,7 @@ function deepEqual(left: unknown, right: unknown): boolean {
   );
 }
 
-/** Validate pin, candidate, effective, and serialized forms without normalization. */
+/** Validate pin, candidate, and effective forms without normalization. */
 export function validateFingerprint(
   input: FingerprintValidationInput,
   options: FingerprintValidationOptions = {},
@@ -442,8 +361,6 @@ export function validateFingerprint(
   let pinEngineValid = false;
   let pinEngineValue: string | undefined;
   let pinConfig: RecordValue | undefined;
-  let effectiveIdentity: RecordValue | undefined;
-  let serializedIdentity: unknown;
 
   if (!isRecord(input)) {
     add(diagnostics, "schema", "input.object", "input", "error", "The validator input must be an object.");
@@ -489,40 +406,15 @@ export function validateFingerprint(
     if (hasOwn(input, "effectiveIdentity")) {
       sourceCount++;
       validateIdentity(input.effectiveIdentity, "effective.", diagnostics);
-      if (isRecord(input.effectiveIdentity)) {
-        effectiveIdentity = input.effectiveIdentity;
-        if (hasOwn(input, "effectivePreferences") && input.effectivePreferences !== undefined) {
-          validatePreferences(input.effectivePreferences, "effectivePreferences.", input.effectiveIdentity, diagnostics);
-        }
+      if (isRecord(input.effectiveIdentity) && hasOwn(input, "effectivePreferences") && input.effectivePreferences !== undefined) {
+        validatePreferences(input.effectivePreferences, "effectivePreferences.", input.effectiveIdentity, diagnostics);
       }
     } else if (hasOwn(input, "effectivePreferences") && input.effectivePreferences !== undefined) {
       add(diagnostics, "schema", "effectivePreferences.unbound", "effectivePreferences", "error", "Effective preferences need an effective identity.");
     }
 
-    if (hasOwn(input, "serialized")) {
-      sourceCount++;
-      try {
-        serializedIdentity = decodeSerialized(input.serialized);
-        validateIdentity(serializedIdentity, "serialized.", diagnostics);
-        if (isRecord(serializedIdentity) && hasOwn(input, "serializedPreferences") && input.serializedPreferences !== undefined) {
-          validatePreferences(input.serializedPreferences, "serializedPreferences.", serializedIdentity, diagnostics);
-        }
-      } catch (error) {
-        add(diagnostics, "schema", "serialized.parse", "serialized", "error",
-          error instanceof Error ? error.message : "The serialized fingerprint is invalid.");
-        if (hasOwn(input, "serializedPreferences") && input.serializedPreferences !== undefined) {
-          validatePreferences(input.serializedPreferences, "serializedPreferences.", {}, diagnostics);
-        }
-      }
-    } else if (hasOwn(input, "serializedPreferences") && input.serializedPreferences !== undefined) {
-      add(diagnostics, "schema", "serializedPreferences.unbound", "serializedPreferences", "error", "Serialized preferences need a serialized identity.");
-    }
-
-    if (effectiveIdentity && serializedIdentity !== undefined && !deepEqual(effectiveIdentity, serializedIdentity)) {
-      add(diagnostics, "schema", "serialized.identity.mismatch", "serialized", "error", "The serialized identity differs from the effective identity.");
-    }
     if (sourceCount === 0) {
-      add(diagnostics, "schema", "input.source.missing", "input", "error", "The validator needs a pin, identity, or serialized fingerprint.");
+      add(diagnostics, "schema", "input.source.missing", "input", "error", "The validator needs a pin or an identity.");
     }
   }
 
@@ -589,17 +481,6 @@ export function validateEffectiveFingerprint(
   return validateFingerprint({
     effectiveIdentity: identity,
     ...(preferences === undefined ? {} : { effectivePreferences: preferences }),
-  }, options);
-}
-
-export function validateSerializedFingerprint(
-  serialized: SerializedFingerprint,
-  preferences?: unknown,
-  options: FingerprintValidationOptions = {},
-): FingerprintValidationResult {
-  return validateFingerprint({
-    serialized,
-    ...(preferences === undefined ? {} : { serializedPreferences: preferences }),
   }, options);
 }
 

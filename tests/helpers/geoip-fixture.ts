@@ -1,7 +1,7 @@
-import { mkdirSync, writeFileSync, realpathSync, symlinkSync, existsSync, appendFileSync } from "node:fs";
-import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { mkdirSync, writeFileSync, existsSync, appendFileSync } from "node:fs";
+import { join } from "node:path";
+import { zstdCompressSync } from "node:zlib";
+import { fingerprintModel } from "../../src/browser/camoufox.ts";
 import { hash } from "../../src/browser/location.ts";
 import { UPSTREAM_VERSION } from "../../src/versions.ts";
 
@@ -31,18 +31,23 @@ export function managedFixture(runtime: string, bytes = geoipFixture()) {
   writeFileSync(join(geoip, "manifest.json"), JSON.stringify({ version: 1, sha256: hash(bytes), release: "fixture",
     acquiredAt: "2026-11-07T00:00:00Z", databaseType: "GeoLite2-City", buildEpoch: "2023-11-14T22:13:20.000Z" }), { mode: 0o600 });
 }
-export function fixtureLauncher(home: string, ipCode = 'return "198.51.100.10";') {
-  const upstream = join(home, "runtime", `camofox-${UPSTREAM_VERSION}`), launcher = join(upstream, "node_modules/camoufox-js");
-  const actual = dirname(realpathSync(createRequire(import.meta.url).resolve("camoufox-js/package.json")));
-  mkdirSync(join(launcher, "dist"), { recursive: true });
-  writeFileSync(join(launcher, "package.json"), '{"name":"camoufox-js","type":"module"}');
-  symlinkSync(dirname(actual), join(launcher, "node_modules"), "dir");
-  writeFileSync(join(launcher, "dist/locale.js"), `import { getGeolocation as resolve } from ${JSON.stringify(pathToFileURL(join(actual, "dist/locale.js")).href)};\nexport async function getGeolocation(ip, options = {}) { return resolve(ip, options); }`);
-  writeFileSync(join(launcher, "dist/ip.js"), `export async function publicIP(proxy, options = {}) { ${ipCode} }`);
-  writeFileSync(join(launcher, "dist/utils.js"), "// Simulated options: const locationConfig = stelzGeoip || (await getGeolocation(geoip)).asConfig();");
+/** Prepare location data and patched Camofox markers. A mock package also gets a fixed exit-IP check. */
+export function fixtureLocation(home: string, packageRoot?: string, ipCode = 'return "198.51.100.10";') {
+  const upstream = join(home, "runtime", `camofox-${UPSTREAM_VERSION}`);
   mkdirSync(join(upstream, "lib"), { recursive: true });
   writeFileSync(join(upstream, "lib/browser-identity.js"), "// if (hasProxy) return {}; // Stelz never grants location access to arbitrary sites.");
   if (existsSync(join(upstream, "server.js"))) appendFileSync(join(upstream, "server.js"), "\n// Simulated server: const prepared = await (await import('./plugins/local-profile/index.js')).prepareProfileLaunch(baseOptions,\n");
+  if (packageRoot) writeFileSync(join(packageRoot, "src/runtime/public-ip.ts"),
+    `export async function publicIP(proxy: string, signal: AbortSignal): Promise<string> { ${ipCode} }`);
   managedFixture(join(home, "runtime"));
-  return launcher;
+  return upstream;
+}
+/** Prepare model readiness metadata without loading a real fingerprint generator. */
+export function fixtureModel(directory: string) {
+  mkdirSync(directory, { recursive: true });
+  const { MODEL_PIN } = fingerprintModel();
+  for (const file of MODEL_PIN.files) writeFileSync(join(directory, file), "");
+  writeFileSync(join(directory, "values.json.zst"), zstdCompressSync(Buffer.from('{"0":2}')));
+  writeFileSync(join(directory, "values.dat"), "{}");
+  writeFileSync(join(directory, ".pinned-model"), MODEL_PIN.sha256);
 }

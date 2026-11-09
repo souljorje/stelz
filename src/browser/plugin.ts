@@ -279,6 +279,9 @@ export async function register(app: App, ctx: PluginContext, options: {
     }
     launchAdmitted = true;
     try {
+      // Add the window extension first, so validation covers the complete launch config.
+      windows.prepare(launchOptions.proxy);
+      addProfileExtension(launchOptions, windows.extensionPath);
       fingerprint = applyFingerprint(launchOptions, stateDir, process.env.CAMOUFOX_EXECUTABLE!, proxied, owner);
       if (location) {
         try { checkLaunchLocation(launchOptions, location); }
@@ -289,8 +292,6 @@ export async function register(app: App, ctx: PluginContext, options: {
           throw failure;
         }
       }
-      windows.prepare(launchOptions.proxy);
-      addProfileExtension(launchOptions, windows.extensionPath);
       validateFinalLaunch(launchOptions, fingerprint);
       persist({ phase: "starting", fingerprintSha256: fingerprint.fingerprintSha256, engineSha256: fingerprint.engineSha256,
         pinSha256: fingerprint.pinSha256, startupPrepared: false });

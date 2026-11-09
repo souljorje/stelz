@@ -20,7 +20,12 @@ function fixture() {
 import {mkdirSync,writeFileSync} from 'node:fs';
 import {join} from 'node:path';
 import { start } from "./runtime/runtime.ts";
-if (process.argv[2] === "setup") await setup({ prepareGeoip: async stage => {
+if (process.argv[2] === "setup") await setup({ prepareModel: async stage => {
+  if(process.env.SETUP_TEST_MODEL_FAIL) {
+    mkdirSync(join(stage,'fpgen'));writeFileSync(join(stage,'fpgen/values.dat'),'incomplete model');
+    throw Error('Fingerprint model preparation failed');
+  }
+}, prepareGeoip: async stage => {
   if(process.env.SETUP_TEST_GEOIP_FAIL) {
     mkdirSync(join(stage,'geoip'));writeFileSync(join(stage,'geoip/GeoLite2-City.mmdb'),'incomplete download');
     throw Error('Location-data integrity check failed');
@@ -28,11 +33,14 @@ if (process.argv[2] === "setup") await setup({ prepareGeoip: async stage => {
 } });
 else await start(process.argv[3]!);
 `);
-  file(join(project, "package.json"), JSON.stringify({ type: "module", version: "0.2.0", dependencies: { "@askjo/camofox-browser": "1.18.1", "@modelcontextprotocol/sdk": "1.30.0", "better-sqlite3": "13.0.1", impit: "0.14.8" } }));
+  file(join(project, "package.json"), JSON.stringify({ type: "module", version: "0.2.0", dependencies: { "@askjo/camofox-browser": "1.18.1", "@modelcontextprotocol/sdk": "1.30.0", "better-sqlite3": "13.0.1", camoufox: "0.5.8", impit: "0.14.8" } }));
   file(join(project, "dist/plugin.js"), "export function register() {}\nexport function launchProfileBrowser() {}\nexport function claimProfileContext() {}\nexport function createProfilePage() {}\nexport function protectProfileStartup() {}\nexport function prepareProfileLaunch() {}\nexport function typeIntoLocator() {}\n");
   const upstream = join(project, "node_modules/@askjo/camofox-browser");
-  file(join(upstream, "package.json"), JSON.stringify({ name: "@askjo/camofox-browser", version: "1.18.1", type: "module", dependencies: { "camoufox-js": "0.13.0", "playwright-core": "1.62.1" } }));
-  file(join(upstream, "server.js"), `async function fillLocator(locator, text, typingMode) {
+  file(join(upstream, "package.json"), JSON.stringify({ name: "@askjo/camofox-browser", version: "1.18.1", type: "module", dependencies: { camoufox: "0.5.8", "playwright-core": "1.62.1" } }));
+  file(join(upstream, "server.js"), `import { Camoufox, launchOptions, VirtualDisplay } from 'camoufox';
+const externalCamoufox = null; // stelz: the plugin passes the executable to the official launcher.
+class DefaultVirtualDisplay extends VirtualDisplay { constructor() { super(false, DEFAULT_VIRTUAL_DISPLAY_RESOLUTION); } }
+async function fillLocator(locator, text, typingMode) {
   await (await import('./plugins/local-profile/index.js')).typeIntoLocator(locator, text, typingMode);
 }
 async function withTabLock(tabId, operation, timeoutMs) {
@@ -110,7 +118,6 @@ async function typeRoute(req, locator, tabState, selector, text, mode) {
 `);
   file(join(upstream, "LICENSE"), "fixture license");
   file(join(upstream, "lib/browser-identity.js"), "function contextIdentityOptions(hasProxy) { if (hasProxy) return {}; // Stelz never grants location access to arbitrary sites.\n}\n");
-  file(join(upstream, "lib/camoufox-executable.js"), "// stelz: read macOS resources without changing the installed app bundle.\n");
   file(join(upstream, "lib/new-page-recovery.js"), `async function createPageWithSessionRecovery(session) {
   try {
     const page = setLeasedPage(lease, await withTimeout((await import('../plugins/local-profile/index.js')).createProfilePage(session.context), timeoutMs, 'new page'));
@@ -124,17 +131,16 @@ async function typeRoute(req, locator, tabState, selector, text, mode) {
   file(join(upstream, "mcp/server.mjs"), "export {};\n");
   file(join(upstream, "mcp/lib/tool-contracts.mjs"), "export const TOOL_DEFS = [];\nexport function runTool() {}\nexport function adaptResponse() {}\n");
   file(join(upstream, "plugins/persistence/index.js"), "export async function register(app, ctx, pluginConfig = {}) {\n  return; // Native Firefox profile owns storage.\n}\n");
-  const camoufox = join(project, "node_modules/camoufox-js");
-  file(join(camoufox, "package.json"), JSON.stringify({ name: "camoufox-js", version: "0.13.0", dependencies: {} }));
-  file(join(camoufox, "dist/pkgman.js"), "return new Version(versionData.build ?? versionData.release, versionData.version);\n");
-  file(join(camoufox, "dist/utils.js"), 'propFile = process.platform === "darwin" && filePath.includes(".app/Contents/MacOS/") ? path.join(path.dirname(filePath), "../Resources/properties.json") : path.join(path.dirname(filePath), "properties.json");\n');
-  file(join(camoufox, "dist/locale.js"), "export async function getGeolocation(ip, options = {}) {}\n");
-  file(join(camoufox, "dist/ip.js"), "export async function publicIP(proxy, options = {}) {}\n");
-  file(join(camoufox, "dist/utils.js"), readFileSync(join(camoufox, "dist/utils.js"), "utf8") + "const locationConfig = stelzGeoip || (await getGeolocation(geoip)).asConfig();\n");
+  const camoufox = join(project, "node_modules/camoufox");
+  file(join(camoufox, "package.json"), JSON.stringify({ name: "camoufox", version: "0.5.8", type: "module" }));
+  file(join(camoufox, "dist/index.js"), "export {};\n");
+  file(join(camoufox, "dist/coherence.js"), "export function validate() { return []; }\n");
+  file(join(camoufox, "dist/data-files/browser-pin.json"), JSON.stringify({ version: "156.0.1", build: "beta.36" }));
   for (const [name, version] of [["playwright-core", "1.62.1"], ["@modelcontextprotocol/sdk", "1.30.0"], ["better-sqlite3", "13.0.1"], ["impit", "0.14.8"]]) {
     file(join(project, "node_modules", name!, "package.json"), JSON.stringify({ name, version }));
   }
   file(browser, "browser executable fixture");
+  file(join(base, "application.ini"), "[App]\nVersion=156.0.1-beta.36\n");
   file(join(base, "version.json"), JSON.stringify({ version: "browser-fixture" }));
   const bin = join(base, "bin"), wrapper = join(bin, "node");
   file(wrapper, `#!${process.execPath}
@@ -224,6 +230,17 @@ test("a failed location download cannot replace active data or unrelated setting
   oldRuntime(f);
   for (const [name, value] of Object.entries(files)) expect(readFileSync(join(f.home, name), "utf8")).toBe(value);
   expect(readdirSync(f.home).filter(name => name.startsWith(".runtime-setup-"))).toEqual([]);
+});
+
+test("a failed model preparation preserves the active model and permits retry", async () => {
+  const f = fixture(); installedRuntime(f);
+  file(join(f.home, "runtime/fpgen/values.dat"), "previous prepared model");
+  const result = await finish(launch(f, "setup", { SETUP_TEST_MODEL_FAIL: "1" }));
+  expect(result.code).not.toBe(0); expect(result.stderr).toContain("Fingerprint model preparation failed");
+  oldRuntime(f);
+  expect(readFileSync(join(f.home, "runtime/fpgen/values.dat"), "utf8")).toBe("previous prepared model");
+  expect(readdirSync(f.home).filter(name => name.startsWith(".runtime-setup-"))).toEqual([]);
+  expect((await finish(launch(f))).code).toBe(0);
 });
 
 test("setup rejects a missing, reverted, or duplicate native page patch in either creation attempt", async () => {

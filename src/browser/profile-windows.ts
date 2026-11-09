@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { profileAppearance, type ProfileWindow, type ProfileWindows, type ShowProfileWindow } from "./profile-appearance.ts";
 import { profileExtensionMain, type ProfileExtensionConfig } from "./profile-extension.ts";
 import { profileIpProbeMain } from "./ip-probe.ts";
-import type { LaunchOptions } from "./fingerprint.ts";
+import { readLaunchConfig, writeLaunchConfig, type LaunchOptions } from "./fingerprint.ts";
 
 const integer = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) >= 0;
 const record = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
@@ -39,16 +39,11 @@ export function prepareProfileExtension(directory: string, config: ProfileExtens
 }
 
 export function addProfileExtension(options: LaunchOptions, directory: string) {
-  const env = options.env ?? {};
-  const keys = Object.keys(env).filter(key => /^CAMOU_CONFIG_[1-9]\d*$/.test(key)).sort((a, b) => Number(a.split("_").at(-1)) - Number(b.split("_").at(-1)));
-  if (!keys.length || keys.some((key, index) => key !== "CAMOU_CONFIG_" + (index + 1))) throw Error("Missing browser launch configuration.");
-  const config = JSON.parse(keys.map(key => env[key]).join("")) as Record<string, unknown>;
+  const config = readLaunchConfig(options);
+  if (!config) throw Error("Missing browser launch configuration.");
   if (config.addons !== undefined && (!Array.isArray(config.addons) || config.addons.some(path => typeof path !== "string"))) throw Error("Invalid browser add-on configuration.");
   config.addons = [...new Set([...(config.addons as string[] | undefined ?? []), directory])];
-  const serialized = JSON.stringify(config);
-  for (const key of keys) delete env[key];
-  for (let offset = 0; offset < serialized.length; offset += 32767) env["CAMOU_CONFIG_" + (offset / 32767 + 1)] = serialized.slice(offset, offset + 32767);
-  options.env = env;
+  writeLaunchConfig(options, config);
 }
 
 export function createProfileWindows(options: {

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -17,6 +17,8 @@ async function fixture() {
   const profile = join(directory, "profiles/test"), upstream = join(directory, `runtime/camofox-${UPSTREAM_VERSION}`);
   mkdirSync(profile, { recursive: true }); mkdirSync(join(upstream, "plugins/local-profile"), { recursive: true });
   mkdirSync(join(upstream, "mcp/lib"), { recursive: true });
+  // The compiled plugin resolves the launcher from the runtime, as setup links it.
+  symlinkSync(join(ROOT, "node_modules"), join(upstream, "node_modules"), "dir");
   writeFileSync(join(directory, "profiles.json"), JSON.stringify({ profiles: [{ id: "test", port }] }));
   writeFileSync(join(directory, "runtime/versions.json"), "{}");
   writeFileSync(join(profile, "access-key"), "test-key");

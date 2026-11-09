@@ -303,7 +303,7 @@ PROXY_TEST_ENV=/absolute/path/to/private.env CAMOUFOX_EXECUTABLE=/absolute/path/
 ```
 
 This check reuses the isolated package installer and existing proxy relays.
-It checks setup reuse, preflight, browser location, permissions, native storage, and fingerprints across two lifetimes per profile.
+It checks setup reuse, preflight, browser location, permissions, native storage, fingerprints, and scrolling across three lifetimes per profile.
 It records proxy destinations and restored fixture requests before Ready. These observations do not establish complete traffic isolation.
 The report states whether the supplied exits cover different timezones. Same-zone exits do not establish cross-zone coverage.
 Only temporary test profiles are stopped. Private proxy credentials stay outside reports and Git.

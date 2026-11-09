@@ -15,7 +15,7 @@ It contains no reasoning loop, agent framework, generic plugin framework, or fle
 | Stelz profile plugin | Runs inside Camofox. Enforces controller ownership, serializes actions, checks network state, and preserves the original browser context. |
 | Playwright | Starts and controls the browser. Executes clicks, typing, and navigation. |
 | Camoufox browser | The Firefox-based executable. Applies device settings and cursor behavior. |
-| `camoufox-js` | Prepares Camoufox startup options, including device settings, locale, proxy, and browser preferences. |
+| `camoufox` launcher | The official npm launcher. Prepares Camoufox startup options, including device settings, locale, proxy, and browser preferences. |
 
 ```mermaid
 flowchart LR
@@ -23,13 +23,13 @@ flowchart LR
     MCP <-->|"Authenticated loopback HTTP"| Server["Camofox server with Stelz plugin"]
     Server -->|"Browser actions"| Playwright
     Playwright --> Browser["Camoufox browser"]
-    Launcher["camoufox-js"] -.->|"Startup options"| Server
+    Launcher["camoufox launcher"] -.->|"Startup options"| Server
 ```
 
 Camoufox is the browser. Camofox is the automation server.
-`camoufox-js` supplies `launchOptions()` before Playwright starts the browser.
+The official `camoufox` launcher supplies `launchOptions()` before Playwright starts the browser.
 Stelz adds persistent profile handling and reuses saved device properties before startup.
-`camoufox-js` does not define MCP tools or process agent requests.
+The launcher does not define MCP tools or process agent requests.
 
 A browser tool call follows this path:
 

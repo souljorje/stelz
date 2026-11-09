@@ -1,19 +1,21 @@
 import { assertBundledPatches } from "./camofox-adapter.ts";
 import { prepareGeoip } from "./geoip-setup.ts";
-import { NATIVE_DEPENDENCIES } from "./native-dependencies.ts";
+import { fingerprintModel } from "./camoufox.ts";
+import { engineVersion } from "./location-launch.ts";
 import {
   copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync,
   readFileSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync,
 } from "node:fs";
-import { basename, dirname, join, relative, sep } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { createRequire } from "node:module";
 import { createHash } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { dlopen, FFIType } from "bun:ffi";
 import { ROOT, HOME_DIR, STATE, UPSTREAM, COMMIT, UPSTREAM_VERSION, executable, initialize, settings } from "../profiles/config.ts";
-import { MCP_SDK_VERSION, STELZ_VERSION } from "../versions.ts";
+import { STELZ_VERSION } from "../versions.ts";
 import { lock, running } from "../runtime/runtime.ts";
 
+const CAMOFOX = "@askjo/camofox-browser";
 function packagePath(name: string, from: string): string {
   const require = createRequire(join(from, "package.json"));
   let path: string;
@@ -80,11 +82,10 @@ function assertStopped() {
   }
 }
 
-function copy(source: string, target: string, skipModules = false) {
+function copy(source: string, target: string) {
   cpSync(source, target, {
     recursive: true,
     filter: path => {
-      if (skipModules && relative(source, path).split(sep).includes("node_modules")) return false;
       if (lstatSync(path).isSymbolicLink()) throw Error(`Setup source contains a symbolic link: ${path}`);
       return true;
     },
@@ -99,33 +100,25 @@ function node(args: string[]) {
   return result.stdout.toString().trim();
 }
 
+// Stelz dependencies, including the launcher and the plugin's imports, come from the product.
+// Other Camofox dependencies resolve from Camofox.
 function copyDependencies(source: string, upstream: string) {
   const modules = join(upstream, "node_modules");
   mkdirSync(modules, { recursive: true });
-  const camoufox = packagePath("camoufox-js", ROOT);
-  const productDependencies = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).dependencies;
-  const nativeDependencies = Object.fromEntries(NATIVE_DEPENDENCIES.filter(name => productDependencies[name]).map(name => [name, productDependencies[name]]));
-  const dependencies = {
-    ...JSON.parse(readFileSync(join(source, "package.json"), "utf8")).dependencies,
-    ...JSON.parse(readFileSync(join(camoufox, "package.json"), "utf8")).dependencies,
-    ...nativeDependencies,
-    "@modelcontextprotocol/sdk": MCP_SDK_VERSION,
-  };
+  const product = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).dependencies as Record<string, string>;
+  const names = new Set([...Object.keys(JSON.parse(readFileSync(join(source, "package.json"), "utf8")).dependencies), ...Object.keys(product)]);
+  names.delete(CAMOFOX);
   const paths = new Map<string, string>();
-  for (const name of Object.keys(dependencies)) {
+  for (const name of names) {
     if (!/^(?:@[a-z0-9][a-z0-9._~-]*\/)?[a-z0-9][a-z0-9._~-]*$/.test(name)) {
       throw Error(`Invalid dependency name: ${name}`);
     }
     const target = join(modules, name);
     mkdirSync(dirname(target), { recursive: true });
-    const dependency = name === "camoufox-js" ? camoufox : packagePath(name, name in nativeDependencies ? ROOT : source);
+    const dependency = packagePath(name, name in product ? ROOT : source);
     paths.set(name, dependency);
-    if (name === "camoufox-js") {
-      copy(dependency, target, true);
-    } else {
-      symlinkSync(dependency, target, "dir");
-      if (realpathSync(target) !== realpathSync(dependency)) throw Error(`Cannot validate dependency: ${name}`);
-    }
+    symlinkSync(dependency, target, "dir");
+    if (realpathSync(target) !== realpathSync(dependency)) throw Error(`Cannot validate dependency: ${name}`);
   }
   return paths;
 }
@@ -135,7 +128,7 @@ function writeManifest(stage: string, browser: string, dependencies: Map<string,
     ? dirname(dirname(dirname(dirname(browser))))
     : dirname(browser);
   const versionPath = join(versionDirectory, "version.json");
-  const versions = Object.fromEntries(["camoufox-js", "playwright-core", "@modelcontextprotocol/sdk"].map(name => {
+  const versions = Object.fromEntries(["camoufox", "playwright-core", "@modelcontextprotocol/sdk"].map(name => {
     const path = dependencies.get(name);
     if (!path) throw Error(`Missing dependency: ${name}`);
     return [name, JSON.parse(readFileSync(join(path, "package.json"), "utf8")).version];
@@ -174,8 +167,7 @@ function validate(upstream: string) {
   node(["--input-type=module", "-e", script, pathToFileURL(contract).href, pathToFileURL(plugin).href]);
   for (const file of [
     "server.js",
-    "lib/camoufox-executable.js",
-    "node_modules/camoufox-js/dist/utils.js",
+    "node_modules/camoufox/dist/index.js",
     "plugins/persistence/index.js",
     "plugins/local-profile/index.js",
   ]) {
@@ -202,6 +194,13 @@ function stageRuntime(stage: string, source: string, browser: string, plugin: st
   writeFileSync(join(upstream, "camofox.config.json"), JSON.stringify(config, null, 2));
   writeManifest(stage, browser, dependencies);
   validate(upstream);
+}
+
+/** Stage the pinned fingerprint model. Reuse the current copy, or download and verify it. */
+export async function prepareModel(stage: string, current: string) {
+  const target = join(stage, "fpgen"), previous = join(current, "fpgen");
+  if (stat(previous)?.isDirectory()) copy(previous, target);
+  await fingerprintModel().ensureModel({ dir: target });
 }
 
 // Exchange complete sibling directories so an installed runtime and its manifest move together.
@@ -240,7 +239,7 @@ function activate(stage: string) {
   if (result !== 0) throw Error("Cannot atomically replace the runtime on this filesystem.");
 }
 
-export async function setup(options: { prepareGeoip?: typeof prepareGeoip } = {}) {
+export async function setup(options: { prepareGeoip?: typeof prepareGeoip; prepareModel?: typeof prepareModel } = {}) {
   directory(HOME_DIR);
   directory(STATE);
   directory(join(HOME_DIR, "runtime"));
@@ -259,7 +258,8 @@ export async function setup(options: { prepareGeoip?: typeof prepareGeoip } = {}
     if (!existsSync(browser) || !statSync(browser).isFile()) {
       throw Error(`Camoufox is missing at ${browser}. Set CAMOUFOX_EXECUTABLE in secrets.env.`);
     }
-    const source = packagePath("@askjo/camofox-browser", ROOT);
+    engineVersion(browser);
+    const source = packagePath(CAMOFOX, ROOT);
     if (JSON.parse(readFileSync(join(source, "package.json"), "utf8")).version !== UPSTREAM_VERSION) {
       throw Error("The installed Camofox version does not match the pinned version.");
     }
@@ -270,7 +270,9 @@ export async function setup(options: { prepareGeoip?: typeof prepareGeoip } = {}
     let activated = false;
     try {
       stageRuntime(stage, source, browser, plugin);
-      await (options.prepareGeoip ?? prepareGeoip)(stage, join(HOME_DIR, "runtime"), join(stage, basename(UPSTREAM), "node_modules/camoufox-js"));
+      const current = join(HOME_DIR, "runtime");
+      await (options.prepareGeoip ?? prepareGeoip)(stage, current);
+      await (options.prepareModel ?? prepareModel)(stage, current);
       activate(stage);
       activated = true;
     } finally {

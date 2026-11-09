@@ -19,5 +19,3 @@ runs:
       shell: bash
     - run: bun install --frozen-lockfile --ignore-scripts
       shell: bash
-      env:
-        CAMOFOX_SKIP_DOWNLOAD: "1"

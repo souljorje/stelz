@@ -65,7 +65,7 @@ test("valid and invalid saved pins return static diagnostics without changing se
   expect(invalid.code).toBe(1);
   expect(invalid.json).toMatchObject({ ok: false, error: { code: "fingerprint_invalid" },
     fingerprint: { staticValid: false, engineSha256: "PASS", runtime: "NOT_RUN", admissionBlocked: true } });
-  expect(invalid.json.fingerprint.diagnostics).toContainEqual(expect.objectContaining({ code: "webgl.renderer.direct3d_on_macos" }));
+  expect(invalid.json.fingerprint.diagnostics).toContainEqual(expect.objectContaining({ code: "coherence.gpu-matches-os" }));
   expect(snapshot(home)).toEqual(before);
 });
 

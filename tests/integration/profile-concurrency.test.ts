@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { processStart, type Running } from "../../src/runtime/profile-process.ts";
 import { UPSTREAM_VERSION } from "../../src/versions.ts";
-import { fixtureLauncher } from "../helpers/geoip-fixture.ts";
+import { fixtureLocation } from "../helpers/geoip-fixture.ts";
 import { createMockPackage } from "../helpers/mock-package.ts";
 
 function fixture() {
@@ -72,7 +72,7 @@ process.on('SIGTERM', stop);
       return { code, out, error };
     } finally { clearTimeout(timeout); }
   }
-  return { home, profiles, record, command,
+  return { home, packageRoot: packageFixture.packageRoot, profiles, record, command,
     launches: () => readFileSync(join(home, "launches.jsonl"), "utf8").trim().split("\n").map(line => JSON.parse(line)),
     async dispose() {
       for (const p of profiles) {
@@ -181,7 +181,7 @@ test("stopping a stalled startup leaves admission available to another profile",
 
 test("supervisors discard ambient proxy variables and forward only validated profile routing", async () => {
   const f = fixture(), [direct, proxy] = f.profiles;
-  fixtureLauncher(f.home);
+  fixtureLocation(f.home, f.packageRoot);
   writeFileSync(join(f.home, "browser"), "fixture browser");
   try {
     writeFileSync(join(f.home, "profiles.json"), JSON.stringify({ profiles: [direct, { ...proxy, proxyEnv: "ENV_TEST_PROXY" }] }));

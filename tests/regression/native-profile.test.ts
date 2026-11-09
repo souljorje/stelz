@@ -1,9 +1,7 @@
-import { after, before, test } from "node:test";
+import { test } from "node:test";
 import assert from "node:assert/strict";
-import crypto from "node:crypto";
 import { EventEmitter } from "node:events";
 import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
-import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,28 +12,7 @@ import { applyFingerprint } from "../../src/browser/fingerprint.ts";
 import type { StartupWindowObservation } from "../../src/browser/profile-windows.ts";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
-const baselineEngine = "e468f25acba5085624da4d1ac809fd5679fa281ed2b0265f82efe63904900b33";
 const leaseApi = await import(new URL("../../node_modules/@askjo/camofox-browser/lib/page-lease.js", import.meta.url).href);
-
-// Only the fake engine bytes receive the baseline digest; all other hashes are real.
-const createHash = crypto.createHash;
-before(() => {
-  Reflect.set(crypto, "createHash", new Proxy(createHash, { apply(target, thisArg, args) {
-    const hash: ReturnType<typeof createHash> = Reflect.apply(target, thisArg, args);
-    let fixtureEngine = false;
-    hash.update = new Proxy(hash.update, { apply(update, self, values) {
-      fixtureEngine = args[0] === "sha256" && Buffer.isBuffer(values[0]) && values[0].equals(Buffer.from("engine"));
-      return Reflect.apply(update, self, values);
-    } });
-    hash.digest = new Proxy(hash.digest, { apply(digest, self, values) {
-      if (fixtureEngine && values[0] === "hex") return baselineEngine;
-      return Reflect.apply(digest, self, values);
-    } });
-    return hash;
-  } }));
-  syncBuiltinESMExports();
-});
-after(() => { Reflect.set(crypto, "createHash", createHash); syncBuiltinESMExports(); });
 
 // Exercise the pending patch without changing the shared dependency installation.
 function patchedServer() {
@@ -155,7 +132,7 @@ test("normal-window equality, unknown mode, and disagreement with privileged geo
   const window = { instanceId: "browser-a", windowId: 1, tabId: 2, state: "normal",
     outerWidth: 1200, outerHeight: 800, viewportWidth: 1200, viewportHeight: 740, zoom: 1, sampledAt: 1000, receivedAt: 1000 };
   const validate = (observedPage: typeof page, observedWindow: typeof window, time = 1000) =>
-    validateStartupGeometry(observedPage, observedWindow, baselineEngine, "darwin", time);
+    validateStartupGeometry(observedPage, observedWindow, "darwin", time);
   validate(page, window);
   assert.throws(() => validate({ ...page, innerHeight: 800 }, { ...window, viewportHeight: 800 }), /frame and viewport/);
   assert.throws(() => validate(page, { ...window, state: "unknown" }), /mode is unknown or unsupported/);
@@ -166,22 +143,7 @@ test("normal-window equality, unknown mode, and disagreement with privileged geo
   assert.throws(() => validate(page, { ...window, zoom: 1.25 }), /zoom or viewport scale/);
   assert.throws(() => validate({ ...page, visualScale: 1.25 }, window), /zoom or viewport scale/);
   assert.throws(() => validate(page, window, 7000), /stale/);
-  assert.throws(() => validateStartupGeometry(page, window, "a".repeat(64), "darwin", 1000), /custom engines require compatibility evidence/);
-  assert.throws(() => validateStartupGeometry(page, window, baselineEngine, "linux", 1000), /no supported startup geometry contract/);
-});
-
-test("matching an unknown engine to its pin does not admit its geometry", async () => {
-  const f = fixture();
-  try {
-    const binary = join(f.directory, "custom-engine"); writeFileSync(binary, "other engine");
-    writeFileSync(join(f.directory, "running.json"), JSON.stringify({ instanceId: "attempt-a", configurationHash: "a".repeat(64), serverPid: process.pid }));
-    const prepared = applyFingerprint({ env: { CAMOU_CONFIG_1: JSON.stringify(f.identity) }, firefoxUserPrefs: {} }, f.directory, binary, false,
-      { profileId: "profile-a", attemptId: "attempt-a", browserInstanceId: "browser-a", configurationHash: "a".repeat(64), serverPid: process.pid });
-    const context = await f.start({ headless: false, executablePath: binary }, { viewport: null });
-    await assert.rejects(verifyFixture(f, context, prepared), /custom engines require compatibility evidence/);
-    assert.equal(f.pages[0]!.title(), "");
-    assert.equal(f.pages[0]!.isClosed(), false);
-  } finally { f.close(); }
+  assert.throws(() => validateStartupGeometry(page, window, "linux", 1000), /no supported startup geometry contract/);
 });
 
 test("startup refuses unsupported and mismatched privileged window evidence", async () => {

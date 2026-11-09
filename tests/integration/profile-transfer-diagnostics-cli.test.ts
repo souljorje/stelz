@@ -63,7 +63,7 @@ test("export and import expose selected diagnostics in JSON and human output", a
   const invalid = byId.get("invalid");
   expect(invalid).toMatchObject({ status: "checked", validation: { staticValid: false, engineSha256: "PASS", runtime: "NOT_RUN" } });
   if (invalid?.status !== "checked") throw Error("The invalid pin diagnostics are missing.");
-  expect(invalid.validation.diagnostics).toContainEqual(expect.objectContaining({ code: "webgl.renderer.direct3d_on_macos" }));
+  expect(invalid.validation.diagnostics).toContainEqual(expect.objectContaining({ code: "coherence.gpu-matches-os" }));
   expect(readFileSync(archive).subarray(0, 2).toString()).toBe("PK");
 
   const humanExport = await run(from.directory, ["profile", "export", "--all", "--output", humanArchive]);

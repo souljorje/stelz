@@ -30,7 +30,7 @@ const site = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
   if (!ids.includes(id)) return new Response("Unknown fixture", { status: 404 });
   localRequests.push({ profile: id, phase: phase(id), path: url.pathname });
   if (request.method === "POST") { observations.set(id, await request.json() as never); return new Response(null, { status: 204 }); }
-  return new Response(`<!doctype html><title>Location acceptance</title><p>Local location and storage fixture</p><script type="module">
+  return new Response(`<!doctype html><title>Location acceptance</title><style>body{min-height:200vh}</style><p>Local location and storage fixture</p><script type="module">
     const id=new URL(location).searchParams.get('profile'), marker=localStorage.getItem('profile');localStorage.setItem('profile',id);
     const value={timezone:Intl.DateTimeFormat().resolvedOptions().timeZone,locale:Intl.DateTimeFormat().resolvedOptions().locale,language:navigator.language,languages:[...navigator.languages],marker,permission:(await navigator.permissions.query({name:'geolocation'})).state};
     await fetch('/observed?profile='+id,{method:'POST',body:JSON.stringify(value)});
@@ -62,7 +62,7 @@ try {
     await command("profile", "create", ids[i]!, "--proxy-env", key, "--json");
     delete (env as Record<string, string>)[key];
   }
-  for (let lifetime = 0; lifetime < 2; lifetime++) {
+  for (let lifetime = 0; lifetime < 3; lifetime++) {
     for (const id of ids) {
       const preflight = await command("recheck", id, "--json");
       const preflightIp = JSON.parse(readFileSync(file(id, "location.json"), "utf8")).prepared.ip;
@@ -81,6 +81,9 @@ try {
       const tabId = tabs.tabs[0].tabId;
       observations.delete(id);
       await call(client, "camofox_navigate", { tabId, url: `http://127.0.0.1:${site.port}/?profile=${id}` });
+      await call(client, "camofox_snapshot", { tabId });
+      await call(client, "camofox_scroll", { tabId, direction: "down", amount: 100 });
+      await call(client, "camofox_snapshot", { tabId });
       for (let n = 0; n < 100 && !observations.has(id); n++) await Bun.sleep(50);
       const observed = observations.get(id)!; assert(observed);
       assert.equal(observed.timezone, started.location.timezone);
@@ -90,7 +93,7 @@ try {
       assert.equal(observed.marker, lifetime ? id : null);
       const fingerprint = readFileSync(file(id, "fingerprint.json"), "utf8");
       if (lifetime) assert.equal(fingerprint, pins.get(id)); else pins.set(id, fingerprint);
-      evidence.push({ id, lifetime, preflightIp, browserExitIp: started.exitIp, preflight: preflight.location, verified: started.location, observed,
+      evidence.push({ id, lifetime, scroll: "passed", preflightIp, browserExitIp: started.exitIp, preflight: preflight.location, verified: started.location, observed,
         startupTraffic: traffic.slice(trafficBefore), restoredFixtureRequestsBeforeReady: localRequests.length - localBefore - 2 });
       await call(client, "profile_release"); await client.close(); clients.splice(clients.indexOf(client), 1);
     }

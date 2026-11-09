@@ -6,11 +6,12 @@ Then connect your existing agent through one shared MCP registration.
 ## What you need
 
 The tested desktop platform is local macOS on Apple Silicon, running a native ARM64 terminal.
+Browser Start requires macOS because startup must verify the native window geometry.
 Linux CI checks builds and package installation. It does not establish desktop browser acceptance.
 
 - [Node.js](https://nodejs.org/en/download) 24 or later, including npm.
 - [Bun](https://bun.sh/docs/installation) 1.4.4 or later.
-- A compatible Camoufox browser. Reuse your existing installation or download one in the browser step below.
+- The paired Camoufox browser build. Reuse your existing installation or download it in the [browser step](#2-locate-or-download-camoufox).
 
 Check your environment:
 
@@ -29,7 +30,7 @@ Keep compatible existing installations.
 ## 1. Install Stelz
 
 ```sh
-CAMOFOX_SKIP_DOWNLOAD=1 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install --global stelz
+PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install --global stelz
 stelz --version
 stelz init
 ```
@@ -59,24 +60,22 @@ Preserve other assignments and keep the file private.
 An environment variable with the same name takes precedence over the file.
 The `camoufox` command on PATH is the Python management CLI. Use the browser executable inside `Camoufox.app`.
 Use `file /absolute/path/to/camoufox` to check the executable's architecture.
-Keep an existing profile's compatible browser. Changing the browser can require a migration that Stelz does not provide.
+Stelz supports only the Camoufox build that its launcher pairs with, currently `156.0.1-beta.36`. Setup and Start reject other builds.
+A profile pinned to another build cannot start. Stelz does not upgrade a profile's browser.
 
-If you have no compatible browser, use Stelz's bundled downloader.
-Find the installed package and choose a new, unoccupied directory outside existing browser installations:
+If you do not have the paired build, use the official Camoufox CLI that Stelz installs.
+It installs into the shared official cache, `~/Library/Caches/camoufox` on macOS. It has no option for another directory.
+The command manages that shared cache and can remove older data there. Do not run it while a profile uses a browser from that directory.
 
 ```sh
 STELZ_PACKAGE="$(npm root --global)/stelz"
-STELZ_BROWSER_DIR="/absolute/new/camoufox-directory"
-CAMOUFOX_INSTALL_DIR="$STELZ_BROWSER_DIR" \
-  node "$STELZ_PACKAGE/node_modules/camoufox-js/dist/__main__.js" fetch
-CAMOUFOX_INSTALL_DIR="$STELZ_BROWSER_DIR" \
-  node --input-type=module -e \
+node "$STELZ_PACKAGE/node_modules/camoufox/dist/__main__.js" fetch
+node --input-type=module -e \
   'const { launchPath } = await import(process.argv[1]); console.log(launchPath());' \
-  "$STELZ_PACKAGE/node_modules/camoufox-js/dist/pkgman.js"
+  "$STELZ_PACKAGE/node_modules/camoufox/dist/pkgman.js"
 ```
 
-Replace the example directory with your selected absolute path before running the command.
-The downloader uses versioned directories. Add the printed executable path to `secrets.env`:
+The CLI can use versioned directories. Add the printed executable path to `secrets.env`:
 
 ```dotenv
 CAMOUFOX_EXECUTABLE=/absolute/path/printed/by/launchPath
@@ -92,8 +91,8 @@ stelz setup
 stelz ui --open
 ```
 
-Setup checks the browser and prepares the service runtime and location data. It leaves the installed Camoufox app unchanged.
-Setup reuses valid location data. A missing or damaged database requires a download.
+Setup checks the browser and prepares the service runtime, location data, and fingerprint model. It leaves the installed Camoufox app unchanged.
+Setup reuses valid location data and a valid fingerprint model. Missing or damaged data requires a download.
 For a proxy, **Location alignment** shows known problems before Start. **Check connection** checks the route without launching a browser.
 Start always checks the current route again. **Ready to start** does not mean that a browser is running.
 An existing installation must have all profiles safely stopped before setup can replace its runtime.

@@ -7,6 +7,7 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { STELZ_VERSION } from "../../src/versions.ts";
 import { createTestHome } from "../helpers/test-home.ts";
+import { pairedBrowser } from "../../src/browser/camoufox.ts";
 
 export async function installPackage(archive: string, options: { native?: boolean; keep?: boolean } = {}) {
 const root = resolve(import.meta.dir, "../.."), temp = mkdtempSync(join(tmpdir(), "stelz-package-"));
@@ -15,7 +16,7 @@ const prefix = join(temp, "global"), cwd = join(temp, "empty"), home = createTes
 for (const path of [cwd, bin]) mkdirSync(path, { recursive: true });
 const npm = Bun.which("npm")!, node = Bun.which("node")!, bun = Bun.which("bun")!;
 symlinkSync(node, join(bin, "node")); symlinkSync(bun, join(bin, "bun"));
-const env: Record<string, string> = { PATH: process.env.PATH!, HOME: process.env.HOME!, CAMOFOX_SKIP_DOWNLOAD: "1", npm_config_cache: join(temp, "npm-cache") };
+const env: Record<string, string> = { PATH: process.env.PATH!, HOME: process.env.HOME!, npm_config_cache: join(temp, "npm-cache") };
 if (process.env.TMPDIR) env.TMPDIR = process.env.TMPDIR;
 async function run(args: string[], options: { cwd?: string; env?: Record<string, string>; inherit?: boolean } = {}) {
   const p = Bun.spawn(args, { cwd: options.cwd || root, env: options.env || env, stdout: options.inherit ? "inherit" : "pipe", stderr: options.inherit ? "inherit" : "pipe" });
@@ -122,7 +123,9 @@ const reused = JSON.parse(await run([executable, "profile", "create", "work", "-
 if (!reused.ok || reused.created || reused.profile.port !== created.profile.port ||
     readFileSync(join(home, "profiles.json"), "utf8") !== configBeforeReuse || readFileSync(join(home, "secrets.env"), "utf8") !== secretsBeforeReuse)
   throw Error("The installed CLI changed an existing profile.");
-const fakeBrowser = join(temp, "fake-browser"), launched = join(temp, "browser-was-launched");
+const fakeBrowser = join(temp, "fake-browser/camoufox"), launched = join(temp, "browser-was-launched");
+// Setup accepts only the paired build, so the fake reports its version.
+mkdirSync(join(temp, "fake-browser")); writeFileSync(join(temp, "fake-browser/application.ini"), `[App]\nVersion=${pairedBrowser()}\n`);
 writeFileSync(fakeBrowser, `#!/usr/bin/env bun\nawait Bun.write(${JSON.stringify(launched)}, "unexpected launch");\nprocess.exit(99);\n`);
 chmodSync(fakeBrowser, 0o755);
 await run([executable, "setup"], { cwd, env: { ...cleanEnv, CAMOUFOX_EXECUTABLE: fakeBrowser } });
@@ -132,7 +135,7 @@ const versions = JSON.parse(readFileSync(join(runtime, "versions.json"), "utf8")
 if (versions.stelz !== STELZ_VERSION || versions.camoufoxExecutable !== fakeBrowser || versions.upstreamVersion !== manifest.dependencies["@askjo/camofox-browser"])
   throw Error("Installed setup wrote an invalid runtime manifest.");
 const upstream = join(runtime, "camofox-" + versions.upstreamVersion);
-for (const path of ["server.js", "plugins/local-profile/index.js", "mcp/lib/tool-contracts.mjs", "node_modules/camoufox-js/dist/utils.js"])
+for (const path of ["server.js", "plugins/local-profile/index.js", "mcp/lib/tool-contracts.mjs", "node_modules/camoufox/dist/index.js"])
   if (!existsSync(join(upstream, path))) throw Error("Installed setup omitted " + path);
 let links = 0;
 function checkRuntimeLinks(folder: string) {

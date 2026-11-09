@@ -6,7 +6,9 @@ import { STELZ_VERSION } from "../../src/versions.ts";
 const root = resolve(import.meta.dir, "../..");
 const input = packageArguments(process.argv.slice(2), ["--native", "--proxy", "--manual", "--windows"]);
 const archive = input.archive ?? join(root, "release-artifacts", `stelz-${STELZ_VERSION}.tgz`);
-const { candidate, env: cleanEnv, cwd, home, prefix, node, bun, executable, installedCli, version, nativeCheck, uiChecked } = await installPackage(archive, { native: true, keep: true });
+const { candidate, env: installedEnv, cwd, home, prefix, node, bun, executable, installedCli, version, nativeCheck, uiChecked } = await installPackage(archive, { native: true, keep: true });
+// The official CLI installs the browser in a versioned directory, not at the default path.
+const cleanEnv = process.env.CAMOUFOX_EXECUTABLE ? { ...installedEnv, CAMOUFOX_EXECUTABLE: process.env.CAMOUFOX_EXECUTABLE } : installedEnv;
 async function run(args: string[], options: { cwd?: string; env?: Record<string, string>; inherit?: boolean } = {}) {
   const child = Bun.spawn(args, { cwd: options.cwd ?? cwd, env: options.env ?? cleanEnv, stdout: options.inherit ? "inherit" : "pipe", stderr: options.inherit ? "inherit" : "pipe" });
   if (options.inherit) { if (await child.exited) throw Error(args[0] + " failed."); return ""; }

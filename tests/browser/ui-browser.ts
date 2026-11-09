@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { chromium } from "playwright-core";
 import type { UiAction } from "../../src/api/contracts.ts";
-import { fixtureLauncher, managedFixture } from "../helpers/geoip-fixture.ts";
+import { fixtureLocation, managedFixture } from "../helpers/geoip-fixture.ts";
 import { UPSTREAM_VERSION } from "../../src/versions.ts";
 
 const root = resolve(import.meta.dir, "../.."), home = mkdtempSync(join(tmpdir(), "stelz-ui-browser-"));
@@ -15,6 +15,9 @@ process.env.STELZ_TYPING_MODE = "auto";
 // Transfers use an install-compatible synthetic executable; lifecycle actions remain mocked.
 process.env.CAMOUFOX_EXECUTABLE = join(home, "fixture-engine");
 writeFileSync(process.env.CAMOUFOX_EXECUTABLE, "ui-browser-fixture", { mode: 0o600 });
+// Rechecks use a fixed exit IP instead of the network.
+Bun.plugin({ name: "fixed-public-ip", setup(build) { build.onLoad({ filter: /src\/runtime\/public-ip\.ts$/ }, () => ({ loader: "ts",
+  contents: 'export async function publicIP(proxy: string, signal: AbortSignal) { return "198.51.100.10"; }' })); } });
 const { processStart } = await import("../../src/runtime/runtime.ts");
 const { createUiServer, createUiSessionState } = await import("../../src/api/ui-server.ts");
 const reports = join(root, ".state/ui-browser");
@@ -96,7 +99,7 @@ const upstream = join(home, `runtime/camofox-${UPSTREAM_VERSION}`);
 mkdirSync(join(upstream, "plugins/local-profile"), { recursive: true });
 writeFileSync(join(upstream, "server.js"), "// UI fixture");
 writeFileSync(join(upstream, "plugins/local-profile/index.js"), readFileSync(join(root, "dist/plugin.js")));
-fixtureLauncher(home);
+fixtureLocation(home);
 
 const sessionState = createUiSessionState();
 const ui = createUiServer({ port: 0, sessionState, async lifecycle(action: UiAction, id: string) {

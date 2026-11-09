@@ -9,21 +9,19 @@ function check(file: string, before: string, after: string) {
   }
 }
 
-export function assertLocationPatches(upstream: string, launcher = join(upstream, "node_modules/camoufox-js")) {
+export function assertLocationPatches(upstream: string) {
   check(join(upstream, "server.js"), "return await launchOptions({ ...baseOptions, geoip: false });",
     "const prepared = await (await import('./plugins/local-profile/index.js')).prepareProfileLaunch(baseOptions,");
   check(join(upstream, "lib/browser-identity.js"), "if (hasProxy) return { permissions: ['geolocation'] };",
     "if (hasProxy) return {}; // Stelz never grants location access to arbitrary sites.");
-  check(join(launcher, "dist/utils.js"), "const geolocation = await getGeolocation(geoip);",
-    "const locationConfig = stelzGeoip || (await getGeolocation(geoip)).asConfig();");
-  check(join(launcher, "dist/locale.js"), "export async function getGeolocation(ip) {",
-    "export async function getGeolocation(ip, options = {}) {");
-  check(join(launcher, "dist/ip.js"), "export async function publicIP(proxy) {",
-    "export async function publicIP(proxy, options = {}) {");
 }
 
-export function assertBundledPatches(upstream: string, launcher = join(upstream, "node_modules/camoufox-js")) {
-  assertLocationPatches(upstream, launcher);
+export function assertBundledPatches(upstream: string) {
+  assertLocationPatches(upstream);
+  check(join(upstream, "server.js"), "from 'camoufox-js'", "import { Camoufox, launchOptions, VirtualDisplay } from 'camoufox';");
+  check(join(upstream, "server.js"), "const externalCamoufox = getExternalCamoufoxLaunch();",
+    "const externalCamoufox = null; // stelz: the plugin passes the executable to the official launcher.");
+  check(join(upstream, "server.js"), "get xvfb_args() {", "constructor() { super(false, DEFAULT_VIRTUAL_DISPLAY_RESOLUTION); }");
   check(join(upstream, "server.js"),
     "    return await withTimeout(operation(), timeoutMs, 'action');",
     "    // Stelz owns the deadline for typing. Keep its tab lock until input settles.\n    return await (timeoutMs === null ? operation() : withTimeout(operation(), timeoutMs, 'action'));");
@@ -45,12 +43,6 @@ export function assertBundledPatches(upstream: string, launcher = join(upstream,
   check(join(upstream, "server.js"),
     "      if (mode === 'fill') {\n        if (locator) {\n          await fillLocator(locator, text);\n        } else {\n          await fillLocator(tabState.page.locator(selector), text);\n        }",
     "      if (mode === 'fill') {\n        if (locator) {\n          await fillLocator(locator, text, typingMode);\n        } else {\n          await fillLocator(tabState.page.locator(selector), text, typingMode);\n        }");
-  check(join(upstream, "lib/camoufox-executable.js"),
-    "if (!existsSync(executableProperties)) ensureSymlink(realpathSync(resourceProperties), executableProperties);",
-    "// stelz: read macOS resources without changing the installed app bundle.");
-  check(join(launcher, "dist/utils.js"),
-    'propFile = path.join(path.dirname(filePath), "properties.json");',
-    'propFile = process.platform === "darwin" && filePath.includes(".app/Contents/MacOS/") ? path.join(path.dirname(filePath), "../Resources/properties.json") : path.join(path.dirname(filePath), "properties.json");');
   check(join(upstream, "server.js"), "os: hostOS,\n        humanize: true,",
     "os: hostOS,\n        window: [1200, 800],\n        screen: { minWidth: 1280, minHeight: 900, maxWidth: 1920, maxHeight: 1200 },\n        humanize: true,");
   check(join(upstream, "server.js"), "proxy: launchProxy,\n        geoip: !!launchProxy,",

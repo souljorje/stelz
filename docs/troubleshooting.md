@@ -80,7 +80,7 @@ See [Service directory precedence](configuration.md#service-directory-and-preced
 1. Run `stelz doctor`.
 2. Check `setup`, `node`, and `browserExecutable`.
 3. Check dependency versions against [What you need](getting-started.md#what-you-need).
-4. Correct `CAMOUFOX_EXECUTABLE` to the compatible existing browser if its path is wrong.
+4. Correct `CAMOUFOX_EXECUTABLE` to the paired browser build if its path or version is wrong.
 5. Follow [Locate or download Camoufox](getting-started.md#2-locate-or-download-camoufox) if the executable is unavailable.
 6. For missing or mismatched runtime files, arrange a maintenance window.
 7. Run `stelz status` to identify active profiles.
@@ -90,6 +90,8 @@ See [Service directory precedence](configuration.md#service-directory-and-preced
 
 Setup requires all profiles safely stopped because it replaces their shared runtime.
 It uses the installed Camoufox executable. It does not download, update, or migrate that browser.
+If setup reports an older installed build, check `CAMOUFOX_EXECUTABLE` in the process environment and `STELZ_HOME/secrets.env`.
+The process environment takes precedence. Installing another build does not update either setting.
 For source or release preparation, see [Releasing](development/releasing.md).
 
 ## Agent tools are missing

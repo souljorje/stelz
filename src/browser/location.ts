@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
-import { constants, closeSync, fstatSync, openSync, readFileSync, lstatSync, realpathSync, renameSync, writeFileSync } from "node:fs";
+import { constants, closeSync, fstatSync, openSync, readFileSync, lstatSync, renameSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import { isIP } from "node:net";
 import { join, dirname } from "node:path";
-import { pathToFileURL } from "node:url";
 import { applyProxyLocale, type Fingerprint } from "./fingerprint.ts";
 
 export type LocationStatus = "not_applicable" | "not_checked" | "checking" | "ready" | "blocked";
@@ -33,7 +33,7 @@ export function locationResult(status: LocationStatus): LocationResult {
 const failures = {
   GEOIP_DATA_MISSING: ["Location data is missing. Run stelz setup, then check again.", "run_setup"],
   GEOIP_DATA_INVALID: ["Location data is damaged. Run stelz setup, then check again.", "run_setup"],
-  GEOIP_DATA_INCOMPATIBLE: ["Location data is incompatible with this launcher. Run stelz setup, then check again.", "run_setup"],
+  GEOIP_DATA_INCOMPATIBLE: ["Location data is incompatible with Stelz. Run stelz setup, then check again.", "run_setup"],
   GEOIP_RUNTIME_MISSING: ["The location runtime is unavailable. Run stelz setup, then check again.", "run_setup"],
   LOCATION_PREPARATION_FAILED: ["Browser location settings could not be prepared. Run stelz setup, then check again.", "run_setup"],
   PROXY_CONFIGURATION: ["The proxy configuration is missing or invalid. Edit the proxy, then check again.", "edit_proxy"],
@@ -82,23 +82,20 @@ export function readLocationRecord(directory: string): LocationRecord | undefine
 }
 
 type Reader = { metadata: { databaseType: string; binaryFormatMajorVersion: number; ipVersion: number; buildEpoch: Date }; get(ip: string): unknown };
-type LauncherLocale = { getGeolocation(ip: string, options: { reader: Reader; localeForCountry(country: string): Fingerprint }): Promise<{ asConfig(): Fingerprint }> };
-const imports = new Map<string, Promise<LauncherLocale>>();
-export function launcherLocale(launcher: string) {
-  const url = pathToFileURL(join(launcher, "dist/locale.js")).href;
-  let value = imports.get(url);
-  if (!value) { value = import(url) as Promise<LauncherLocale>; imports.set(url, value); }
-  return value;
-}
+type GeoipRecord = { country?: { iso_code?: string }; location?: { latitude?: number; longitude?: number; time_zone?: string } } | null;
 export function countryLocale(country: string) {
   const result = applyProxyLocale({ "locale:region": country }, true);
   if (typeof result["locale:language"] !== "string") throw locationFailure("GEOIP_RESOLUTION_FAILED");
   return result;
 }
-export async function resolveLocation(launcher: string, reader: Reader, ip: string) {
+/** Map an exit IP to location fields. The country selects its default language. */
+export function resolveLocation(reader: Reader, ip: string) {
   try {
-    const result = await (await launcherLocale(launcher)).getGeolocation(ip, { reader, localeForCountry: countryLocale });
-    const config = result.asConfig();
+    if (!isIP(ip)) throw Error();
+    const record = reader.get(ip) as GeoipRecord, country = record?.country?.iso_code?.toUpperCase(), location = record?.location;
+    if (!country || !location?.time_zone) throw Error();
+    const config: Fingerprint = { "geolocation:longitude": location.longitude, "geolocation:latitude": location.latitude,
+      timezone: location.time_zone, ...countryLocale(country) };
     validateLocationConfig(config);
     return config;
   } catch { throw locationFailure("GEOIP_RESOLUTION_FAILED"); }
@@ -118,7 +115,7 @@ export function fileIdentity(file: string) {
   if (!s.isFile() || s.nlink !== 1) throw Error("Invalid location file.");
   return [s.dev, s.ino, s.size, s.mtimeMs, s.ctimeMs].join(":");
 }
-export async function validateGeoip(file: string, launcher: string, expectedHash?: string): Promise<{ reader: Reader; sha256: string }> {
+export function validateGeoip(file: string, expectedHash?: string): { reader: Reader; sha256: string } {
   let bytes: Buffer;
   try { bytes = readLocationFile(file); }
   catch (error) { throw locationFailure((error as NodeJS.ErrnoException).code === "ENOENT" ? "GEOIP_DATA_MISSING" : "GEOIP_DATA_INVALID"); }
@@ -126,24 +123,24 @@ export async function validateGeoip(file: string, launcher: string, expectedHash
   if (expectedHash && expectedHash !== sha256) throw locationFailure("GEOIP_DATA_INVALID");
   let reader: Reader;
   try {
-    const require = createRequire(join(realpathSync(launcher), "package.json"));
-    const { Reader } = require("maxmind") as { Reader: new(bytes: Buffer) => Reader };
+    // Load the reader only when location data is used.
+    const { Reader } = createRequire(import.meta.url)("maxmind") as { Reader: new(bytes: Buffer) => Reader };
     reader = new Reader(bytes);
   } catch { throw locationFailure("GEOIP_DATA_INVALID"); }
   const meta = reader.metadata;
   if (meta.databaseType !== "GeoLite2-City" || meta.binaryFormatMajorVersion !== 2 || meta.ipVersion !== 6) throw locationFailure("GEOIP_DATA_INCOMPATIBLE");
   try {
-    for (const ip of ["8.8.8.8", "2001:4860:4860::8888"]) await resolveLocation(launcher, reader, ip);
+    for (const ip of ["8.8.8.8", "2001:4860:4860::8888"]) resolveLocation(reader, ip);
   } catch { throw locationFailure("GEOIP_DATA_INVALID"); }
   return { reader, sha256 };
 }
-export async function managedGeoip(runtime: string, launcher: string): Promise<GeoipData> {
+export async function managedGeoip(runtime: string): Promise<GeoipData> {
   const file = join(runtime, "geoip/GeoLite2-City.mmdb"), manifestPath = join(dirname(file), "manifest.json");
   let stamp: string;
   try {
     if (!lstatSync(runtime).isDirectory()) throw Error();
     if (!lstatSync(dirname(file)).isDirectory()) throw Error();
-    stamp = `${fileIdentity(file)}:${fileIdentity(manifestPath)}:${fileIdentity(join(launcher, "dist/locale.js"))}`;
+    stamp = `${fileIdentity(file)}:${fileIdentity(manifestPath)}`;
   } catch (error) { throw locationFailure((error as NodeJS.ErrnoException).code === "ENOENT" ? "GEOIP_DATA_MISSING" : "GEOIP_DATA_INVALID"); }
   const cached = datasets.get(file);
   if (cached?.stamp === stamp) return cached.pending;
@@ -153,7 +150,7 @@ export async function managedGeoip(runtime: string, launcher: string): Promise<G
       manifest = JSON.parse(readLocationFile(manifestPath).toString());
       if (manifest.version !== 1 || !/^[a-f0-9]{64}$/.test(manifest.sha256) || !Number.isFinite(Date.parse(manifest.acquiredAt))) throw Error();
     } catch { throw locationFailure("GEOIP_DATA_INVALID"); }
-    return { ...await validateGeoip(file, launcher, manifest.sha256), manifest };
+    return { ...validateGeoip(file, manifest.sha256), manifest };
   })();
   datasets.set(file, { stamp, pending });
   return pending;

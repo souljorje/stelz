@@ -21,8 +21,6 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-    env:
-      CAMOFOX_SKIP_DOWNLOAD: "1"
     steps:
       - uses: actions/checkout@v7
         with:

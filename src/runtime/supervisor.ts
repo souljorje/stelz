@@ -52,6 +52,7 @@ for (const name of ["PATH", "HOME", "LANG", "LC_ALL", "USER", "LOGNAME", "SHELL"
 const env = {
   ...inherited,
   CAMOUFOX_EXECUTABLE: executable(),
+  CAMOUFOX_FPGEN_DATA: join(HOME_DIR, "runtime/fpgen"),
   CAMOFOX_BIND_HOST: "127.0.0.1",
   CAMOFOX_PORT: String(p.port),
   CAMOFOX_INTERACTIVE: "desktop",

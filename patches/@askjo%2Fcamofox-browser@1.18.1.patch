@@ -1,7 +1,96 @@
+diff --git a/lib/browser-identity.js b/lib/browser-identity.js
+index ab3ecf821b07d4a353ef7b161d2c90a5604793d4..ac4c9499248b3e127bf7b2c44d3d4d7fb26cb030 100644
+--- a/lib/browser-identity.js
++++ b/lib/browser-identity.js
+@@ -1,5 +1,5 @@
+ export function contextIdentityOptions({ hasProxy, directIdentity }) {
+-  if (hasProxy) return { permissions: ['geolocation'] };
++  if (hasProxy) return {}; // Stelz never grants location access to arbitrary sites.
+   return directIdentity ? { ...directIdentity } : {};
+ }
+ 
+diff --git a/lib/camoufox-download.js b/lib/camoufox-download.js
+deleted file mode 100644
+index 68d8da7c60fbe50bf33113ed619bcc1183e4ed3a..0000000000000000000000000000000000000000
+diff --git a/lib/new-page-recovery.js b/lib/new-page-recovery.js
+index 4a0fd1a2d2e28d433a030f9fac6874c594df932c..a412169f49ff0e7fcdd97fded96886015a3dad2a 100644
+--- a/lib/new-page-recovery.js
++++ b/lib/new-page-recovery.js
+@@ -15,7 +15,7 @@ export async function createPageWithSessionRecovery({
+ }) {
+   let lease = acquirePageLease(session);
+   try {
+-    const page = setLeasedPage(lease, await withTimeout(session.context.newPage(), timeoutMs, 'new page'));
++    const page = setLeasedPage(lease, await withTimeout((await import('../plugins/local-profile/index.js')).createProfilePage(session.context), timeoutMs, 'new page'));
+     return { session, page, lease };
+   } catch (err) {
+     releasePageLease(session, lease);
+@@ -35,7 +35,7 @@ export async function createPageWithSessionRecovery({
+     session = await getSession(userId, { trace });
+     lease = acquirePageLease(session);
+     try {
+-      const page = setLeasedPage(lease, await withTimeout(session.context.newPage(), timeoutMs, 'new page retry'));
++      const page = setLeasedPage(lease, await withTimeout((await import('../plugins/local-profile/index.js')).createProfilePage(session.context), timeoutMs, 'new page retry'));
+       return { session, page, lease };
+     } catch (retryErr) {
+       releasePageLease(session, lease);
+diff --git a/package.json b/package.json
+index d3dfd239f35c136825cc8a5295cd53efac13ada3..a4d43ff934fda09402fab155450eb877ac3c4144 100644
+--- a/package.json
++++ b/package.json
+@@ -54,8 +54,7 @@
+     "plugins/vnc/vnc-watcher.sh",
+     "plugins/vnc/vnc-watcher-lib.sh",
+     "plugins/youtube/index.js",
+-    "plugins/youtube/youtube.js",
+-    "postinstall.js"
++    "plugins/youtube/youtube.js"
+   ],
+   "openclaw": {
+     "extensions": [
+@@ -131,13 +130,11 @@
+     "test:debug": "DEBUG_SERVER=1 NODE_OPTIONS='--experimental-vm-modules' jest --runInBand --forceExit",
+     "generate-openapi": "node scripts/generate-openapi.js",
+     "version:sync": "node scripts/sync-version.js",
+-    "version": "node scripts/sync-version.js && node scripts/generate-openapi.js && git add openclaw.plugin.json mcp/package.json mcp/package-lock.json openapi.json",
+-    "postinstall": "node postinstall.js",
+-    "fetch-bin": "node lib/camoufox-download.js"
++    "version": "node scripts/sync-version.js && node scripts/generate-openapi.js && git add openclaw.plugin.json mcp/package.json mcp/package-lock.json openapi.json"
+   },
+   "dependencies": {
+     "better-sqlite3": "13.0.1",
+-    "camoufox-js": "0.11.5",
++    "camoufox": "0.5.8",
+     "express": "^5.2.1",
+     "playwright-core": "^1.58.0",
+     "prom-client": "^15.1.3",
+diff --git a/plugins/persistence/index.js b/plugins/persistence/index.js
+index 7c5199d3b00c39325b660699581f4298a334808e..80596f5f9e0fc4fd89c309188f9115fdc77fdb71 100644
+--- a/plugins/persistence/index.js
++++ b/plugins/persistence/index.js
+@@ -47,6 +47,7 @@ async function removeIfExists(p) {
+ }
+ 
+ export async function register(app, ctx, pluginConfig = {}) {
++  return; // Native Firefox profile owns storage.
+   const { events, config, log } = ctx;
+ 
+   // Resolve profileDir: env var > plugin config > global config default (~/.camofox/profiles)
+diff --git a/postinstall.js b/postinstall.js
+deleted file mode 100644
+index 488077bfa09b23c4d6ad68a946a5a16be12d7c2d..0000000000000000000000000000000000000000
 diff --git a/server.js b/server.js
+index 4a737caba128a8f6a22f789ab9682167660a0589..391dde4142b525da1798ccd8803771cca55f4f33 100644
 --- a/server.js
 +++ b/server.js
-@@ -276,9 +276,9 @@
+@@ -1,5 +1,4 @@
+-import { Camoufox, launchOptions } from 'camoufox-js';
+-import { VirtualDisplay } from 'camoufox-js/dist/virtdisplay.js';
++import { Camoufox, launchOptions, VirtualDisplay } from 'camoufox';
+ import { firefox } from 'playwright-core';
+ import express from 'express';
+ import crypto from 'crypto';
+@@ -276,9 +275,9 @@ async function assertLocatorFillable(locator) {
    });
  }
  
@@ -13,7 +102,7 @@ diff --git a/server.js b/server.js
  }
  
  function safeError(err) {
-@@ -579,7 +579,8 @@
+@@ -579,7 +578,8 @@ async function withTabLock(tabId, operation, timeoutMs = HANDLER_TIMEOUT_MS, onT
    const lock = getTabLock(tabId);
    await lock.acquire(TAB_LOCK_TIMEOUT_MS);
    try {
@@ -23,7 +112,37 @@ diff --git a/server.js b/server.js
    } catch (err) {
      if (onTimeout && isTimeoutError(err)) {
        await onTimeout();
-@@ -1108,18 +1109,10 @@
+@@ -863,27 +863,8 @@ function getTotalTabCount() {
+ const DEFAULT_VIRTUAL_DISPLAY_RESOLUTION = '1280x720x24';
+ 
+ class DefaultVirtualDisplay extends VirtualDisplay {
+-  get xvfb_args() {
+-    const args = super.xvfb_args;
+-    const idx = args.indexOf('0');
+-    if (idx > 0 && args[idx - 1] === '-screen') {
+-      const patched = [...args];
+-      patched[idx + 1] = DEFAULT_VIRTUAL_DISPLAY_RESOLUTION;
+-      return patched;
+-    }
+-    return args;
+-  }
+-
+-  kill() {
+-    const proc = this.proc;
+-    if (!proc || this.xvfbDisplayFilesCleanupRegistered) return super.kill();
+-
+-    this.xvfbDisplayFilesCleanupRegistered = true;
+-    const cleanup = () => removeXvfbDisplayFiles(this.display);
+-    if (proc.exitCode === null) proc.once('exit', cleanup);
+-    else cleanup();
+-    return super.kill();
+-  }
++  // stelz: the official display removes its lock and socket files on kill.
++  constructor() { super(false, DEFAULT_VIRTUAL_DISPLAY_RESOLUTION); }
+ }
+ 
+ let virtualDisplay = null;
+@@ -1108,25 +1089,17 @@ function isCamoufoxGeoipError(err) {
  const virtualDisplayRegistry = createVirtualDisplayRegistry(() => new DefaultVirtualDisplay());
  
  async function buildLaunchOptionsWithGeoipFallback(baseOptions, attemptMeta) {
@@ -46,7 +165,15 @@ diff --git a/server.js b/server.js
  }
  
  async function launchBrowserInstance() {
-@@ -1172,9 +1165,12 @@
+   const hostOS = getHostOS();
+   const maxAttempts = proxyPool?.launchRetries ?? 1;
+   let lastError = null;
+-  const externalCamoufox = getExternalCamoufoxLaunch();
++  const externalCamoufox = null; // stelz: the plugin passes the executable to the official launcher.
+ 
+   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+     const launchProxy = proxyPool
+@@ -1172,9 +1145,12 @@ async function launchBrowserInstance() {
          executable_path: externalCamoufox?.executablePath,
          headless: useVirtualDisplay ? false : !useDesktopWindow,
          os: hostOS,
@@ -59,7 +186,7 @@ diff --git a/server.js b/server.js
          geoip: !!launchProxy,
          locale: launchLocale({ hasProxy: !!proxyPool, directIdentity: CONFIG.directIdentity }),
          virtual_display: vdDisplay,
-@@ -1196,7 +1192,7 @@
+@@ -1196,7 +1172,7 @@ async function launchBrowserInstance() {
        options.handleSIGHUP = false;
        await pluginEvents.emitAsync('browser:launching', { options });
  
@@ -68,7 +195,7 @@ diff --git a/server.js b/server.js
  
        if (proxyPool?.canRotateSessions) {
          const probe = await probeGoogleSearch(candidateBrowser);
-@@ -1408,7 +1404,7 @@
+@@ -1408,7 +1384,7 @@ async function getSession(userId, { trace = false } = {}) {
          log('info', 'session proxy assigned', { userId: key, proxy: sessionProxy.server });
        }
        await pluginEvents.emitAsync('session:creating', { userId: key, contextOptions });
@@ -77,7 +204,7 @@ diff --git a/server.js b/server.js
  
        let tracePath = null;
        if (trace) {
-@@ -1424,6 +1420,7 @@
+@@ -1424,6 +1400,7 @@ async function getSession(userId, { trace = false } = {}) {
        }
  
        const created = { context, tabGroups: new Map(), pageLeases: new Set(), lastAccess: Date.now(), proxySessionId: sessionProxy?.sessionId || null, tracePath };
@@ -85,7 +212,7 @@ diff --git a/server.js b/server.js
        sessions.set(key, created);
        await pluginEvents.emitAsync('session:created', { userId: key, context });
        log('info', 'session created', {
-@@ -2909,6 +2906,7 @@
+@@ -2909,6 +2886,7 @@ app.post('/pressure/cleanup', async (req, res) => {
   *             schema:
   *               $ref: '#/components/schemas/Error'
   */
@@ -93,7 +220,7 @@ diff --git a/server.js b/server.js
  app.post('/tabs', async (req, res) => {
    // The tab is registered before it navigates, and the route deadline can pass
    // while navigation is still in flight. An error response carries no tabId, so
-@@ -2916,8 +2914,9 @@
+@@ -2916,8 +2894,9 @@ app.post('/tabs', async (req, res) => {
    // completed after abandonment attempts its own cleanup.
    let createdTabId = null;
    let abandoned = false;
@@ -104,12 +231,10 @@ diff --git a/server.js b/server.js
      const session = sessions.get(normalizeUserId(req.body.userId));
      if (session) await destroyTimedOutTab(session, createdTabId, 'tab_create_failed', req.body.userId);
      createdTabId = null;
-@@ -2928,6 +2927,18 @@
-     const resolvedSessionKey = sessionKey || listItemId;
-     if (!userId || !resolvedSessionKey) {
+@@ -2930,6 +2909,18 @@ app.post('/tabs', async (req, res) => {
        return res.status(400).json({ error: 'userId and sessionKey required' });
-+    }
-+
+     }
+ 
 +    if (req.body.stelzStartup !== undefined) {
 +      if (req.body.stelzStartup !== true || stelzStartupAdmitted || sessions.has(normalizeUserId(userId)) ||
 +          userId !== process.env.STELZ_PROFILE_ID || sessionKey !== 'default' ||
@@ -120,10 +245,12 @@ diff --git a/server.js b/server.js
 +      // Startup verification has its own service deadline. Normal /tabs calls keep theirs.
 +      // The supervisor waits for browser prewarm before this one-time initialization.
 +      await getSession(userId);
-     }
- 
++    }
++
      // Session overflow redirect (Fly.io only) — if this machine is above its
-@@ -2978,6 +2989,8 @@
+     // fair share of sessions and the user doesn't already have one here,
+     // bounce back through the Fly Proxy to land on a less-loaded machine.
+@@ -2978,6 +2969,8 @@ app.post('/tabs', async (req, res) => {
        attachDownloadListener(tabState, tabId, log, pluginEvents, userId);
        group.set(tabId, tabState);
        createdTabId = tabId;
@@ -132,7 +259,7 @@ diff --git a/server.js b/server.js
        releasePageLease(session, lease);
        attachPopupHandler(page, userId, resolvedSessionKey);
        refreshActiveTabsGauge();
-@@ -4371,7 +4384,7 @@
+@@ -4371,7 +4364,7 @@ app.post('/tabs/:tabId/type', async (req, res) => {
    const tabId = req.params.tabId;
    
    try {
@@ -141,7 +268,7 @@ diff --git a/server.js b/server.js
      const session = sessions.get(normalizeUserId(userId));
      const found = session && findTab(session, tabId);
      if (!found) return tabNotFoundResponse(res, req.params.tabId || req.body?.tabId);
-@@ -4409,9 +4422,9 @@
+@@ -4409,9 +4402,9 @@ app.post('/tabs/:tabId/type', async (req, res) => {
        
        if (mode === 'fill') {
          if (locator) {
@@ -153,7 +280,7 @@ diff --git a/server.js b/server.js
          }
        } else {
          // keyboard mode -- char-by-char real key events (required for Ember/contenteditable)
-@@ -4423,12 +4436,19 @@
+@@ -4423,12 +4416,19 @@ app.post('/tabs/:tabId/type', async (req, res) => {
          await tabState.page.keyboard.type(text, { delay });
        }
        if (shouldSubmit) await tabState.page.keyboard.press('Enter');
@@ -174,57 +301,3 @@ diff --git a/server.js b/server.js
      if (err.message?.includes('timed out') || err.message?.includes('not an <input>')) {
        try {
          const session = sessions.get(normalizeUserId(req.body.userId));
-diff --git a/lib/browser-identity.js b/lib/browser-identity.js
---- a/lib/browser-identity.js
-+++ b/lib/browser-identity.js
-@@ -1,5 +1,5 @@
- export function contextIdentityOptions({ hasProxy, directIdentity }) {
--  if (hasProxy) return { permissions: ['geolocation'] };
-+  if (hasProxy) return {}; // Stelz never grants location access to arbitrary sites.
-   return directIdentity ? { ...directIdentity } : {};
- }
- 
-diff --git a/lib/camoufox-executable.js b/lib/camoufox-executable.js
---- a/lib/camoufox-executable.js
-+++ b/lib/camoufox-executable.js
-@@ -193,7 +193,7 @@
-     mkdirSync(cacheDir, { recursive: true });
-     writeFileSync(cacheVersion, readFileSync(bundledVersion));
-   }
--  if (!existsSync(executableProperties)) ensureSymlink(realpathSync(resourceProperties), executableProperties);
-+  // stelz: read macOS resources without changing the installed app bundle.
- }
- 
- export function prepareExternalCamoufoxExecutable(executablePath, { cacheDir } = {}) {
-diff --git a/lib/new-page-recovery.js b/lib/new-page-recovery.js
---- a/lib/new-page-recovery.js
-+++ b/lib/new-page-recovery.js
-@@ -15,7 +15,7 @@
- }) {
-   let lease = acquirePageLease(session);
-   try {
--    const page = setLeasedPage(lease, await withTimeout(session.context.newPage(), timeoutMs, 'new page'));
-+    const page = setLeasedPage(lease, await withTimeout((await import('../plugins/local-profile/index.js')).createProfilePage(session.context), timeoutMs, 'new page'));
-     return { session, page, lease };
-   } catch (err) {
-     releasePageLease(session, lease);
-@@ -35,7 +35,7 @@
-     session = await getSession(userId, { trace });
-     lease = acquirePageLease(session);
-     try {
--      const page = setLeasedPage(lease, await withTimeout(session.context.newPage(), timeoutMs, 'new page retry'));
-+      const page = setLeasedPage(lease, await withTimeout((await import('../plugins/local-profile/index.js')).createProfilePage(session.context), timeoutMs, 'new page retry'));
-       return { session, page, lease };
-     } catch (retryErr) {
-       releasePageLease(session, lease);
-diff --git a/plugins/persistence/index.js b/plugins/persistence/index.js
---- a/plugins/persistence/index.js
-+++ b/plugins/persistence/index.js
-@@ -47,6 +47,7 @@
- }
- 
- export async function register(app, ctx, pluginConfig = {}) {
-+  return; // Native Firefox profile owns storage.
-   const { events, config, log } = ctx;
- 
-   // Resolve profileDir: env var > plugin config > global config default (~/.camofox/profiles)

@@ -1,24 +1,26 @@
 # Camofox integration
 
 Camoufox is the Firefox-based browser executable. Camofox is the HTTP automation server that controls it through Playwright.
-`camoufox-js` prepares browser launch options. Stelz supplies persistent profile ownership and exclusive MCP control.
+The official `camoufox` launcher prepares browser launch options. Stelz supplies persistent profile ownership and exclusive MCP control.
 See [Architecture](architecture.md) for the request path and service boundaries.
 
 ## Pinned dependencies and patches
 
 Bun applies committed compatibility patches during workspace installation.
-The root `package.json` pins Camofox (`@askjo/camofox-browser`) to `1.18.1` and `camoufox-js` to `0.13.0`.
-The `camoufox-js` override makes Camofox use that same launcher version.
+The root `package.json` pins Camofox (`@askjo/camofox-browser`) to `1.18.1` and the official `camoufox` launcher to `0.5.8`.
+The Camofox patch changes its launcher dependency to that same version. No override is necessary.
 Its `patchedDependencies` field selects the files under `patches/`.
 The upstream source commit is recorded in `src/versions.ts`.
 
-The patches cover nine compatibility areas:
+The patches cover eleven compatibility areas:
 
 | Area | Purpose | Removal criterion |
 | --- | --- | --- |
 | Locator fill and type route | Forward each call's typing mode. Support automatic pacing, keyboard events, and bulk entry. | Upstream provides equivalent configurable typing behavior and timeout handling. |
-| Executable resource link | Prevent changes to an installed macOS app bundle. | Upstream reads app resources without writing symlinks. |
-| `camoufox-js` properties path | Read macOS properties from `Contents/Resources`. | The pinned library resolves that resource path itself. |
+| Official launcher import | Import `Camoufox`, `launchOptions`, and `VirtualDisplay` from `camoufox`. | Upstream depends on the official launcher. |
+| Virtual display | Pass the 1280x720x24 screen to the official display. It removes its X lock and socket files on kill. | Upstream uses the official display with an equivalent screen. |
+| External executable shim | Disable the Camofox executable shim. It writes `version.json` into the shared Camoufox cache. The Stelz plugin passes the executable to the launcher. | Upstream passes an external executable without cache writes. |
+| Bundled downloader | Remove `postinstall.js`, `lib/camoufox-download.js`, and their scripts. Browser installation stays explicit. | Upstream installs no browser during package installation. |
 | Window and screen bounds | Preserve the explicit desktop window and screen policy. | Upstream supports equivalent explicit bounds through configuration. |
 | Proxy WebRTC policy | Disable WebRTC for proxied browsers. | Upstream enforces the same policy on every proxy browser start. |
 | Browser start | Use persistent profile and saved device handling. | Upstream provides equivalent persistent-context ownership and device replay. |
@@ -44,14 +46,17 @@ Review upstream upgrades separately. Saved device settings do not guarantee stab
 6. Run `bun run check` and the relevant checks from [Testing](testing.md).
 
 Keep exact versions until a separate compatibility review approves an upgrade.
+Only `src/browser/camoufox.ts` imports `camoufox` internals. Its unit test fails when an upgrade removes one of them.
 Update `src/browser/camofox-adapter.ts` when required prepared-source checks change.
 Its checks reject missing, duplicate, or changed matches.
 Setup validates prepared source. Setup does not rewrite it.
 
 ## Location preparation and verification
 
-The pinned launcher supplies IP discovery and the MaxMind reader. Stelz does not add an IP provider.
-Its small integration patch accepts prepared location settings and a managed database path or reader.
+Stelz checks the proxy exit IP itself (`src/runtime/public-ip.ts`) and reads the managed MaxMind database itself.
+The official helpers memoize results per proxy, cannot be cancelled, have no error codes, and download into the shared cache.
+Stelz passes `geoip: false` to the launcher and merges the prepared location into `config`.
+It removes `permissions.default.geo`, so coordinates never grant website permission.
 Stelz supplies the existing deterministic country-language policy. Valid zero coordinates remain valid.
 Camofox cannot retry a failed proxied launch with GeoIP disabled. It no longer grants blanket geolocation permission.
 
@@ -64,8 +69,11 @@ Blank startup and MCP gating do not establish that Firefox sends no background w
 
 ## Runtime setup
 
-The release archive bundles the prepared Camofox and `camoufox-js` packages with their transitive JavaScript dependencies and licenses.
-Setup locates those installed packages. It does not download or patch upstream source.
+The release archive bundles only the prepared Camofox package with its transitive JavaScript dependencies and licenses.
+Camofox registry metadata still names `camoufox-js`. Packing removes packages that no manifest reaches. Archive checks reject any `camoufox-js` file.
+Setup locates the installed packages. It does not download or patch upstream source.
+It prepares the location data and the official pinned fingerprint model under `STELZ_HOME/runtime`. See [Getting started](../getting-started.md#3-prepare-the-runtime-and-open-the-manager).
+Start refuses to launch without the fingerprint model. Start never downloads.
 It uses the existing Camoufox executable and leaves that installation unchanged.
 
 Setup holds the admission lock and requires stopped profiles.

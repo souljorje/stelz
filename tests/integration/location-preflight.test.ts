@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { createMockPackage } from "../helpers/mock-package.ts";
-import { fixtureLauncher, managedFixture, geoipFixture } from "../helpers/geoip-fixture.ts";
+import { fixtureLocation, fixtureModel, managedFixture, geoipFixture } from "../helpers/geoip-fixture.ts";
 import { UPSTREAM_VERSION } from "../../src/versions.ts";
 
 const homes: string[] = [];
@@ -20,12 +20,14 @@ function fixture(ipCode?: string) {
   writeFileSync(join(upstream, "mcp/lib/tool-contracts.mjs"), 'export * from '+JSON.stringify(resolve("node_modules/@askjo/camofox-browser/mcp/lib/tool-contracts.mjs"))+';');
   writeFileSync(join(upstream, "plugins/local-profile/index.js"), pkg.plugin);
   writeFileSync(join(upstream, "server.js"), "throw Error('A blocked preflight must never launch this server');");
-  const launcher = fixtureLauncher(home, ipCode);
+  fixtureLocation(home, pkg.packageRoot, ipCode);
   writeFileSync(join(home, "browser"), "fixture executable");
+  writeFileSync(join(home, "application.ini"), "[App]\nVersion=156.0.1-beta.36\n");
+  fixtureModel(join(home, "runtime/fpgen"));
   writeFileSync(join(home, "runtime/versions.json"), "{}");
   writeFileSync(join(home, "profiles.json"), JSON.stringify({ profiles: [{ id: "test", port: 19378, proxyEnv: "TEST_PROXY" }] }));
   writeFileSync(join(home, "secrets.env"), "TEST_PROXY=http://fixture-user:fixture-password@proxy.test:8080\n", { mode: 0o600 });
-  const env = { ...process.env, STELZ_HOME: home, CAMOUFOX_EXECUTABLE: join(home, "browser") };
+  const env = { ...process.env, STELZ_HOME: home, CAMOUFOX_EXECUTABLE: join(home, "browser"), CAMOUFOX_FPGEN_DATA: join(home, "runtime/fpgen") };
   async function script(body: string) {
     const child = Bun.spawn([process.execPath, "--no-env-file", "-e", `
       import {readFileSync,writeFileSync,rmSync,renameSync,mkdirSync} from 'node:fs';
@@ -43,7 +45,7 @@ function fixture(ipCode?: string) {
     const [out, error, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
     return { out, error, code };
   }
-  return { ...pkg, cliPath:pkg.cli, home, directory, upstream, launcher, env, script, cli };
+  return { ...pkg, cliPath:pkg.cli, home, directory, upstream, env, script, cli };
 }
 for (const condition of ["missing", "corrupt", "incompatible", "incomplete"] as const) test(`${condition} data blocks UI, CLI and MCP before a process reservation`, async () => {
   const f = fixture('throw Error("No network call is allowed");');
@@ -103,7 +105,7 @@ test("edits during preflight reject stale completion without replacing the curre
 });
 
 test("cancellation and the overall deadline end the preflight without a browser", async () => {
-  const f = fixture(`await new Promise((resolve,reject)=>{options.signal.addEventListener('abort',()=>reject(options.signal.reason),{once:true})});`);
+  const f = fixture(`await new Promise((resolve,reject)=>{signal.addEventListener('abort',()=>reject(signal.reason),{once:true})});`);
   for (const mode of ["cancel", "timeout"]) {
     const result = await f.script(`const controller=new AbortController();
       ${mode === "cancel" ? "setTimeout(()=>controller.abort(),40);" : "const timeout=AbortSignal.timeout.bind(AbortSignal);AbortSignal.timeout=ms=>timeout(ms===30000?40:ms);"}
@@ -130,9 +132,9 @@ test("Start repeats network preflight after a green UI result", async () => {
   expect(existsSync(join(f.directory, "running.json"))).toBe(false);
 });
 
-test("changed engine, launcher, dataset and expected IP invalidate old green results", async () => {
+test("changed engine, integration, dataset and expected IP invalidate old green results", async () => {
   const f = fixture();
-  for (const file of [join(f.home, "browser"), join(f.launcher, "dist/utils.js")]) {
+  for (const file of [join(f.home, "browser"), join(f.upstream, "lib/browser-identity.js")]) {
     expect((await f.cli("recheck")).code).toBe(0);
     writeFileSync(file, readFileSync(file, "utf8") + "\n// new version");
     expect(await f.script(`return (await runtime.reportStatus('test')).location;`)).toMatchObject({ status: "not_checked", valid: false });
@@ -150,6 +152,7 @@ test("changed engine, launcher, dataset and expected IP invalidate old green res
 test("the launch adapter applies checked options and closes a failed preparation without disabled GeoIP", async () => {
   const f = fixture(); expect((await f.cli("recheck")).code).toBe(0);
   const result = await f.script(`
+    Object.defineProperty(process,'platform',{value:'darwin'});
     const {prepareProfileLaunch}=await import(${JSON.stringify(join(f.packageRoot, "src/browser/location-launch.ts"))});
     const path=config.dir('test')+'/location.json', record=JSON.parse(readFileSync(path,'utf8'));record.attemptId='attempt';
     Object.assign(process.env,{STELZ_PROFILE_DIR:config.dir('test'),STELZ_UPSTREAM:config.UPSTREAM,PROXY_HOST:'proxy.test',STELZ_START_ID:'attempt',STELZ_LOCATION_LAUNCH:JSON.stringify(record)});
@@ -158,7 +161,7 @@ test("the launch adapter applies checked options and closes a failed preparation
     try {await prepareProfileLaunch({proxy:{server:'http://proxy.test:8080'}},async()=>{throw Error('fixture-password')});}catch{}
     await Bun.sleep(40);
     return {options,terminated,result:JSON.parse(readFileSync(path,'utf8')).result};`);
-  expect(result.options).toMatchObject({ geoip: "198.51.100.10", timezoneId: "Europe/London", stelzGeoip: { timezone: "Europe/London" } });
+  expect(result.options).toMatchObject({ geoip: false, ff_version: "156", i_know_what_im_doing: true, timezoneId: "Europe/London", config: { timezone: "Europe/London" } });
   expect(result).toMatchObject({ terminated: true, result: { code: "LOCATION_PREPARATION_FAILED", browserStarted: false, nextAction: { kind: "run_setup" } } });
   expect(JSON.stringify(result)).not.toContain("fixture-password");
 });
@@ -182,9 +185,9 @@ test("the supervisor cleans its unlaunched reservation when a resolved secret di
   expect(value.running.serverPid).toBeUndefined();
 });
 
-test("stale launcher integration blocks recheck before it can download or probe", async () => {
+test("stale Camofox integration blocks recheck before it can probe", async () => {
   const f = fixture('throw Error("Network probe must not run");');
-  writeFileSync(join(f.launcher, "dist/locale.js"), "export async function getGeolocation(ip) { throw Error('Old automatic downloader must not run'); }");
+  writeFileSync(join(f.upstream, "lib/browser-identity.js"), "if (hasProxy) return { permissions: ['geolocation'] };");
   expect(await f.script(`return (await runtime.reportStatus('test')).location;`)).toMatchObject({ code: "GEOIP_RUNTIME_MISSING", status: "blocked" });
   const checked = await f.cli("recheck"); expect(checked.code).toBe(1);
   expect(JSON.parse(checked.error)).toMatchObject({ location: { code: "GEOIP_RUNTIME_MISSING", nextAction: { command: "stelz setup" } } });

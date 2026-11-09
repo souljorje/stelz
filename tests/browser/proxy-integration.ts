@@ -258,14 +258,12 @@ try {
   assertRoutingCoverage(lifetimes, expected);
   report.push({ check: "Distinct stable exits across three explicit proxy start/stop lifetimes", lifetimes, result: "passed" });
 
-  // Swapping the known-good pins must block BOTH otherwise functional routes.
-  configure("proxy", [expected[1], expected[0]]); await startProfiles();
+  // Swapping the known-good pins must block BOTH otherwise functional routes. Preflight rejects them before launch.
+  configure("proxy", [expected[1], expected[0]]);
   for (const id of ids) {
-    const c = await client(id); await rejected(c, "profile_recheck");
-    const status = await call(c, "profile_status");
-    assert(status.phase === "verification_failed" && status.fixedIpVerified === false, "A mismatched expected IP did not block the profile.");
-    await rejected(c, "camofox_list_tabs");
-    report.push({ check: "The other proxy's expected IP pin blocks browser actions", profile: id, result: "passed" });
+    const failure = await command("start", id).then(() => { owned.add(id); return ""; }, (error: unknown) => String(error));
+    assert(failure.includes("does not match the configured expected IP"), "A mismatched expected IP did not block Start.");
+    report.push({ check: "The other proxy's expected IP pin blocks Start", profile: id, result: "passed" });
   }
 } catch (error) {
   report.push({ check: "Two-proxy acceptance", result: "failed", error: redact(String(error)) }); process.exitCode = 1;

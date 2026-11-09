@@ -89,7 +89,8 @@ It uses canonical documentation directly, without generated copies.
 It excludes Stelz source, tests, browser state, credentials, and compiled native binaries in bundled dependencies.
 Profile ZIP archives are a separate format. See [Profile transfer](../profile-transfer.md).
 
-The package bundles prepared Camofox and `camoufox-js` dependencies, including transitive JavaScript sources and licenses.
+The package bundles only prepared Camofox, including transitive JavaScript sources and licenses.
+Packing removes packages that no manifest reaches, such as `camoufox-js` from Camofox registry metadata. Archive checks reject any `camoufox-js` file.
 Bun applies committed patches during workspace installation.
 Packing resolves dependency links into a temporary physical tree.
 It removes bundled native packages and their platform binaries before creating the final archive.

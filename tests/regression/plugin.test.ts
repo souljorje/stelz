@@ -58,15 +58,20 @@ test("status advertises window controls only for a current browser inventory", a
   } finally { await h.close(); }
 });
 
-test("device replay preserves hardware but refreshes language, location, paths and new settings", () => {
-  const saved = { ...generated, "navigator.hardwareConcurrency": 4, timezone: "Old/Zone", addons: [join(tmpdir(), "stelz-test-addons", "old")] };
-  const fresh = { ...generated, "navigator.languages": ["en-GB"], "window.history.length": 3, futureSetting: true };
+test("device replay preserves hardware, refreshes runtime settings, and leaves native window dimensions unspoofed", () => {
+  const saved = { ...generated, "navigator.hardwareConcurrency": 4, timezone: "Old/Zone", addons: [join(tmpdir(), "stelz-test-addons", "old")],
+    "window.outerHeight": 800 };
+  const fresh = { ...generated, "navigator.languages": ["en-GB"], "window.history.length": 3,
+    "window.outerHeight": 790, "window.outerWidth": 1200, "window.innerWidth": 1200, "window.innerHeight": 704, futureSetting: true };
   const result = replayFingerprint(saved, fresh);
   assert.equal(result["navigator.hardwareConcurrency"], 4);
   for (const key of ["timezone", "addons", "navigator.languages", "window.history.length", "futureSetting"] as const) {
     assert.deepEqual(result[key], fresh[key]);
   }
   assert.equal(freezeDevice(saved).timezone, undefined);
+  for (const key of ["window.innerWidth", "window.innerHeight", "window.outerWidth", "window.outerHeight"]) assert.equal(key in result, false);
+  assert.equal(saved["window.outerHeight"], 800);
+  assert.equal(fresh["window.outerHeight"], 790);
 });
 
 test("proxy policy wins and unrelated fresh preferences survive", () => {

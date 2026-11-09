@@ -14,7 +14,7 @@ const manifest: ProfileArchiveManifest = { format: "stelz-profiles", version: 1,
   profiles: [{ id: "work", storage: "native", proxy: { url: "http://private-user:private-password@proxy.test:8080" } }], directories: ["profiles", "profiles/work"], files: [] };
 const fingerprintDiagnostics: TransferFingerprintDiagnostic[] = [{ sourceId: "work", fingerprint: { status: "checked", validation: {
   staticValid: false, schema: "PASS", engineSha256: "PASS", runtime: "NOT_RUN", admissionBlocked: true,
-  diagnostics: [{ code: "webgl.renderer.direct3d_on_macos", path: "pin.config.webGl:renderer", severity: "error", message: "The renderer is incompatible." }],
+  diagnostics: [{ code: "coherence.gpu-matches-os", path: "pin.config", severity: "error", message: "The renderer is incompatible." }],
 } } }];
 const preview = { revision: "b".repeat(64), source: manifest.source, compatible: true, issues: [],
   profiles: [{ sourceId: "work", id: "work-copy", name: "work-copy", storage: "native" as const, proxyDisplay: "http://proxy.test:8080", proxyUnavailable: false, issues: [],

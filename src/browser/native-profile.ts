@@ -5,6 +5,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { validateFingerprint, validateRuntimeObservation } from "./fingerprint-validation.ts";
 import type { applyFingerprint } from "./fingerprint.ts";
 import type { StartupWindowObservation } from "./profile-windows.ts";
+import { launcher } from "./camoufox.ts";
 
 type Options = Record<string, unknown>;
 type Browser = object;
@@ -75,7 +76,8 @@ export async function launchProfileBrowser(
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   // Context options (permissions, locale, timezone, viewport) must apply at launch,
   // not to a new incognito context after the native profile has already opened.
-  const effective = { ...options, ...contextOptions };
+  // Like the official launcher, use the host media features instead of Playwright's emulation.
+  const effective = launcher().withStockMediaDefaults({ ...options, ...contextOptions });
   const context = await firefox.launchPersistentContext(directory, effective);
   try {
     const browser = context.browser();
@@ -149,14 +151,12 @@ export async function createProfilePage(context: Context): Promise<Page> {
 export type StartupPageGeometry = { innerWidth: number; innerHeight: number; outerWidth: number; outerHeight: number;
   devicePixelRatio: number; visualScale: number | null; fullscreen: boolean };
 
-// Isolated calibration observed matching page and extension dimensions with
-// this engine on macOS, in a normal headed window at zoom 1 and visual scale 1.
-// Privileged APIs are not spoof-proof; full supervisor startup was not tested.
-const GEOMETRY_ENGINE_SHA256 = "e468f25acba5085624da4d1ac809fd5679fa281ed2b0265f82efe63904900b33";
+// The page must report the real macOS window in a normal headed window at zoom 1 and visual scale 1.
+// Window sizes are runtime values, so the check needs no engine-specific calibration.
+// Privileged APIs are not spoof-proof.
 export function validateStartupGeometry(page: StartupPageGeometry, window: StartupWindowObservation,
-  engineSha256: string, platform: NodeJS.Platform, now = Date.now()) {
-  if (platform !== "darwin" || engineSha256 !== GEOMETRY_ENGINE_SHA256)
-    throw Error("The engine or display platform has no supported startup geometry contract; custom engines require compatibility evidence.");
+  platform: NodeJS.Platform, now = Date.now()) {
+  if (platform !== "darwin") throw Error("The display platform has no supported startup geometry contract.");
   if (window.state !== "normal" || page.fullscreen !== false) throw Error("The startup window mode is unknown or unsupported.");
   if (window.zoom !== 1 || page.visualScale !== 1) throw Error("The startup window zoom or viewport scale is unsupported.");
   if (!Number.isFinite(window.sampledAt) || !Number.isFinite(window.receivedAt) || window.sampledAt > window.receivedAt ||
@@ -168,7 +168,7 @@ export function validateStartupGeometry(page: StartupPageGeometry, window: Start
     throw Error("The normal window frame and viewport geometry are inconsistent.");
   if (page.outerWidth !== window.outerWidth || page.outerHeight !== window.outerHeight ||
       page.innerWidth !== window.viewportWidth || page.innerHeight !== window.viewportHeight)
-    throw Error("The page geometry differs from the privileged window and tab observation.");
+    throw Error(`The page geometry differs from the privileged window and tab observation. Page outer: ${page.outerWidth}x${page.outerHeight}, viewport: ${page.innerWidth}x${page.innerHeight}. Native outer: ${window.outerWidth}x${window.outerHeight}, viewport: ${window.viewportWidth}x${window.viewportHeight}.`);
 }
 
 async function restoreStartupTitle(page: Page, token: string, previous: string) {
@@ -251,7 +251,7 @@ export async function verifyProfileFingerprint(context: Context, prepared: Retur
         identity["screen.colorDepth"] !== identity["screen.pixelDepth"]) throw Error("Runtime screen or window geometry is inconsistent.");
     validateStartupGeometry({ innerWidth: identity["window.innerWidth"] as number, innerHeight: identity["window.innerHeight"] as number,
       outerWidth: identity["window.outerWidth"] as number, outerHeight: identity["window.outerHeight"] as number,
-      devicePixelRatio: identity["window.devicePixelRatio"] as number, ...observed.geometry }, nativeWindow, prepared.engineSha256, platform);
+      devicePixelRatio: identity["window.devicePixelRatio"] as number, ...observed.geometry }, nativeWindow, platform);
     for (const [prefix, gl] of [["webGl:", observed.webgl], ["webGl2:", observed.webgl2]] as const) {
       if (!gl.available) continue;
       for (const key of ["vendor", "renderer", "version"] as const) if (gl[key] !== undefined) identity[prefix + key] = gl[key];
@@ -276,9 +276,7 @@ export async function verifyProfileFingerprint(context: Context, prepared: Retur
       throw Error("WebGL2 availability differs from the launch preferences.");
     const runtime = validateRuntimeObservation({ expectedIdentity: prepared.effective, observedIdentity: identity });
     const admission = validateFingerprint({ pin: prepared.pin, effectiveIdentity: prepared.effective,
-      effectivePreferences: prepared.preferences, serialized: JSON.stringify(prepared.effective),
-      serializedPreferences: JSON.parse(JSON.stringify(prepared.preferences)) },
-      { expectedEngineSha256: prepared.engineSha256, admissionRequired: true, runtime });
+      effectivePreferences: prepared.preferences }, { expectedEngineSha256: prepared.engineSha256, admissionRequired: true, runtime });
     if (admission.admissionBlocked) throw Error(`Runtime fingerprint validation failed: ${admission.diagnostics.filter(d => d.severity === "error").map(d => d.code).join(", ")}`);
     return page;
   } finally { await restoreStartupTitle(page, token, previousTitle); }

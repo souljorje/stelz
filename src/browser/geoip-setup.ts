@@ -4,13 +4,13 @@ import { managedGeoip, validateGeoip, hash, type GeoipManifest } from "./locatio
 
 const RELEASES = "https://api.github.com/repos/P3TERX/GeoLite.mmdb/releases/latest";
 /** Stage data with the runtime. Only setup activates this directory. */
-export async function prepareGeoip(stage: string, current: string, launcher: string, request: typeof fetch = fetch) {
+export async function prepareGeoip(stage: string, current: string, request: typeof fetch = fetch) {
   const target = join(stage, "geoip");
   mkdirSync(target, { mode: 0o700 });
   try {
-    const data = await managedGeoip(current, launcher);
+    const data = await managedGeoip(current);
     copyFileSync(join(current, "geoip/GeoLite2-City.mmdb"), join(target, "GeoLite2-City.mmdb"));
-    await validateGeoip(join(target, "GeoLite2-City.mmdb"), launcher, data.sha256);
+    validateGeoip(join(target, "GeoLite2-City.mmdb"), data.sha256);
     writeFileSync(join(target, "manifest.json"), JSON.stringify(data.manifest, null, 2), { mode: 0o600, flag: "wx" });
     return;
   } catch { /* Missing or invalid managed data requires a validated replacement. */ }
@@ -38,7 +38,7 @@ export async function prepareGeoip(stage: string, current: string, launcher: str
   if (length !== asset.size || hash(bytes) !== asset.digest!.slice(7)) throw Error("Location-data integrity check failed. Run stelz setup again.");
   const file = join(target, "GeoLite2-City.mmdb");
   writeFileSync(file, bytes, { mode: 0o600 });
-  const data = await validateGeoip(file, launcher, asset.digest!.slice(7));
+  const data = validateGeoip(file, asset.digest!.slice(7));
   const manifest: GeoipManifest = { version: 1, sha256: data.sha256, release: release.tag_name!, acquiredAt: new Date().toISOString(),
     databaseType: data.reader.metadata.databaseType, buildEpoch: data.reader.metadata.buildEpoch.toISOString() };
   writeFileSync(join(target, "manifest.json"), JSON.stringify(manifest, null, 2), { mode: 0o600 });

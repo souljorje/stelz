@@ -29,14 +29,14 @@ Stelz manages the browsers. Your agent decides what to do.
 ## Quickstart
 
 The tested desktop platform is macOS on Apple Silicon.
-You need Bun ≥1.4.4, Node.js ≥24, and a compatible Camoufox installation.
+You need Bun ≥1.4.4, Node.js ≥24, and the paired Camoufox build.
 Follow [Getting started](docs/getting-started.md) to install the prerequisites and locate or download Camoufox.
 `stelz setup` requires the browser to exist already.
 
 With those prerequisites ready:
 
 ```sh
-CAMOFOX_SKIP_DOWNLOAD=1 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install --global stelz
+PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install --global stelz
 stelz init
 stelz setup
 stelz ui --open
