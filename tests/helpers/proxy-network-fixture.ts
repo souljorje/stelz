@@ -27,10 +27,14 @@ export async function probeExit(request: (url: string, init: { cache: "no-store"
   return { outcome: invalid ? "invalid-response" : httpError ? "http-error" : "network-error" };
 }
 
-export function proxyRelay(endpoint: URL, observe?: (host: string) => void) {
+export function proxyRelay(endpoint: URL, observe?: (host: string) => void, hostnameFixture?: { nonce: string }) {
+  if (hostnameFixture) assert(/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(hostnameFixture.nonce), "The hostname fixture nonce must be a DNS label.");
   const sockets = new Set<Socket>();
   let port = 0, sent = 0, received = 0;
   const server = createServer(incoming => {
+    sockets.add(incoming); incoming.on("close", () => sockets.delete(incoming));
+    incoming.on("error", () => {});
+    incoming.on("data", data => { sent += data.length; });
     if (observe) {
       let header = "";
       const firstRequest = (data: Buffer) => {
@@ -42,15 +46,30 @@ export function proxyRelay(endpoint: URL, observe?: (host: string) => void) {
       };
       incoming.on("data", firstRequest);
     }
-    const upstream = connect(Number(endpoint.port || 80), endpoint.hostname.replace(/^\[|\]$/g, ""));
-    for (const socket of [incoming, upstream]) {
-      sockets.add(socket); socket.on("close", () => sockets.delete(socket));
+    function forward(buffer?: Buffer) {
+      const upstream = connect(Number(endpoint.port || 80), endpoint.hostname.replace(/^\[|\]$/g, ""));
+      sockets.add(upstream); upstream.on("close", () => sockets.delete(upstream));
+      upstream.on("data", data => { received += data.length; });
+      incoming.on("error", () => upstream.destroy()); upstream.on("error", () => incoming.destroy());
+      incoming.on("close", () => upstream.destroy()); upstream.on("close", () => incoming.destroy());
+      if (buffer) upstream.write(buffer);
+      incoming.pipe(upstream).pipe(incoming);
     }
-    incoming.on("data", data => { sent += data.length; });
-    upstream.on("data", data => { received += data.length; });
-    incoming.on("error", () => upstream.destroy()); upstream.on("error", () => incoming.destroy());
-    incoming.on("close", () => upstream.destroy()); upstream.on("close", () => incoming.destroy());
-    incoming.pipe(upstream).pipe(incoming);
+    if (!hostnameFixture) { forward(); return; }
+    let buffered: Buffer = Buffer.alloc(0);
+    const firstRequest = (data: Buffer) => {
+      buffered = Buffer.concat([buffered, data]);
+      if (!buffered.includes("\r\n\r\n") && buffered.length < 8192) return;
+      incoming.off("data", firstRequest);
+      const [method, target] = buffered.toString("latin1").split("\r\n")[0]!.split(" ");
+      let url: URL | undefined;
+      try { url = new URL(target!); } catch {}
+      if (buffered.includes("\r\n\r\n") && method === "GET" && url?.protocol === "http:" && url.hostname === `${hostnameFixture.nonce}.invalid`) {
+        const body = `<!doctype html><title>Hostname delegation</title><p>Proxy hostname nonce: ${hostnameFixture.nonce}</p>`;
+        incoming.end(`HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`);
+      } else forward(buffered);
+    };
+    incoming.on("data", firstRequest);
   });
   return {
     async start() {

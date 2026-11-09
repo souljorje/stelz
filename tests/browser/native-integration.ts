@@ -15,12 +15,13 @@ const policy = "direct:upstream-language-and-location:stelz-fixture-v2";
 const root = resolve(import.meta.dir, "../..");
 mkdirSync(join(root, ".state"), { recursive: true });
 const home = mkdtempSync(join(root, ".state/native-acceptance-"));
-const cli = process.env.STELZ_TEST_CLI || join(root, "dist/cli.js"), ids = ["profile-01", "profile-02"];
+const cli = process.env.STELZ_TEST_CLI || join(root, "dist/cli.js"), ids = ["profile-01", "profile-02", "profile-03"];
 const env: Record<string, string> = { STELZ_HOME: home };
 for (const key of ["PATH", "HOME", "LANG", "TMPDIR", "CAMOUFOX_EXECUTABLE"]) if (process.env[key]) env[key] = process.env[key]!;
 const clients = new Set<Client>(), started = new Set<string>();
 type NativeSample = StabilitySample & { context: { lifetimeOrdinal: number; documentOrdinal: number; sampleOrdinal: number; tabId: string; url: string } };
 type LifetimeEvidence = {
+  stratum: "fresh-direct" | "saved-valid-direct";
   ordinal: number; instanceId: string; serviceInstanceId: string; serverPid: number; startedAt: string;
   pinSha256: string; engineSha256: unknown; savedPinUnchanged: boolean; nativeMarkerUnchanged: boolean;
   nativeMarkerPresent: boolean; nativeBrowserDataPresent: boolean; nativeCookiesPresent: boolean;
@@ -35,7 +36,7 @@ const profiles: ProfileEvidence[] = ids.map(profile => ({ profile, configuration
 const report = {
   schema: 2, result: "incomplete", startedAt: new Date().toISOString(), completedAt: "", evidence: home,
   experiment: { lifetimesPerProfile: LIFETIMES, documentsPerLifetime: DOCUMENTS, samplesPerDocument: SAMPLES,
-    maximumActiveBrowsers: 2, policy, origin: "",
+    maximumActiveBrowsers: ids.length, policy, origin: "",
     expectedStableFields: STABLE_OBSERVATIONS, variableRenderingFields: VARIABLE_OBSERVATIONS,
     sampling: "Each sample uses fresh canvas, WebGL, and offline audio resources. Fresh documents share a tab within each lifetime.",
     comparisons: "All unordered pairs with equal policy labels. Within-document pairs also count as within-session pairs.",
@@ -55,7 +56,7 @@ const report = {
   environment: { platform: platform(), arch: arch(), osRelease: release(), bun: Bun.version, runtimeVersions: process.versions,
     hostLanguage: process.env.LANG ?? null, hostTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     sources: {} as Record<string, string>, runtimeManifest: null as unknown },
-  profiles, errors: [] as string[],
+  strata: { "fresh-direct": 0, "saved-valid-direct": 0 }, profiles, errors: [] as string[],
 };
 const pins = new Map<string, string>(), markers = new Map<string, string>();
 let site: Awaited<ReturnType<typeof fixture>> | undefined;
@@ -109,19 +110,21 @@ function storageMatches(value: Observation, id: string | null) {
   const cookie = storage.cookie.split(";").map(value => value.trim()).find(value => value.startsWith("profile="));
   return id === null ? cookie === undefined : cookie === `profile=${encodeURIComponent(id)}`;
 }
-function nativeEvidence(profile: ProfileEvidence, ordinal: number, status: Record<string, unknown>) {
+function nativeEvidence(profile: ProfileEvidence, ordinal: number, status: Record<string, unknown>, priorPin: string | undefined) {
   const id = profile.profile;
   const running = JSON.parse(readFileSync(file(id, "running.json"), "utf8")) as { instanceId: string; serverPid: number };
   assert(typeof running.instanceId === "string" && running.instanceId && Number.isInteger(running.serverPid), `${id}: lifetime process evidence is missing`);
   assert(typeof status.instanceId === "string" && status.instanceId, `${id}: service lifetime evidence is missing`);
   assert(!profile.lifetimes.some(value => value.instanceId === running.instanceId || value.serviceInstanceId === status.instanceId), `${id}: explicit start reused a lifetime`);
   const pin = readFileSync(file(id, "fingerprint.json"), "utf8");
+  assert(priorPin === undefined || pin === priorPin, `${id}: start changed the saved pin`);
   const marker = readFileSync(file(id, "native-profile.json"), "utf8");
   if (!pins.has(id)) {
     pins.set(id, pin); markers.set(id, marker);
     profile.savedPin = JSON.parse(pin); profile.nativeMarker = JSON.parse(marker);
   }
-  const evidence: LifetimeEvidence = { ordinal, instanceId: running.instanceId, serviceInstanceId: status.instanceId as string,
+  const evidence: LifetimeEvidence = { stratum: priorPin === undefined ? "fresh-direct" : "saved-valid-direct",
+    ordinal, instanceId: running.instanceId, serviceInstanceId: status.instanceId as string,
     serverPid: running.serverPid, startedAt: new Date().toISOString(), pinSha256: hash(pin), engineSha256: status.engineSha256,
     savedPinUnchanged: pins.get(id) === pin, nativeMarkerUnchanged: markers.get(id) === marker,
     nativeMarkerPresent: existsSync(file(id, "native-profile.json")), nativeBrowserDataPresent: existsSync(file(id, "browser-data")),
@@ -177,10 +180,14 @@ async function capture(profile: ProfileEvidence, client: Client, lifetime: Lifet
   return tabId;
 }
 function summarize() {
+  for (const stratum of ["fresh-direct", "saved-valid-direct"] as const)
+    report.strata[stratum] = profiles.flatMap(profile => profile.lifetimes).filter(value => value.stratum === stratum).length;
   for (const profile of profiles) {
     profile.summary = summarizeStability(profile.samples);
     const fields = Object.values(profile.summary.fields);
     profile.checks = {
+      completeStrata: profile.lifetimes.filter(value => value.stratum === "fresh-direct").length === 1
+        && profile.lifetimes.filter(value => value.stratum === "saved-valid-direct").length === LIFETIMES - 1,
       completeSeries: profile.lifetimes.length === LIFETIMES && profile.summary.lifetimeCount === LIFETIMES
         && profile.summary.documentCount === LIFETIMES * DOCUMENTS && profile.samples.length === LIFETIMES * DOCUMENTS * SAMPLES,
       completeObservations: fields.every(field => field.validSamples === LIFETIMES * DOCUMENTS * SAMPLES && !field.incompleteSamples.length),
@@ -211,10 +218,17 @@ try {
   report.experiment.origin = site.url;
   report.environment.runtimeManifest = JSON.parse(readFileSync(join(home, "runtime/versions.json"), "utf8"));
   for (let ordinal = 1; ordinal <= LIFETIMES; ordinal++) {
-    for (const id of ids) { started.add(id); await command("start", id); }
+    const priorPins = new Map<string, string | undefined>();
+    for (const id of ids) {
+      const priorPin = existsSync(file(id, "fingerprint.json")) ? readFileSync(file(id, "fingerprint.json"), "utf8") : undefined;
+      assert((priorPin === undefined) === (ordinal === 1), `${id}: expected an absent initial pin and an existing pin on restart`);
+      if (priorPin !== undefined) assert(priorPin === pins.get(id), `${id}: saved pin changed before restart`);
+      priorPins.set(id, priorPin);
+      started.add(id); await command("start", id);
+    }
     for (const profile of profiles) {
       const { client, status } = await connect(profile.profile);
-      const lifetime = nativeEvidence(profile, ordinal, status);
+      const lifetime = nativeEvidence(profile, ordinal, status, priorPins.get(profile.profile));
       const tabId = await capture(profile, client, lifetime);
       const runningBefore = readFileSync(file(profile.profile, "running.json"), "utf8");
       await disconnect(client);
@@ -234,7 +248,7 @@ try {
       lifetime.stoppedAt = new Date().toISOString(); lifetime.cleanStop = stopped.instanceId === lifetime.instanceId;
       assert(lifetime.cleanStop, `${profile.profile}: explicit clean stop is unconfirmed`);
     }
-    console.log(`Measured native lifetime ${ordinal}/${LIFETIMES} for both profiles.`);
+    console.log(`Measured native lifetime ${ordinal}/${LIFETIMES} for ${ids.length} profiles.`);
   }
 } catch (error) { report.errors.push(String(error)); }
 finally {
@@ -246,7 +260,7 @@ finally {
   if (report.result !== "passed") process.exitCode = 1;
   report.completedAt = new Date().toISOString();
   writeFileSync(join(home, "report.json"), JSON.stringify(report, null, 2), { mode: 0o600 });
-  console.log(`${report.result}: ${join(home, "report.json")}`);
+  console.log(`${report.result}: ${join(home, "report.json")} strata=${JSON.stringify(report.strata)}`);
   for (const profile of profiles) console.log(JSON.stringify({ profile: profile.profile, checks: profile.checks,
     fields: profile.summary && Object.fromEntries(Object.entries(profile.summary.fields).map(([key, field]) => [key, {
       uniqueValueCount: field.uniqueValueCount, withinSessionDifferences: field.withinSession.differenceCount,

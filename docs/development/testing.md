@@ -122,7 +122,8 @@ bun run build
 bun run test:native
 ```
 
-The check starts two native profiles across three explicit browser lifetimes each.
+The check starts three native profiles across three explicit browser lifetimes each.
+It records three fresh-direct lifetimes and six saved-valid-direct lifetimes, with unchanged saved pins.
 Each lifetime contains two fresh documents with three sequential samples per document.
 The report records raw samples, unique values, incomplete probes, and differences within documents, within lifetimes, and across lifetimes.
 It also records the engine hash, host environment, display observations, experiment recipe, and network policy.
@@ -175,6 +176,8 @@ The test requires different observed exits. Two endpoints with the same exit can
 Without supplied IP pins, preflight observations establish the expected addresses for that run.
 Each profile uses its own relay.
 The check collects repeated browser observations across three explicit starts and stops.
+Each relay serves a unique `.invalid` hostname. The browser must display that relay's nonce.
+This proves that the request does not require local DNS resolution. It does not prove the absence of OS or browser DNS leaks.
 
 It interrupts each relay while successful verification remains cached.
 The failed route must reject external requests. The other route must retain its expected IP.
@@ -303,7 +306,8 @@ PROXY_TEST_ENV=/absolute/path/to/private.env CAMOUFOX_EXECUTABLE=/absolute/path/
 ```
 
 This check reuses the isolated package installer and existing proxy relays.
-It checks setup reuse, preflight, browser location, permissions, native storage, fingerprints, and scrolling across three lifetimes per profile.
+It checks setup reuse, preflight, browser location, permissions, native storage, fingerprints, and scrolling across three lifetimes for each of three profiles.
+The first lifetime uses a fresh profile; the next two preserve its saved pin. The third profile reuses the first supplied proxy route through its own relay.
 It records proxy destinations and restored fixture requests before Ready. These observations do not establish complete traffic isolation.
 The report states whether the supplied exits cover different timezones. Same-zone exits do not establish cross-zone coverage.
 Only temporary test profiles are stopped. Private proxy credentials stay outside reports and Git.

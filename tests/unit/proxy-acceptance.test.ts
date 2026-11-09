@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
 import { parseEnv } from "node:util";
+import { createServer, connect } from "node:net";
+import { once } from "node:events";
 import {
   assertDistinctExits, assertFreshVerificationCache, assertNoFallback, assertProxyRoute, assertRoutingCoverage,
   proxyEndpoints, proxyRedactor, proxyTestConfiguration, PROXY_PROFILE_IDS,
@@ -147,6 +149,68 @@ test("two local relays route independently, survive the other's failure and reco
     for (const server of upstreams) server.stop(true);
   }
 }, 10000);
+
+test("hostname fixture handles fragmented headers, matches only its HTTP host, and preserves CONNECT tunnels", async () => {
+  const nonce = crypto.randomUUID(), hostname = `${nonce}.invalid`, forwarded: string[] = [], observed: string[] = [];
+  const upstream = createServer(socket => {
+    let header = "", tunnel = false;
+    socket.on("error", () => {});
+    socket.on("data", data => {
+      if (tunnel) { socket.write(data); return; }
+      header += data.toString("latin1");
+      if (!header.includes("\r\n\r\n")) return;
+      forwarded.push(header);
+      if (header.startsWith("CONNECT ")) {
+        tunnel = true; socket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
+      } else socket.end("HTTP/1.1 200 OK\r\nContent-Length: 8\r\nConnection: close\r\n\r\nupstream");
+    });
+  });
+  upstream.listen(0, "127.0.0.1"); await once(upstream, "listening");
+  const address = upstream.address();
+  if (!address || typeof address === "string") throw Error("Missing upstream address");
+  let completeHeader = () => {};
+  const relay = proxyRelay(new URL(`http://127.0.0.1:${address.port}`), host => {
+    observed.push(host); completeHeader();
+  }, { nonce });
+  let tunnel: ReturnType<typeof connect> | undefined;
+  const request = (raw: string, fragmented = false) => new Promise<string>((resolve, reject) => {
+    const socket = connect(Number(new URL(relay.url()).port), "127.0.0.1");
+    const chunks: Buffer[] = [], split = raw.indexOf("\r\n") + 2;
+    // The observer must receive the request line before the remaining headers are sent.
+    completeHeader = fragmented ? () => { completeHeader = () => {}; socket.write(raw.slice(split)); } : () => {};
+    socket.setTimeout(1000, () => socket.destroy(Error("Relay response timed out")));
+    socket.on("error", reject); socket.on("data", data => chunks.push(typeof data === "string" ? Buffer.from(data) : data));
+    socket.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    socket.once("connect", () => socket.write(fragmented ? raw.slice(0, split) : raw));
+  });
+  try {
+    await relay.start();
+    const response = await request(`GET http://${hostname}/ HTTP/1.1\r\nHost: ${hostname}\r\n\r\n`, true);
+    expect(response).toContain(`Proxy hostname nonce: ${nonce}`);
+    expect(response).toContain("Cache-Control: no-store");
+    expect(forwarded).toEqual([]); expect(observed).toEqual([hostname]);
+    for (const line of [`GET http://other.invalid/ HTTP/1.1`, `GET http://other.${hostname}/ HTTP/1.1`,
+      "GET / HTTP/1.1", `POST http://${hostname}/ HTTP/1.1`, `GET https://${hostname}/ HTTP/1.1`]) {
+      const raw = `${line}\r\nHost: ${hostname}\r\nProxy-Authorization: Basic dGVzdDp0ZXN0\r\nContent-Length: 0\r\n\r\n`;
+      expect((await request(raw)).endsWith("upstream")).toBe(true);
+      expect(forwarded.at(-1)).toBe(raw);
+    }
+    tunnel = connect(Number(new URL(relay.url()).port), "127.0.0.1");
+    tunnel.setTimeout(1000, () => tunnel!.destroy(Error("CONNECT tunnel timed out")));
+    await once(tunnel, "connect");
+    const connected = once(tunnel, "data");
+    const connectRequest = `CONNECT ${hostname}:443 HTTP/1.1\r\nHost: ${hostname}:443\r\n\r\n`;
+    tunnel.write(connectRequest);
+    expect((await connected)[0].toString()).toBe("HTTP/1.1 200 Connection Established\r\n\r\n");
+    expect(forwarded.at(-1)).toBe(connectRequest);
+    const payload = Buffer.from([0, 255, 22, 3, 1, 128]), echoed = once(tunnel, "data");
+    tunnel.write(payload);
+    expect((await echoed)[0]).toEqual(payload);
+  } finally {
+    tunnel?.destroy(); await relay.stop();
+    await new Promise<void>((resolve, reject) => upstream.close(error => error ? reject(error) : resolve()));
+  }
+});
 
 test("relay evidence requires traffic in both directions", () => {
   expect(() => assertRelayTraffic({ sent: 10, received: 20 }, { sent: 11, received: 20 })).toThrow();

@@ -133,7 +133,15 @@ try {
   const raw = [secrets.PROXY_TEST_URL, secrets.PROXY_TEST_SECOND_URL];
   redact = proxyRedactor([...raw, process.env.PROXY_TEST_URL, process.env.PROXY_TEST_SECOND_URL]);
   const endpoints = proxyEndpoints(secrets);
-  for (const endpoint of endpoints) { const relay = proxyRelay(endpoint.url); relays.push(relay); await relay.start(); }
+  const hostnameFixtures = ids.map(() => ({ nonce: crypto.randomUUID() }));
+  const hostnameRequests: { profile: string; hostname: string }[] = [];
+  for (const [index, endpoint] of endpoints.entries()) {
+    const relay = proxyRelay(endpoint.url, hostname => {
+      if (hostnameFixtures.some(fixture => hostname === `${fixture.nonce}.invalid`))
+        hostnameRequests.push({ profile: ids[index]!, hostname });
+    }, hostnameFixtures[index]!);
+    relays.push(relay); await relay.start();
+  }
   const relayURLs = relays.map(relay => relay.url()) as unknown as Pair<string>;
   redact = proxyRedactor([...raw, ...relayURLs, process.env.PROXY_TEST_URL, process.env.PROXY_TEST_SECOND_URL]);
   assert(new URL(relayURLs[0]).port !== new URL(relayURLs[1]).port, "Profiles share a test relay.");
@@ -190,6 +198,17 @@ try {
       const id = ids[index]!, c = await client(id); active.push(c);
       await verified(c, index, expected, direct);
       await assertSingleStartupWindow(home!, id, await call(c, "camofox_list_tabs"));
+      if (lifetime === 1) {
+        const nonce = hostnameFixtures[index]!.nonce, hostname = `${nonce}.invalid`;
+        const tab = await call(c, "camofox_create_tab", { url: `http://${hostname}/` });
+        const snapshot = await call(c, "camofox_snapshot", { tabId: tab.tabId });
+        assert(String(snapshot.snapshot).includes(`Proxy hostname nonce: ${nonce}`), "The browser did not display its relay's hostname nonce.");
+        const requests = hostnameRequests.filter(request => request.hostname === hostname);
+        assert(requests.length > 0 && requests.every(request => request.profile === id), "The unresolved hostname did not reach only the correct profile's relay.");
+        report.push({ check: "HTTP absolute-URI hostname delegation", profile: id, hostname, result: "passed",
+          scope: "This request succeeded without requiring local DNS resolution. This does not prove absence of OS or browser DNS leaks." });
+        await call(c, "camofox_close_tab", { tabId: tab.tabId });
+      }
       const channel = await openProbe(c); channels.push(channel);
       const observed = await capture(c, id, `proxy-${lifetime}`, fixturePort!), result = await channel.sample();
       const sample = { ...observed, exitIp: successful(result, index, expected, direct), webRTCEnabled: result.webRTCEnabled };
