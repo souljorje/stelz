@@ -3,7 +3,7 @@
 ## Authority and status
 
 This document is the canonical contract for the approved migration. The original plan is context.
-Phase 0 and Phase 1 passed their [gates](#phase-ledger). Phase 2 is BLOCKED; see the [compatibility report](reports/official-launcher-compatibility-2026-11-09.md).
+Phase 0 and Phase 1 passed their [gates](#phase-ledger). Phase 2 resumed against the official candidate. The [prior report](reports/official-launcher-compatibility-2026-11-09.md) preserves the earlier BLOCKED result.
 `main` is not release authority. Historical reports are context only. Do not mark a command passed unless supplied evidence proves it.
 
 ## Fixed objective
@@ -30,7 +30,7 @@ Preserve profile IDs, data paths, secret references, and saved valid pins. Do no
 
 ## Preregistered acceptance criteria
 
-Every declared supported class must appear in the result matrix and produce a usable candidate under its required controls. An all-rejected corpus does not pass. A rejected or unresolved mandatory candidate must not be admitted. Keep existing valid pin bytes unchanged and use the same engine hash. Under fixed conditions, core observables, schemas, controller/queue ownership, and network behavior must have zero unexplained differences. Native canvas variation is allowed.
+Every declared supported macOS class must appear in the Phase 2 matrix and produce a usable candidate under its required controls. An all-rejected corpus does not pass. A rejected or unresolved mandatory candidate must not be admitted. Keep existing valid pin bytes unchanged and use the same engine hash. Under fixed conditions, core observables, schemas, controller/queue ownership, and network behavior must have zero unexplained differences. Native canvas variation is allowed.
 
 The declared strata are fresh direct, fresh proxy, saved-valid direct, saved-valid proxy, and custom-compatible. Native verification covers at least three lifetimes per supported class. Geometry tolerances remain engine- and mode-specific. They do not assume universal chrome geometry.
 
@@ -42,7 +42,7 @@ The Phase 2 corpus has at least 500 candidates. Reconcile accepted, rejected, an
 |---|---|---|
 | 0 | Baseline, exact package evidence, support matrix, and preregistered tolerances | Metadata/provenance validator PASS. Independent Sol/high review PASS. Orchestrator PASS. Baseline report commit `f2fcac2d39f47a5eec9952d69afc57218015dc39`. Gate evidence: `.state/official-launcher-migration/phase0/phase0doc-validation.json` |
 | 1 | Independent fingerprint validator and check/import/export diagnostics | PASS. Core: `a43ba2fb671946b1c08869010f90a78e2363ae63`. Evidence: `.state/official-launcher-migration/phase1/final-phase1.json` |
-| 2 | Isolated compatibility experiment across every supported class | BLOCKED. Saved-direct evidence is partial. The other required rows remain NOT RUN. See the [report](reports/official-launcher-compatibility-2026-11-09.md). |
+| 2 | Isolated candidate evidence across every supported macOS class | IN PROGRESS. Saved-direct native admission, control, and privacy passed for the recorded lifetime. Remaining coverage is pending. The prior BLOCKED report remains historical. |
 | 3 | Prepared runtime and pinned asset provisioning | Pending |
 | 4 | Narrow adapter and production dependency cutover | Pending |
 | 5 | Explicit previewed fingerprint repair | Pending |
@@ -67,11 +67,13 @@ Readiness is a controller-admission gate, not only a CLI start condition. Status
 
 Keep production dependencies unchanged. Compare current TypeScript and official TypeScript launchers with the same executable. Compare official Python and TypeScript launchers with the same executable. Run official TypeScript with its paired executable. Do not force compatibility.
 
-Apply the [preregistered criteria](#preregistered-acceptance-criteria). Record an outcome for every currently supported profile class. Sample only within a class and for stated invariants. Define tolerances before tests. Preserve pins and expected observables. Require the expected Playwright `BrowserContext`/`Browser` adapter contract with no extra Context and no `launchServer` persistent-context workaround.
+Judge the official candidate against independent fingerprint and service invariants. The current launcher comparison is diagnostic. Its known geometry failure never blocks candidate evidence. A missing legacy positive control prevents comparative claims only. A confirmed candidate violation can support NO-GO after input, asset, harness, and environment errors are excluded. Unavailable environments remain unresolved required rows. Finish Phase 2, commit accepted evidence, and stop before Phase 3.
 
-Check Node, Bun, and Playwright ranges. Check probe ownership, deadlines, cleanup, and one blank window. Confirm prepared starts do not download or mutate global caches. Check explicit executable resources, agreement between `firefoxUserPrefs` and `CAMOU_PREFS_*`, GeoIP plus permission behavior, custom executable resources, and Linux display modes.
+Apply the [preregistered criteria](#preregistered-acceptance-criteria). Record an outcome for every currently supported macOS profile class. Sample only within a class and for stated invariants. Define tolerances before tests. Preserve pins and expected observables. Require the expected Playwright `BrowserContext`/`Browser` adapter contract with no extra Context and no `launchServer` persistent-context workaround.
 
-Generate the preregistered corpus as immutable private macOS candidates without launching 500 browsers. Record input, options, model, package, and candidate hashes, plus strata and outcome counts. Provide exact validator replay. Use a public seed only if verified. Otherwise state how the corpus reproduces. Run real-browser representatives for at least three lifetimes per supported class, covering GPU, geometry, capabilities, and location. All required matrix rows gate the phase. A block delivers Phase 1 plus this report and retains the old production launcher.
+Check Node, Bun, and Playwright ranges. Check probe ownership, deadlines, cleanup, and one blank window. Confirm prepared starts do not download or mutate global caches. Check explicit executable resources, agreement between `firefoxUserPrefs` and `CAMOU_PREFS_*`, GeoIP plus permission behavior, and custom executable resources.
+
+Generate the preregistered corpus as immutable private macOS candidates without launching 500 browsers. Record input, options, model, package, and candidate hashes, plus strata and outcome counts. Provide exact validator replay. Use a public seed only if verified. Otherwise state how the corpus reproduces. Run real-browser representatives for at least three lifetimes per supported class, covering GPU, geometry, capabilities, and location. All six required macOS matrix rows gate the phase. Linux package and display checks are deferred to Phase 6. A block delivers Phase 1 plus this report and retains the old production launcher.
 
 ## Phase 3: runtime provisioning
 
@@ -107,7 +109,7 @@ Keep profile B Ready and usable. With profile A already operational, block or in
 
 Always test pause, an actual human action in the same window, resume, and a fresh snapshot that proves the action. Authentication is conditional. Do not require a third-party login merely to complete the test.
 
-Check startup, window close, shutdown, and probe cleanup. Check prepared offline operation, no extra windows, and no global-cache writes. Run Linux package and display checks separately from headed macOS acceptance. An SDK test is not real-agent proof. Record every pass, fail, or unexecuted check with commands, environment, and hashes. A required unexecuted check blocks release.
+Check startup, window close, shutdown, and probe cleanup. Check prepared offline operation, no extra windows, and no global-cache writes. Run Linux package, native dependency, and display checks separately from headed macOS acceptance. An SDK test is not real-agent proof. Record every pass, fail, or unexecuted check with commands, environment, and hashes. A required unexecuted check blocks release.
 
 ## Commands and evidence
 
@@ -115,7 +117,7 @@ Check startup, window close, shutdown, and probe cleanup. Check prepared offline
 |---|---|---|---|
 | 0 | Completed Phase 0 metadata collector | `.state/official-launcher-migration/phase0/baseline-evidence.json` | [Phase 0 gate](#phase-ledger) |
 | 1 | `bun run check`, existing regression/integration entry points, PLANNED fingerprint validator replay | `.state/official-launcher-migration/phase1/` | Validator matrix, JSON diagnostics, lock and readiness tests pass |
-| 2 | Private options and service probes; corpus replay NOT RUN | `.state/official-launcher-migration/phase2/` | Every required row and preregistered corpus criterion passes; currently BLOCKED |
+| 2 | Private candidate corpus/replay and service matrix, Python comparison, and runtime checks | `.state/official-launcher-migration/phase2/` | Every required macOS candidate row and corpus criterion passes. Legacy results are diagnostic. |
 | 3 | PLANNED provisioning, interruption, repetition, and offline entries | `.state/official-launcher-migration/phase3/` | Atomic idempotent setup and no-start-download checks pass |
 | 4 | `bun run check`, existing regression/integration entry points, PLANNED adapter and installed-consumer entries | `.state/official-launcher-migration/phase4/` | Full contracts pass with no `camoufox-js` edge |
 | 5 | PLANNED repair preview, stale-preview, apply, and crash-recovery entries | `.state/official-launcher-migration/phase5/` | Exact approved bytes apply atomically without engine change |
