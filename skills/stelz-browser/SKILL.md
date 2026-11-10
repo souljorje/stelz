@@ -14,7 +14,7 @@ Resolve relative links against this file's URL, or against the real path of an i
 When a user sends a link to this file and asks you to install it, install Stelz and connect its MCP tools. Do not copy this file.
 Follow [Agent setup](../../docs/bootstrap.md). After installation, use the installed copy of this skill. It matches the installed version.
 
-Also use Agent setup when the `stelz` command, a profile, or the MCP tools are missing.
+Also use Agent setup when the `stelz` command or the MCP tools are missing.
 Run `stelz setup` only in a terminal. MCP tools do not download prerequisites.
 
 ## Do a browser task

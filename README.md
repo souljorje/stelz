@@ -50,8 +50,8 @@ Send this message to a local coding agent, such as Claude Code, Codex, or Hermes
 
 > Install this skill: https://github.com/souljorje/stelz/blob/main/skills/stelz-browser/SKILL.md
 
-The agent installs Stelz, creates profile `work`, and connects its browser tools. It asks before large downloads and preserves existing profiles and client settings.
-When it asks, start a new agent session so the client loads the tools. The agent then checks browser control.
+The agent installs Stelz, connects its browser tools, and opens the Stelz UI. It asks before large downloads and preserves existing profiles and client settings.
+Then create and start a profile in the UI, and start a new agent session so that the client loads the tools.
 See [Agent setup](docs/bootstrap.md) for the steps.
 
 ## Documentation

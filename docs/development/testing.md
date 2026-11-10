@@ -373,30 +373,19 @@ See [Releasing](releasing.md) for CI validation and publication of the same work
 ## Agent onboarding acceptance
 
 Use a desktop machine with a configured coding agent. Preserve its approval protections and global client configuration.
-Use [Bootstrap](../bootstrap.md) for agent installation orchestration.
-Use [Client verification](../clients.md#verify-the-connection) for the registered-tool check.
+The first session follows [Agent setup](../bootstrap.md). The second session runs a first browser task.
 
-1. Build and pack a candidate.
+1. Build and pack a candidate. Push its branch, so that the skill link resolves to the candidate's skill.
 2. Prepare a new writable project directory, npm prefix, and temporary `STELZ_HOME`.
-3. Give a fresh agent the bootstrap document, archive, test locations, and this request:
-
-   > Follow the bootstrap document. Install the supplied archive into the test prefix.
-   > Use the temporary STELZ_HOME. Create or reuse profile work.
-   > Install the canonical skill in this test project's supported location. Preserve global client configuration and approval protections.
-   > Register one shared `stelz mcp` connection at project scope if supported.
-   > Otherwise record exact connection arguments for the operator. Preserve the same STELZ_HOME.
-   > Verify through your actual registered browser tools.
-   > Report Installed, Browser ready, Client configured, and Verified separately.
-   > State pending verification when tools are unavailable. Release control after verification. Leave the browser running.
-
-4. Record actions, errors, and intervention requests.
-5. Start a new client session if registration requires it. Resume verification with the same profile and saved connection.
-6. Require a fresh profile catalog and actual acquisition with `{profileId}`.
-7. Require the returned handle on browser calls, fresh snapshots, an observed fixture action, result verification, and release.
-8. Repeat the original onboarding request through the same registration.
-9. Check the same profile ID, port, secret references, browser lifetime, and persistent fixture marker.
-10. Stop only the test profile after release and reuse evidence is complete.
-11. Stop the fixture server separately. Retain failed test state for inspection.
+3. Give a fresh agent in that project the README request with the branch's skill link.
+   Add the test conditions: install the archive instead of the registry, and use the test prefix and `STELZ_HOME`.
+4. Approve the setup downloads when the agent asks. Record each other intervention request.
+5. Require the installed package, a prepared runtime, the skill link, one shared MCP registration, an open UI, and a report with the next steps.
+   The agent must not create or start a profile.
+6. Create and start `work` in the UI. Start a new client session in the same project.
+7. Serve the packaged onboarding fixture. Ask the agent to verify Stelz on that page in profile `work`. Keep the browser window visible.
+8. Require a fresh catalog, acquisition with `{profileId}`, fresh snapshots, the fixture action and its result, and release.
+9. Stop only the test profile and the fixture server. Retain failed test state for inspection.
 
 A model must perform browser interaction through its registered MCP tools.
 An SDK script can inspect resulting state. It cannot replace real-agent evidence.
