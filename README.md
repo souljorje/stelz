@@ -46,9 +46,13 @@ Each profile permits one browser and one controller.
 
 ## Let your agent set it up
 
-Give a local coding agent this request:
+Send this message to a local coding agent, such as Claude Code, Codex, or Hermes:
 
-> Follow the [agent setup guide](docs/bootstrap.md). Create or reuse profile `work`. Start its browser. Connect your browser tools. Preserve existing profiles, credentials, and client settings. Check browser control. Report anything I must complete.
+> Install this skill: https://github.com/souljorje/stelz/blob/main/skills/stelz-browser/SKILL.md
+
+The agent installs Stelz, creates profile `work`, and connects its browser tools. It asks before large downloads and preserves existing profiles and client settings.
+When it asks, start a new agent session so the client loads the tools. The agent then checks browser control.
+See [Agent setup](docs/bootstrap.md) for the steps.
 
 ## Documentation
 

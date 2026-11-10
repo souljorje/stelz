@@ -11,8 +11,11 @@ See [Shared MCP tools](../../docs/mcp.md) for the tool contract.
 
 ## Setup
 
-For installation, missing profiles, or missing tools, follow [Agent setup](../../docs/bootstrap.md).
-Resolve a symlinked skill directory's real path before following relative links.
+A user can give you a link to this file and ask you to install it. That request means: install Stelz and connect its MCP tools.
+Do not copy this file alone. Its links need the package's `docs/` and `references/` folders.
+For installation, missing profiles, or missing tools, follow [Agent setup](../../docs/bootstrap.md). Use profile `work` unless the user names another.
+Resolve relative links against this file's URL, or against the real path of a symlinked skill directory.
+After installation, use the installed copy of this skill. It matches the installed version.
 Reuse existing state and client settings. Check actual tool availability after MCP registration.
 
 Missing runtime or location data requires `stelz setup`. The operator runs it.
