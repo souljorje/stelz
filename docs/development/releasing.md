@@ -110,7 +110,7 @@ Use its printed archive path for every acceptance command. Do not repack between
 `--destination DIRECTORY` selects another local output directory.
 Local candidate preparation does not publish a package or replace the Release workflow.
 
-For full package acceptance, run `bun run test:package --archive FILE --proxy --manual`.
+For full package acceptance, run `bun run test:package --archive FILE --setup --proxy --manual`.
 The package suite includes native persistence, profile transfers, shared-connection concurrency, and typing. `--proxy` adds proxy and location acceptance on the same installation.
 Add `--windows` to check visible window controls.
 Supply one or two private proxy routes as described in [Proxy and human acceptance](testing.md#proxy-and-human-acceptance).

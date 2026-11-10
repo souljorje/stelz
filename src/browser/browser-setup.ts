@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { browserAssetPattern, browserExecutable, browserPackage, browserPin, pairedBrowser } from "./camoufox.ts";
 import { browserDirectory } from "../profiles/config.ts";
 import { engineVersion } from "./location-launch.ts";
-import { downloadReleaseAsset } from "./release-asset.ts";
+import { downloadReleaseAsset, type ReleaseAssetRequest } from "./release-asset.ts";
 
 export type BrowserSource = "configured" | "managed" | "upstream-cache" | "downloaded";
 type Installed = { version: string; path: string };
@@ -21,6 +21,13 @@ function clone(source: string, target: string) {
   if (process.platform === "darwin" && spawnSync("/bin/cp", ["-cR", source, target]).status === 0) return;
   rmSync(target, { recursive: true, force: true });
   cpSync(source, target, { recursive: true, verbatimSymlinks: true });
+}
+
+/** The pinned Camoufox release and its single asset for this platform. */
+export function browserRelease(): ReleaseAssetRequest {
+  const pin = browserPin(), pattern = browserAssetPattern();
+  return { label: "Camoufox", repository: pin.repo, tag: pin.tag, maxBytes: 2 * 1024 ** 3, timeoutMs: 3_600_000,
+    match: name => { const groups = pattern.exec(name)?.groups; return groups?.version === pin.version && groups?.build === pin.build; } };
 }
 
 type BrowserDependencies = { request?: typeof fetch; installed?: () => Installed[]; progress?: (message: string) => void };
@@ -57,11 +64,9 @@ export async function prepareBrowser(home: string, configured?: string, dependen
       progress(`Copying Camoufox ${pairedBrowser()} from the upstream cache…`);
       clone(plan.cached, install);
     } else {
-      const pin = browserPin(), pattern = browserAssetPattern(), zip = join(stage, "browser.zip");
+      const pin = browserPin(), zip = join(stage, "browser.zip");
       progress(`Downloading Camoufox ${pairedBrowser()} (over 1 GB). This can take several minutes…`);
-      const asset = await downloadReleaseAsset({ label: "Camoufox", repository: pin.repo, tag: pin.tag, maxBytes: 2 * 1024 ** 3, timeoutMs: 3_600_000,
-        match: name => { const groups = pattern.exec(name)?.groups; return groups?.version === pin.version && groups?.build === pin.build; } },
-        zip, dependencies.request ?? fetch);
+      const asset = await downloadReleaseAsset(browserRelease(), zip, dependencies.request ?? fetch);
       unzip(zip, install, "", false);
       makeExecutable(install);
       rmSync(zip);

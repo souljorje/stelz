@@ -34,13 +34,17 @@ export async function readRelease(request: ReleaseAssetRequest, fetcher: typeof 
 export async function downloadReleaseAsset(request: ReleaseAssetRequest, file: string, fetcher: typeof fetch = fetch, release?: Release) {
   const { label } = request, signal = AbortSignal.timeout(request.timeoutMs);
   const { tag, asset } = release ?? await readRelease(request, fetcher, signal);
-  const response = await fetcher(asset.browser_download_url, { signal });
-  if (!response.ok || !response.body) throw Error(`Cannot download ${label}. Check the connection and run stelz setup again.`);
+  const unavailable = (error?: Error) => Error(`Cannot download ${label}${error ? ` (${error.message})` : ""}. Check the connection and run stelz setup again.`);
+  const response = await fetcher(asset.browser_download_url, { signal }).catch((error: Error) => { throw unavailable(error); });
+  if (!response.ok || !response.body) throw unavailable();
+  const reader = response.body.getReader();
   const digest = createHash("sha256"), fd = openSync(file, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
   let length = 0, complete = false;
   try {
-    for await (const chunk of response.body) {
-      signal.throwIfAborted();
+    // A dropped connection or the deadline ends the read.
+    for (;;) {
+      const { done, value: chunk } = await reader.read().catch((error: Error) => { throw unavailable(error); });
+      if (done) break;
       length += chunk.length;
       if (length > asset.size) throw Error(`The ${label} download exceeds its release size.`);
       digest.update(chunk); writeSync(fd, chunk);

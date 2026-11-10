@@ -38,9 +38,9 @@ Build also checks Markdown links in the packaged documentation.
 | `bun run pack` | Build a local candidate archive and checksum in `release-artifacts/`. |
 | `bun run test:install --archive FILE` | Inspect an unchanged archive, isolated npm installation with scripts disabled, CLI, HTTP UI, and staged setup. No browser. |
 | `bun run test:install --archive FILE --native` | Ordinary npm installation, SQLite queries, and Impit construction from the installation and staged runtime. No browser. |
-| `bun run test:setup --archive FILE` | Install one unchanged archive. Check setup consent, a wrong configured browser, an upstream cache clone, an interrupted and repeated download, concurrent and offline setup, and an update while a profile runs. Downloads the browser once and starts one headed browser. |
+| `bun run test:setup --archive FILE` | Install one unchanged archive. Check setup consent, a wrong configured browser, the pinned release metadata, an upstream cache clone with a concurrent setup, an offline repeat, an interrupted and repeated location download, and an update while a profile runs. Downloads no browser and starts one headed browser. |
 | `bun run test:package --archive FILE` | Install one unchanged archive. Run integration, native persistence, transfer, concurrency, and typing acceptance. |
-| `bun run test:package --archive FILE --windows --proxy --manual` | Add window controls, proxy and location checks, and human acceptance. |
+| `bun run test:package --archive FILE --setup --windows --proxy --manual` | Add setup, window controls, proxy and location checks, and human acceptance on the same installation. |
 
 Select suites according to changed behavior. Browser checks require an explicit command.
 The default tests do not establish browser persistence, proxy routing, or human takeover.
@@ -318,11 +318,11 @@ Only temporary test profiles are stopped. Private proxy credentials stay outside
 ```sh
 bun run pack
 bun run test:install --archive /absolute/path/to/candidate.tgz
-bun run test:setup --archive /absolute/path/to/candidate.tgz
-bun run test:package --archive /absolute/path/to/candidate.tgz
+bun run test:package --archive /absolute/path/to/candidate.tgz --setup
 ```
 
-`test:setup` hides the upstream Camoufox cache for its download cases. Its clone case reads the paired build from that cache and needs it. The suite needs network access to GitHub.
+`test:package --setup` runs `test:setup` on its own installation, so release acceptance installs the archive once with lifecycle scripts.
+`test:setup` hides the upstream Camoufox cache for its consent case. Its other cases read the paired build from that cache and need it. Unit tests cover the browser download with a fixture release. The suite needs network access to GitHub.
 It writes `.state/package-test/setup-report.json` and removes its files after a pass.
 
 The package suite installs with lifecycle scripts and runs the native dependency checks, so it replaces `test:install --native` here.
@@ -340,7 +340,7 @@ The package suite always includes native persistence and transfer acceptance.
 Its accepted `--native` flag is unnecessary for those checks.
 
 For full package acceptance, supply `PROXY_TEST_ENV` as described above and an absolute `CAMOUFOX_EXECUTABLE`. The location check requires both.
-Run `bun run test:package --archive FILE --proxy --manual`.
+Run `bun run test:package --archive FILE --setup --proxy --manual`.
 The human check requires an actual click in the visible browser.
 The suite checks that runtime links do not depend on the source checkout and that the archive hash remains unchanged.
 See [Releasing](releasing.md) for CI validation and publication of the same workflow archive.

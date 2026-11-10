@@ -1,10 +1,14 @@
 // Acceptance for setup and updates on one unchanged archive. See docs/development/smooth-setup.md, section 6.
-import { appendFileSync, chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, writeFileSync } from "node:fs";
+// It downloads no browser. It reads the paired build from the upstream cache and checks the release metadata.
+import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { installPackage } from "./install.ts";
 import { packageArguments, assertArchiveUnchanged } from "../../scripts/package-archive.ts";
 import { createTestHome } from "../helpers/test-home.ts";
 import { browserPackage, pairedBrowser } from "../../src/browser/camoufox.ts";
+import { browserRelease } from "../../src/browser/browser-setup.ts";
+import { readRelease } from "../../src/browser/release-asset.ts";
 import { STELZ_VERSION } from "../../src/versions.ts";
 
 type Run = { code: number; out: string; err: string };
@@ -18,8 +22,12 @@ const paired = pairedBrowser();
 // The clone case needs the paired build in the upstream cache. Check it before the installation.
 const cached = browserPackage().listInstalled().find(entry => entry.version.fullString === paired);
 if (!cached) throw Error(`The clone case needs Camoufox ${paired} in the upstream cache.`);
-const installed = await installPackage(archive, { native: true, keep: true });
-const { candidate, cwd } = installed, temp = dirname(installed.prefix);
+const cache = cached.path;
+// The package suite passes its installation, so one archive installation serves every installed check.
+const shared = process.env.STELZ_TEST_INSTALLATION;
+const installed: Awaited<ReturnType<typeof installPackage>> = shared
+  ? JSON.parse(readFileSync(shared, "utf8")) : await installPackage(archive, { native: true, keep: true });
+const { candidate, cwd } = installed, installation = dirname(installed.prefix), temp = mkdtempSync(join(tmpdir(), "stelz-setup-"));
 // A user home without the upstream Camoufox cache. The offline settings block every remote request from setup.
 const userHome = join(temp, "user-home"), hidden = { HOME: userHome };
 const offline = { ...Object.fromEntries(["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY"].map(name => [name, "http://127.0.0.1:9"])),
@@ -42,7 +50,7 @@ async function finish(child: Child): Promise<Run> {
 const cli = (args: string[], env: Record<string, string>, file?: string) => finish(spawnCli(args, env, file));
 async function command(args: string[], env?: Record<string, string>) {
   const child = Bun.spawn(args, { cwd, env: env ?? { PATH: process.env.PATH!, HOME: process.env.HOME!, TMPDIR: process.env.TMPDIR ?? "/tmp",
-    npm_config_cache: join(temp, "npm-cache"), COPYFILE_DISABLE: "1" }, stdout: "pipe", stderr: "pipe" });
+    npm_config_cache: join(installation, "npm-cache"), COPYFILE_DISABLE: "1" }, stdout: "pipe", stderr: "pipe" });
   const result = await finish(child);
   if (result.code) throw Error(`${args.join(" ")} failed: ${result.err || result.out}`);
 }
@@ -94,6 +102,91 @@ async function status(id: string, cliFile: string, env: Record<string, string>) 
 }
 const runtimeOf = (home: string, id: string) => (JSON.parse(readFileSync(join(home, "profiles", id, "running.json"), "utf8")) as { pid: number; runtime: string });
 
+/** Cases 5, 6, and 8: a clone with a concurrent setup, an offline repeat, and an update while a profile runs. */
+async function cacheCases() {
+  const home = createTestHome("cached", temp);
+  // 5. Setup clones the paired build from the upstream cache. A concurrent setup waits for it, then reuses its result.
+  const first = spawnCli(["setup", "--yes", "--json"], envFor(home));
+  await until(() => stages(home).length > 0, 300_000, "Setup did not start to copy the browser.", first);
+  const second = spawnCli(["setup", "--yes", "--json"], envFor(home));
+  const [clone, concurrent] = await Promise.all([finish(first), finish(second)]);
+  const cloned = report(clone, home, "Setup from the upstream cache"), waited = report(concurrent, home, "Concurrent setup");
+  same(sources(cloned), { browser: "upstream-cache", selection: "downloaded", comparison: "downloaded", model: "downloaded", runtime: "prepared" }, "Setup from the upstream cache");
+  same(sources(waited), { browser: "managed", selection: "reused", comparison: "reused", model: "reused", runtime: "reused" }, "Concurrent setup");
+  check(waited.runtime.id === cloned.runtime.id, "The concurrent setup prepared another generation", generations(home));
+  evidence.upstreamCache = { ...sources(cloned), concurrent: sources(waited), cache };
+
+  // 6. A repeat with all parts ready needs no network.
+  const repeat = report(await cli(["setup", "--yes", "--json"], envFor(home, offline)), home, "Offline repeat");
+  const { selection, comparison, ...parts } = sources(repeat);
+  same(parts, { browser: "managed", model: "reused", runtime: "reused" }, "Offline repeat");
+  // Data older than the refresh limit is kept offline.
+  check([selection, comparison].every(item => ["reused", "kept"].includes(item)), "Offline repeat must keep location data", repeat.locationData);
+  evidence.offlineRepeat = sources(repeat);
+
+  // 8. Update an installation while a profile runs. The earlier release differs only in its plugin file.
+  const unpacked = join(temp, "previous"), previous = join(temp, "previous.tgz"), updatePrefix = join(temp, "update");
+  mkdirSync(unpacked);
+  await command(["tar", "-xzf", archive, "-C", unpacked]);
+  appendFileSync(join(unpacked, "package/dist/plugin.js"), "\n// An earlier release for update acceptance.\n");
+  await command(["tar", "-czf", previous, "-C", unpacked, "package"]);
+  const npm = Bun.which("npm")!, install = (file: string) => command([npm, "install", "--global", "--no-audit", "--no-fund", "--prefer-offline", "--prefix", updatePrefix, file]);
+  await install(previous);
+  const updateCli = join(updatePrefix, "bin/stelz");
+  const updateEnv = envFor(home, { PATH: installed.env.PATH!.replace(join(installed.prefix, "bin"), join(updatePrefix, "bin")) });
+  const before = report(await cli(["setup", "--yes", "--json"], updateEnv, updateCli), home, "Setup of the earlier release");
+  same([before.browser.source, before.runtime.status], ["managed", "prepared"], "Setup of the earlier release");
+  same(generations(home), [before.runtime.id], "Generations before the update");
+  const created = await cli(["profile", "create", "work", "--direct", "--json"], updateEnv, updateCli);
+  check(!created.code, "Profile creation failed", created.err);
+  running = { cli: updateCli, env: updateEnv };
+  const start = await cli(["start", "work", "--json"], updateEnv, updateCli);
+  check(!start.code, "Start failed", start.err);
+  check((await status("work", updateCli, updateEnv)).phase === "ready", "The started profile is not ready");
+  const lifetime = runtimeOf(home, "work");
+  check(lifetime.runtime === before.runtime.id, "The profile does not record its generation", lifetime);
+
+  await install(archive);
+  const updated = report(await cli(["setup", "--yes", "--json"], { ...updateEnv, ...offline }, updateCli), home, "Setup after the update");
+  same([updated.browser.source, updated.fingerprintModel, updated.runtime.status], ["managed", "reused", "prepared"], "Setup after the update");
+  same(generations(home), [before.runtime.id, updated.runtime.id].sort(), "Generations while the profile runs");
+  const pending = await status("work", updateCli, updateEnv);
+  check(pending.phase === "ready" && pending.restartToUpdate && runtimeOf(home, "work").pid === lifetime.pid, "Setup disturbed the running profile", pending);
+
+  const restarted = await cli(["restart", "work", "--json"], updateEnv, updateCli);
+  check(!restarted.code, "Restart failed", restarted.err);
+  const current = await status("work", updateCli, updateEnv);
+  check(current.phase === "ready" && !current.restartToUpdate && runtimeOf(home, "work").runtime === updated.runtime.id, "Restart did not apply the update", current);
+  const cleaned = report(await cli(["setup", "--yes", "--json"], updateEnv, updateCli), home, "Setup after the restart");
+  same([cleaned.runtime.status, generations(home)], ["reused", [updated.runtime.id]], "Setup after the restart");
+  const stopped = await cli(["stop", "work", "--json"], updateEnv, updateCli);
+  check(!stopped.code, "Stop failed", stopped.err);
+  running = undefined;
+  evidence.update = { before: before.runtime.id, after: updated.runtime.id, setupOffline: sources(updated), restarted: true, removedEarlierGeneration: true };
+}
+
+/** Case 7: an interrupted download activates no runtime, and the retry completes. Location data uses the browser's download code. */
+async function interruptedCase() {
+  const home = createTestHome("interrupted", temp);
+  const interrupted = spawnCli(["setup", "--yes", "--json"], envFor(home));
+  const downloads = () => stages(home, "runtime-generations").flatMap(name => {
+    const folder = join(home, "runtime-generations", name, "geoip");
+    return existsSync(folder) ? readdirSync(folder).filter(file => file.endsWith(".mmdb")).map(file => join(folder, file)) : [];
+  });
+  await until(() => downloads().some(file => size(file) > 8 * 1024 ** 2), 600_000, "The location download did not start.", interrupted);
+  let signal: NodeJS.Signals = "SIGINT";
+  interrupted.kill(signal);
+  if (await Promise.race([interrupted.exited.then(() => true), Bun.sleep(10_000).then(() => false)]) === false) { signal = "SIGKILL"; interrupted.kill(signal); }
+  const interruption = await finish(interrupted);
+  check(interruption.code !== 0 && !existsSync(join(home, "runtime")) && !generations(home).length, "An interrupted setup activated a runtime", interruption);
+  const retry = report(await cli(["setup", "--yes", "--json"], envFor(home)), home, "Retried setup");
+  // Setup activated the complete browser before the interruption.
+  same(sources(retry), { browser: "managed", selection: "downloaded", comparison: "downloaded", model: "downloaded", runtime: "prepared" }, "Retried setup");
+  const left = [...stages(home), ...stages(home, "runtime-generations")];
+  check(!left.length && generations(home).join() === retry.runtime.id, "The retry left a stage or another generation", { left, generations: generations(home) });
+  evidence.interrupted = { signal, exitCode: interruption.code, retry: sources(retry) };
+}
+
 try {
   // 1. Without consent, setup lists every download and prepares nothing.
   const fresh = createTestHome("fresh", temp);
@@ -121,86 +214,15 @@ try {
   check(control.message.includes("Check the connection"), "Offline setup must name the connection", control);
   evidence.offlineControl = control.message;
 
-  // 4. Setup clones the paired build from the upstream cache and only reads the cache.
-  const cacheBefore = snapshot(cached.path), cacheHome = createTestHome("cached", temp);
-  const cloned = report(await cli(["setup", "--yes", "--json"], envFor(cacheHome)), cacheHome, "Setup from the upstream cache");
-  check(cloned.browser.source === "upstream-cache", "Setup must clone the upstream cache install", cloned.browser);
-  check(snapshot(cached.path) === cacheBefore, "Setup changed the upstream cache");
-  evidence.upstreamCache = { ...sources(cloned), cache: cached.path };
+  // 4. The pinned release has one asset for this platform and a published SHA-256. Unit tests cover the download itself.
+  const release = await readRelease(browserRelease());
+  evidence.release = { tag: release.tag, asset: release.asset.name, size: release.asset.size, sha256: release.asset.digest.slice(7) };
 
-  // 5. An interrupted download activates nothing.
-  const interrupted = spawnCli(["setup", "--yes", "--json"], envFor(fresh, hidden));
-  const zip = () => stages(fresh).map(name => join(fresh, "browsers", name, "browser.zip")).find(existsSync);
-  await until(() => size(zip() ?? "") > 64 * 1024 ** 2, 900_000, "The browser download did not start.", interrupted);
-  let signal: NodeJS.Signals = "SIGINT";
-  interrupted.kill(signal);
-  if (await Promise.race([interrupted.exited.then(() => true), Bun.sleep(10_000).then(() => false)]) === false) { signal = "SIGKILL"; interrupted.kill(signal); }
-  const interruption = await finish(interrupted);
-  check(interruption.code !== 0 && !prepared(fresh), "An interrupted setup activated a browser or runtime", interruption);
-  evidence.interrupted = { signal, exitCode: interruption.code };
-
-  // 6. The retry downloads and verifies everything. A concurrent setup waits for it, then reuses its result.
-  const stale = stages(fresh), started = Date.now();
-  const first = spawnCli(["setup", "--yes", "--json"], envFor(fresh, hidden));
-  await until(() => stages(fresh).some(name => !stale.includes(name)), 300_000, "The retry did not start its download.", first);
-  const second = spawnCli(["setup", "--yes", "--json"], envFor(fresh, hidden));
-  const [retried, concurrent] = await Promise.all([finish(first), finish(second)]);
-  const download = report(retried, fresh, "Retried setup"), waited = report(concurrent, fresh, "Concurrent setup");
-  same(sources(download), { browser: "downloaded", selection: "downloaded", comparison: "downloaded", model: "downloaded", runtime: "prepared" }, "Retried setup");
-  same(sources(waited), { browser: "managed", selection: "reused", comparison: "reused", model: "reused", runtime: "reused" }, "Concurrent setup");
-  const left = [...stages(fresh), ...stages(fresh, "runtime-generations")];
-  check(waited.runtime.id === download.runtime.id && !left.length, "Setup left a stage or a second generation", { left, generations: generations(fresh) });
-  same(generations(fresh), [download.runtime.id], "Generations after the retry");
-  const version = JSON.parse(readFileSync(join(fresh, "browsers", paired, "version.json"), "utf8")) as { sha256: string; asset: string };
-  evidence.download = { ...sources(download), asset: version.asset, sha256: version.sha256, minutes: Math.round((Date.now() - started) / 6000) / 10 };
-
-  // 7. A repeat with all parts ready needs no network.
-  const repeat = report(await cli(["setup", "--yes", "--json"], envFor(fresh, { ...hidden, ...offline })), fresh, "Offline repeat");
-  const { selection, comparison, ...parts } = sources(repeat);
-  same(parts, { browser: "managed", model: "reused", runtime: "reused" }, "Offline repeat");
-  // Data older than the refresh limit is kept offline.
-  check([selection, comparison].every(item => ["reused", "kept"].includes(item)), "Offline repeat must keep location data", repeat.locationData);
-  evidence.offlineRepeat = sources(repeat);
-
-  // 8. Update an installation while a profile runs. The earlier release differs only in its plugin file.
-  const unpacked = join(temp, "previous"), previous = join(temp, "previous.tgz"), updatePrefix = join(temp, "update");
-  mkdirSync(unpacked);
-  await command(["tar", "-xzf", archive, "-C", unpacked]);
-  appendFileSync(join(unpacked, "package/dist/plugin.js"), "\n// An earlier release for update acceptance.\n");
-  await command(["tar", "-czf", previous, "-C", unpacked, "package"]);
-  const npm = Bun.which("npm")!, install = (file: string) => command([npm, "install", "--global", "--no-audit", "--no-fund", "--prefix", updatePrefix, file]);
-  await install(previous);
-  const updateCli = join(updatePrefix, "bin/stelz");
-  const updateEnv = envFor(fresh, { PATH: installed.env.PATH!.replace(join(installed.prefix, "bin"), join(updatePrefix, "bin")) });
-  const before = report(await cli(["setup", "--yes", "--json"], updateEnv, updateCli), fresh, "Setup of the earlier release");
-  same([before.browser.source, before.runtime.status], ["managed", "prepared"], "Setup of the earlier release");
-  same(generations(fresh), [before.runtime.id], "Generations before the update");
-  const created = await cli(["profile", "create", "work", "--direct", "--json"], updateEnv, updateCli);
-  check(!created.code, "Profile creation failed", created.err);
-  running = { cli: updateCli, env: updateEnv };
-  const start = await cli(["start", "work", "--json"], updateEnv, updateCli);
-  check(!start.code, "Start failed", start.err);
-  check((await status("work", updateCli, updateEnv)).phase === "ready", "The started profile is not ready");
-  const lifetime = runtimeOf(fresh, "work");
-  check(lifetime.runtime === before.runtime.id, "The profile does not record its generation", lifetime);
-
-  await install(archive);
-  const updated = report(await cli(["setup", "--yes", "--json"], { ...updateEnv, ...offline }, updateCli), fresh, "Setup after the update");
-  same([updated.browser.source, updated.fingerprintModel, updated.runtime.status], ["managed", "reused", "prepared"], "Setup after the update");
-  same(generations(fresh), [before.runtime.id, updated.runtime.id].sort(), "Generations while the profile runs");
-  const pending = await status("work", updateCli, updateEnv);
-  check(pending.phase === "ready" && pending.restartToUpdate && runtimeOf(fresh, "work").pid === lifetime.pid, "Setup disturbed the running profile", pending);
-
-  const restarted = await cli(["restart", "work", "--json"], updateEnv, updateCli);
-  check(!restarted.code, "Restart failed", restarted.err);
-  const current = await status("work", updateCli, updateEnv);
-  check(current.phase === "ready" && !current.restartToUpdate && runtimeOf(fresh, "work").runtime === updated.runtime.id, "Restart did not apply the update", current);
-  const cleaned = report(await cli(["setup", "--yes", "--json"], updateEnv, updateCli), fresh, "Setup after the restart");
-  same([cleaned.runtime.status, generations(fresh)], ["reused", [updated.runtime.id]], "Setup after the restart");
-  const stopped = await cli(["stop", "work", "--json"], updateEnv, updateCli);
-  check(!stopped.code, "Stop failed", stopped.err);
-  running = undefined;
-  evidence.update = { before: before.runtime.id, after: updated.runtime.id, setupOffline: sources(updated), restarted: true, removedEarlierGeneration: true };
+  // Both groups run in their own service homes and finish before cleanup, so no case runs after the test profile stops.
+  const cacheBefore = snapshot(cache);
+  const failed = (await Promise.allSettled([cacheCases(), interruptedCase()])).find(result => result.status === "rejected");
+  if (failed) throw (failed as PromiseRejectedResult).reason;
+  check(snapshot(cache) === cacheBefore, "Setup changed the upstream cache");
 
   assertArchiveUnchanged(candidate);
   passed = true;
@@ -215,6 +237,8 @@ try {
     const stop = await cli(["stop", "work", "--json"], running.env, running.cli);
     if (stop.code) console.error(`Could not stop the test profile. Run stelz stop work with STELZ_HOME=${running.env.STELZ_HOME}: ${stop.err}`);
   }
-  if (passed) rmSync(temp, { recursive: true, force: true });
-  else console.error(`Kept the failed acceptance files in ${relative(process.cwd(), temp) || temp}.`);
+  // A shared installation belongs to the package suite.
+  const owned = shared ? [temp] : [temp, installation];
+  if (passed) for (const path of owned) rmSync(path, { recursive: true, force: true });
+  else console.error(`Kept the failed acceptance files in ${owned.map(path => relative(process.cwd(), path) || path).join(" and ")}.`);
 }

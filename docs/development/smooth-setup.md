@@ -79,11 +79,11 @@ The report states for each part whether setup selected, reused, or downloaded it
 3. Versioned runtimes, the shorter lock, the update mark, and `stelz restart`.
 4. Documentation, the UI, and the agent skill.
 5. Acceptance on one archive with `bun run test:setup --archive FILE`:
-   - a fresh install without a browser;
+   - a fresh install without a browser: the consent list and the pinned release metadata. Unit tests cover the browser download;
    - an offline repeat;
    - a clone from the upstream cache;
    - a wrong explicit build;
-   - an interrupted download and retry;
+   - an interrupted location download and retry;
    - concurrent setup;
    - setup with running profiles, then a restart;
    - an update with the same browser;
