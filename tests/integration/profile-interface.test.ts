@@ -36,7 +36,7 @@ async function fixture() {
     const config = JSON.parse(readFileSync(join(home, "profiles.json"), "utf8"));
     const profile = config.profiles.find((value: { id: string }) => value.id === profileId);
     const instanceId = crypto.randomUUID(), state = { owner: "", instanceId, pinSha256: "" };
-    const server = Bun.serve({ hostname: "127.0.0.1", port: profile.port, async fetch(req) {
+    const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(req) {
       const action = new URL(req.url).pathname.split("/").at(-1)!;
       const authorized = req.headers.get("authorization") === "Bearer fixture-key";
       requests.push({ profileId, action, method: req.method, authorized });
@@ -57,6 +57,8 @@ async function fixture() {
       return Response.json({ content: [{ type: "text", text: JSON.stringify({ profileId }) }] });
     } });
     services.add(server);
+    profile.port = server.port;
+    writeFileSync(join(home, "profiles.json"), JSON.stringify(config));
     const directory = join(home, "profiles", profileId); mkdirSync(directory, { recursive: true });
     writeFileSync(join(directory, "access-key"), "fixture-key");
     const start = processStart(process.pid)!;
