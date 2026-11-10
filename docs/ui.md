@@ -89,8 +89,8 @@ Its ID, data, proxy references, window title prefix, and MCP command remain unch
 
 Open Overview and select **Default typing mode**:
 
-- **Automatic** uses random pauses for shorter text and bulk entry for longer text.
-- **Keyboard input** sends individual keystrokes without artificial delays.
+- **Balanced** uses paced typing for shorter text and bulk entry for longer text.
+- **Keyboard input** uses variable pauses and occasional corrected typos, with a 45-second deadline. This is the service default.
 - **Instant input** enters the complete text at once.
 
 Changes apply to future typing actions without restarting the browser.

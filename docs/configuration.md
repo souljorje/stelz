@@ -36,7 +36,7 @@ Preserve existing secret reference names when changing a value.
 | --- | --- | --- |
 | `STELZ_HOME` | Process only | Service directory. Default: `~/.local/share/stelz`. |
 | `CAMOUFOX_EXECUTABLE` | Process, then `secrets.env` | Optional path to the paired Camoufox build. Default: the copy that setup prepares in `browsers/`. |
-| `STELZ_TYPING_MODE` | Process, then `secrets.env` | `auto`, `keyboard`, or `instant`. Default: `auto`. |
+| `STELZ_TYPING_MODE` | Process, then `secrets.env` | `balanced`, `keyboard`, or `instant`. Default: `keyboard`. |
 | `STELZ_IP_CHECK_INTERVAL_MS` | Process, then `secrets.env` | Decimal integer from `0` to `120000`, without leading zeros. Default: `120000`. |
 | `STELZ_LOCATION_POLICY` | Process, then `secrets.env` | `warn` or `strict`. Default: `warn`. See [Managed location data](#managed-location-data). |
 | Name in `proxyEnv` | Process, then `secrets.env` | Complete HTTP(S) or unauthenticated SOCKS5 URL. Missing or empty values block a configured proxy. |
@@ -81,7 +81,7 @@ Setup creates `{ "profiles": [] }`. Prefer the UI or `stelz profile create work`
 | `storage` | String | Optional for existing entries. The only accepted value is `native`. New profiles set it explicitly. |
 | `proxyEnv` | String | Optional secret reference. Its presence selects a proxy. Its absence selects direct networking. |
 | `expectedIPEnv` | String | Optional reference for an expected exit IP. Applies to direct or proxy connections. |
-| `typingMode` | String | Optional `auto`, `keyboard`, or `instant`. Overrides the service typing default. |
+| `typingMode` | String | Optional `balanced`, `keyboard`, or `instant`. Overrides the service typing default. |
 
 The catalog rejects unknown properties at both levels.
 Reference names match `[A-Za-z_][A-Za-z0-9_]{0,127}`.
@@ -101,19 +101,26 @@ Typing selection follows this order:
 1. The `camofox_type` call's explicit `mode`.
 2. The selected profile's `typingMode`.
 3. The service's effective `STELZ_TYPING_MODE` at launch.
-4. `auto`.
+4. `keyboard`.
 
 | Mode | Behavior |
 | --- | --- |
-| `auto` | Uses variable keystroke timing and random pauses for estimated durations of at most 10 seconds. Longer input uses bulk entry. |
-| `keyboard` | Sends individual key events without artificial delays. |
+| `balanced` | Uses paced typing when the estimated duration, including corrections, is at most 10 seconds. Longer input uses bulk entry. |
+| `keyboard` | Uses variable keystroke timing and random pauses. Never selects bulk entry for long text. The action deadline is 45 seconds. |
 | `instant` | Uses Playwright `fill()` to enter the complete value. |
 
-The service selects the automatic method before changing the field.
+The service selects the balanced method before changing the field.
 Typing replaces existing contents. Empty text clears the field.
 Unicode text and native newline normalization remain intact.
 Date and similar inputs retain specialized input behavior.
-The service does not deliberately insert errors.
+
+Paced typing can insert and correct occasional typos in ordinary text fields, textareas, and editable page text.
+Each eligible word has a 3% correction probability, with at least 15 words between corrections.
+Eligible words contain at least four ASCII letters. Single-word values and repeated-character words do not receive corrections.
+Corrections change letters near word endings: an adjacent QWERTY key, a doubled letter, a dropped letter, or the wrong case.
+The service uses one or two Backspaces, then types the corrected ending. Successful entry preserves the requested text.
+Password, email, URL, telephone, and number inputs do not receive corrections.
+The former `auto` mode is invalid. Existing settings are not migrated.
 
 The UI saves a profile preference for future actions without a browser restart.
 A call override applies only to that call.
