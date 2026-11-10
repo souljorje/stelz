@@ -16,7 +16,9 @@ const { archive } = packageArguments(process.argv.slice(2), []);
 if (!archive || !process.env.PROXY_TEST_ENV || !process.env.CAMOUFOX_EXECUTABLE) throw Error("Supply --archive, PROXY_TEST_ENV, and CAMOUFOX_EXECUTABLE.");
 const secrets = parseEnv(readFileSync(process.env.PROXY_TEST_ENV, "utf8"));
 const endpoints = suppliedProxyEndpoints(secrets), redact = proxyRedactor([secrets.PROXY_TEST_URL, secrets.PROXY_TEST_SECOND_URL]);
-const installed = await installPackage(archive, { native: true, keep: true });
+// The package suite passes its installation, so one archive installation serves every installed check.
+const installed: Awaited<ReturnType<typeof installPackage>> = process.env.STELZ_TEST_INSTALLATION
+  ? JSON.parse(readFileSync(process.env.STELZ_TEST_INSTALLATION, "utf8")) : await installPackage(archive, { native: true, keep: true });
 const env = { ...installed.env, CAMOUFOX_EXECUTABLE: process.env.CAMOUFOX_EXECUTABLE };
 const LIFETIMES = 3;
 const ids = ["location-a", "location-b", "location-c"], active = new Set<string>(), clients: Client[] = [];

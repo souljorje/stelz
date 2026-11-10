@@ -82,7 +82,7 @@ Upstream `coherence.validate` owns device plausibility. It rejects every ANGLE r
 
 Remove every `camoufox-js` import, transitive dependency, prepared manifest edge, and obsolete patch. Audit staging, manifests, native dependencies, `VirtualDisplay` and `xvfbArgs`, the GeoIP path and name, the retained Camofox downloader, and every patch. Do not add implicit fallback or location-disable retry.
 
-The validator runs `bun run check` and the existing real-browser suites: native, proxy, concurrency, typing, window close, windows, transfer, package, install, and location. They must cover clean, interrupted, repeated, and offline setup; every supported macOS class across three lifetimes; one blank window and cleanup of owned processes; parallel profiles; deadlines; uncertain actions; DNS; and the supported Node, Bun, and Playwright ranges. Retest the fresh-proxy scroll timeout.
+The validator runs `bun run check`, `test:install --archive FILE`, and `test:package --archive FILE --windows --proxy`. The package suite reruns integration, native, transfer, concurrency, typing, windows, proxy, and location against one installation. A human runs `test:window-close`. Together they must cover clean, interrupted, repeated, and offline setup; every supported macOS class across three lifetimes; one blank window and cleanup of owned processes; parallel profiles; deadlines; uncertain actions; DNS; and the supported Node, Bun, and Playwright ranges. Retest the fresh-proxy scroll timeout.
 
 ### Phase 3 current status
 

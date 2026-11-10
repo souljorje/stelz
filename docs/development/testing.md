@@ -39,7 +39,7 @@ Build also checks Markdown links in the packaged documentation.
 | `bun run test:install --archive FILE` | Inspect an unchanged archive, isolated npm installation with scripts disabled, CLI, HTTP UI, and staged setup. No browser. |
 | `bun run test:install --archive FILE --native` | Ordinary npm installation, SQLite queries, and Impit construction from the installation and staged runtime. No browser. |
 | `bun run test:package --archive FILE` | Install one unchanged archive. Run integration, native persistence, transfer, concurrency, and typing acceptance. |
-| `bun run test:package --archive FILE --windows --proxy --manual` | Add window controls, two-proxy checks, and human acceptance. |
+| `bun run test:package --archive FILE --windows --proxy --manual` | Add window controls, proxy and location checks, and human acceptance. |
 
 Select suites according to changed behavior. Browser checks require an explicit command.
 The default tests do not establish browser persistence, proxy routing, or human takeover.
@@ -301,7 +301,7 @@ Advisory warnings do not fail the run. Rebrowser's partial coverage remains expl
 
 ## Installed-package acceptance
 
-For location readiness, run the saved archive with one or two private proxy routes:
+`test:package --archive FILE --proxy` runs location acceptance on its own installation. For location readiness alone, run the saved archive with one or two private proxy routes:
 
 ```sh
 PROXY_TEST_ENV=/absolute/path/to/private.env CAMOUFOX_EXECUTABLE=/absolute/path/to/camoufox bun run test:location --archive /absolute/path/to/candidate.tgz
@@ -317,9 +317,11 @@ Only temporary test profiles are stopped. Private proxy credentials stay outside
 ```sh
 bun run pack
 bun run test:install --archive /absolute/path/to/candidate.tgz
-bun run test:install --archive /absolute/path/to/candidate.tgz --native
 bun run test:package --archive /absolute/path/to/candidate.tgz
 ```
+
+The package suite installs with lifecycle scripts and runs the native dependency checks, so it replaces `test:install --native` here.
+It also replaces separate source-tree runs of the suites it repeats against the installation. Use those for development.
 
 Use the archive path printed by `pack` in each command. Do not rebuild between acceptance checks.
 `pack --destination DIRECTORY` selects another output directory.
@@ -332,7 +334,7 @@ The `--native` mode enables ordinary npm lifecycle scripts and executes native d
 The package suite always includes native persistence and transfer acceptance.
 Its accepted `--native` flag is unnecessary for those checks.
 
-For full package acceptance, supply `PROXY_TEST_ENV` as described above.
+For full package acceptance, supply `PROXY_TEST_ENV` as described above and an absolute `CAMOUFOX_EXECUTABLE`. The location check requires both.
 Run `bun run test:package --archive FILE --proxy --manual`.
 The human check requires an actual click in the visible browser.
 The suite checks that runtime links do not depend on the source checkout and that the archive hash remains unchanged.

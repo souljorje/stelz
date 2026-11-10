@@ -111,9 +111,9 @@ Use its printed archive path for every acceptance command. Do not repack between
 Local candidate preparation does not publish a package or replace the Release workflow.
 
 For full package acceptance, run `bun run test:package --archive FILE --proxy --manual`.
-The package suite includes native persistence, profile transfers, shared-connection concurrency, and typing.
+The package suite includes native persistence, profile transfers, shared-connection concurrency, and typing. `--proxy` adds proxy and location acceptance on the same installation.
 Add `--windows` to check visible window controls.
-Supply two distinct private proxy routes as described in [Proxy and human acceptance](testing.md#proxy-and-human-acceptance).
+Supply one or two private proxy routes as described in [Proxy and human acceptance](testing.md#proxy-and-human-acceptance).
 Complete human authentication and takeover in the same visible browser when prompted.
 Keep credentials and private reports outside Git. Tests use disposable profiles.
 Run the relevant package acceptance on each supported browser target.
