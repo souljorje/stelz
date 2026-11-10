@@ -44,7 +44,7 @@ The Phase 2 corpus has at least 500 candidates. Reconcile accepted, rejected, an
 | 0 | Baseline, exact package evidence, support matrix, and preregistered tolerances | Metadata/provenance validator PASS. Independent Sol/high review PASS. Orchestrator PASS. Baseline report commit `f2fcac2d39f47a5eec9952d69afc57218015dc39`. Gate evidence: `.state/official-launcher-migration/phase0/phase0doc-validation.json` |
 | 1 | Independent fingerprint validator and check/import/export diagnostics | PASS. Core: `a43ba2fb671946b1c08869010f90a78e2363ae63`. Evidence: `.state/official-launcher-migration/phase1/final-phase1.json` |
 | 2 | Isolated candidate evidence for macOS | PASS (rescoped). Corpus 500/500 and exact replay. Native admission observed. See the [closeout](reports/official-launcher-phase2-2026-11-09.md). |
-| 3 | Prepared runtime, production cutover, and service contracts | In progress. Implementation checkpoint; acceptance remains blocked. See [current status](#phase-3-current-status). |
+| 3 | Prepared runtime, production cutover, and service contracts | PASS. Final archive from `e57bd81`. See the [result](#phase-3-result). |
 | 4 | Merged into Phase 3 | — |
 | 5 | Explicit previewed fingerprint repair | Pending |
 | 6 | Installed-archive and real-world acceptance | Pending |
@@ -84,30 +84,30 @@ Remove every `camoufox-js` import, transitive dependency, prepared manifest edge
 
 The validator runs `bun run check`, `test:install --archive FILE`, and `test:package --archive FILE --windows --proxy`. The package suite reruns integration, native, transfer, concurrency, typing, windows, proxy, and location against one installation. A human runs `test:window-close`. Together they must cover clean, interrupted, repeated, and offline setup; every supported macOS class across three lifetimes; one blank window and cleanup of owned processes; parallel profiles; deadlines; uncertain actions; DNS; and the supported Node, Bun, and Playwright ranges. Retest the fresh-proxy scroll timeout.
 
-### Phase 3 current status
+### Phase 3 result
 
-The 9 November 2026 checkpoint uses launcher `0.5.8` with Camoufox `156.0.1-beta.36`.
-The implementation and static review are complete for this checkpoint. The acceptance gate has not passed.
+Phase 3 passed on 10 November 2026. It uses launcher `0.5.8` and Camoufox `156.0.1-beta.36` on macOS arm64 with Bun `1.4.4`.
+The final archive SHA-256 is `1df6e2b1f32d83c361eb4385ed140b92efec516380832abf653742ba72fef49a`. It was packed from `e57bd81`.
 
 | Validation | Result |
 |---|---|
-| `bun run check` before the final error-message change | PASS |
-| Native persistence, two profiles across three lifetimes | PASS |
-| Package installation, with and without native dependency checks | PASS |
-| Location acceptance, two profiles across three lifetimes, including six scroll actions | PASS |
+| `bun run check`: 167 tests | PASS |
+| `test:install` with lifecycle scripts disabled | PASS |
+| `test:package --windows --proxy` on one installation: integration, native, transfer, concurrency, typing, windows, proxy, and location | PASS |
+| Native strata: 3 fresh-direct and 6 saved-valid-direct lifetimes | PASS |
+| Location strata with one proxy route: 3 fresh-proxy and 6 saved-valid-proxy lifetimes, with a scroll in each | PASS |
+| Proxy acceptance with one route shared by two relays: relay-cut isolation, recovery, and a wrong expected IP | PASS |
 | Actual window close, clean shutdown, explicit restart, and saved pin preservation | PASS |
-| Installed package acceptance with windows and proxy checks requested | FAIL in integration, before the later suites |
-| Three fresh integration runs with temporary protocol tracing | PASS; the intermittent failure remains unresolved |
-| Final error-message unit suite and build after tracing removal | PASS |
 
-The installed integration run timed out after 30 seconds in `camofox_scroll` after client crash and pause/resume checks.
-The uncertain action was not replayed. Passing diagnostic runs do not establish a fix or pass the package gate.
-The tested archive SHA-256 is `25dbfa2708e9cada28b3d601d50b89b5b456bd9d01092935d85ba47c2274459d`.
-That archive predates the final setup error-message change. The validation host used macOS arm64, Bun `1.4.4`, and Node `24.14.0`.
+Phase 6 must still check two distinct proxy exits and location coverage across timezones. Both need a second proxy route.
 
-Next, identify and fix the intermittent scroll timeout. Then complete the Phase 3 matrix against the final candidate.
-After Phase 3 passes, implement [Phase 5 repair](#phase-5-explicit-repair), then run [Phase 6 acceptance](#phase-6-acceptance-and-delivery).
-Phase 4 remains merged into Phase 3. Committing this checkpoint does not approve a release.
+Known issue: the integration step after a crashed client sometimes times out in `camofox_scroll` (`tests/browser/integration.ts:109-115`).
+The client opens a second tab, pauses and resumes, and then scrolls the original background tab. About one run in four timed out after 30 seconds. The final gate did not.
+The issue predates this migration. Stelz does not replay the uncertain action. Its root cause is unknown.
+These checks did not reproduce it: a hidden window, 15 background-tab rounds, the location suite, and 11 runs with protocol tracing.
+Investigate it separately. Add timestamps around the bring-to-front and wheel calls of the scroll route, then repeat the integration suite until it fails.
+
+Next, implement [Phase 5 repair](#phase-5-explicit-repair), then run [Phase 6 acceptance](#phase-6-acceptance-and-delivery). Phase 4 remains merged into Phase 3. This result does not approve a release.
 
 ## Phase 5: explicit repair
 
