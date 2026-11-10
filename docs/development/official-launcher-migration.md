@@ -23,7 +23,7 @@ Preserve profile IDs, data paths, secret references, and saved valid pins. Do no
 ## Execution protocol
 
 - The orchestrator makes small edits and owns the semantic gate. Explorers map source. Workers take only independent scoped changes.
-- A validator runs builds, tests, and long native runs, and reports PASS or concise failures.
+- A validator runs builds, tests, and long native runs, and reports PASS or concise failures. It selects browser suites as `AGENTS.md` states.
 - A fresh reviewer checks each diff against this plan before each commit.
 - Prove behavior with the production code and the existing suites. Do not build private harnesses.
 - Review code for DRY and YAGNI. Fix concrete findings. Avoid speculative work.

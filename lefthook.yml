@@ -70,7 +70,7 @@ browser:
         - *core
         - &location "{src/browser/{geoip-setup,ip-probe,ip-verification,location,location-launch}.ts,\
           src/runtime/{location-preflight,public-ip}.ts,src/profiles/{network-transaction,proxy-input,proxy-url}.ts,\
-          tests/helpers/{observations,proxy-acceptance-helpers,proxy-network-fixture}.ts}"
+          tests/helpers/{observations,*proxy*}.ts}"
         - tests/browser/proxy-integration.ts
       run: $STELZ_DRY_RUN bun run test:proxy
     - name: ui
