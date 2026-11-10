@@ -2,7 +2,7 @@
 "stelz": minor
 ---
 
-Use the official Camoufox launcher instead of camoufox-js. Stop running profiles, then run `stelz setup` to prepare the fingerprint model. Start profiles explicitly after setup.
+Use the official Camoufox launcher instead of camoufox-js. To update from an earlier version, stop all running profiles before you install the new package. Then run `stelz setup` and start profiles explicitly.
 
 Fingerprint checks now use the launcher's coherence rules. A saved macOS identity with an ANGLE renderer or another upstream contradiction blocks Start. The window-chrome rule only gives a warning.
 
