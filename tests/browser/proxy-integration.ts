@@ -8,7 +8,7 @@ import { fixture } from "../helpers/fixture.ts";
 import { compareObservations, type Observation } from "../helpers/observations.ts";
 import {
   assert, assertDistinctExits, assertFreshVerificationCache, assertNoFallback, assertProxyRoute, assertRoutingCoverage, exitIP,
-  proxyEndpoints, proxyRedactor, proxyTestConfiguration, PROXY_PROFILE_IDS as ids,
+  proxyRedactor, proxyTestConfiguration, suppliedProxyEndpoints, PROXY_PROFILE_IDS as ids,
   type Pair, type ProbeResult, type ProxyLifetime,
 } from "../helpers/proxy-acceptance-helpers.ts";
 import { assertRelayTraffic, networkProbe, probeExit, proxyRelay } from "../helpers/proxy-network-fixture.ts";
@@ -24,8 +24,9 @@ const relays: ReturnType<typeof proxyRelay>[] = [];
 const env: Record<string, string> = { STELZ_IP_CHECK_INTERVAL_MS: String(CACHE_MS) };
 for (const key of ["PATH", "HOME", "LANG", "TMPDIR", "CAMOUFOX_EXECUTABLE"]) if (process.env[key]) env[key] = process.env[key]!;
 let home: string | undefined, site: Awaited<ReturnType<typeof fixture>> | undefined;
-let probe: ReturnType<typeof networkProbe> | undefined;
+let probe: ReturnType<typeof networkProbe> | undefined, shared = false;
 let redact = proxyRedactor([process.env.PROXY_TEST_URL, process.env.PROXY_TEST_SECOND_URL]);
+// One supplied route serves both relays. Relay evidence then identifies each route; exit IPs cannot.
 
 async function command(...args: string[]) {
   const child = Bun.spawn([Bun.which("bun")!, "--no-env-file", cli, ...args], { env, stdout: "pipe", stderr: "pipe" });
@@ -108,7 +109,7 @@ async function verified(c: Client, index: number, expected: Pair<string>, direct
   assert(status.phase === "ready" && status.fixedIpVerified === true && status.expectedIp === expected[index], "Fresh recheck did not verify the profile's own expected IP pin.");
   assert(status.verificationStatus === "verified" && status.verificationRequired === true && status.verificationFresh === true,
     "Fresh recheck did not expose a current verified health result.");
-  assertProxyRoute(index, status.exitIp, expected, direct);
+  assertProxyRoute(index, status.exitIp, expected, direct, shared);
   assert(status.verificationIntervalMs === CACHE_MS, "The service did not apply the two-minute verification cache interval.");
   assert(typeof status.checkedAt === "string" && Number.isFinite(Date.parse(status.checkedAt)), "Fresh verification has no timestamp.");
   return status;
@@ -116,7 +117,7 @@ async function verified(c: Client, index: number, expected: Pair<string>, direct
 function successful(result: ProbeResult, index: number, expected: Pair<string>, direct: readonly string[]) {
   assert(result.outcome === "success", "The independent browser fetch failed on an available proxy route.");
   assert(result.webRTCEnabled === false, "WebRTC remains enabled behind a proxy.");
-  return assertProxyRoute(index, result.ip, expected, direct);
+  return assertProxyRoute(index, result.ip, expected, direct, shared);
 }
 async function openProbe(c: Client) {
   const channel = probe!.channel();
@@ -132,7 +133,8 @@ try {
   }
   const raw = [secrets.PROXY_TEST_URL, secrets.PROXY_TEST_SECOND_URL];
   redact = proxyRedactor([...raw, process.env.PROXY_TEST_URL, process.env.PROXY_TEST_SECOND_URL]);
-  const endpoints = proxyEndpoints(secrets);
+  const supplied = suppliedProxyEndpoints(secrets); shared = supplied.length === 1;
+  const endpoints = shared ? [supplied[0]!, supplied[0]!] : supplied;
   const hostnameFixtures = ids.map(() => ({ nonce: crypto.randomUUID() }));
   const hostnameRequests: { profile: string; hostname: string }[] = [];
   for (const [index, endpoint] of endpoints.entries()) {
@@ -159,8 +161,9 @@ try {
       report.push({ check: "Proxy preflight sample", profile: ids[index], result });
     }
   }
-  assertDistinctExits(expected);
-  report.push({ check: "Two distinct HTTP proxy routes", endpointsSupplied: 2, independentRelays: 2,
+  if (shared) report.push({ check: "Two distinct exit IPs", result: "unexecuted", reason: "One proxy route was supplied." });
+  else assertDistinctExits(expected);
+  report.push({ check: shared ? "Two relays to one HTTP proxy route" : "Two distinct HTTP proxy routes", endpointsSupplied: supplied.length, independentRelays: 2,
     profiles: ids.map((profile, index) => ({ profile, exitIp: expected[index], pinSource: endpoints[index]!.expectedIP ? "supplied" : "preflight" })) });
 
   home = createTestHome("proxy-acceptance", join(root, ".state")); env.STELZ_HOME = home;
@@ -185,7 +188,7 @@ try {
     report.push({ check: "Direct baseline", profile: id, sample: before[id] });
   }
   const direct = ids.map(id => exitIP(before[id]!.exitIp));
-  for (const index of [0, 1]) assertProxyRoute(index, expected[index], expected, direct);
+  for (const index of [0, 1]) assertProxyRoute(index, expected[index], expected, direct, shared);
   await closeClients(); await stopProfiles(); configure("proxy", expected);
   const lifetimes: ProxyLifetime[] = [];
   for (let lifetime = 1; lifetime <= 3; lifetime++) {
@@ -274,15 +277,17 @@ try {
     // Add evidence only after both explicit stop commands complete successfully.
     lifetimes.push({ instances: instanceIDs, samples });
   }
-  assertRoutingCoverage(lifetimes, expected);
-  report.push({ check: "Distinct stable exits across three explicit proxy start/stop lifetimes", lifetimes, result: "passed" });
+  assertRoutingCoverage(lifetimes, expected, shared);
+  report.push({ check: shared ? "Stable expected exit across three explicit proxy start/stop lifetimes"
+    : "Distinct stable exits across three explicit proxy start/stop lifetimes", lifetimes, result: "passed" });
 
-  // Swapping the known-good pins must block BOTH otherwise functional routes. Preflight rejects them before launch.
-  configure("proxy", [expected[1], expected[0]]);
+  // A mismatched expected IP pin must block BOTH otherwise functional routes. Preflight rejects it before launch.
+  // Two routes swap their known-good pins. A shared route uses a documentation address, which is never an exit.
+  configure("proxy", shared ? ["203.0.113.1", "203.0.113.1"] : [expected[1], expected[0]]);
   for (const id of ids) {
     const failure = await command("start", id).then(() => { owned.add(id); return ""; }, (error: unknown) => String(error));
     assert(failure.includes("does not match the configured expected IP"), "A mismatched expected IP did not block Start.");
-    report.push({ check: "The other proxy's expected IP pin blocks Start", profile: id, result: "passed" });
+    report.push({ check: shared ? "A wrong expected IP pin blocks Start" : "The other proxy's expected IP pin blocks Start", profile: id, result: "passed" });
   }
 } catch (error) {
   report.push({ check: "Two-proxy acceptance", result: "failed", error: redact(String(error)) }); process.exitCode = 1;

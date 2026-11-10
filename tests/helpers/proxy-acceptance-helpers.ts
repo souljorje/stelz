@@ -36,8 +36,8 @@ export function proxyEndpoints(env: Record<string, string | undefined>): Pair<Pr
   return endpoints;
 }
 
-/** Location acceptance needs one route. A supplied second route must still be valid and distinct. */
-export function locationProxyEndpoints(env: Record<string, string | undefined>): readonly ProxyEndpoint[] {
+/** One supplied route, or a validated distinct pair. */
+export function suppliedProxyEndpoints(env: Record<string, string | undefined>): readonly ProxyEndpoint[] {
   return env.PROXY_TEST_SECOND_URL ? proxyEndpoints(env) : [proxyEndpoint(env, "PROXY_TEST_URL", "PROXY_TEST_EXPECTED_IP")];
 }
 
@@ -90,12 +90,13 @@ export function assertDistinctExits(expected: Pair<string>) {
   assert(expected[0] !== expected[1], "Both proxies returned the same exit IP; distinct routing is unproven.");
 }
 
-export function assertProxyRoute(index: number, observed: unknown, expected: Pair<string>, direct: readonly string[] = []) {
+// With one shared upstream both routes have the same exit, so only relay evidence identifies a route.
+export function assertProxyRoute(index: number, observed: unknown, expected: Pair<string>, direct: readonly string[] = [], shared = false) {
   assert(index === 0 || index === 1, "Unknown test profile.");
-  assertDistinctExits(expected);
+  if (!shared) assertDistinctExits(expected);
   const ip = exitIP(observed);
   assert(!direct.includes(ip), "A proxied browser used a direct exit IP.");
-  assert(ip !== expected[1 - index], "A browser used the other profile's proxy exit IP.");
+  assert(shared || ip !== expected[1 - index], "A browser used the other profile's proxy exit IP.");
   assert(ip === expected[index], "A browser exit IP differs from its stable expected IP pin.");
   return ip;
 }
@@ -119,8 +120,8 @@ export function assertFreshVerificationCache(before: Record<string, unknown>, af
 }
 
 export type ProxyLifetime = { instances: Pair<string>; samples: Pair<string[]> };
-export function assertRoutingCoverage(lifetimes: readonly ProxyLifetime[], expected: Pair<string>) {
-  assertDistinctExits(expected);
+export function assertRoutingCoverage(lifetimes: readonly ProxyLifetime[], expected: Pair<string>, shared = false) {
+  if (!shared) assertDistinctExits(expected);
   assert(lifetimes.length >= 3, "At least three explicit proxy start/stop lifetimes are required.");
   const instances = new Set<string>();
   for (const lifetime of lifetimes) {
@@ -130,7 +131,7 @@ export function assertRoutingCoverage(lifetimes: readonly ProxyLifetime[], expec
       instances.add(instance);
       const samples = lifetime.samples[index]!;
       assert(samples.length >= 3, "Each profile requires three independent network samples within each proxy lifetime.");
-      for (const sample of samples) assertProxyRoute(index, sample, expected);
+      for (const sample of samples) assertProxyRoute(index, sample, expected, [], shared);
     }
   }
 }

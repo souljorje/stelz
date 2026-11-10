@@ -163,7 +163,7 @@ See [Profile transfer](../profile-transfer.md) for supported behavior.
 ## Proxy and human acceptance
 
 1. Create a private env file outside the repository.
-2. Set `PROXY_TEST_URL` and `PROXY_TEST_SECOND_URL` in that file.
+2. Set `PROXY_TEST_URL` in that file. Also set `PROXY_TEST_SECOND_URL` to check two different exits.
 3. Optionally set `PROXY_TEST_EXPECTED_IP` and `PROXY_TEST_SECOND_EXPECTED_IP` to require known exits.
 4. Build the service.
 5. Run the check with the file's absolute path:
@@ -172,7 +172,8 @@ See [Profile transfer](../profile-transfer.md) for supported behavior.
    PROXY_TEST_ENV=/absolute/path/to/private.env bun run test:proxy
    ```
 
-The test requires different observed exits. Two endpoints with the same exit cannot pass.
+With two routes, the test requires different observed exits. Two endpoints with the same exit cannot pass.
+With one route, both relays use it. Relay evidence identifies each route, and the report marks the distinct-exit check as unexecuted.
 Without supplied IP pins, preflight observations establish the expected addresses for that run.
 Each profile uses its own relay.
 The check collects repeated browser observations across three explicit starts and stops.
@@ -182,7 +183,8 @@ This proves that the request does not require local DNS resolution. It does not 
 It interrupts each relay while successful verification remains cached.
 The failed route must reject external requests. The other route must retain its expected IP.
 Explicit recheck must block only the failed profile. Recovery must preserve the original browser lifetime.
-The check also covers swapped pins, WebRTC policy, isolated storage, and unchanged saved device settings.
+The check also covers a mismatched expected IP, WebRTC policy, isolated storage, and unchanged saved device settings.
+Two routes swap their pins. One route uses a documentation address.
 
 The report is `.state/proxy-acceptance-*/report.json`.
 Cleanup stops test browsers and removes temporary credential copies.

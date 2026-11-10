@@ -4,7 +4,7 @@ import { createServer, connect } from "node:net";
 import { once } from "node:events";
 import {
   assertDistinctExits, assertFreshVerificationCache, assertNoFallback, assertProxyRoute, assertRoutingCoverage,
-  locationProxyEndpoints, proxyEndpoints, proxyRedactor, proxyTestConfiguration, PROXY_PROFILE_IDS,
+  proxyEndpoints, suppliedProxyEndpoints, proxyRedactor, proxyTestConfiguration, PROXY_PROFILE_IDS,
   type ProxyLifetime,
 } from "../helpers/proxy-acceptance-helpers.ts";
 import { assertRelayTraffic, networkProbe, probeExit, proxyRelay } from "../helpers/proxy-network-fixture.ts";
@@ -21,9 +21,9 @@ test("both URL variables are required; expected IP pins are optional and indepen
   const endpoints = proxyEndpoints({ ...inputs, PROXY_TEST_SECOND_EXPECTED_IP: exits[1] });
   expect(endpoints[0].expectedIP).toBeUndefined(); expect(endpoints[1].expectedIP).toBe(exits[1]);
   expect(proxyEndpoints({ ...inputs, PROXY_TEST_EXPECTED_IP: exits[0] })[0].expectedIP).toBe(exits[0]);
-  // Location acceptance accepts one route, and checks a supplied second route.
-  expect(locationProxyEndpoints({ PROXY_TEST_URL: inputs.PROXY_TEST_URL })).toHaveLength(1);
-  expect(locationProxyEndpoints(inputs)).toHaveLength(2);
+  // Acceptance can run with one route, and checks a supplied second route.
+  expect(suppliedProxyEndpoints({ PROXY_TEST_URL: inputs.PROXY_TEST_URL })).toHaveLength(1);
+  expect(suppliedProxyEndpoints(inputs)).toHaveLength(2);
 });
 
 test("reject unsafe URLs and invalid credentials without including either secret", () => {
@@ -44,6 +44,11 @@ test("canonical duplicate routes and equal expected exits cannot pass as distinc
   // Providers can select separate exits with credentials on one gateway.
   expect(proxyEndpoints({ PROXY_TEST_URL: "http://route-one:pass@host.invalid", PROXY_TEST_SECOND_URL: "http://route-two:pass@host.invalid" })).toHaveLength(2);
   expect(() => assertDistinctExits([exits[0], exits[0]])).toThrow("same exit IP");
+  // A shared upstream gives both routes one exit. Only a direct or unexpected exit fails.
+  expect(() => assertProxyRoute(0, exits[0], [exits[0], exits[0]])).toThrow("same exit IP");
+  expect(assertProxyRoute(1, exits[0], [exits[0], exits[0]], [], true)).toBe(exits[0]);
+  expect(() => assertProxyRoute(0, exits[1], [exits[0], exits[0]], [], true)).toThrow("expected IP pin");
+  expect(() => assertProxyRoute(0, exits[0], [exits[0], exits[0]], [exits[0]], true)).toThrow("direct exit");
 });
 
 test("configuration gives two fixed profiles separate relay and expected-IP references", () => {
