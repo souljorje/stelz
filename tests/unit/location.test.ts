@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { geoipFixture, managedFixture, fixtureLocation } from "../helpers/geoip-fixture.ts";
 import { validateGeoip, managedGeoip, resolveLocation, countryLocale, checkBrowserLocation, locationsMatch, hash,
   GEOIP_SOURCES, locationEvidence, parseLocationPolicy, type GeoipRole } from "../../src/browser/location.ts";
-import { prepareGeoip } from "../../src/browser/geoip-setup.ts";
+import { geoipPlan, prepareGeoip } from "../../src/browser/geoip-setup.ts";
 import { verifyLaunchLocation } from "../../src/browser/location-launch.ts";
 import { locationResult, type LocationRecord } from "../../src/browser/location.ts";
 
@@ -56,6 +56,23 @@ test("setup reuses a recent build without a request and keeps older data when of
     expect(JSON.parse(readFileSync(join(stage, "geoip/manifest.json"), "utf8"))).toEqual(JSON.parse(original));
     expect(calls).toBe(requests);
   }
+});
+test("an older build that is still the latest release needs only a release request", async () => {
+  const latest = (tag: string, urls: string[] = []) => (async (url: string) => {
+    urls.push(url);
+    const role = (["selection", "comparison"] as const).find(role => url === `https://api.github.com/repos/${GEOIP_SOURCES[role].repository}/releases/latest`);
+    if (!role) throw Error("Unexpected request");
+    const { repository, asset } = GEOIP_SOURCES[role];
+    return Response.json({ tag_name: tag, assets: [{ name: asset, digest: `sha256:${"0".repeat(64)}`, size: 1,
+      browser_download_url: `https://github.com/${repository}/releases/download/${tag}/${asset}` }] });
+  }) as unknown as typeof fetch;
+  const current = temp(), urls: string[] = []; managedFixture(current);
+  expect(await geoipPlan(current, Date.now(), latest("fixture"))).toEqual([]);
+  expect((await prepareGeoip(temp(), current, latest("fixture", urls))).status).toEqual({ selection: "reused", comparison: "reused" });
+  expect(urls).toHaveLength(2);
+  // A newer release or a failed release request lists the download.
+  expect(await geoipPlan(current, Date.now(), latest("newer"))).toEqual(["selection", "comparison"]);
+  expect(await geoipPlan(current, Date.now(), (() => { throw Error("offline"); }) as unknown as typeof fetch)).toEqual(["selection", "comparison"]);
 });
 test("setup validates release integrity for both datasets before retaining them", async () => {
   const current = temp(), bytes = { selection: geoipFixture(undefined, "GeoIP2-City"), comparison: geoipFixture() };

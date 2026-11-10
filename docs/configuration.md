@@ -190,7 +190,7 @@ See [Camofox integration](development/camofox-integration.md) for launch and loc
 Setup checks each release SHA-256 and opens each database with the pinned reader before activation.
 The manifest records each source, release, content hash, database metadata, build time, and acquisition time.
 Repeated setup reuses a build that is at most 8 days old without contacting its download service.
-It downloads a newer release for an older build. Offline, it keeps the validated older build.
+For an older build, setup reads the latest release and downloads it only when it differs. Offline, setup keeps the validated older build.
 Setup stages replacements in a new runtime generation. An interrupted download preserves the active runtime and databases.
 A running profile keeps the databases of the generation that it started with. Start does not download missing data.
 
