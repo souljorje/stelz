@@ -62,7 +62,7 @@
     "ui": "bun --no-env-file src/cli/cli.ts ui",
     "browser": "bun scripts/call.ts",
     "fixture": "bun tests/helpers/fixture.ts",
-    "test": "bun test ./tests/unit ./tests/integration && bun run test:regression",
+    "test": "bun test --parallel ./tests/unit ./tests/integration && bun run test:regression",
     "test:ui": "bun test tests/integration/catalog-limits.test.ts tests/unit/profile-windows.test.ts tests/unit/ui-server.test.ts tests/integration/ui-model.test.ts tests/integration/profile-configuration.test.ts tests/integration/profile-rename.test.ts tests/unit/ui-api.test.ts tests/unit/ui-display.test.ts",
     "test:ui:browser": "bun tests/browser/ui-browser.ts",
     "test:regression": "node --experimental-transform-types --test tests/regression/*.test.ts",

@@ -21,7 +21,7 @@ Build also checks Markdown links in the packaged documentation.
 | Command | Coverage |
 | --- | --- |
 | `bun run typecheck` | TypeScript checks. |
-| `bun run test` | Bun unit and integration tests, followed by Node regression tests. No browser. |
+| `bun run test` | Bun unit and integration tests in parallel workers, followed by Node regression tests. No browser. Run `bun test FILE` to check one file alone. |
 | `bun run test:regression` | Browser plugin and persistence regression tests through Node. No browser. |
 | `bun run test:ui` | UI sessions, lifecycle dispatch, catalog limits, safe configuration edits, rename, window models, and redaction. No browser. |
 | `bun run test:ui:browser` | Built UI in Chrome or Chromium with isolated service files and simulated lifecycle operations. |
