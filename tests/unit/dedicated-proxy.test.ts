@@ -32,15 +32,20 @@ test("public checks preserve profile configuration and data across runs and reje
   try {
     const first = lockPublicProfile(home, proxy);
     const settings = readFileSync(join(home, "profiles.json"), "utf8");
+    const binding = readFileSync(join(home, ".public-proxy.json"), "utf8");
     writeFileSync(join(home, "saved-identity"), "cookie/device fixture");
-    expect(readFileSync(join(home, ".public-proxy.json"), "utf8")).not.toContain("secret");
+    for (const credential of ["fixture", "secret"]) expect(binding).not.toContain(credential);
     expect(() => lockPublicProfile(home, proxy)).toThrow("locked");
     first.release();
-    const second = lockPublicProfile(home, proxy);
+    const rotated = lockPublicProfile(home, "http://rotated:changed@proxy.invalid:8080");
     expect(readFileSync(join(home, "profiles.json"), "utf8")).toBe(settings);
     expect(readFileSync(join(home, "saved-identity"), "utf8")).toBe("cookie/device fixture");
-    second.release();
-    expect(() => lockPublicProfile(home, "http://different.invalid")).toThrow("another proxy");
+    expect(readFileSync(join(home, ".public-proxy.json"), "utf8")).toBe(binding);
+    rotated.release();
+    for (const route of ["http://fixture:secret@different.invalid:8080", "http://fixture:secret@proxy.invalid:8081",
+      "https://fixture:secret@proxy.invalid:8080"]) {
+      expect(() => lockPublicProfile(home, route)).toThrow("another proxy");
+    }
     expect(() => lockPublicProfile(home, proxy, "192.0.2.1")).toThrow("another proxy");
     expect(existsSync(join(home, ".public-check.lock"))).toBe(false);
     expect(readFileSync(join(home, "profiles.json"), "utf8")).toBe(settings);

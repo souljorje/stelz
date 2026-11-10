@@ -14,7 +14,9 @@ export function lockPublicProfile(directory: string | undefined, proxy: string, 
   const release = () => rmSync(lock, { force: true });
   try {
     const bindingFile = join(home, ".public-proxy.json"), settings = join(home, "profiles.json");
-    const binding = createHash("sha256").update(JSON.stringify([new URL(proxy).href, expected ?? null])).digest("hex");
+    // Bind the route only. Credentials can rotate without loss of the saved identity.
+    const { protocol, hostname, port } = new URL(proxy);
+    const binding = createHash("sha256").update(JSON.stringify([protocol, hostname, port, expected ?? null])).digest("hex");
     const existing = existsSync(bindingFile);
     if (existing) {
       if (readFileSync(bindingFile, "utf8") !== binding) throw Error("Public test home belongs to another proxy route or IP pin.");

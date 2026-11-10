@@ -166,7 +166,7 @@ See [Profile transfer](../profile-transfer.md) for supported behavior.
 ## Proxy and human acceptance
 
 Use local fixtures and synthetic proxy inputs for routine tests.
-Live acceptance requires dedicated test proxies. Never copy proxies from everyday profiles.
+Live acceptance requires declared test proxies. Never copy proxies from everyday profiles.
 The runner cannot verify proxy ownership. The operator must supply the correct route.
 
 1. Create a private env file outside the repository with `PROXY_TEST_USAGE=dedicated-acceptance`.
@@ -279,7 +279,7 @@ The suite reuses one native profile and opens four tabs in sequence.
 It rejects `--profile` and ignores the operator's `STELZ_HOME`.
 Set `PROXY_TEST_ENV` to a private file with `PROXY_TEST_USAGE=dedicated-public` and `PROXY_TEST_URL`.
 Add `PROXY_TEST_EXPECTED_IP` when an exit pin is necessary.
-Create a test home once, then save the printed path:
+From the repository root, create a test home once. Save the printed absolute path:
 
 ```sh
 bun --no-env-file -e 'import { createTestHome } from "./tests/helpers/test-home.ts"; console.log(createTestHome("public-profile", ".state"));'
@@ -291,7 +291,8 @@ Use that same path for every public check:
 PUBLIC_TEST_HOME=/absolute/path/printed/above PROXY_TEST_ENV=/absolute/path/to/public.env bun run test:public
 ```
 
-The home retains cookies and device settings. The runner refuses a different proxy route or IP pin for that home.
+The home retains cookies and device settings. It is bound to the proxy protocol, host, port, and IP pin.
+A credential rotation keeps the profile. A route or IP pin change needs a new `PUBLIC_TEST_HOME`.
 Concurrent runs cannot share the home. After a crash, verify that the run has stopped before removing `.public-check.lock`.
 There is no automatic direct-connection fallback or shell proxy URL fallback.
 The suite copies those inputs to its test directory and removes that copy during cleanup.

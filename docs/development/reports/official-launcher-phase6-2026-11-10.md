@@ -78,7 +78,8 @@ The unfinished location, proxy, and bot checks remain unresolved. No identity or
 ## Offline investigation
 
 The corrected reader recognizes the observed VPN wording only in the VPN result field. Unknown wording, busy results, and explanatory content remain excluded.
-All 172 verdict-reader and public-runner tests passed. Typecheck passed.
+The 43 public-runner tests passed (`public-runner-tests.log`). Typecheck passed (`public-typecheck.log`).
+No separate verdict-reader log exists. The full check in `check.log` records 125 passing verdict-reader tests.
 Replaying all four saved snapshots changed only Playground, from INCONCLUSIVE to FAIL. The original reports remain unchanged.
 `public-verdict-replay.json` records snapshot hashes and the corrected reader hash. No new browser visits or proxy requests were made.
 
@@ -130,7 +131,7 @@ The background-tab scroll timeout remains an accepted limitation, as recorded in
 No failed or incomplete observation becomes a passing test through this decision. The original evidence remains unchanged.
 Further detector investigation and cross-timezone testing are follow-up work, not prerequisites for this release.
 
-Routine tests use local fixtures. Live checks require dedicated test proxies, and public checks preserve their saved profile.
+Routine tests use local fixtures. Live checks require declared test proxies, and public checks preserve their saved profile.
 The test-isolation changes passed 191 focused tests and typecheck. They did not contact real proxies or public sites.
 
 Remaining delivery steps are push and merge, required CI, version PR review, and publication through the [release workflow](../releasing.md).
@@ -152,6 +153,15 @@ STELZ_TEST_CLI=/installed/stelz/dist/cli.js STELZ_TEST_SEED_HOME=/prepared/test/
 PROXY_TEST_ENV=/private/path/proxies.env STELZ_TEST_CLI=/installed/stelz/dist/cli.js \
   STELZ_TEST_SEED_HOME=/prepared/test/home CAMOUFOX_EXECUTABLE=/absolute/path/camoufox \
   bun tests/qa/public-sites.ts
+```
+
+The recorded public-site run predates the persistent-profile runner. The current command is:
+
+```sh
+# public.env declares PROXY_TEST_USAGE=dedicated-public.
+PROXY_TEST_ENV=/private/path/public.env PUBLIC_TEST_HOME=/absolute/path/to/public-home \
+  STELZ_TEST_CLI=/installed/stelz/dist/cli.js CAMOUFOX_EXECUTABLE=/absolute/path/camoufox \
+  bun run test:public
 ```
 
 Private execution metadata records the actual paths, timestamps, and archive hash.

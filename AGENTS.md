@@ -43,5 +43,5 @@ Browser tasks must use fresh observations. Pause for human authentication in the
 Do not bypass authentication challenges or write website-specific task scripts.
 
 Use local fixtures and synthetic proxy inputs for routine tests. Never copy everyday profile proxies into test inputs.
-Live checks require explicitly designated test proxies. Reserve a separate proxy and persistent test profile for occasional public-site checks.
+Live checks require a declared test proxy, which the operator must keep separate from everyday profiles. Reserve a separate proxy and persistent test profile for occasional public-site checks.
 See `docs/development/testing.md` for the dedicated-input declarations and test-home setup.
