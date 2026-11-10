@@ -386,8 +386,8 @@ See the [2026-11-05 report](reports/onboarding-2026-11-05.md) for one assisted r
 `.github/workflows/ci.yml` runs on pull requests, manual dispatch, and reusable workflow calls.
 It runs `bun run check` on Linux and macOS.
 The shared setup action selects Bun from `packageManager`, Node.js 24, and its pinned npm version.
-It installs frozen dependencies with lifecycle scripts disabled and skips browser downloads.
-Normal CI does not pack archives or start live browsers.
+It caches Bun packages by `bun.lock`, except for publication. It installs frozen dependencies with lifecycle scripts disabled and skips browser downloads.
+A parallel job packs the archive and runs `test:install` with scripts disabled and with native installation. The Release workflow skips that job and checks its own archive. No CI job starts a live browser.
 
 The Release workflow requires those checks before version updates or packaging.
 Its installation matrix checks one saved archive on Linux and macOS with scripts disabled and with ordinary native installation.

@@ -4,6 +4,11 @@ on:
   pull_request:
   workflow_dispatch:
   workflow_call:
+    inputs:
+      skip-package:
+        description: Skip the packed-archive checks when the caller runs its own.
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -27,3 +32,21 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/setup
       - run: bun run check
+
+  package:
+    name: Packed archive (${{ matrix.os }})
+    if: ${{ !inputs.skip-package }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - run: bun run pack
+      - run: bun run test:install
+      - run: bun run test:install --native

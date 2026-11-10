@@ -30,8 +30,8 @@ Changes to shipped package behavior or content require a release entry when they
 
 The `plan` job uses Changesets to select a version, publish, or inactive mode.
 It suppresses publication when the current version's `vVERSION` tag already exists.
-The `checks` job calls `.github/workflows/ci.yml`.
-That workflow builds, checks TypeScript, and runs automated tests on Linux and macOS.
+The `checks` job calls `.github/workflows/ci.yml` with `skip-package: true`.
+That workflow builds, checks TypeScript, and runs automated tests on Linux and macOS. The `installation` job checks the release archive.
 
 | Selected mode | Result after required checks |
 | --- | --- |

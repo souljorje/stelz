@@ -17,5 +17,12 @@ runs:
         bun-version-file: package.json
     - run: npm install --global npm@11.21.2 --ignore-scripts --no-audit --no-fund
       shell: bash
+    # Publication installs without the cache, so a cached package cannot reach the publish credentials.
+    - if: inputs.registry-url == ''
+      uses: actions/cache@v6
+      with:
+        path: ~/.bun/install/cache
+        key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock') }}
+        restore-keys: bun-${{ runner.os }}-${{ runner.arch }}-
     - run: bun install --frozen-lockfile --ignore-scripts
       shell: bash

@@ -17,6 +17,8 @@ jobs:
     permissions:
       contents: read
     uses: ./.github/workflows/ci.yml
+    with:
+      skip-package: true
 
   plan:
     if: github.repository == 'souljorje/stelz' && github.ref == 'refs/heads/main'
