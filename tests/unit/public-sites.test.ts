@@ -17,10 +17,10 @@ const flightCards = '- text: Departure November 3, 2026 United SFO San Francisco
 const clearSignals = ["Incognito Mode", "Bot", "VPN", "Browser Tampering", "Developer Tools", "Virtual Machine", "Privacy Settings", "IP Blocklist", "Proxy Detection", "High-Activity Device", "Rare Device"];
 const rebrowserChecks = ["navigatorWebdriver", "viewport", "pwInitScripts", "platformMismatch", "mobileEmulation", "bypassCsp", "popupBlocking", "nativeTampering", "workerConsistency"];
 const snapshots = [
-  flightHeading + flightCards,
   ['- heading "Fingerprint Playground" [level=1]', '- heading "SMART SIGNALS" [level=3]', '- table:',
     ...clearSignals.map(name => '  - row "' + name + ' Not detected":\n    - cell "' + name + '":\n    - cell "Not detected"'),
     '- heading "MOBILE SMART SIGNALS" [level=3]'].join("\n"),
+  flightHeading + flightCards,
   ['- heading "Fingerprint Scan" [level=1]', '- text: Your Browser Fingerprint is consistent', '- generic "Fingerprint checks":',
     '  - text: Firefox 152.0 on Mac OS', '  - text: Browser', '  - text: Georgia / Tbilisi', '  - text: Location',
     '  - text: No proxy detected', '  - text: Proxy', '  - text: No masking detected', '  - text: Fingerprint',
@@ -169,19 +169,19 @@ test("the flight screenshot follows native scrolling to an observed test-area co
   const click = mock.state.calls.findIndex(call => call.name === "camofox_click");
   expect(click).toBeGreaterThan(0);
   expect(mock.state.calls[click - 1]!.name).toBe("camofox_snapshot");
-  expect(mock.state.calls[click]!.args).toEqual({ tabId: id(1), ref: "e21" });
+  expect(mock.state.calls[click]!.args).toEqual({ tabId: id(2), ref: "e21" });
   expect(mock.state.calls[click + 1]!.name).toBe("camofox_snapshot");
   expect(mock.state.calls.some(call => call.name === "camofox_scroll")).toBe(false);
-  expect(report.results[0]!.screenshotFramed).toBe(true);
-  expect(report.results[0]!.screenshot).toBeDefined();
+  expect(report.results[1]!.screenshotFramed).toBe(true);
+  expect(report.results[1]!.screenshot).toBeDefined();
 });
 
 test("a failed test-area activation is reported as an error", async () => {
   const mock = mockConnection(({ name }) => name === "camofox_click" ? failure("Test-area activation failed.") : undefined);
   const report = await run(mock);
-  expect(report.results[0]!.status).toBe("ERROR");
-  expect(report.results[0]!.errors).toContain("Test-area activation failed.");
-  expect(report.results[0]!.screenshotFramed).not.toBe(true);
+  expect(report.results[1]!.status).toBe("ERROR");
+  expect(report.results[1]!.errors).toContain("Test-area activation failed.");
+  expect(report.results[1]!.screenshotFramed).not.toBe(true);
   expect(report.stopped).toBe(true);
   expect(report.released).toBe(true);
   expect(mock.state.stops).toHaveLength(1);
@@ -190,12 +190,12 @@ test("a failed test-area activation is reported as an error", async () => {
 
 test("low-confidence proxy warnings remain visible in the report", async () => {
   const value = "Your IP is used by a residential proxy (confidence: low, ML score: 0.688)";
-  const mock = mockConnection(({ name, args }) => name === "camofox_snapshot" && args.tabId === id(2)
-    ? reply({ url: PUBLIC_SITES[1]!.url, snapshot: snapshots[1]!.replaceAll("Proxy Detection Not detected", "Proxy Detection " + value)
+  const mock = mockConnection(({ name, args }) => name === "camofox_snapshot" && args.tabId === id(1)
+    ? reply({ url: PUBLIC_SITES[0]!.url, snapshot: snapshots[0]!.replaceAll("Proxy Detection Not detected", "Proxy Detection " + value)
       .replace('cell "Proxy Detection":\n    - cell "Not detected"', 'cell "Proxy Detection":\n    - cell "' + value + '"') }) : undefined);
   const report = await run(mock);
-  expect(report.results[1]!.status).toBe("PASS");
-  expect(report.results[1]!.warnings).toHaveLength(1);
+  expect(report.results[0]!.status).toBe("PASS");
+  expect(report.results[0]!.warnings).toHaveLength(1);
   expect(readFileSync(join(report.outputDir, "report.md"), "utf8")).toContain("Warning: Proxy Detection");
 });
 
@@ -358,58 +358,58 @@ test("tab creation time counts toward the site deadline", async () => {
 
 test("pagination omits repeated navigation tails before assessing a complete result", async () => {
   const mock = mockConnection(({ name, args }) => {
-    if (name !== "camofox_snapshot" || args.tabId !== id(1)) return;
-    return reply({ url: PUBLIC_SITES[0]!.url, snapshot: args.offset ? flightCards : flightHeading + '\n[truncated]\n- heading "Learn more"',
+    if (name !== "camofox_snapshot" || args.tabId !== id(2)) return;
+    return reply({ url: PUBLIC_SITES[1]!.url, snapshot: args.offset ? flightCards : flightHeading + '\n[truncated]\n- heading "Learn more"',
       hasMore: !args.offset, nextOffset: args.offset ? null : flightHeading.length });
   });
   const report = await run(mock);
-  expect(report.results[0]!.status).toBe("PASS");
-  expect(mock.state.calls.filter(call => call.name === "camofox_snapshot" && call.args.tabId === id(1)).map(call => call.args.offset)).toEqual([undefined, flightHeading.length, undefined, flightHeading.length]);
-  expect(JSON.parse(readFileSync(report.results[0]!.snapshot!, "utf8")).pages).toHaveLength(2);
+  expect(report.results[1]!.status).toBe("PASS");
+  expect(mock.state.calls.filter(call => call.name === "camofox_snapshot" && call.args.tabId === id(2)).map(call => call.args.offset)).toEqual([undefined, flightHeading.length, undefined, flightHeading.length]);
+  expect(JSON.parse(readFileSync(report.results[1]!.snapshot!, "utf8")).pages).toHaveLength(2);
 });
 
 test("non-advancing pagination fails instead of reading indefinitely", async () => {
-  const mock = mockConnection(({ name, args }) => name === "camofox_snapshot" && args.tabId === id(1)
-    ? reply({ url: PUBLIC_SITES[0]!.url, snapshot: flightHeading, hasMore: true, nextOffset: 0 }) : undefined);
+  const mock = mockConnection(({ name, args }) => name === "camofox_snapshot" && args.tabId === id(2)
+    ? reply({ url: PUBLIC_SITES[1]!.url, snapshot: flightHeading, hasMore: true, nextOffset: 0 }) : undefined);
   const report = await run(mock);
-  expect(report.results[0]!.status).toBe("ERROR");
-  expect(report.results[0]!.reason).toContain("pagination did not advance");
-  expect(mock.state.calls.filter(call => call.name === "camofox_snapshot" && call.args.tabId === id(1))).toHaveLength(1);
+  expect(report.results[1]!.status).toBe("ERROR");
+  expect(report.results[1]!.reason).toContain("pagination did not advance");
+  expect(mock.state.calls.filter(call => call.name === "camofox_snapshot" && call.args.tabId === id(2))).toHaveLength(1);
 });
 
 test("loading can resolve later, and stale loading screenshots cannot prove the final verdict", async () => {
   let observed = 0, clock = 0;
   const mock = mockConnection(({ name, args }) => {
-    if (name === "camofox_snapshot" && args.tabId === id(1)) return reply({ url: PUBLIC_SITES[0]!.url,
-      snapshot: ++observed === 1 ? flightHeading + "- text: Loading" : snapshots[0] }, observed === 1);
-    if (name === "camofox_screenshot" && args.tabId === id(1)) return { content: [{ ...png, data: "not-a-png" }] };
+    if (name === "camofox_snapshot" && args.tabId === id(2)) return reply({ url: PUBLIC_SITES[1]!.url,
+      snapshot: ++observed === 1 ? flightHeading + "- text: Loading" : snapshots[1] }, observed === 1);
+    if (name === "camofox_screenshot" && args.tabId === id(2)) return { content: [{ ...png, data: "not-a-png" }] };
   });
   const report = await run(mock, { now: () => clock, sleep: async ms => { clock += ms; }, pollMs: 10, timeoutMs: 30 });
   expect(observed).toBe(2);
-  expect(report.results[0]).toMatchObject({ status: "ERROR", observedVerdict: "PASS" });
-  expect(report.results[0]!.screenshot).toBeUndefined();
-  expect(report.results[0]!.errors.join(" ")).toContain("invalid PNG bytes");
+  expect(report.results[1]).toMatchObject({ status: "ERROR", observedVerdict: "PASS" });
+  expect(report.results[1]!.screenshot).toBeUndefined();
+  expect(report.results[1]!.errors.join(" ")).toContain("invalid PNG bytes");
   expect(publicRunPassed(report)).toBe(false);
 });
 
 test("unfinished verdicts time out with evidence and do not become passes", async () => {
   let clock = 0;
-  const mock = mockConnection(({ name, args }) => name === "camofox_snapshot" && args.tabId === id(1)
-    ? reply({ url: PUBLIC_SITES[0]!.url, snapshot: flightHeading + "- text: Loading" }) : undefined);
+  const mock = mockConnection(({ name, args }) => name === "camofox_snapshot" && args.tabId === id(2)
+    ? reply({ url: PUBLIC_SITES[1]!.url, snapshot: flightHeading + "- text: Loading" }) : undefined);
   const report = await run(mock, { now: () => clock, sleep: async ms => { clock += ms; }, pollMs: 10, timeoutMs: 20 });
-  expect(report.results[0]!.status).toBe("INCONCLUSIVE");
-  expect(report.results[0]!.reason).toContain("No completed verdict within");
-  expect(report.results[0]!.screenshot).toBeDefined();
+  expect(report.results[1]!.status).toBe("INCONCLUSIVE");
+  expect(report.results[1]!.reason).toContain("No completed verdict within");
+  expect(report.results[1]!.screenshot).toBeDefined();
   expect(report.results[3]!.status).toBe("PASS");
 });
 
 test("unexpected redirects and disabled detector URLs cannot pass", async () => {
   let clock = 0;
-  const mock = mockConnection(({ name, args }) => name === "camofox_snapshot" && args.tabId === id(1)
-    ? reply({ url: PUBLIC_SITES[0]!.url + "?disableBotDetection=1", snapshot: snapshots[0] }) : undefined);
+  const mock = mockConnection(({ name, args }) => name === "camofox_snapshot" && args.tabId === id(2)
+    ? reply({ url: PUBLIC_SITES[1]!.url + "?disableBotDetection=1", snapshot: snapshots[1] }) : undefined);
   const report = await run(mock, { now: () => clock, sleep: async ms => { clock += ms; }, timeoutMs: 1, pollMs: 1 });
-  expect(report.results[0]!.status).toBe("INCONCLUSIVE");
-  expect(report.results[0]!.reason).toContain("Unexpected final URL");
+  expect(report.results[1]!.status).toBe("INCONCLUSIVE");
+  expect(report.results[1]!.reason).toContain("Unexpected final URL");
 });
 
 function challengeMock() {

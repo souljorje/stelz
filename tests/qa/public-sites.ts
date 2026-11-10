@@ -14,9 +14,10 @@ const ROOT = resolve(import.meta.dir, "../..");
 const cli = process.env.STELZ_TEST_CLI || join(ROOT, "src/cli/cli.ts");
 
 export const PUBLIC_SITES: ReadonlyArray<{ id: SiteId; name: string; url: string; screenshotHeading?: string; screenshotControl?: string }> = [
+  // Phase 6 order: Playground first, then web scraping, Pixelscan, and Rebrowser.
+  { id: "fingerprint-playground", name: "Fingerprint Playground", url: "https://demo.fingerprint.com/playground" },
   { id: "fingerprint-web-scraping", name: "Fingerprint web scraping", url: "https://demo.fingerprint.com/web-scraping",
     screenshotHeading: "Search for today's flights", screenshotControl: "Search" },
-  { id: "fingerprint-playground", name: "Fingerprint Playground", url: "https://demo.fingerprint.com/playground" },
   { id: "pixelscan", name: "Pixelscan", url: "https://pixelscan.net/fingerprint-check" },
   { id: "rebrowser", name: "Rebrowser", url: "https://bot-detector.rebrowser.net/" },
 ];
