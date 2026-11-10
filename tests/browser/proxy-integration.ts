@@ -175,7 +175,7 @@ try {
     writeFileSync(join(home!, "profiles.json"), JSON.stringify(config.settings), { mode: 0o600 });
     writeFileSync(join(home!, "secrets.env"), config.secrets, { mode: 0o600 });
   };
-  await command("init"); configure("direct", ["", ""]); await command("setup");
+  configure("direct", ["", ""]); await command("setup", "--yes");
   site = await fixture(fixturePort!); probe = networkProbe();
   await startProfiles();
   const pins: Record<string, string> = {}, before: Record<string, Observation> = {}, proxied: Record<string, Observation> = {};

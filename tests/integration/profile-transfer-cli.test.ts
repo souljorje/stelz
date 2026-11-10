@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { join, resolve } from "node:path";
 import { parseEnv } from "node:util";
 import { createHash } from "node:crypto";
-import { createTestHome } from "../helpers/test-home.ts";
+import { createTestHome, initializeHome } from "../helpers/test-home.ts";
 
 const cli = process.env.STELZ_TEST_CLI || resolve(import.meta.dir, "../../src/cli/cli.ts"), homes: string[] = [];
 function home() { const value = createTestHome("stelz-transfer-cli"); homes.push(value); return value; }
@@ -15,7 +15,7 @@ async function run(home: string, args: string[], extra: Record<string, string> =
   const [code, out, err] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
   return { code, out, err, value: args.includes("--json") ? JSON.parse(out || err) : undefined };
 }
-async function initialize(home: string) { writeFileSync(join(home, "engine"), "synthetic Camoufox executable"); expect((await run(home, ["init"])).code).toBe(0); }
+async function initialize(home: string) { writeFileSync(join(home, "engine"), "synthetic Camoufox executable"); initializeHome(home); }
 
 test("CLI ZIP export/import preserves a batch and creates a copy without exposing credentials", async () => {
   const source = home(), target = home(); await initialize(source); await initialize(target);

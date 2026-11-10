@@ -52,11 +52,10 @@ function freePort() {
 }
 try {
   console.log("Profile window acceptance: " + home);
-  await command("init");
   writeFileSync(join(home, "profiles.json"), JSON.stringify({ profiles: ids.map((id, index) => ({
     id, port: freePort(), storage: "native",
   })) }), { mode: 0o600 });
-  await command("setup");
+  await command("setup", "--yes");
   assert.notEqual(profileAppearance(ids[0]!).color, profileAppearance(ids[1]!).color);
   for (const id of ids) {
     await command("start", id);

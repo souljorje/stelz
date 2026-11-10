@@ -4,31 +4,42 @@ import { STELZ_VERSION } from "../versions.ts";
 import { LocationError } from "../browser/location.ts";
 
 const [command = "help", ...rawArgs] = process.argv.slice(2);
-const rootJsonMode = ["start", "recheck", "status", "doctor"].includes(command) && rawArgs.includes("--json");
+const rootJsonMode = ["setup", "start", "recheck", "status", "doctor"].includes(command) && rawArgs.includes("--json");
 const jsonMode = rootJsonMode || command === "profile" && rawArgs.includes("--json");
 const args = rootJsonMode ? rawArgs.filter(arg => arg !== "--json") : rawArgs;
 function diagnostic(error: unknown) {
   const message = (error as Error).message;
-  return jsonMode ? JSON.stringify({ ok: false, error: { code: error instanceof LocationError ? error.location.code : "service_unavailable", message },
+  const downloads = (error as { downloads?: string[] }).downloads;
+  const code = error instanceof LocationError ? error.location.code : downloads ? "confirmation_required" : command === "setup" ? "setup_failed" : "service_unavailable";
+  return jsonMode ? JSON.stringify({ ok: false, error: { code, message, ...(downloads ? { downloads } : {}) },
     ...(error instanceof LocationError ? { location: error.location } : {}) }) : message;
+}
+/** Ask once in a terminal before setup downloads anything. */
+async function confirmDownloads(downloads: string[]) {
+  const { createInterface } = await import("node:readline/promises");
+  const prompt = createInterface({ input: process.stdin, output: process.stderr });
+  try { return /^y(es)?$/i.test((await prompt.question(`Setup will download:\n${downloads.map(item => `- ${item}`).join("\n")}\nDownload now? [y/N] `)).trim()); }
+  finally { prompt.close(); }
 }
 try {
   // Configuration paths can fail during module initialization. Keep CLI errors structured too.
-  const { HOME_DIR, initialize, settings } = await import("../profiles/config.ts");
+  const { HOME_DIR, settings } = await import("../profiles/config.ts");
   const { recover, doctor, logs } = await import("../runtime/runtime.ts");
   const { runLifecycle } = await import("../runtime/operations.ts");
-  const { setup } = await import("../browser/setup.ts");
+  const { setup, setupSummary } = await import("../browser/setup.ts");
   const { runMcp } = await import("../mcp/mcp.ts");
   if (command === "--version" || command === "version") console.log(STELZ_VERSION);
   else if (command === "help" || command === "--help")
     console.log(
-      `stelz ${STELZ_VERSION}\n\nstelz init\nstelz setup\nstelz profile create ID [--direct | --proxy-url URL | --proxy-env NAME] [--expected-ip IP | --expected-ip-env NAME] [--json]\nstelz profile fingerprint check PROFILE [--json]\nstelz profile export ID...|--all --output FILE [--json]\nstelz profile import FILE [--profile SOURCE_ID]... [--rename SOURCE_ID=NEW_ID]... [--json]\nstelz ui [--port 1024-65535] [--open]\nstelz start ID|all [--json]\nstelz status [ID|all] [--json]\nstelz doctor [ID|all] [--json]\nstelz logs ID [--lines 1-500]\nstelz recover ID\nstelz stop ID|all\nstelz pause ID\nstelz resume ID\nstelz recheck ID [--json]\nstelz release ID\nstelz mcp\n\nSTELZ_HOME selects the service data directory. Default: ${HOME_DIR}`,
+      `stelz ${STELZ_VERSION}\n\nstelz setup [--yes] [--json]\nstelz profile create ID [--direct | --proxy-url URL | --proxy-env NAME] [--expected-ip IP | --expected-ip-env NAME] [--json]\nstelz profile fingerprint check PROFILE [--json]\nstelz profile export ID...|--all --output FILE [--json]\nstelz profile import FILE [--profile SOURCE_ID]... [--rename SOURCE_ID=NEW_ID]... [--json]\nstelz ui [--port 1024-65535] [--open]\nstelz start ID|all [--json]\nstelz status [ID|all] [--json]\nstelz doctor [ID|all] [--json]\nstelz logs ID [--lines 1-500]\nstelz recover ID\nstelz stop ID|all\nstelz pause ID\nstelz resume ID\nstelz recheck ID [--json]\nstelz release ID\nstelz mcp\n\nSTELZ_HOME selects the service data directory. Default: ${HOME_DIR}`,
     );
   else if (command === "profile") await (await import("./profile.ts")).runProfile(args);
-  else if (command === "init") {
-    initialize();
-    console.log(HOME_DIR);
-  } else if (command === "setup") await setup();
+  else if (command === "setup") {
+    if (args.some(arg => arg !== "--yes")) throw Error("Use: stelz setup [--yes] [--json]");
+    const interactive = !jsonMode && process.stdin.isTTY && process.stderr.isTTY;
+    const report = await setup({ yes: args.includes("--yes"), confirm: interactive ? confirmDownloads : undefined });
+    console.log(jsonMode ? JSON.stringify({ ok: true, ...report }, null, 2) : setupSummary(report));
+  }
   else if (command === "ui") (await import("../api/ui-server.ts")).runUi(args);
   else if (command === "doctor") {
     if (args.length > 1) throw Error("Use: stelz doctor [ID|all]");

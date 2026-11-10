@@ -35,7 +35,7 @@ export function initialize() {
 }
 export function settings(): Settings {
   const value = json<unknown>(CONFIG_FILE);
-  if (!value) throw Error("Run stelz init first.");
+  if (!value) throw Error("Run stelz setup first.");
   return validateSettings(value);
 }
 export function validateSettings(input: unknown): Settings {

@@ -16,7 +16,7 @@ async function run(args: string[], options: { cwd?: string; env?: Record<string,
   const [code, out, error] = await Promise.all([child.exited, new Response(child.stdout as ReadableStream).text(), new Response(child.stderr as ReadableStream).text()]);
   if (code) throw Error(error || out); return out;
 }
-await run([executable, "setup"]);
+await run([executable, "setup", "--yes"]);
 assertArchiveUnchanged(candidate);
 await run([bun, "--no-env-file", join(root, "tests/browser/integration.ts")], { env: { ...cleanEnv, STELZ_TEST_HOME: home, STELZ_TEST_CLI: installedCli }, inherit: true });
 const acceptance = { integration: true, native: false, transfer: false, concurrency: false, typing: false, windows: false, proxy: false, location: false, manual: false };

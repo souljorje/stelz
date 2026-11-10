@@ -27,3 +27,11 @@ export function assertTestHome(directory: string): string {
     return home;
   } catch { throw error(); }
 }
+
+/** Create the service files with the production initializer, without a full setup. */
+export function initializeHome(home: string) {
+  const config = resolve(import.meta.dir, "../../src/profiles/config.ts");
+  const result = Bun.spawnSync([process.execPath, "--no-env-file", "-e", `(await import(${JSON.stringify(config)})).initialize()`],
+    { env: { ...process.env, STELZ_HOME: home }, stdout: "pipe", stderr: "pipe" });
+  if (result.exitCode) throw Error(result.stderr.toString() || "Cannot initialize the test home.");
+}

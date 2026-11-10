@@ -5,30 +5,41 @@ import { managedGeoip, validateGeoip, geoipFile, GEOIP_SOURCES, GEOIP_REFRESH_DA
   type GeoipDataset, type GeoipManifest, type GeoipRole } from "./location.ts";
 
 const MAX_BYTES = 256 * 1024 * 1024, DAY_MS = 86_400_000;
+export type GeoipStatus = "reused" | "downloaded" | "kept";
+async function existingDatasets(current: string) {
+  try { return (await managedGeoip(current)).manifest.datasets; } catch { /* Missing, old, or invalid data requires a validated replacement. */ }
+}
+const recent = (dataset: GeoipDataset | undefined, now: number): dataset is GeoipDataset =>
+  !!dataset && now - Date.parse(dataset.buildEpoch) <= GEOIP_REFRESH_DAYS * DAY_MS;
+/** The datasets that setup would download: missing ones and builds older than the refresh limit. */
+export async function geoipPlan(current: string, now = Date.now()): Promise<GeoipRole[]> {
+  const existing = await existingDatasets(current);
+  return (["selection", "comparison"] as const).filter(role => !recent(existing?.[role], now));
+}
 /** Stage data with the runtime. Only setup activates this directory. Reuse a recent build; refresh an older one. */
 export async function prepareGeoip(stage: string, current: string, request: typeof fetch = fetch, now = Date.now()) {
   const target = join(stage, "geoip");
   mkdirSync(target, { mode: 0o700 });
-  let existing: GeoipManifest | undefined;
-  try { existing = (await managedGeoip(current)).manifest; } catch { /* Missing, old, or invalid data requires a validated replacement. */ }
-  const datasets = {} as Record<GeoipRole, GeoipDataset>;
+  const existing = await existingDatasets(current);
+  const datasets = {} as Record<GeoipRole, GeoipDataset>, status = {} as Record<GeoipRole, GeoipStatus>;
   for (const role of ["selection", "comparison"] as const) {
-    const previous = existing?.datasets[role];
-    const keep = () => {
+    const previous = existing?.[role];
+    const keep = (result: GeoipStatus) => {
       copyFileSync(geoipFile(current, role), geoipFile(stage, role));
       validateGeoip(geoipFile(stage, role), role, previous!.sha256);
-      datasets[role] = previous!;
+      datasets[role] = previous!; status[role] = result;
     };
-    if (previous && now - Date.parse(previous.buildEpoch) <= GEOIP_REFRESH_DAYS * DAY_MS) { keep(); continue; }
-    try { datasets[role] = await download(stage, role, request); }
+    if (recent(previous, now)) { keep("reused"); continue; }
+    try { datasets[role] = await download(stage, role, request); status[role] = "downloaded"; }
     catch (error) {
       // An offline setup keeps validated older data. Preflight reports its age.
       if (!previous) throw error;
       console.error(`Kept the existing ${GEOIP_SOURCES[role].name} data: ${(error as Error).message}`);
-      keep();
+      keep("kept");
     }
   }
   writeFileSync(join(target, "manifest.json"), JSON.stringify({ version: 2, datasets } satisfies GeoipManifest, null, 2), { mode: 0o600, flag: "wx" });
+  return { datasets, status };
 }
 
 async function download(stage: string, role: GeoipRole, request: typeof fetch): Promise<GeoipDataset> {

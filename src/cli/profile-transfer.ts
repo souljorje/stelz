@@ -82,7 +82,7 @@ export async function runProfileTransfer(args: string[]) {
     if (args.length === 2 && args[1] === "--help") { console.log(transferUsage); return; }
     const input = args[0] === "export" ? { kind: "export" as const, ...parseExport(args.slice(1)) }
       : args[0] === "import" ? { kind: "import" as const, ...parseImport(args.slice(1)) } : invalid();
-    if (!existsSync(CONFIG_FILE) || !existsSync(STATE)) throw new ProfileTransferError(409, "Run stelz init first, using the same STELZ_HOME.");
+    if (!existsSync(CONFIG_FILE) || !existsSync(STATE)) throw new ProfileTransferError(409, "Run stelz setup first, using the same STELZ_HOME.");
     checkCatalogDirectory(HOME_DIR); checkCatalogDirectory(STATE);
     const stagingRoot = join(HOME_DIR, ".profile-transfers");
     await mkdir(stagingRoot, { recursive: true, mode: 0o700 });

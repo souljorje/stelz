@@ -55,9 +55,9 @@ async function call(client: Client, name: string, args: Record<string, unknown> 
 const evidence: Record<string, unknown>[] = [], pins = new Map<string, string>();
 const strata = { "fresh-proxy": 0, "saved-valid-proxy": 0 };
 try {
-  await command("setup");
+  await command("setup", "--yes");
   const dataBefore = readFileSync(join(installed.home, "runtime/geoip/manifest.json"), "utf8");
-  await command("setup");
+  await command("setup", "--yes");
   assert.equal(readFileSync(join(installed.home, "runtime/geoip/manifest.json"), "utf8"), dataBefore);
   for (let i = 0; i < ids.length; i++) {
     await relays[i]!.start();

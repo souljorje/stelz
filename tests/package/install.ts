@@ -65,7 +65,14 @@ const defaultEnv = { ...cleanEnv }; delete defaultEnv.STELZ_HOME;
 if ((await run([executable, "--help"], { cwd, env: defaultEnv })).includes(poisonHome)) throw Error("The global command loaded project environment state.");
 const version = (await run([executable, "--version"], { cwd, env: cleanEnv })).trim();
 if (version !== STELZ_VERSION) throw Error("Global command version does not match.");
-await run([executable, "init"], { cwd, env: cleanEnv });
+// Setup creates the service files and validates the complete installed runtime without launching a browser.
+const fakeBrowser = join(temp, "fake-browser/camoufox"), launched = join(temp, "browser-was-launched");
+// Setup accepts only the paired build, so the fake reports its version.
+mkdirSync(join(temp, "fake-browser")); writeFileSync(join(temp, "fake-browser/application.ini"), `[App]\nVersion=${pairedBrowser()}\n`);
+writeFileSync(fakeBrowser, `#!/usr/bin/env bun\nawait Bun.write(${JSON.stringify(launched)}, "unexpected launch");\nprocess.exit(99);\n`);
+chmodSync(fakeBrowser, 0o755);
+await run([executable, "setup", "--yes"], { cwd, env: { ...cleanEnv, CAMOUFOX_EXECUTABLE: fakeBrowser } });
+if (existsSync(launched)) throw Error("Setup executed the fake browser.");
 // The installed UI must serve without source files, dev dependencies, or a build server.
 const reservation = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() });
 const uiPort = reservation.port;
@@ -114,7 +121,6 @@ try {
   ui.kill("SIGTERM");
   await ui.exited;
 }
-// Setup validates the complete installed runtime without launching a browser.
 const created = JSON.parse(await run([executable, "profile", "create", "work", "--direct", "--json"], { cwd, env: cleanEnv }));
 if (!created.ok || !created.created || created.profile.id !== "work" || created.profile.storage !== "native")
   throw Error("The installed CLI did not create a native profile.");
@@ -123,13 +129,6 @@ const reused = JSON.parse(await run([executable, "profile", "create", "work", "-
 if (!reused.ok || reused.created || reused.profile.port !== created.profile.port ||
     readFileSync(join(home, "profiles.json"), "utf8") !== configBeforeReuse || readFileSync(join(home, "secrets.env"), "utf8") !== secretsBeforeReuse)
   throw Error("The installed CLI changed an existing profile.");
-const fakeBrowser = join(temp, "fake-browser/camoufox"), launched = join(temp, "browser-was-launched");
-// Setup accepts only the paired build, so the fake reports its version.
-mkdirSync(join(temp, "fake-browser")); writeFileSync(join(temp, "fake-browser/application.ini"), `[App]\nVersion=${pairedBrowser()}\n`);
-writeFileSync(fakeBrowser, `#!/usr/bin/env bun\nawait Bun.write(${JSON.stringify(launched)}, "unexpected launch");\nprocess.exit(99);\n`);
-chmodSync(fakeBrowser, 0o755);
-await run([executable, "setup"], { cwd, env: { ...cleanEnv, CAMOUFOX_EXECUTABLE: fakeBrowser } });
-if (existsSync(launched)) throw Error("Setup executed the fake browser.");
 const runtime = join(home, "runtime");
 const versions = JSON.parse(readFileSync(join(runtime, "versions.json"), "utf8"));
 if (versions.stelz !== STELZ_VERSION || versions.camoufoxExecutable !== fakeBrowser || versions.upstreamVersion !== manifest.dependencies["@askjo/camofox-browser"])

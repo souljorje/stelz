@@ -23,7 +23,7 @@ let ui: ReturnType<typeof createUiServer> | undefined;
 let fixture: ReturnType<typeof Bun.serve> | undefined;
 const report: Record<string, unknown> = { home, profile: id };
 try {
-  await command("setup"); await command("start", id);
+  await command("setup", "--yes"); await command("start", id);
   const before = (await model.snapshot()).profiles[0]!;
   const pin = readFileSync(join(dir(id), "fingerprint.json"), "utf8");
   fixture = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response(

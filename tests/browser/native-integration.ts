@@ -211,10 +211,9 @@ try {
   for (const name of ["tests/browser/native-integration.ts", "tests/helpers/observations.ts", "tests/helpers/fixture-browser.ts", "tests/helpers/fixture.ts"]) {
     report.environment.sources[name] = hash(readFileSync(join(root, name)));
   }
-  await command("init");
   const ports = await unusedPorts(ids.length + 1);
-  writeFileSync(join(home, "profiles.json"), JSON.stringify({ profiles: ids.map((id, i) => ({ id, port: ports[i]!, storage: "native" })) }));
-  await command("setup"); site = await fixture(ports[ids.length]!);
+  writeFileSync(join(home, "profiles.json"), JSON.stringify({ profiles: ids.map((id, i) => ({ id, port: ports[i]!, storage: "native" })) }), { mode: 0o600 });
+  await command("setup", "--yes"); site = await fixture(ports[ids.length]!);
   report.experiment.origin = site.url;
   report.environment.runtimeManifest = JSON.parse(readFileSync(join(home, "runtime/versions.json"), "utf8"));
   for (let ordinal = 1; ordinal <= LIFETIMES; ordinal++) {

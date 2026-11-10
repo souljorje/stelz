@@ -419,7 +419,6 @@ if (import.meta.main) {
       const abort = new AbortController(), onInt = () => abort.abort("SIGINT"), onTerm = () => abort.abort("SIGTERM");
       process.once("SIGINT", onInt); process.once("SIGTERM", onTerm);
       try {
-        await command("init");
         const reservation = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() });
         const port = reservation.port; reservation.stop(true);
         writeFileSync(join(home, "profiles.json"), JSON.stringify({ profiles: [{ id: profile, port, storage: "native",
@@ -427,7 +426,7 @@ if (import.meta.main) {
           ...(expected ? { expectedIPEnv: "PUBLIC_TEST_EXPECTED_IP" } : {}) }] }), { mode: 0o600 });
         if (proxy) writeFileSync(join(home, "secrets.env"), `PUBLIC_TEST_PROXY_URL=${JSON.stringify(proxy)}\n`
           + (expected ? `PUBLIC_TEST_EXPECTED_IP=${JSON.stringify(expected)}\n` : ""), { mode: 0o600 });
-        await command("setup"); started = true; await command("start", profile);
+        await command("setup", "--yes"); started = true; await command("start", profile);
         const report = await runPublicSites({ profile, home, signal: abort.signal });
         started = !report.stopped;
         for (const error of report.errors) console.error(error);

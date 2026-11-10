@@ -7,7 +7,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { UPSTREAM_VERSION } from "../../src/versions.ts";
 import { processStart } from "../../src/runtime/profile-process.ts";
 import { commitFingerprint, stageFingerprint, writeInitialized } from "../../src/browser/fingerprint-transaction.ts";
-import { assertTestHome, createTestHome } from "../helpers/test-home.ts";
+import { assertTestHome, createTestHome, initializeHome } from "../helpers/test-home.ts";
 
 const cli = resolve(import.meta.dir, "../../src/cli/cli.ts");
 type Result = Awaited<ReturnType<Client["callTool"]>>;
@@ -22,7 +22,7 @@ async function fixture() {
     const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
     return { code, stdout, stderr };
   };
-  expect((await run("init")).code).toBe(0);
+  initializeHome(home);
   const contracts = join(home, `runtime/camofox-${UPSTREAM_VERSION}/mcp/lib`);
   mkdirSync(contracts, { recursive: true });
   const canonical = pathToFileURL(resolve(import.meta.dir, "../../node_modules/@askjo/camofox-browser/mcp/lib/tool-contracts.mjs")).href;

@@ -46,10 +46,9 @@ const instance = (id: string) => JSON.parse(readFileSync(join(profileDir(id), "r
 let pageServer: Awaited<ReturnType<typeof fixture>> | undefined;
 try {
   console.log("Explicit direct-development test. No LLM credentials or harness commands are used.");
-  await command("init");
   const ports = await unusedPorts(3);
-  writeFileSync(join(home, "profiles.json"), JSON.stringify({ profiles: ["profile-01", "profile-02"].map((id, index) => ({ id, port: ports[index]! })) }));
-  await command("setup"); pageServer = await fixture(ports[2]!);
+  writeFileSync(join(home, "profiles.json"), JSON.stringify({ profiles: ["profile-01", "profile-02"].map((id, index) => ({ id, port: ports[index]! })) }), { mode: 0o600 });
+  await command("setup", "--yes"); pageServer = await fixture(ports[2]!);
   const stopped = await connect("profile-01", "stopped-client");
   await rejection(stopped.client, "profile_acquire"); await stopped.client.close();
   report.push({ check: "MCP cannot implicitly start a stopped browser", result: "passed" });

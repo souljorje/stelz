@@ -81,7 +81,7 @@ export async function runProfileFingerprint(args: string[]) {
     }
     const input = parse(args);
     if (!existsSync(CONFIG_FILE) || !existsSync(STATE))
-      throw new FingerprintCliError("not_initialized", "Run stelz init first, using the same STELZ_HOME.");
+      throw new FingerprintCliError("not_initialized", "Run stelz setup first, using the same STELZ_HOME.");
     let profile: Profile | undefined;
     try {
       checkCatalogDirectory(HOME_DIR); checkCatalogDirectory(STATE);

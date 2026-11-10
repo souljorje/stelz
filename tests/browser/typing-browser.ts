@@ -105,11 +105,10 @@ function keyboardEvents(value: Sample, text: string) {
   assert(events.filter(event => event.type === "keydown" && event.key === "Enter").length === 1, "Enter was not pressed exactly once.");
 }
 try {
-  await command("init");
   writeFileSync(join(home, "profiles.json"), JSON.stringify({ profiles: [
     { id: profileId, port, storage: "native" },
-  ] }));
-  await command("setup");
+  ] }), { mode: 0o600 });
+  await command("setup", "--yes");
   started = true;
   await command("start", profileId); await connect();
   const tools = await client!.listTools();

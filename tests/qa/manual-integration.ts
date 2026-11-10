@@ -26,8 +26,8 @@ async function call(name: string, args: Record<string, unknown> = {}) {
 }
 try {
   const ports = await unusedPorts(2);
-  await command("init"); writeFileSync(join(home, "profiles.json"), JSON.stringify({ profiles: [{ id, port: ports[0]!, storage: "native" }] }));
-  await command("setup"); site = await fixture(ports[1]!); await command("start", id);
+  writeFileSync(join(home, "profiles.json"), JSON.stringify({ profiles: [{ id, port: ports[0]!, storage: "native" }] }), { mode: 0o600 });
+  await command("setup", "--yes"); site = await fixture(ports[1]!); await command("start", id);
   await client.connect(new StdioClientTransport({ command: Bun.which("bun")!, args: ["--no-env-file", cli, "mcp"], env }));
   await call("profile_acquire");
   const tab = await call("camofox_create_tab", { url: `${site.url}/?profile=manual-takeover&manual=takeover` });

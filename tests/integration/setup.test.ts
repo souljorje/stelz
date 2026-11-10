@@ -20,17 +20,20 @@ function fixture() {
 import {mkdirSync,writeFileSync} from 'node:fs';
 import {join} from 'node:path';
 import { start } from "./runtime/runtime.ts";
-if (process.argv[2] === "setup") await setup({ prepareModel: async stage => {
+if (process.argv[2] === "setup") await setup({ yes: true, prepareModel: async stage => {
   if(process.env.SETUP_TEST_MODEL_FAIL) {
     mkdirSync(join(stage,'fpgen'));writeFileSync(join(stage,'fpgen/values.dat'),'incomplete model');
     throw Error('Fingerprint model preparation failed');
   }
+  return 'reused';
 }, prepareGeoip: async stage => {
   if(process.env.SETUP_TEST_GEOIP_FAIL) {
     mkdirSync(join(stage,'geoip'));writeFileSync(join(stage,'geoip/GeoLite2-City.mmdb'),'incomplete download');
     throw Error('Location-data integrity check failed');
   }
+  return { datasets: {}, status: {} };
 } });
+else if (process.argv[2] === "setup-unconfirmed") await setup({ confirm: async downloads => { console.log(JSON.stringify(downloads)); return false; } });
 else await start(process.argv[3]!);
 `);
   file(join(project, "package.json"), JSON.stringify({ type: "module", version: "0.2.0", dependencies: { "@askjo/camofox-browser": "1.18.1", "@modelcontextprotocol/sdk": "1.30.0", "better-sqlite3": "13.0.1", camoufox: "0.5.8", impit: "0.14.8" } }));
@@ -139,6 +142,7 @@ async function typeRoute(req, locator, tabState, selector, text, mode) {
   file(join(camoufox, "package.json"), JSON.stringify({ name: "camoufox", version: "0.5.8", type: "module" }));
   file(join(camoufox, "dist/index.js"), "export {};\n");
   file(join(camoufox, "dist/coherence.js"), "export function validate() { return []; }\n");
+  file(join(camoufox, "dist/fpgen/index.js"), "export function isModelInstalled() { return false; }\n");
   file(join(camoufox, "dist/data-files/browser-pin.json"), JSON.stringify({ version: "156.0.1", build: "beta.36" }));
   for (const [name, version] of [["playwright-core", "1.62.1"], ["@modelcontextprotocol/sdk", "1.30.0"], ["better-sqlite3", "13.0.1"], ["impit", "0.14.8"]]) {
     file(join(project, "node_modules", name!, "package.json"), JSON.stringify({ name, version }));
@@ -214,6 +218,15 @@ test("activates a complete runtime and manifest, replacing the installed runtime
   }
   expect(readdirSync(f.home).filter(name => name.startsWith(".runtime-setup-"))).toEqual([]);
 }, 30000);
+
+test("setup without consent lists its downloads and changes nothing", async () => {
+  const f = fixture();
+  const result = await finish(launch(f, "setup-unconfirmed"));
+  expect(result.code).not.toBe(0);
+  expect(JSON.parse(result.stdout.trim())).toEqual(["GeoIP AIO location data", "GeoLite2 City location data", "the fingerprint model"]);
+  expect(result.stderr).toContain("Run stelz setup --yes to allow it.");
+  expect(existsSync(join(f.home, "runtime"))).toBe(false);
+});
 
 test("validation failure preserves the previous runtime and manifest", async () => {
   const f = fixture(); installedRuntime(f);

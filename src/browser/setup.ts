@@ -1,7 +1,8 @@
 import { assertBundledPatches } from "./camofox-adapter.ts";
-import { prepareGeoip } from "./geoip-setup.ts";
-import { fingerprintModel } from "./camoufox.ts";
-import { prepareBrowser, type BrowserSource } from "./browser-setup.ts";
+import { geoipPlan, prepareGeoip, type GeoipStatus } from "./geoip-setup.ts";
+import { fingerprintModel, isPreparedModel, pairedBrowser } from "./camoufox.ts";
+import { browserPlan, prepareBrowser, type BrowserSource } from "./browser-setup.ts";
+import { GEOIP_SOURCES, type GeoipRole } from "./location.ts";
 import {
   copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync,
   readFileSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync,
@@ -197,10 +198,12 @@ function stageRuntime(stage: string, source: string, browser: string, plugin: st
 }
 
 /** Stage the pinned fingerprint model. Reuse the current copy, or download and verify it. */
-export async function prepareModel(stage: string, current: string) {
+export async function prepareModel(stage: string, current: string): Promise<"reused" | "downloaded"> {
   const target = join(stage, "fpgen"), previous = join(current, "fpgen");
   if (stat(previous)?.isDirectory()) copy(previous, target);
+  const reused = isPreparedModel(target);
   await fingerprintModel().ensureModel({ dir: target });
+  return reused ? "reused" : "downloaded";
 }
 
 // Exchange complete sibling directories so an installed runtime and its manifest move together.
@@ -239,23 +242,55 @@ function activate(stage: string) {
   if (result !== 0) throw Error("Cannot atomically replace the runtime on this filesystem.");
 }
 
-const browserReport: Record<BrowserSource, string> = { configured: "Using the configured Camoufox", managed: "Reused the prepared Camoufox",
-  "upstream-cache": "Copied Camoufox from the upstream cache", downloaded: "Downloaded and verified Camoufox" };
-export async function setup(options: { prepareGeoip?: typeof prepareGeoip; prepareModel?: typeof prepareModel; prepareBrowser?: typeof prepareBrowser } = {}) {
+export type SetupReport = {
+  home: string; browser: { source: BrowserSource; executable: string };
+  locationData: Partial<Record<GeoipRole, { source: string; release: string; builtAt: string; status: GeoipStatus }>>;
+  fingerprintModel: "reused" | "downloaded";
+};
+/** Setup needs downloads that nobody authorized. */
+export class SetupConfirmationError extends Error {
+  readonly code = "confirmation_required";
+  constructor(readonly downloads: string[]) {
+    super(`Setup needs to download ${downloads.join(", ")}. Run stelz setup --yes to allow it.`);
+  }
+}
+/** What setup would download now. A setup that needs none never asks. */
+async function plannedDownloads(configured?: string) {
+  const current = join(HOME_DIR, "runtime");
+  return [
+    ...(browserPlan(HOME_DIR, configured).source === "downloaded" ? [`Camoufox ${pairedBrowser()} (over 1 GB)`] : []),
+    ...(await geoipPlan(current)).map(role => `${GEOIP_SOURCES[role].name} location data`),
+    ...(isPreparedModel(join(current, "fpgen")) ? [] : ["the fingerprint model"]),
+  ];
+}
+
+/** Prepare everything that Start needs, and create missing service files. Downloads require `yes` or a positive `confirm`. */
+export async function setup(options: {
+  yes?: boolean; confirm?: (downloads: string[]) => Promise<boolean>;
+  prepareGeoip?: typeof prepareGeoip; prepareModel?: typeof prepareModel; prepareBrowser?: typeof prepareBrowser;
+} = {}): Promise<SetupReport> {
   directory(HOME_DIR);
   directory(STATE);
   directory(join(HOME_DIR, "runtime"));
   mkdirSync(STATE, { recursive: true, mode: 0o700 });
-
-  // The browser has its own directory and lock, so a slow download never blocks lifecycle commands.
-  const browser = await lock(join(STATE, "browser.lock"),
-    () => (options.prepareBrowser ?? prepareBrowser)(HOME_DIR, secret("CAMOUFOX_EXECUTABLE") || undefined), 3_600_000,
-    "Another stelz setup is preparing Camoufox. Wait for it to finish, then run stelz setup again.");
   const admission = join(STATE, "admission.lock");
   const existingLock = stat(admission);
   if (existingLock && (!existingLock.isFile() || existingLock.nlink !== 1)) {
     throw Error(`Invalid admission lock: ${admission}`);
   }
+  // Fail fast before any download. Both checks repeat when setup activates the runtime.
+  await lock(admission, async () => { initialize(); assertStopped(); });
+  const configured = secret("CAMOUFOX_EXECUTABLE") || undefined;
+  // `yes` authorizes every planned download, so only an unconfirmed setup needs the plan.
+  if (!options.yes) {
+    const downloads = await plannedDownloads(configured);
+    if (downloads.length && !(await options.confirm?.(downloads))) throw new SetupConfirmationError(downloads);
+  }
+
+  // The browser has its own directory and lock, so a slow download never blocks lifecycle commands.
+  const browser = await lock(join(STATE, "browser.lock"), () => (options.prepareBrowser ?? prepareBrowser)(HOME_DIR, configured), 3_600_000,
+    "Another stelz setup is preparing Camoufox. Wait for it to finish, then run stelz setup again.");
+  let locationData: SetupReport["locationData"] = {}, model: SetupReport["fingerprintModel"] = "reused";
   await lock(admission, async () => {
     initialize();
     assertStopped();
@@ -272,8 +307,10 @@ export async function setup(options: { prepareGeoip?: typeof prepareGeoip; prepa
     try {
       stageRuntime(stage, source, browser.executable, plugin);
       const current = join(HOME_DIR, "runtime");
-      await (options.prepareGeoip ?? prepareGeoip)(stage, current);
-      await (options.prepareModel ?? prepareModel)(stage, current);
+      const geoip = await (options.prepareGeoip ?? prepareGeoip)(stage, current);
+      locationData = Object.fromEntries((Object.keys(geoip.status) as GeoipRole[]).map(role => [role, {
+        source: geoip.datasets[role].source, release: geoip.datasets[role].release, builtAt: geoip.datasets[role].buildEpoch, status: geoip.status[role] }]));
+      model = await (options.prepareModel ?? prepareModel)(stage, current);
       activate(stage);
       activated = true;
     } finally {
@@ -285,5 +322,15 @@ export async function setup(options: { prepareGeoip?: typeof prepareGeoip; prepa
       }
     }
   });
-  console.log(`${browserReport[browser.source]}: ${browser.executable}\nService files are ready in ${HOME_DIR}.`);
+  return { home: HOME_DIR, browser, locationData, fingerprintModel: model };
+}
+
+const browserText: Record<BrowserSource, string> = { configured: "uses the configured executable", managed: "reused",
+  "upstream-cache": "copied from the upstream cache", downloaded: "downloaded and verified" };
+/** The report for a person. `--json` prints the report object instead. */
+export function setupSummary(report: SetupReport) {
+  const location = (Object.values(report.locationData)).map(entry => `${entry.source} ${entry.release} ${entry.status}`).join(", ");
+  return [`Camoufox: ${browserText[report.browser.source]} (${report.browser.executable})`,
+    ...(location ? [`Location data: ${location}`] : []), `Fingerprint model: ${report.fingerprintModel}`,
+    `Ready: ${report.home}`, "Next: run stelz ui --open, or register stelz mcp with your agent."].join("\n");
 }

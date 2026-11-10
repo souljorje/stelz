@@ -41,7 +41,7 @@ export async function runProfile(args: string[]) {
     }
     const input = options(args);
     if (!existsSync(CONFIG_FILE) || !existsSync(STATE)) {
-      const error = { code: "not_initialized", message: "Run stelz init first, using the same STELZ_HOME." };
+      const error = { code: "not_initialized", message: "Run stelz setup first, using the same STELZ_HOME." };
       console.error(json ? JSON.stringify({ ok: false, error }) : error.message);
       process.exitCode = 1; return;
     }

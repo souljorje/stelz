@@ -71,7 +71,7 @@ function replace(path: string, value: string, check: () => void) {
 function files(): Files {
   directory(HOME_DIR);
   const config = read(configFile, false, Infinity);
-  if (config === null) throw new ProfileCatalogError(409, "Run stelz init before creating profiles.");
+  if (config === null) throw new ProfileCatalogError(409, "Run stelz setup before creating profiles.");
   return { config, secrets: read(secretsFile) };
 }
 function validate(value: unknown): Transaction {

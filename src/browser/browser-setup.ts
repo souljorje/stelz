@@ -23,46 +23,51 @@ function clone(source: string, target: string) {
   cpSync(source, target, { recursive: true, verbatimSymlinks: true });
 }
 
-/**
- * Select the paired browser: the configured executable, Stelz's managed copy, a clone of the upstream cache install,
- * or a verified download. Only setup calls this, under the browser lock. A configured executable must be the paired build.
- */
-export async function prepareBrowser(home: string, configured?: string,
-  { request = fetch, installed = upstreamInstalls }: { request?: typeof fetch; installed?: () => Installed[] } = {}): Promise<{ executable: string; source: BrowserSource }> {
+type BrowserDependencies = { request?: typeof fetch; installed?: () => Installed[] };
+/** Decide which browser setup uses, without changes. A configured executable must be the paired build. */
+export function browserPlan(home: string, configured?: string, { installed = upstreamInstalls }: BrowserDependencies = {}) {
   if (configured) {
     if (!existsSync(configured) || !statSync(configured).isFile())
       throw Error(`Camoufox is missing at ${configured}. Correct or remove CAMOUFOX_EXECUTABLE, then run stelz setup.`);
     engineVersion(configured);
-    return { executable: configured, source: "configured" };
+    return { source: "configured" as const, executable: configured };
   }
-  const target = browserDirectory(home), managed = browserExecutable(target);
-  if (paired(managed)) return { executable: managed, source: "managed" };
-  const { unzip, makeExecutable } = browserPackage();
+  const executable = browserExecutable(browserDirectory(home));
+  if (paired(executable)) return { source: "managed" as const, executable };
+  // Read the shared upstream cache only. Its own commands can prune or delete it, so Stelz keeps a clone.
+  const cached = installed().find(entry => entry.version === pairedBrowser() && paired(browserExecutable(entry.path)));
+  return cached ? { source: "upstream-cache" as const, executable, cached: cached.path } : { source: "downloaded" as const, executable };
+}
+
+/**
+ * Prepare the planned browser: the configured executable, Stelz's managed copy, a clone of the upstream cache install,
+ * or a verified download. Only setup calls this, under the browser lock.
+ */
+export async function prepareBrowser(home: string, configured?: string, dependencies: BrowserDependencies = {}): Promise<{ executable: string; source: BrowserSource }> {
+  const plan = browserPlan(home, configured, dependencies);
+  if (plan.source === "configured" || plan.source === "managed") return plan;
+  const { unzip, makeExecutable } = browserPackage(), target = browserDirectory(home);
   mkdirSync(join(home, "browsers"), { recursive: true, mode: 0o700 });
   // The caller holds the browser lock, so an existing stage belongs to an interrupted setup.
   for (const name of readdirSync(join(home, "browsers"))) if (name.startsWith(".stage-")) rmSync(join(home, "browsers", name), { recursive: true, force: true });
   const stage = mkdtempSync(join(home, "browsers", ".stage-")), install = join(stage, "browser");
   try {
-    let source: BrowserSource;
-    // Read the shared upstream cache only. Its own commands can prune or delete it, so Stelz keeps a clone.
-    const cached = installed().find(entry => entry.version === pairedBrowser() && paired(browserExecutable(entry.path)));
-    if (cached) {
-      clone(cached.path, install); source = "upstream-cache";
-    } else {
+    if (plan.source === "upstream-cache") clone(plan.cached, install);
+    else {
       const pin = browserPin(), pattern = browserAssetPattern(), zip = join(stage, "browser.zip");
       console.error(`Downloading Camoufox ${pairedBrowser()}…`);
       const asset = await downloadReleaseAsset({ label: "Camoufox", repository: pin.repo, tag: pin.tag, maxBytes: 2 * 1024 ** 3, timeoutMs: 3_600_000,
-        match: name => { const groups = pattern.exec(name)?.groups; return groups?.version === pin.version && groups?.build === pin.build; } }, zip, request);
+        match: name => { const groups = pattern.exec(name)?.groups; return groups?.version === pin.version && groups?.build === pin.build; } },
+        zip, dependencies.request ?? fetch);
       unzip(zip, install, "", false);
       makeExecutable(install);
       rmSync(zip);
       writeFileSync(join(install, "version.json"), JSON.stringify({ version: pin.version, build: pin.build, release: asset.release, asset: asset.name, sha256: asset.sha256 }, null, 2));
-      source = "downloaded";
     }
     if (!paired(browserExecutable(install))) throw Error("The prepared Camoufox is incomplete. Run stelz setup again.");
     // An unusable earlier copy cannot run, so no browser depends on it.
     rmSync(target, { recursive: true, force: true });
     renameSync(install, target);
-    return { executable: managed, source };
+    return { executable: plan.executable, source: plan.source };
   } finally { rmSync(stage, { recursive: true, force: true }); }
 }

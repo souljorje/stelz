@@ -101,8 +101,7 @@ async function storage(capture: string, expected: string | null) {
 }
 try {
   console.log(`Three native browsers, local fixture only. Temporary home: ${home}`);
-  await command("init");
-  await command("setup"); site = await fixture(0);
+  await command("setup", "--yes"); site = await fixture(0);
   const client = await connect(), schemas = JSON.stringify((await client.listTools()).tools);
   assert(JSON.stringify((await call(client, "profile_list")).profiles) === "[]", "Catalog is not empty at connection startup");
   const handles = new Map<string, string>();
