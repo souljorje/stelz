@@ -154,7 +154,7 @@ const nativeCheck = input.flags.has("--native") ? await nativeSmoke(node, instal
 assertArchiveUnchanged(candidate);
 console.log(JSON.stringify({ result: "passed", archive, sha256: candidate.sha256, nativeCheck,
   checks: "Archive contents, Markdown links, isolated CLI, HTTP UI, and installed setup/dependency validation" }));
-return { candidate, env: cleanEnv, cwd, home, prefix, node, bun, executable, installedCli: join(installed, "dist/cli.js"), version, nativeCheck, uiChecked: true };
+return { candidate, env: cleanEnv, cwd, home, prefix, node, bun, npm, executable, installedCli: join(installed, "dist/cli.js"), version, nativeCheck, uiChecked: true };
 } finally { if (!options.keep) rmSync(temp, { recursive: true, force: true }); }
 }
 

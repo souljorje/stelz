@@ -130,7 +130,8 @@ async function cacheCases() {
   await command(["tar", "-xzf", archive, "-C", unpacked]);
   appendFileSync(join(unpacked, "package/dist/plugin.js"), "\n// An earlier release for update acceptance.\n");
   await command(["tar", "-czf", previous, "-C", unpacked, "package"]);
-  const npm = Bun.which("npm")!, install = (file: string) => command([npm, "install", "--global", "--no-audit", "--no-fund", "--prefer-offline", "--prefix", updatePrefix, file]);
+  // The package suite runs this file with an isolated PATH, so use the npm that installed the archive.
+  const npm = installed.npm, install = (file: string) => command([npm, "install", "--global", "--no-audit", "--no-fund", "--prefer-offline", "--prefix", updatePrefix, file]);
   await install(previous);
   const updateCli = join(updatePrefix, "bin/stelz");
   const updateEnv = envFor(home, { PATH: installed.env.PATH!.replace(join(installed.prefix, "bin"), join(updatePrefix, "bin")) });
