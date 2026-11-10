@@ -89,4 +89,4 @@ The report states for each part whether setup selected, reused, or downloaded it
    - an update with the same browser;
    - the JSON result.
 
-Linux remains deferred. Setup selects the asset by platform, but only macOS arm64 is tested.
+Stelz supports macOS only. Setup selects the asset by platform, but only macOS arm64 is tested.

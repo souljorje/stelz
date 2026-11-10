@@ -128,7 +128,7 @@ Keep profile B Ready and usable. With profile A already operational, block or in
 
 Always test pause, an actual human action in the same window, resume, and a fresh snapshot that proves the action. Authentication is conditional. Do not require a third-party login merely to complete the test.
 
-Check startup, window close, shutdown, and probe cleanup. Check prepared offline operation, no extra windows, and no global-cache writes. Run Linux package, native dependency, and display checks separately from headed macOS acceptance. An SDK test is not real-agent proof. Record every pass, fail, or unexecuted check with commands, environment, and hashes. A required unexecuted check blocks release.
+Check startup, window close, shutdown, and probe cleanup. Check prepared offline operation, no extra windows, and no global-cache writes. Phase 6 covers macOS only. Linux acceptance is out of scope. An SDK test is not real-agent proof. Record every pass, fail, or unexecuted check with commands, environment, and hashes. A required unexecuted check blocks release.
 
 ## Commands and evidence
 
