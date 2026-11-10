@@ -171,7 +171,7 @@ test("the launch adapter applies checked options and closes a failed preparation
     Object.defineProperty(process,'platform',{value:'darwin'});
     const {prepareProfileLaunch}=await import(${JSON.stringify(join(f.packageRoot, "src/browser/location-launch.ts"))});
     const path=config.dir('test')+'/location.json', record=JSON.parse(readFileSync(path,'utf8'));record.attemptId='attempt';
-    Object.assign(process.env,{STELZ_PROFILE_DIR:config.dir('test'),STELZ_UPSTREAM:config.UPSTREAM,PROXY_HOST:'proxy.test',STELZ_START_ID:'attempt',STELZ_LOCATION_LAUNCH:JSON.stringify(record)});
+    Object.assign(process.env,{STELZ_PROFILE_DIR:config.dir('test'),STELZ_RUNTIME:config.runtimeDir(),STELZ_UPSTREAM:config.upstream(),PROXY_HOST:'proxy.test',STELZ_START_ID:'attempt',STELZ_LOCATION_LAUNCH:JSON.stringify(record)});
     const options=await prepareProfileLaunch({proxy:{server:'http://proxy.test:8080'}},async options=>options);
     let terminated=false;process.kill=()=>{terminated=true;return true};
     try {await prepareProfileLaunch({proxy:{server:'http://proxy.test:8080'}},async()=>{throw Error('fixture-password')});}catch{}

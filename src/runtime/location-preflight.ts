@@ -1,6 +1,6 @@
 import { lstatSync } from "node:fs";
 import { join } from "node:path";
-import { ROOT, HOME_DIR, UPSTREAM, profile, dir, secret, configurationHash, executable, type Profile, validateProxy } from "../profiles/config.ts";
+import { ROOT, runtimeDir, upstream, profile, dir, secret, configurationHash, executable, type Profile, validateProxy } from "../profiles/config.ts";
 import { assertRuntimePlugin } from "./runtime-plugin.ts";
 import { assertLocationPatches } from "../browser/camofox-adapter.ts";
 import { publicIP } from "./public-ip.ts";
@@ -29,16 +29,16 @@ export async function locationInputs(p: Profile) {
   try {
     engine = digest(executable());
     integration = ["server.js", "lib/browser-identity.js", "plugins/local-profile/index.js"]
-      .map(file => digest(join(UPSTREAM, file)));
+      .map(file => digest(join(upstream(), file)));
     integration.push(digest(join(ROOT, "dist/plugin.js")));
     const identity = hash(integration.join(":"));
     if (checkedIntegration !== identity) {
       assertRuntimePlugin();
-      assertLocationPatches(UPSTREAM);
+      assertLocationPatches(upstream());
       checkedIntegration = identity;
     }
   } catch { throw locationFailure("GEOIP_RUNTIME_MISSING"); }
-  const data = await managedGeoip(join(HOME_DIR, "runtime"));
+  const data = await managedGeoip(runtimeDir());
   let directory: ReturnType<typeof lstatSync> | undefined;
   try { directory = lstatSync(dir(p.id)); }
   catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }

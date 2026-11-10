@@ -51,12 +51,14 @@ A release can change the paired browser. Profiles pinned to the old engine canno
 
 ## 3. Updates without downtime
 
-- Each runtime has its own versioned directory. Setup reuses an unchanged runtime and stops rebuilding it every time.
+- Each runtime is a generation directory `runtime-generations/<id>`. The ID comes from the setup inputs. `runtime` is a link to the current generation, and setup switches it atomically. Setup reuses an unchanged generation.
 - A running service keeps the runtime that it started with. New starts use the current runtime. Setup removes old runtimes that no service uses.
-- The runtime copies its dependencies with APFS clones instead of linking into the installed package. A package update cannot change a running service.
-- Setup holds the admission lock only during activation, not during downloads.
+- Deferred: the runtime copies its dependencies with APFS clones instead of linking into the installed package. Transitive and nested Camofox dependencies do not resolve from a plain clone, and most modules load at service start.
+- Setup holds the admission lock only to create service files and to switch the generation, not during downloads.
+- An earlier plain `runtime/` directory blocks setup while any profile runs. Stop those profiles first.
 - Status and the UI mark profiles that run an older runtime with **Restart to update**.
-- `stelz restart ID|all` stops and then starts profiles explicitly.
+- `stelz restart ID|all` stops and then starts running profiles explicitly. A failed start leaves that profile stopped.
+- Known limits: a long-lived `stelz mcp` uses the current generation's tool contracts, and one call can fail while setup removes an old generation. A restart clears both.
 
 ## 4. Setup report
 

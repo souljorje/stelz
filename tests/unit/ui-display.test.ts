@@ -11,7 +11,7 @@ import { actionReason, boundedLog, hasProxy, homeCommand, mcpCommand, networkDir
 
 const network: UiNetwork = { revision: "revision-1", proxyEnv: null, expectedIPEnv: null, proxyDisplay: null, proxyConfigured: false, expectedIp: "203.0.113.1", proxyReadOnly: false, expectedIpReadOnly: false };
 function profile(phase: UiPhase, changes: Partial<UiProfile> = {}): UiProfile {
-  return { id: "profile-01", name: "profile-01", phase, port: 9340, storage: "native", typingMode: "auto", typing: { revision: "typing-revision-1", mode: null, defaultMode: "auto" }, instanceId: null, exitIp: null, checkedAt: null, fixedIpVerified: false, windowControls: { available: false, reason: null }, controller: null, supervisorPid: null, serverPid: null, ownership: null, fingerprintSha256: null, engineSha256: null, error: null, controlError: null, configurationError: null, network, ...changes };
+  return { id: "profile-01", name: "profile-01", phase, port: 9340, storage: "native", typingMode: "auto", typing: { revision: "typing-revision-1", mode: null, defaultMode: "auto" }, restartToUpdate: false, instanceId: null, exitIp: null, checkedAt: null, fixedIpVerified: false, windowControls: { available: false, reason: null }, controller: null, supervisorPid: null, serverPid: null, ownership: null, fingerprintSha256: null, engineSha256: null, error: null, controlError: null, configurationError: null, network, ...changes };
 }
 function context(row: UiProfile) {
   const snapshot: UiSnapshot = { home: "/tmp/stelz", version: "0.2.0", upstreamVersion: "1.18.1", initialized: true, setup: true, catalogRevision: "a".repeat(64), profiles: [row], updatedAt: new Date().toISOString() };

@@ -1,7 +1,7 @@
 import { closeSync, constants, fstatSync, ftruncateSync, lstatSync, openSync, readFileSync, writeSync } from "node:fs";
 import { join } from "node:path";
 import { dlopen, FFIType, ptr } from "bun:ffi";
-import { alive, dir, json, type Profile } from "../profiles/config.ts";
+import { alive, dir, isRuntimeId, json, type Profile } from "../profiles/config.ts";
 
 // Keep the lock inode in place. The kernel releases flock when a process dies,
 // so competing stale-lock recoveries cannot unlink each other's new lock.
@@ -118,6 +118,8 @@ export type Running = {
   supervisorStart?: string;
   serverStart?: string;
   serverState?: "not-started" | "started";
+  /** The runtime generation ID that this service started with. */
+  runtime?: string;
 };
 type Ownership = "owned" | "missing" | "different" | "unverified";
 export function ownership(pid: number | undefined, expected: string | undefined): Ownership {
@@ -147,6 +149,7 @@ export function observe(id: string, directory = dir(id)) {
       (record.supervisorStart !== undefined && typeof record.supervisorStart !== "string") ||
       (record.serverStart !== undefined && typeof record.serverStart !== "string") ||
       (record.serverState !== undefined && !["started", "not-started"].includes(record.serverState)) ||
+      (record.runtime !== undefined && !isRuntimeId(record.runtime)) ||
       (record.serverState === "started" && !record.serverPid) ||
       (record.serverState === "not-started" && !!record.serverPid))
   )

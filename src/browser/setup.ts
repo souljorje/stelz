@@ -5,16 +5,17 @@ import { browserPlan, prepareBrowser, type BrowserSource } from "./browser-setup
 import { GEOIP_SOURCES, type GeoipRole } from "./location.ts";
 import {
   copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync,
-  readFileSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync,
+  readFileSync, readlinkSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync,
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { createRequire } from "node:module";
 import { createHash } from "node:crypto";
 import { pathToFileURL } from "node:url";
-import { dlopen, FFIType } from "bun:ffi";
-import { ROOT, HOME_DIR, STATE, UPSTREAM, COMMIT, UPSTREAM_VERSION, initialize, secret, settings } from "../profiles/config.ts";
+import {
+  ROOT, HOME_DIR, STATE, RUNTIME, RUNTIME_GENERATIONS, COMMIT, UPSTREAM_VERSION, currentRuntimeId, initialize, isRuntimeId, runtimeDir, secret,
+} from "../profiles/config.ts";
 import { STELZ_VERSION } from "../versions.ts";
-import { lock, running } from "../runtime/runtime.ts";
+import { lock, running, type Running } from "../runtime/runtime.ts";
 
 const CAMOFOX = "@askjo/camofox-browser";
 function packagePath(name: string, from: string): string {
@@ -49,38 +50,30 @@ function directory(path: string) {
   if (info && !info.isDirectory()) throw Error(`Expected a directory, not a link or file: ${path}`);
 }
 
-function stateFile<T>(file: string): T | undefined {
-  const info = stat(file);
-  if (!info) return;
-  if (!info.isFile()) throw Error(`Invalid profile state: ${file}`);
-  try {
-    return JSON.parse(readFileSync(file, "utf8")) as T;
-  } catch {
-    throw Error(`Cannot read profile state: ${file}`);
-  }
+/** Accept a missing runtime, an earlier plain directory, or a link to a generation. Reject any other link. */
+function runtimeLayout(): "missing" | "plain" | "generation" {
+  directory(RUNTIME_GENERATIONS);
+  const info = stat(RUNTIME);
+  if (!info) return "missing";
+  if (info.isDirectory()) return "plain";
+  if (info.isSymbolicLink() && currentRuntimeId()) return "generation";
+  // A dangling link has no running user, so activation replaces it. A link to anything else is refused.
+  if (info.isSymbolicLink() && !existsSync(RUNTIME)) return "missing";
+  throw Error(`Expected a runtime directory or a link to a runtime generation: ${RUNTIME}`);
 }
 
-function assertStopped() {
-  settings();
+/** Records of running services, including reservations. Malformed records stop setup. */
+function runningServices(): Running[] {
+  const services: Running[] = [];
   for (const item of readdirSync(STATE, { withFileTypes: true })) {
-    if (item.name === "admission.lock") continue;
     if (item.isSymbolicLink()) throw Error(`Invalid profile directory: ${item.name}`);
     if (!item.isDirectory()) continue;
-
-    const base = join(STATE, item.name);
-    const record = stateFile<{ pid?: unknown; serverPid?: unknown; instanceId?: unknown }>(join(base, "running.json"));
-    if (record === undefined) continue;
-    if (record === null || typeof record !== "object" || !Number.isSafeInteger(record.pid) || (record.pid as number) < 0 ||
-        (record.serverPid !== undefined && (!Number.isSafeInteger(record.serverPid) || (record.serverPid as number) < 1)) ||
-        typeof record.instanceId !== "string" || !record.instanceId) {
-      throw Error(`Invalid profile state: ${item.name}`);
-    }
-
-    const stopped = stateFile<{ instanceId?: unknown }>(join(base, "stopped.json"));
-    if (stopped?.instanceId !== record.instanceId || running(item.name)) {
-      throw Error(`${item.name}: stop all profiles and resolve unclean or orphaned processes before setup.`);
-    }
+    const record = stat(join(STATE, item.name, "running.json"));
+    if (record && !record.isFile()) throw Error(`Invalid profile state: ${item.name}`);
+    const service = running(item.name);
+    if (service) services.push(service);
   }
+  return services;
 }
 
 function copy(source: string, target: string) {
@@ -177,7 +170,7 @@ function validate(upstream: string) {
 }
 
 function stageRuntime(stage: string, source: string, browser: string, plugin: string) {
-  const upstream = join(stage, basename(UPSTREAM));
+  const upstream = join(stage, `camofox-${UPSTREAM_VERSION}`);
   mkdirSync(upstream, { mode: 0o700 });
   for (const name of ["server.js", "package.json", "LICENSE", "lib", "mcp", "plugins/persistence"]) {
     copy(join(source, name), join(upstream, name));
@@ -206,46 +199,68 @@ export async function prepareModel(stage: string, current: string): Promise<"reu
   return reused ? "reused" : "downloaded";
 }
 
-// Exchange complete sibling directories so an installed runtime and its manifest move together.
-// A filesystem without an atomic exchange must fail rather than use a two-rename fallback.
-function activate(stage: string) {
-  const target = join(HOME_DIR, "runtime");
-  directory(target);
-  if (!stat(target)) {
-    renameSync(stage, target);
-    return;
-  }
-  const a = Buffer.from(`${stage}\0`);
-  const b = Buffer.from(`${target}\0`);
-  let result: number;
-  if (process.platform === "darwin") {
-    const lib = dlopen("/usr/lib/libSystem.B.dylib", {
-      renamex_np: { args: [FFIType.cstring, FFIType.cstring, FFIType.u32], returns: FFIType.i32 },
-    });
-    try {
-      result = lib.symbols.renamex_np(a, b, 2);
-    } finally {
-      lib.close();
+// Sort object keys so that equal inputs give equal text.
+const canonical = (value: unknown) => JSON.stringify(value, (_key, item: unknown) =>
+  item && typeof item === "object" && !Array.isArray(item) ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => a < b ? -1 : 1)) : item);
+const sha256 = (value: string | Buffer) => createHash("sha256").update(value).digest("hex");
+
+/** Content identity of the staged Camofox tree: the plugin, patches, and dependency links. */
+function treeDigest(root: string) {
+  const entries: string[] = [];
+  const walk = (path: string, prefix: string) => {
+    for (const item of readdirSync(path, { withFileTypes: true }).sort((a, b) => a.name < b.name ? -1 : 1)) {
+      const full = join(path, item.name), name = prefix + item.name;
+      if (item.isSymbolicLink()) entries.push(`l ${name} ${readlinkSync(full)}`);
+      else if (item.isDirectory()) { entries.push(`d ${name}`); walk(full, `${name}/`); }
+      else entries.push(`f ${name} ${sha256(readFileSync(full))}`);
     }
-  } else if (process.platform === "linux") {
-    const lib = dlopen("libc.so.6", {
-      renameat2: { args: [FFIType.i32, FFIType.cstring, FFIType.i32, FFIType.cstring, FFIType.u32], returns: FFIType.i32 },
-    });
-    try {
-      result = lib.symbols.renameat2(-100, a, -100, b, 2);
-    } finally {
-      lib.close();
-    }
-  } else {
-    throw Error("Atomic runtime replacement is not supported on this platform.");
+  };
+  walk(root, "");
+  return sha256(entries.join("\0"));
+}
+
+/** Equal setup inputs give the same generation ID. */
+function generationId(stage: string) {
+  // Bun and Node describe the host that ran setup, not the runtime contents.
+  const { bun: _bun, node: _node, ...manifest } = JSON.parse(readFileSync(join(stage, "versions.json"), "utf8"));
+  const geoipManifest = join(stage, "geoip/manifest.json"), pin = join(stage, "fpgen/.pinned-model");
+  const datasets = stat(geoipManifest)
+    ? Object.fromEntries(Object.entries((JSON.parse(readFileSync(geoipManifest, "utf8")).datasets ?? {}) as Record<string, { sha256: string }>)
+      .map(([role, entry]) => [role, entry.sha256]))
+    : {};
+  const model = stat(pin)?.isFile() ? readFileSync(pin, "utf8").trim() : fingerprintModel().MODEL_PIN?.sha256 ?? null;
+  return sha256(canonical({ manifest, datasets, model, camofox: treeDigest(join(stage, `camofox-${UPSTREAM_VERSION}`)) })).slice(0, 16);
+}
+
+// Move a directory aside atomically. Setup removes it after it releases the admission lock.
+function retire(path: string) {
+  const target = join(RUNTIME_GENERATIONS, `.stage-retired-${crypto.randomUUID()}`);
+  renameSync(path, target);
+  return target;
+}
+
+/** Point the runtime link at a generation, then retire generations that no running service uses. */
+function activate(id: string) {
+  const layout = runtimeLayout(), services = runningServices(), retired: string[] = [];
+  if (layout === "plain") {
+    if (services.length) throw Error("Stop running profiles from an earlier Stelz version before you run stelz setup.");
+    retired.push(retire(RUNTIME));
   }
-  if (result !== 0) throw Error("Cannot atomically replace the runtime on this filesystem.");
+  const temporary = `${RUNTIME}.${process.pid}.${crypto.randomUUID()}.tmp`;
+  symlinkSync(join(basename(RUNTIME_GENERATIONS), id), temporary, "dir");
+  renameSync(temporary, RUNTIME);
+  const keep = new Set([id, ...services.map(service => service.runtime)]);
+  for (const item of readdirSync(RUNTIME_GENERATIONS, { withFileTypes: true })) {
+    if (item.isDirectory() && isRuntimeId(item.name) && !keep.has(item.name)) retired.push(retire(join(RUNTIME_GENERATIONS, item.name)));
+  }
+  return retired;
 }
 
 export type SetupReport = {
   home: string; browser: { source: BrowserSource; executable: string };
   locationData: Partial<Record<GeoipRole, { source: string; release: string; builtAt: string; status: GeoipStatus }>>;
   fingerprintModel: "reused" | "downloaded";
+  runtime: { id: string; status: "reused" | "prepared" };
 };
 /** Setup needs downloads that nobody authorized. */
 export class SetupConfirmationError extends Error {
@@ -256,7 +271,7 @@ export class SetupConfirmationError extends Error {
 }
 /** What setup would download now. A setup that needs none never asks. */
 async function plannedDownloads(configured?: string) {
-  const current = join(HOME_DIR, "runtime");
+  const current = runtimeDir();
   return [
     ...(browserPlan(HOME_DIR, configured).source === "downloaded" ? [`Camoufox ${pairedBrowser()} (over 1 GB)`] : []),
     ...(await geoipPlan(current)).map(role => `${GEOIP_SOURCES[role].name} location data`),
@@ -264,65 +279,72 @@ async function plannedDownloads(configured?: string) {
   ];
 }
 
-/** Prepare everything that Start needs, and create missing service files. Downloads require `yes` or a positive `confirm`. */
-export async function setup(options: {
+type SetupOptions = {
   yes?: boolean; confirm?: (downloads: string[]) => Promise<boolean>;
   prepareGeoip?: typeof prepareGeoip; prepareModel?: typeof prepareModel; prepareBrowser?: typeof prepareBrowser;
-} = {}): Promise<SetupReport> {
+};
+/** Prepare everything that Start needs, and create missing service files. Downloads require `yes` or a positive `confirm`. */
+export async function setup(options: SetupOptions = {}): Promise<SetupReport> {
   directory(HOME_DIR);
   directory(STATE);
-  directory(join(HOME_DIR, "runtime"));
+  runtimeLayout();
   mkdirSync(STATE, { recursive: true, mode: 0o700 });
   const admission = join(STATE, "admission.lock");
   const existingLock = stat(admission);
   if (existingLock && (!existingLock.isFile() || existingLock.nlink !== 1)) {
     throw Error(`Invalid admission lock: ${admission}`);
   }
-  // Fail fast before any download. Both checks repeat when setup activates the runtime.
-  await lock(admission, async () => { initialize(); assertStopped(); });
+  return lock(join(STATE, "setup.lock"), () => prepare(admission, options), 3_600_000,
+    "Another stelz setup is running. Wait for it to finish, then run stelz setup again.");
+}
+
+// The caller holds the setup lock. Running services keep their generations, so only activation needs the admission lock.
+async function prepare(admission: string, options: SetupOptions): Promise<SetupReport> {
+  await lock(admission, async () => { initialize(); });
   const configured = secret("CAMOUFOX_EXECUTABLE") || undefined;
   // `yes` authorizes every planned download, so only an unconfirmed setup needs the plan.
   if (!options.yes) {
     const downloads = await plannedDownloads(configured);
     if (downloads.length && !(await options.confirm?.(downloads))) throw new SetupConfirmationError(downloads);
   }
+  const browser = await (options.prepareBrowser ?? prepareBrowser)(HOME_DIR, configured);
 
-  // The browser has its own directory and lock, so a slow download never blocks lifecycle commands.
-  const browser = await lock(join(STATE, "browser.lock"), () => (options.prepareBrowser ?? prepareBrowser)(HOME_DIR, configured), 3_600_000,
-    "Another stelz setup is preparing Camoufox. Wait for it to finish, then run stelz setup again.");
-  let locationData: SetupReport["locationData"] = {}, model: SetupReport["fingerprintModel"] = "reused";
-  await lock(admission, async () => {
-    initialize();
-    assertStopped();
+  const source = packagePath(CAMOFOX, ROOT);
+  if (JSON.parse(readFileSync(join(source, "package.json"), "utf8")).version !== UPSTREAM_VERSION) {
+    throw Error("The installed Camofox version does not match the pinned version.");
+  }
+  const plugin = join(ROOT, "dist/plugin.js");
+  if (!stat(plugin)?.isFile()) throw Error("Build the package before setup.");
 
-    const source = packagePath(CAMOFOX, ROOT);
-    if (JSON.parse(readFileSync(join(source, "package.json"), "utf8")).version !== UPSTREAM_VERSION) {
-      throw Error("The installed Camofox version does not match the pinned version.");
+  mkdirSync(RUNTIME_GENERATIONS, { recursive: true, mode: 0o700 });
+  // The setup lock guarantees that every stage is stale.
+  for (const name of readdirSync(RUNTIME_GENERATIONS)) {
+    if (name.startsWith(".stage-")) rmSync(join(RUNTIME_GENERATIONS, name), { recursive: true, force: true });
+  }
+  const stage = mkdtempSync(join(RUNTIME_GENERATIONS, ".stage-"));
+  try {
+    stageRuntime(stage, source, browser.executable, plugin);
+    const current = runtimeDir();
+    const geoip = await (options.prepareGeoip ?? prepareGeoip)(stage, current);
+    const locationData: SetupReport["locationData"] = Object.fromEntries((Object.keys(geoip.status) as GeoipRole[]).map(role => [role, {
+      source: geoip.datasets[role].source, release: geoip.datasets[role].release, builtAt: geoip.datasets[role].buildEpoch, status: geoip.status[role] }]));
+    const model = await (options.prepareModel ?? prepareModel)(stage, current);
+    const id = generationId(stage), target = join(RUNTIME_GENERATIONS, id);
+    const runtime: SetupReport["runtime"] = { id, status: "reused" };
+    if (id !== currentRuntimeId()) {
+      // A generation appears only by rename of a complete stage, so an existing one is complete.
+      const existing = stat(target);
+      if (existing && !existing.isDirectory()) throw Error(`Expected a directory, not a link or file: ${target}`);
+      if (!existing) { renameSync(stage, target); runtime.status = "prepared"; }
     }
-    const plugin = join(ROOT, "dist/plugin.js");
-    if (!stat(plugin)?.isFile()) throw Error("Build the package before setup.");
-
-    const stage = mkdtempSync(join(HOME_DIR, ".runtime-setup-"));
-    let activated = false;
-    try {
-      stageRuntime(stage, source, browser.executable, plugin);
-      const current = join(HOME_DIR, "runtime");
-      const geoip = await (options.prepareGeoip ?? prepareGeoip)(stage, current);
-      locationData = Object.fromEntries((Object.keys(geoip.status) as GeoipRole[]).map(role => [role, {
-        source: geoip.datasets[role].source, release: geoip.datasets[role].release, builtAt: geoip.datasets[role].buildEpoch, status: geoip.status[role] }]));
-      model = await (options.prepareModel ?? prepareModel)(stage, current);
-      activate(stage);
-      activated = true;
-    } finally {
-      // After exchange this path contains the old runtime. Do not follow links during cleanup.
-      try {
-        rmSync(stage, { recursive: true, force: true });
-      } catch (error) {
-        if (!activated) throw error;
-      }
-    }
-  });
-  return { home: HOME_DIR, browser, locationData, fingerprintModel: model };
+    rmSync(stage, { recursive: true, force: true });
+    const retired = await lock(admission, async () => activate(id));
+    // The runtime is active now. The next setup removes any stage that remains.
+    for (const path of retired) try { rmSync(path, { recursive: true, force: true }); } catch {}
+    return { home: HOME_DIR, browser, locationData, fingerprintModel: model, runtime };
+  } finally {
+    rmSync(stage, { recursive: true, force: true });
+  }
 }
 
 const browserText: Record<BrowserSource, string> = { configured: "uses the configured executable", managed: "reused",
@@ -332,5 +354,6 @@ export function setupSummary(report: SetupReport) {
   const location = (Object.values(report.locationData)).map(entry => `${entry.source} ${entry.release} ${entry.status}`).join(", ");
   return [`Camoufox: ${browserText[report.browser.source]} (${report.browser.executable})`,
     ...(location ? [`Location data: ${location}`] : []), `Fingerprint model: ${report.fingerprintModel}`,
+    `Runtime: ${report.runtime.status} ${report.runtime.id}`,
     `Ready: ${report.home}`, "Next: run stelz ui --open, or register stelz mcp with your agent."].join("\n");
 }

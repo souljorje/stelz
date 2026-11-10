@@ -5,7 +5,7 @@ import type { UiAction, UiProfile, UiModel, UiSnapshot } from "../../src/api/con
 
 function profile(id = "profile-02"): UiProfile {
   return {
-    id, name: id, port: 9378, storage: "native", typingMode: "auto", phase: "stopped", instanceId: null,
+    id, name: id, port: 9378, storage: "native", typingMode: "auto", phase: "stopped", restartToUpdate: false, instanceId: null,
     typing: { revision: "typing-revision-1", mode: null, defaultMode: "auto" },
     exitIp: null, checkedAt: null, fixedIpVerified: false, controller: null,
     windowControls: { available: false, reason: null },

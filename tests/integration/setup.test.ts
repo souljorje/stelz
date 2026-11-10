@@ -1,5 +1,5 @@
 import { afterAll, expect, test } from "bun:test";
-import { chmodSync, cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, linkSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -20,7 +20,7 @@ function fixture() {
 import {mkdirSync,writeFileSync} from 'node:fs';
 import {join} from 'node:path';
 import { start } from "./runtime/runtime.ts";
-if (process.argv[2] === "setup") await setup({ yes: true, prepareModel: async stage => {
+if (process.argv[2] === "setup") console.log(JSON.stringify(await setup({ yes: true, prepareModel: async stage => {
   if(process.env.SETUP_TEST_MODEL_FAIL) {
     mkdirSync(join(stage,'fpgen'));writeFileSync(join(stage,'fpgen/values.dat'),'incomplete model');
     throw Error('Fingerprint model preparation failed');
@@ -32,7 +32,7 @@ if (process.argv[2] === "setup") await setup({ yes: true, prepareModel: async st
     throw Error('Location-data integrity check failed');
   }
   return { datasets: {}, status: {} };
-} });
+} })));
 else if (process.argv[2] === "setup-unconfirmed") await setup({ confirm: async downloads => { console.log(JSON.stringify(downloads)); return false; } });
 else await start(process.argv[3]!);
 `);
@@ -195,13 +195,24 @@ function stopGate(f: Fixture) {
   releaseGate(f);
 }
 const gated = (f: Fixture) => ({ SETUP_TEST_GATE: f.gate, SETUP_TEST_RELEASE: f.release });
+const generations = (f: Fixture) => join(f.home, "runtime-generations");
+const current = (f: Fixture) => readlinkSync(join(f.home, "runtime")).replace(/^runtime-generations\//, "");
+const stages = (f: Fixture) => existsSync(generations(f)) ? readdirSync(generations(f)).filter(name => name.startsWith(".stage-")) : [];
+async function prepared(f: Fixture) {
+  const result = await finish(launch(f));
+  if (result.code) throw Error(result.stderr || result.stdout);
+  return (JSON.parse(result.stdout.trim().split("\n").at(-1)!) as { runtime: { id: string; status: "reused" | "prepared" } }).runtime;
+}
+/** A recorded service. The live PID has no start stamp, so its ownership is unverified and it counts as running. */
+function service(f: Fixture, id: string, extra: Record<string, unknown> = {}) {
+  file(join(f.home, "profiles", id, "running.json"), JSON.stringify({ version: 2, pid: process.pid, instanceId: "live", configurationHash: "fixture", ...extra }));
+}
 
-test("activates a complete runtime and manifest, replacing the installed runtime", async () => {
+test("activates a complete runtime generation, replacing the installed runtime, and reuses an unchanged one", async () => {
   const f = fixture(); installedRuntime(f);
+  const runtimes = [];
   for (let i = 0; i < 2; i++) {
-    const result = await finish(launch(f));
-    if (result.code) throw Error(result.stderr || result.stdout);
-    expect(result.code).toBe(0);
+    runtimes.push(await prepared(f));
     const manifest = JSON.parse(readFileSync(join(f.home, "runtime/versions.json"), "utf8"));
     expect(manifest.upstreamVersion).toBe("1.18.1");
     expect(manifest.browserVersion).toEqual({ version: "browser-fixture" });
@@ -216,7 +227,11 @@ test("activates a complete runtime and manifest, replacing the installed runtime
     expect(existsSync(join(f.home, "runtime/camofox-1.18.1/plugins/local-profile/index.js"))).toBe(true);
     for (const name of ["better-sqlite3", "impit"]) expect(existsSync(join(f.home, "runtime/camofox-1.18.1/node_modules", name, "package.json"))).toBe(true);
   }
-  expect(readdirSync(f.home).filter(name => name.startsWith(".runtime-setup-"))).toEqual([]);
+  expect(runtimes.map(runtime => runtime.status)).toEqual(["prepared", "reused"]);
+  expect(runtimes[1]!.id).toBe(runtimes[0]!.id);
+  expect(runtimes[0]!.id).toMatch(/^[a-f0-9]{16}$/);
+  expect(current(f)).toBe(runtimes[0]!.id);
+  expect(readdirSync(generations(f))).toEqual([runtimes[0]!.id]);
 }, 30000);
 
 test("setup without consent lists its downloads and changes nothing", async () => {
@@ -234,7 +249,7 @@ test("validation failure preserves the previous runtime and manifest", async () 
   expect(result.code).not.toBe(0);
   expect(result.stderr).toContain("forced validation failure");
   oldRuntime(f);
-  expect(readdirSync(f.home).filter(name => name.startsWith(".runtime-setup-"))).toEqual([]);
+  expect(stages(f)).toEqual([]);
 });
 
 test("a failed location download cannot replace active data or unrelated settings", async () => {
@@ -246,7 +261,7 @@ test("a failed location download cannot replace active data or unrelated setting
   expect(result.code).not.toBe(0); expect(result.stderr).toContain("Location-data integrity");
   oldRuntime(f);
   for (const [name, value] of Object.entries(files)) expect(readFileSync(join(f.home, name), "utf8")).toBe(value);
-  expect(readdirSync(f.home).filter(name => name.startsWith(".runtime-setup-"))).toEqual([]);
+  expect(stages(f)).toEqual([]);
 });
 
 test("a failed model preparation preserves the active model and permits retry", async () => {
@@ -256,7 +271,7 @@ test("a failed model preparation preserves the active model and permits retry", 
   expect(result.code).not.toBe(0); expect(result.stderr).toContain("Fingerprint model preparation failed");
   oldRuntime(f);
   expect(readFileSync(join(f.home, "runtime/fpgen/values.dat"), "utf8")).toBe("previous prepared model");
-  expect(readdirSync(f.home).filter(name => name.startsWith(".runtime-setup-"))).toEqual([]);
+  expect(stages(f)).toEqual([]);
   expect((await finish(launch(f))).code).toBe(0);
 });
 
@@ -303,22 +318,24 @@ test("missing contract modules or required exports cannot replace the runtime", 
   }
 }, 30000);
 
-test("interruption after staging leaves the previous runtime active and permits retry", async () => {
-  const f = fixture(); installedRuntime(f);
+test("interruption after staging leaves the previous generation active and permits retry", async () => {
+  const f = fixture();
+  const previous = (await prepared(f)).id;
+  file(f.browser, "updated browser executable fixture");
   const child = launch(f, "setup", gated(f));
   try {
     await until(() => existsSync(f.gate), "staged validation");
-    const stages = readdirSync(f.home).filter(name => name.startsWith(".runtime-setup-"));
-    expect(stages).toHaveLength(1);
-    expect(JSON.parse(readFileSync(join(f.home, stages[0]!, "versions.json"), "utf8")).upstreamVersion).toBe("1.18.1");
-    oldRuntime(f);
+    expect(stages(f)).toHaveLength(1);
+    expect(JSON.parse(readFileSync(join(generations(f), stages(f)[0]!, "versions.json"), "utf8")).upstreamVersion).toBe("1.18.1");
     child.kill("SIGKILL");
     await finish(child);
     stopGate(f);
-    oldRuntime(f);
-    const retried = await finish(launch(f));
-    expect(retried.code).toBe(0);
-    expect(JSON.parse(readFileSync(join(f.home, "runtime/versions.json"), "utf8")).upstreamVersion).toBe("1.18.1");
+    expect(current(f)).toBe(previous);
+    const retried = await prepared(f);
+    expect(retried.status).toBe("prepared");
+    expect(retried.id).not.toBe(previous);
+    expect(current(f)).toBe(retried.id);
+    expect(readdirSync(generations(f))).toEqual([retried.id]);
   } finally { child.kill("SIGKILL"); stopGate(f); }
 }, 30000);
 
@@ -340,25 +357,26 @@ test("interruption during old-runtime cleanup leaves the new runtime complete", 
   } finally { child.kill("SIGKILL"); stopGate(f); }
 }, 30000);
 
-test("setup serializes with another setup and a real start operation", async () => {
+test("setup serializes with another setup but does not block a real start operation", async () => {
   const f = fixture(); installedRuntime(f);
   const first = launch(f, "setup", gated(f));
-  let second: ReturnType<typeof launch> | undefined, start: ReturnType<typeof launch> | undefined;
+  let second: ReturnType<typeof launch> | undefined;
   try {
     await until(() => existsSync(f.gate), "first setup");
-    second = launch(f); start = launch(f, "start profile-02");
-    await Bun.sleep(250);
+    second = launch(f);
+    // Staging does not hold the admission lock, so Start reaches its own checks.
+    const start = await finish(launch(f, "start profile-02"));
+    expect(start.code).not.toBe(0);
+    expect(start.stderr).toContain("Unknown profile: profile-02");
     expect(second.exitCode).toBeNull();
-    expect(start.exitCode).toBeNull();
-    expect(existsSync(join(f.home, "profiles/profile-02/running.json"))).toBe(false);
-    expect(readdirSync(f.home).filter(name => name.startsWith(".runtime-setup-"))).toHaveLength(1);
+    expect(stages(f)).toHaveLength(1);
     oldRuntime(f);
-    start.kill("SIGKILL"); await finish(start);
     releaseGate(f);
     expect((await finish(first)).code).toBe(0);
-    expect((await finish(second)).code).toBe(0);
-    expect(JSON.parse(readFileSync(join(f.home, "runtime/versions.json"), "utf8")).upstreamVersion).toBe("1.18.1");
-  } finally { first.kill("SIGKILL"); second?.kill("SIGKILL"); start?.kill("SIGKILL"); stopGate(f); }
+    const result = await finish(second);
+    expect(result.code).toBe(0);
+    expect(JSON.parse(result.stdout.trim().split("\n").at(-1)!).runtime.status).toBe("reused");
+  } finally { first.kill("SIGKILL"); second?.kill("SIGKILL"); stopGate(f); }
 }, 30000);
 
 test("simultaneous first setups initialize and activate safely", async () => {
@@ -373,46 +391,48 @@ test("simultaneous first setups initialize and activate safely", async () => {
   expect(JSON.parse(readFileSync(join(f.home, "runtime/versions.json"), "utf8")).upstreamVersion).toBe("1.18.1");
 }, 30000);
 
-test("active, orphaned, unclean, and malformed profile records block setup", async () => {
-  for (const [id, value] of [
-    ["profile-02", { pid: process.pid, instanceId: "live" }],
-    ["removed-profile", { pid: 99999999, serverPid: process.pid, instanceId: "orphan" }],
-    ["profile-01", { pid: 99999999, instanceId: "unclean" }],
-    ["profile-01", { pid: 0, instanceId: "reservation" }],
-    ["profile-01", null],
-  ] as const) {
-    const f = fixture(); installedRuntime(f);
-    file(join(f.home, "profiles", id, "running.json"), JSON.stringify(value));
-    const result = await finish(launch(f));
-    expect(result.code).not.toBe(0);
-    oldRuntime(f);
-  }
-});
+test("setup keeps the generations that running profiles use and removes the others", async () => {
+  const f = fixture();
+  const first = (await prepared(f)).id;
+  service(f, "profile-02", { runtime: first });
+  file(f.browser, "second browser executable fixture");
+  const second = await prepared(f);
+  expect(second.status).toBe("prepared");
+  expect(second.id).not.toBe(first);
+  expect(current(f)).toBe(second.id);
+  expect(readdirSync(generations(f)).sort()).toEqual([first, second.id].sort());
+  expect(readFileSync(join(generations(f), first, "camofox-1.18.1/server.js"), "utf8")).toContain("launchProfileBrowser");
+  // The service has exited, so its generation is no longer referenced.
+  service(f, "profile-02", { pid: 99999999, runtime: first });
+  file(f.browser, "third browser executable fixture");
+  const third = await prepared(f);
+  expect(readdirSync(generations(f))).toEqual([third.id]);
+  // A start reservation holds its generation before its supervisor runs.
+  service(f, "profile-03", { pid: 0, serverState: "not-started", runtime: third.id });
+  file(f.browser, "fourth browser executable fixture");
+  const fourth = await prepared(f);
+  expect(readdirSync(generations(f)).sort()).toEqual([third.id, fourth.id].sort());
+  // A malformed record can hide a running service, so setup stops before it changes the current generation.
+  file(join(f.home, "profiles", "profile-04", "running.json"), "{ malformed");
+  file(f.browser, "fifth browser executable fixture");
+  expect((await finish(launch(f))).code).not.toBe(0);
+  expect(current(f)).toBe(fourth.id);
+}, 30000);
 
-test("setup rechecks profiles after obtaining the shared admission lock", async () => {
+test("an earlier plain runtime cannot be replaced after a profile starts during staging", async () => {
   const f = fixture(); installedRuntime(f);
-  const state = join(f.home, "profiles"), held = join(f.base, "held"), release = join(f.base, "unlock");
-  mkdirSync(state, { recursive: true });
-  const code = `import { lock } from ${JSON.stringify(join(f.project, "src/runtime/runtime.ts"))};
-import { writeFileSync, existsSync, mkdirSync } from "node:fs";
-await lock(${JSON.stringify(join(state, "admission.lock"))}, async () => {
-  writeFileSync(${JSON.stringify(held)}, "held");
-  while (!existsSync(${JSON.stringify(release)})) await Bun.sleep(10);
-  mkdirSync(${JSON.stringify(join(state, "profile-02"))}, { recursive: true });
-  writeFileSync(${JSON.stringify(join(state, "profile-02/running.json"))}, JSON.stringify({ pid: ${process.pid}, instanceId: "started" }));
-});`;
-  const holder = Bun.spawn([process.execPath, "-e", code], { cwd: f.project, env: { ...process.env, STELZ_HOME: f.home }, stdout: "pipe", stderr: "pipe" });
-  let setup: ReturnType<typeof launch> | undefined;
+  const child = launch(f, "setup", gated(f));
   try {
-    await until(() => existsSync(held), "startup admission lock");
-    setup = launch(f);
-    await Bun.sleep(200);
-    expect(setup.exitCode).toBeNull();
-    file(release, "release"); await holder.exited;
-    expect((await finish(setup)).code).not.toBe(0);
+    await until(() => existsSync(f.gate), "staged validation");
+    service(f, "profile-02");
+    releaseGate(f);
+    const result = await finish(child);
+    expect(result.code).not.toBe(0);
+    expect(result.stderr).toContain("Stop running profiles from an earlier Stelz version before you run stelz setup.");
+    expect(lstatSync(join(f.home, "runtime")).isDirectory()).toBe(true);
     oldRuntime(f);
-  } finally { file(release, "release"); holder.kill("SIGKILL"); setup?.kill("SIGKILL"); }
-});
+  } finally { child.kill("SIGKILL"); stopGate(f); }
+}, 30000);
 
 test("a clean stopped record permits setup, but a matching marker cannot hide a live server", async () => {
   for (const live of [false, true]) {

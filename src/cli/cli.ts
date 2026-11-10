@@ -4,7 +4,7 @@ import { STELZ_VERSION } from "../versions.ts";
 import { LocationError } from "../browser/location.ts";
 
 const [command = "help", ...rawArgs] = process.argv.slice(2);
-const rootJsonMode = ["setup", "start", "recheck", "status", "doctor"].includes(command) && rawArgs.includes("--json");
+const rootJsonMode = ["setup", "start", "restart", "recheck", "status", "doctor"].includes(command) && rawArgs.includes("--json");
 const jsonMode = rootJsonMode || command === "profile" && rawArgs.includes("--json");
 const args = rootJsonMode ? rawArgs.filter(arg => arg !== "--json") : rawArgs;
 function diagnostic(error: unknown) {
@@ -24,14 +24,14 @@ async function confirmDownloads(downloads: string[]) {
 try {
   // Configuration paths can fail during module initialization. Keep CLI errors structured too.
   const { HOME_DIR, settings } = await import("../profiles/config.ts");
-  const { recover, doctor, logs } = await import("../runtime/runtime.ts");
+  const { recover, doctor, logs, running } = await import("../runtime/runtime.ts");
   const { runLifecycle } = await import("../runtime/operations.ts");
   const { setup, setupSummary } = await import("../browser/setup.ts");
   const { runMcp } = await import("../mcp/mcp.ts");
   if (command === "--version" || command === "version") console.log(STELZ_VERSION);
   else if (command === "help" || command === "--help")
     console.log(
-      `stelz ${STELZ_VERSION}\n\nstelz setup [--yes] [--json]\nstelz profile create ID [--direct | --proxy-url URL | --proxy-env NAME] [--expected-ip IP | --expected-ip-env NAME] [--json]\nstelz profile fingerprint check PROFILE [--json]\nstelz profile export ID...|--all --output FILE [--json]\nstelz profile import FILE [--profile SOURCE_ID]... [--rename SOURCE_ID=NEW_ID]... [--json]\nstelz ui [--port 1024-65535] [--open]\nstelz start ID|all [--json]\nstelz status [ID|all] [--json]\nstelz doctor [ID|all] [--json]\nstelz logs ID [--lines 1-500]\nstelz recover ID\nstelz stop ID|all\nstelz pause ID\nstelz resume ID\nstelz recheck ID [--json]\nstelz release ID\nstelz mcp\n\nSTELZ_HOME selects the service data directory. Default: ${HOME_DIR}`,
+      `stelz ${STELZ_VERSION}\n\nstelz setup [--yes] [--json]\nstelz profile create ID [--direct | --proxy-url URL | --proxy-env NAME] [--expected-ip IP | --expected-ip-env NAME] [--json]\nstelz profile fingerprint check PROFILE [--json]\nstelz profile export ID...|--all --output FILE [--json]\nstelz profile import FILE [--profile SOURCE_ID]... [--rename SOURCE_ID=NEW_ID]... [--json]\nstelz ui [--port 1024-65535] [--open]\nstelz start ID|all [--json]\nstelz status [ID|all] [--json]\nstelz doctor [ID|all] [--json]\nstelz logs ID [--lines 1-500]\nstelz recover ID\nstelz stop ID|all\nstelz restart ID|all [--json]\nstelz pause ID\nstelz resume ID\nstelz recheck ID [--json]\nstelz release ID\nstelz mcp\n\nSTELZ_HOME selects the service data directory. Default: ${HOME_DIR}`,
     );
   else if (command === "profile") await (await import("./profile.ts")).runProfile(args);
   else if (command === "setup") {
@@ -55,14 +55,15 @@ try {
   } else if (command === "mcp") {
     if (args.length) throw Error("Use: stelz mcp. Select profiles through tool arguments.");
     await runMcp();
-  } else if (["start", "status", "stop", "pause", "resume", "release", "recheck"].includes(command)) {
+  } else if (["start", "status", "stop", "restart", "pause", "resume", "release", "recheck"].includes(command)) {
     const target = args[0] || (command === "status" ? "all" : "");
     if (!target) throw Error(`Select a profile: stelz ${command} ID`);
     if (command === "recheck" && target === "all") throw Error("Select one profile: stelz recheck ID");
-    const ids = target === "all" ? settings().profiles.map((p) => p.id) : [target];
+    // Restart all affects only running profiles. Start remains explicit.
+    const ids = target === "all" ? settings().profiles.map((p) => p.id).filter(id => command !== "restart" || running(id)) : [target];
     for (const id of ids) {
       try {
-        const result = await runLifecycle(command as UiAction | "status", id);
+        const result = await runLifecycle(command as UiAction | "status" | "restart", id);
         console.log(JSON.stringify(result, null, 2));
       } catch (e) {
         console.error(diagnostic(e));

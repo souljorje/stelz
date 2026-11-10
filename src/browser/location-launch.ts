@@ -48,7 +48,7 @@ export async function prepareProfileLaunch(options: Record<string, unknown>, pre
   try {
     record = launchLocation()!;
     const prepared = record.prepared!;
-    const data = await managedGeoip(join(process.env.STELZ_HOME!, "runtime"));
+    const data = await managedGeoip(process.env.STELZ_RUNTIME!);
     if (data.sha256 !== prepared.dataId || hash(readLocationFile(process.env.CAMOUFOX_EXECUTABLE!)) !== prepared.engineId || !options.proxy)
       throw locationFailure("LOCATION_INPUT_CHANGED");
     // Location comes from the preflight, so the launcher must not look up the IP again.
@@ -73,7 +73,7 @@ export async function verifyLaunchLocation(record: LocationRecord, ip: string, p
   const prepared = record.prepared!;
   let evidence = record.result.evidence;
   if (ip !== prepared.ip) {
-    const data = await managedGeoip(join(process.env.STELZ_HOME!, "runtime"));
+    const data = await managedGeoip(process.env.STELZ_RUNTIME!);
     if (data.sha256 !== prepared.dataId || !locationsMatch(prepared.config, resolveLocation(data.reader, ip)))
       throw locationFailure("BROWSER_LOCATION_MISMATCH");
     // A rotated exit needs its own evidence. Staleness is a setup matter, so only a conflict blocks here.

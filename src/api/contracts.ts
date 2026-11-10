@@ -32,6 +32,8 @@ export type UiProfile = {
   typingMode: TypingMode;
   typing: UiTyping;
   phase: UiPhase;
+  /** The service runs an older runtime generation. */
+  restartToUpdate: boolean;
   instanceId: string | null;
   exitIp: string | null;
   checkedAt: string | null;

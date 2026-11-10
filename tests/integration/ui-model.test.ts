@@ -635,7 +635,7 @@ test("all outward state, diagnostics, devices, errors, and both logs redact cred
   expect(profile.network).toMatchObject({ proxyDisplay: "http://proxy.test:8080", proxyConfigured: true, expectedIp: "198.51.100.42" });
   expect(profile.controller).toBeNull();
   expect(profile.engineSha256).toBeNull();
-  expect(Object.keys(profile).sort()).toEqual(["id", "name", "port", "storage", "typingMode", "typing", "phase", "instanceId", "exitIp", "checkedAt", "fixedIpVerified", "windowControls", "controller", "supervisorPid", "serverPid", "ownership", "fingerprintSha256", "engineSha256", "error", "controlError", "configurationError", "network", "location"].sort());
+  expect(Object.keys(profile).sort()).toEqual(["id", "name", "port", "storage", "typingMode", "typing", "phase", "restartToUpdate", "instanceId", "exitIp", "checkedAt", "fixedIpVerified", "windowControls", "controller", "supervisorPid", "serverPid", "ownership", "fingerprintSha256", "engineSha256", "error", "controlError", "configurationError", "network", "location"].sort());
   expect(result.value.diagnostics.profiles[0].accessKeyPresent).toBe(true);
   expect(result.value.diagnostics.profiles[0]).not.toHaveProperty("accessKey");
   expect(result.value.detail.device.properties).toContainEqual({ name: "CPU cores", value: "8" });

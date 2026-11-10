@@ -3,7 +3,8 @@ import { join } from "node:path";
 import {
   HOME_DIR,
   STATE,
-  UPSTREAM,
+  runtimeDir as serviceRuntime,
+  upstream,
   profile,
   dir,
   base,
@@ -52,7 +53,7 @@ for (const name of ["PATH", "HOME", "LANG", "LC_ALL", "USER", "LOGNAME", "SHELL"
 const env = {
   ...inherited,
   CAMOUFOX_EXECUTABLE: executable(),
-  CAMOUFOX_FPGEN_DATA: join(HOME_DIR, "runtime/fpgen"),
+  CAMOUFOX_FPGEN_DATA: join(serviceRuntime(), "fpgen"),
   CAMOFOX_BIND_HOST: "127.0.0.1",
   CAMOFOX_PORT: String(p.port),
   CAMOFOX_INTERACTIVE: "desktop",
@@ -74,7 +75,8 @@ const env = {
   STELZ_PROFILE_DIR: runtimeDir,
   STELZ_EXPECTED_IP: "",
   STELZ_HOME: HOME_DIR,
-  STELZ_UPSTREAM: UPSTREAM,
+  STELZ_RUNTIME: serviceRuntime(),
+  STELZ_UPSTREAM: upstream(),
   STELZ_START_ID: instanceId,
   STELZ_CONFIGURATION_HASH: "",
   STELZ_BOOTSTRAP_TOKEN: bootstrapToken,
@@ -179,8 +181,8 @@ const server = await lock(join(STATE, "admission.lock"), async () => {
   }
   const reserved = { ...record, pid: process.pid, supervisorStart };
   save(file, reserved);
-  const child = Bun.spawn(["node", "-e", bootstrap, join(UPSTREAM, "server.js")], {
-    cwd: UPSTREAM,
+  const child = Bun.spawn(["node", "-e", bootstrap, join(env.STELZ_UPSTREAM, "server.js")], {
+    cwd: env.STELZ_UPSTREAM,
     env,
     stdin: "pipe",
     stdout: "pipe",

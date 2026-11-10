@@ -10,7 +10,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { spawn } from "node:child_process";
 import { lock, observe, observeStatus, isRuntimePhase, processStart, running, type Running } from "./profile-process.ts";
 export { assertStoppedProfile, lock, processStart, running, type Running } from "./profile-process.ts";
@@ -37,6 +37,9 @@ import {
   configurationHash,
   entry,
   executable,
+  runtimeDir,
+  currentRuntimeId,
+  isRuntimeId,
   type Profile,
 } from "../profiles/config.ts";
 
@@ -87,7 +90,12 @@ async function serviceRequest(p: Profile, method: string, action: string, timeou
   return payload;
 }
 
+/** A running service on an older generation reports `restartToUpdate`. */
 export async function reportStatus(id: string, includeLocation = true) {
+  const record = running(id), current = currentRuntimeId();
+  return { ...(await observedStatus(id, includeLocation)), restartToUpdate: !!record?.runtime && !!current && record.runtime !== current };
+}
+async function observedStatus(id: string, includeLocation: boolean) {
   const local = { ...status(id), ...(includeLocation ? { location: await profileLocation(profile(id)) } : {}) },
     o = observe(id);
   if (o.supervisor !== "owned" || o.server !== "owned") return local;
@@ -130,7 +138,7 @@ export async function start(id: string, signal?: AbortSignal) {
       const p = profile(id), o = observe(id);
       if (running(id)) return true;
       if (o.record && !o.clean) throw Error(`${id}: previous stop was not clean. Run stelz recover ${id} after inspecting its processes.`);
-      if (!existsSync(join(HOME_DIR, "runtime/versions.json"))) throw Error("Run stelz setup first.");
+      if (!existsSync(join(runtimeDir(), "versions.json"))) throw Error("Run stelz setup first.");
       assertRuntimePlugin();
       return false;
     });
@@ -145,7 +153,9 @@ async function startPrepared(id: string, prepared?: LocationRecord) {
   await prepareProfileConfiguration(async () => {
     const p = profile(id), configHash = configurationHash(p);
     initDir(id);
-    if (!existsSync(join(HOME_DIR, "runtime/versions.json"))) throw Error("Run stelz setup first.");
+    // Resolve the generation once. The supervisor and its server keep it for this service lifetime.
+    const runtime = runtimeDir();
+    if (!existsSync(join(runtime, "versions.json"))) throw Error("Run stelz setup first.");
     const o = observe(id);
     if (running(id)) {
       if (o.supervisor !== "owned" || o.server === "unverified" || o.server === "different")
@@ -181,6 +191,8 @@ async function startPrepared(id: string, prepared?: LocationRecord) {
       configurationHash: configHash,
       port: p.port,
       serverState: "not-started",
+      // An earlier plain runtime directory has no generation ID.
+      ...(isRuntimeId(basename(runtime)) ? { runtime: basename(runtime) } : {}),
     };
     save(file, reservation);
     rotateLog(join(dir(id), "supervisor.log"));
@@ -190,7 +202,7 @@ async function startPrepared(id: string, prepared?: LocationRecord) {
         cwd: HOME_DIR,
         detached: true,
         stdio: ["ignore", logFd, logFd],
-        env: { ...process.env, STELZ_HOME: HOME_DIR },
+        env: { ...process.env, STELZ_HOME: HOME_DIR, STELZ_RUNTIME: runtime },
       });
       if (!child.pid) throw Error(`${id}: could not launch supervisor.`);
       const supervisorStart = processStart(child.pid);
@@ -353,7 +365,7 @@ export async function doctor(target?: string) {
   const result: Record<string, unknown> = {
     home: HOME_DIR,
     initialized: existsSync(CONFIG_FILE),
-    setup: existsSync(join(HOME_DIR, "runtime/versions.json")),
+    setup: existsSync(join(runtimeDir(), "versions.json")),
     node: !!Bun.which("node"),
     browserExecutable: existsSync(executable()),
     ...(pending ? { networkRecovery: pending.message } : {}),

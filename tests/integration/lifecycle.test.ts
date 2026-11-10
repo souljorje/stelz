@@ -131,7 +131,7 @@ test("the supervisor rechecks installed plugin compatibility before spawning its
   } finally { dispose(f); }
 });
 
-test("an orphan is reported and blocks its own startup, setup, and recovery without contacting it", async () => {
+test("an orphan is reported and blocks its own startup and recovery without contacting it", async () => {
   let calls = 0;
   const service = Bun.serve({
     port: 0,
@@ -155,7 +155,6 @@ test("an orphan is reported and blocks its own startup, setup, and recovery with
     );
     expect(safety.stdout.trim()).toBe("true");
     expect((await run(f, "start", "test")).stderr).toContain("needs inspection");
-    expect((await run(f, "setup")).stderr).toContain("orphaned");
     expect((await run(f, "recover", "test")).stderr).toContain("recorded process is live");
     expect((await run(f, "recheck", "test")).code).toBe(1);
     expect(calls).toBe(0);

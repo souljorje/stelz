@@ -104,8 +104,8 @@ test("a rotated browser exit must resolve to compatible settings and gets its ow
   const config = resolveLocation(data.reader, "198.51.100.10");
   const record: LocationRecord = { version: 1, inputId: "fixture", result: locationResult("ready"),
     prepared: { ip: "198.51.100.10", config, dataId: data.sha256, engineId: "fixture" } };
-  const previous = { STELZ_HOME: process.env.STELZ_HOME, STELZ_UPSTREAM: process.env.STELZ_UPSTREAM };
-  Object.assign(process.env, { STELZ_HOME: home, STELZ_UPSTREAM: upstream });
+  const previous = { STELZ_HOME: process.env.STELZ_HOME, STELZ_RUNTIME: process.env.STELZ_RUNTIME, STELZ_UPSTREAM: process.env.STELZ_UPSTREAM };
+  Object.assign(process.env, { STELZ_HOME: home, STELZ_RUNTIME: join(home, "runtime"), STELZ_UPSTREAM: upstream });
   const page = { url: () => "about:blank", evaluate: async <T>() => ({ timezone: "Europe/London", locale: "en-GB", language: "en-GB", languages: ["en-GB", "en"] }) as T };
   try {
     expect((await verifyLaunchLocation(record, "198.51.100.11", page)).evidence?.comparison.result).toBe("conflicting");
