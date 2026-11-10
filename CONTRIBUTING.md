@@ -39,6 +39,21 @@ Use TypeScript and Bun for new code. Preserve other contributors' edits and exis
 For dependency patches, follow [Camofox integration](docs/development/camofox-integration.md).
 Use plain English in documentation. Keep dated acceptance results in `docs/development/reports/`.
 
+## Run Stelz from a checkout
+
+Link the checkout to use your local build as the `stelz` command:
+
+```sh
+bun run build
+bun link
+stelz setup
+```
+
+`bun link` adds `stelz` to `~/.bun/bin`. Bun's installer puts that folder on `PATH`. The command runs the checkout's `dist/` files.
+After a change, run `bun run build` and `stelz setup`. Then run `stelz restart all` to move running profiles to the new runtime.
+Running profiles load dependencies from the checkout's `node_modules`. Restart them after `bun install` or after a switch to a branch with other dependencies.
+Run `bun unlink` to remove the command. For release acceptance, install the packed archive instead. See [Installed-package acceptance](docs/development/testing.md#installed-package-acceptance).
+
 ## Service rules
 
 - Keep browser state under `STELZ_HOME`. Preserve profile IDs, data paths, and configured secret references.
