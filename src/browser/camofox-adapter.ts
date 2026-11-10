@@ -16,8 +16,27 @@ export function assertLocationPatches(upstream: string) {
     "if (hasProxy) return {}; // Stelz never grants location access to arbitrary sites.");
 }
 
+// A fallback click runs only when the failed attempt sent no input. Otherwise one request could click twice.
+function assertClickPatches(upstream: string) {
+  const server = join(upstream, "server.js"), guard = "if (clickReachedPage(forceErr)) throw uncertainClickError(forceErr);\n";
+  check(join(upstream, "lib/stelz-click-guard.js"), "return true;", "includes('performing click action')");
+  check(server, "} from './lib/browser-errors.js';\n\nconst CONFIG",
+    "} from './lib/browser-errors.js';\nimport { clickReachedPage, domClickRejected, uncertainClickError } from './lib/stelz-click-guard.js';\n");
+  check(server, "        } catch (domErr) {\n          log('warn', 'DOM click fallback failed",
+    "        } catch (domErr) {\n          // stelz: a DOM click can reach the page before it fails. Then the mouse sequence would repeat it.\n          if (!domClickRejected(domErr)) throw uncertainClickError(domErr);\n");
+  check(server, "        } catch (err) {\n          // Fallback 1:",
+    "        } catch (err) {\n          // stelz: retry only an attempt that failed before it sent input.\n          if (clickReachedPage(err)) throw uncertainClickError(err);\n");
+  check(server, "          } catch (forceErr) {\n            log('warn', 'google force click failed",
+    "          } catch (forceErr) {\n            " + guard + "            log('warn', 'google force click failed");
+  check(server, "await click({ timeout: 3000, force: true });\n            } catch (forceErr) {\n              log(",
+    "await click({ timeout: 3000, force: true });\n            } catch (forceErr) {\n              " + guard);
+  check(server, "remainingBudget())), force: true });\n            } catch (forceErr) {\n              log(",
+    "remainingBudget())), force: true });\n            } catch (forceErr) {\n              " + guard);
+}
+
 export function assertBundledPatches(upstream: string) {
   assertLocationPatches(upstream);
+  assertClickPatches(upstream);
   check(join(upstream, "server.js"), "from 'camoufox-js'", "import { Camoufox, launchOptions, VirtualDisplay } from 'camoufox';");
   check(join(upstream, "server.js"), "const externalCamoufox = getExternalCamoufoxLaunch();",
     "const externalCamoufox = null; // stelz: the plugin passes the executable to the official launcher.");

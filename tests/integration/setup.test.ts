@@ -41,6 +41,53 @@ else await start(process.argv[3]!);
   const upstream = join(project, "node_modules/@askjo/camofox-browser");
   file(join(upstream, "package.json"), JSON.stringify({ name: "@askjo/camofox-browser", version: "1.18.1", type: "module", dependencies: { camoufox: "0.5.8", "playwright-core": "1.62.1" } }));
   file(join(upstream, "server.js"), `import { Camoufox, launchOptions, VirtualDisplay } from 'camoufox';
+import {
+  isTimeoutError,
+} from './lib/browser-errors.js';
+import { clickReachedPage, domClickRejected, uncertainClickError } from './lib/stelz-click-guard.js';
+async function recoverForceClickFailure(dispatchDomClick, dispatchMouseSequence, log) {
+        try {
+          await dispatchDomClick();
+        } catch (domErr) {
+          // stelz: a DOM click can reach the page before it fails. Then the mouse sequence would repeat it.
+          if (!domClickRejected(domErr)) throw uncertainClickError(domErr);
+          log('warn', 'DOM click fallback failed, trying mouse sequence', { error: domErr.message });
+          await dispatchMouseSequence();
+        }
+}
+async function clickRoute(click, log, remainingBudget, onGoogleSerp) {
+        if (onGoogleSerp) {
+          try {
+            await click({ timeout: 3000, force: true });
+          } catch (forceErr) {
+            if (clickReachedPage(forceErr)) throw uncertainClickError(forceErr);
+            log('warn', 'google force click failed, trying DOM click fallback');
+          }
+          return;
+        }
+        try {
+          await click({ timeout: 3000 });
+        } catch (err) {
+          // stelz: retry only an attempt that failed before it sent input.
+          if (clickReachedPage(err)) throw uncertainClickError(err);
+          // Fallback 1: If intercepted by overlay, retry with force
+          if (isTimeoutError(err)) {
+            try {
+              await click({ timeout: 3000, force: true });
+            } catch (forceErr) {
+              if (clickReachedPage(forceErr)) throw uncertainClickError(forceErr);
+              log('warn', 'force click failed, trying DOM click fallback');
+            }
+          } else {
+            try {
+              await click({ timeout: Math.max(1, Math.min(3000, remainingBudget())), force: true });
+            } catch (forceErr) {
+              if (clickReachedPage(forceErr)) throw uncertainClickError(forceErr);
+              log('warn', 'force click failed, trying DOM click fallback');
+            }
+          }
+        }
+}
 const externalCamoufox = null; // stelz: the plugin passes the executable to the official launcher.
 class DefaultVirtualDisplay extends VirtualDisplay { constructor() { super(false, DEFAULT_VIRTUAL_DISPLAY_RESOLUTION); } }
 async function fillLocator(locator, text, typingMode) {
@@ -124,6 +171,8 @@ async function typeRoute(req, locator, tabState, selector, text, mode) {
 }
 `);
   file(join(upstream, "LICENSE"), "fixture license");
+  file(join(upstream, "lib/browser-errors.js"), "export function isTimeoutError() { return false; }\n");
+  file(join(upstream, "lib/stelz-click-guard.js"), "export function clickReachedPage(error) { return String(error?.message || '').includes('performing click action'); }\nexport function domClickRejected() { return false; }\nexport function uncertainClickError(cause) { return Object.assign(Error('uncertain'), { cause }); }\n");
   file(join(upstream, "lib/browser-identity.js"), "function contextIdentityOptions(hasProxy) { if (hasProxy) return {}; // Stelz never grants location access to arbitrary sites.\n}\n");
   file(join(upstream, "lib/new-page-recovery.js"), `async function createPageWithSessionRecovery(session) {
   try {
