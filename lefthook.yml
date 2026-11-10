@@ -31,7 +31,10 @@ pre-push:
 # Core paths run in every browser session, so they select every suite.
 # Startup paths fail on any start, so integration and setup cover them.
 browser:
-  files: git diff --name-only $(git merge-base ${BASE:-origin/main} HEAD)
+  files: >-
+    base=$(git merge-base "${BASE:-origin/main}" HEAD) &&
+    git diff --name-only "$base" &&
+    git ls-files --others --exclude-standard
   jobs:
     - name: integration
       glob:
@@ -39,7 +42,7 @@ browser:
           src/runtime/{operations,profile-process,runtime-plugin,runtime,supervisor}.ts,\
           src/browser/{camofox-adapter,camoufox,native-dependencies,native-profile,plugin,upstream}.ts,\
           tests/helpers/{fixture,fixture-browser,mcp-client,ports,startup-window,test-home}.ts}"
-        - &startup "{package.json,scripts/build.ts,src/{paths,versions}.ts,src/cli/{cli,profile}.ts,\
+        - &startup "{package.json,scripts/build.ts,src/{paths,versions}.ts,src/cli/{cli,profile,profile-fingerprint}.ts,\
           src/browser/{browser-setup,release-asset,setup}.ts,\
           src/profiles/{config,profile-catalog,profile-configuration,profile-configuration-types}.ts}"
         - tests/browser/integration.ts
