@@ -4,8 +4,8 @@ import { errorMessage } from "./api.ts";
 import { Notice, Select } from "./components";
 
 const help: Record<TypingMode, string> = {
-  auto: "Paced typing for up to 10 seconds. Longer text is entered instantly.",
-  keyboard: "Send individual keystrokes without artificial delays.",
+  balanced: "Paced typing for up to 10 seconds. Longer text is entered instantly.",
+  keyboard: "Type with variable pauses and occasional corrected typos. Stops after 45 seconds.",
   instant: "Enter the complete text at once.",
 };
 
@@ -35,7 +35,7 @@ export function TypingForm({ profile, connected, busy, onSave }: {
       <label htmlFor={id}>Default typing mode</label>
       <Select id={id} value={selected} disabled={!connected || pending || !!selection} aria-describedby={`${id}-help ${id}-status`}
         onChange={event => void change(event.target.value as TypingMode)}>
-        <option value="auto">Automatic</option><option value="keyboard">Keyboard input</option><option value="instant">Instant input</option>
+        <option value="balanced">Balanced</option><option value="keyboard">Keyboard input</option><option value="instant">Instant input</option>
       </Select>
       <p className="field-help" id={`${id}-help`}>{help[selected]}</p>
       <p className="field-help" id={`${id}-status`} role="status">{selection ? "Saving typing mode…" : !connected ? "Reconnect to change the typing mode." : pending ? "Wait for the current service action to finish." : saved ? "Typing mode saved. Applies to future typing actions." : ""}</p>

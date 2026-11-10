@@ -104,7 +104,7 @@ diff --git a/postinstall.js b/postinstall.js
 deleted file mode 100644
 index 488077bfa09b23c4d6ad68a946a5a16be12d7c2d..0000000000000000000000000000000000000000
 diff --git a/server.js b/server.js
-index 4a737caba128a8f6a22f789ab9682167660a0589..812635a8505e111a33eba868fe43ef24b50a8b49 100644
+index 4a737caba128a8f6a22f789ab9682167660a0589..7a01dbe91cdd6c20aa8de9aad3604b2df010add0 100644
 --- a/server.js
 +++ b/server.js
 @@ -1,5 +1,4 @@
@@ -324,7 +324,7 @@ index 4a737caba128a8f6a22f789ab9682167660a0589..812635a8505e111a33eba868fe43ef24
 +          // stelz: check visibility, enabled state, and obstruction without input. Only this check may fall back.
 +          await click({ timeout: 3000, trial: true });
          } catch (err) {
-+          if (clickReachedPage(err)) throw uncertainClickError(err);
++          // A trial sends no input, although Playwright still logs "performing click action" for it.
            // Fallback 1: If intercepted by overlay, retry with force
            if (err.message.includes('intercepts pointer events')) {
              log('warn', 'click intercepted, retrying with force');

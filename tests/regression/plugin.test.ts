@@ -29,7 +29,7 @@ test("typing advertises optional per-call modes without changing upstream defini
   assert.ok(typing);
   const mode = typing.inputSchema.properties?.mode;
   assert.ok(mode && typeof mode === "object" && "enum" in mode);
-  assert.deepEqual(mode.enum, ["auto", "keyboard", "instant"]);
+  assert.deepEqual(mode.enum, ["balanced", "keyboard", "instant"]);
   assert.deepEqual(typing.inputSchema.required, TOOL_DEFS.find((tool: { name: string }) => tool.name === "camofox_type").inputSchema.required);
   assert.ok(!typing.inputSchema.required?.includes("mode"));
   assert.deepEqual(TOOL_DEFS, original);
@@ -147,7 +147,7 @@ async function harness(mode: "direct" | "proxy" = "direct", waitForIP?: Promise<
   const root = mkdtempSync(join(tmpdir(), "stelz-regression-")), id = "profile-01";
   const stateDir = join(root, id), upstream = join(root, "upstream"), binary = join(root, "browser");
   mkdirSync(stateDir); mkdirSync(join(upstream, "mcp/lib"), { recursive: true });
-  writeFileSync(join(root, "profiles.json"), JSON.stringify({ profiles: [{ id, typingMode: "auto" }] }));
+  writeFileSync(join(root, "profiles.json"), JSON.stringify({ profiles: [{ id, typingMode: "balanced" }] }));
   writeFileSync(binary, "test browser binary");
   writeFileSync(join(upstream, "mcp/lib/tool-contracts.mjs"), fixture.canonical ? `export * from ${JSON.stringify(contractsUrl)};` : `
     export { TOOL_DEFS } from ${JSON.stringify(contractsUrl)};
@@ -899,7 +899,7 @@ test("canonical dispatch preserves valid tool routes, arguments, and authenticat
       if (method === "POST") {
         const { tabId: _tabId, ...body } = args;
         assert.deepEqual(req.body, { ...body, userId: h.id, ...(name === "camofox_create_tab" ? { sessionKey: "default" } : {}),
-          ...(name === "camofox_type" ? { typingMode: "auto" } : {}) });
+          ...(name === "camofox_type" ? { typingMode: "balanced" } : {}) });
       } else assert.equal(url.searchParams.get("userId"), h.id);
       if (name === "camofox_snapshot") assert.equal(url.searchParams.get("offset"), "10");
     }
@@ -917,7 +917,7 @@ test("typing overrides reach Camofox per call and profile defaults update in the
       name: "camofox_type", args: { tabId, selector: "#message", text: "hello", ...args } });
     const lastBody = () => { const body = requests.at(-1)?.body; if (!body) throw Error("Missing request body"); return body; };
     configure("instant");
-    for (const mode of ["auto", "keyboard", "instant"]) {
+    for (const mode of ["balanced", "keyboard", "instant"]) {
       assert.equal((await type({ mode })).code, 200);
       assert.equal(lastBody().typingMode, mode);
       assert.equal(Object.hasOwn(lastBody(), "mode"), false, "Do not collide with Camofox's REST mode");
@@ -928,7 +928,7 @@ test("typing overrides reach Camofox per call and profile defaults update in the
     assert.equal((await type({ typingMode: "instant" })).code, 200);
     assert.equal(lastBody().typingMode, "keyboard", "Ignore caller-supplied internal fields");
     const count = requests.length;
-    for (const mode of ["paced", "fill", "other", null, false, 1]) assert.equal((await type({ mode })).code, 409);
+    for (const mode of ["auto", "paced", "fill", "other", null, false, 1]) assert.equal((await type({ mode })).code, 409);
     assert.equal(requests.length, count);
     assert.equal(h.state().phase, "ready");
   } finally { await fixture.close(); }
@@ -976,10 +976,10 @@ test("the service deadline prevents overlap while the upstream typing lock remai
 });
 
 for (const [serviceMode, profileMode, expected, fallback] of [
-  [undefined, undefined, "auto", "auto"],
+  [undefined, undefined, "keyboard", "keyboard"],
   ["instant", undefined, "instant", "instant"],
   ["keyboard", undefined, "keyboard", "keyboard"],
-  ["instant", "auto", "auto", "instant"],
+  ["instant", "balanced", "balanced", "instant"],
 ] as const) test(`typing dispatch uses ${expected} with service ${serviceMode ?? "unset"} and profile ${profileMode ?? "unset"}`, async () => {
   const fixture = await canonicalHarness(), { h, requests } = fixture;
   const previous = process.env.STELZ_TYPING_MODE;

@@ -114,7 +114,7 @@ test("typing defaults save live without changing launch state, secrets, or profi
     const { configurationHash } = await import(${JSON.stringify(join(root, "src/profiles/config.ts"))});
     const before = settings().profiles[0], hash = configurationHash(before);
     const stale = typingRevision();
-    for (const mode of ['keyboard', 'instant', 'auto']) {
+    for (const mode of ['keyboard', 'instant', 'balanced']) {
       await domain.updateTyping('test', { revision: typingRevision(), mode });
       if (settings().profiles[0].typingMode !== mode) throw Error('Typing preference was not persisted');
       if (configurationHash(settings().profiles[0]) !== hash) throw Error('Typing changed launch state');
@@ -125,7 +125,7 @@ test("typing defaults save live without changing launch state, secrets, or profi
   `);
   expect(result.ok).toBe(true);
   expect(result.value.conflict).toBe(true);
-  expect(result.value.after).toEqual({ ...result.value.before, typingMode: "auto" });
+  expect(result.value.after).toEqual({ ...result.value.before, typingMode: "balanced" });
   expect(readFileSync(join(home, "secrets.env"), "utf8")).toBe(secrets);
   expect(readFileSync(join(home, "profiles/test/running.json"), "utf8")).toBe(record);
   expect(readFileSync(join(home, "profiles/test/profile-data"), "utf8")).toBe("existing browser data");
@@ -134,7 +134,7 @@ test("typing defaults save live without changing launch state, secrets, or profi
 test("typing updates reject invalid modes, extra fields, and malformed revisions", async () => {
   const home = fixture();
   const config = readFileSync(join(home, "profiles.json"), "utf8");
-  for (const input of [{ mode: "paced" }, { mode: "auto", other: true }, {}, { mode: "inherit" }, { mode: "keyboard", revision: "invalid" }]) {
+  for (const input of [{ mode: "auto" }, { mode: "paced" }, { mode: "balanced", other: true }, {}, { mode: "inherit" }, { mode: "keyboard", revision: "invalid" }]) {
     const result = await run(home, `await domain.updateTyping('test', { revision: typingRevision(), ...${JSON.stringify(input)} });`);
     expect(result.ok).toBe(false); expect(result.status).toBe(400);
   }
@@ -151,7 +151,7 @@ test("concurrent network and typing edits merge while competing typing edits con
     ]);
     const merged = settings().profiles[0];
     const current = typingRevision();
-    const competing = await Promise.allSettled(['instant', 'auto'].map(mode => domain.updateTyping('test', { revision: current, mode })));
+    const competing = await Promise.allSettled(['instant', 'balanced'].map(mode => domain.updateTyping('test', { revision: current, mode })));
     const networkAfter = revision();
     await domain.updateTyping('test', { revision: typingRevision(), mode: null });
     return { merged, competing: competing.map(result => result.status === 'fulfilled' ? 200 : result.reason.status),

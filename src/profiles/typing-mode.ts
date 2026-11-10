@@ -10,6 +10,6 @@ export function profileTypingMode(home: string | undefined, id: string): TypingM
   const profile = catalog.profiles.find(item => item.id === id);
   if (!profile) throw Error("The selected profile is no longer configured.");
   if (profile.typingMode === undefined) return fallback();
-  if (!isTypingMode(profile.typingMode)) throw Error("Typing mode must be auto, keyboard, or instant.");
+  if (!isTypingMode(profile.typingMode)) throw Error("Typing mode must be balanced, keyboard, or instant.");
   return profile.typingMode;
 }

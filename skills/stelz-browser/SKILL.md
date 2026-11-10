@@ -53,7 +53,7 @@ For orphaned state, IP failures, or service deadlines, follow [Recovery](referen
 
 `camofox_evaluate` and `camofox_import_cookies` are unavailable.
 `camofox_type` accepts a per-call `mode`. Omit it to use the profile default.
-The default `auto` mode types with pauses when the estimated duration is at most 10 seconds. See [Typing](../../docs/configuration.md#typing).
+The default `keyboard` mode uses paced typing with occasional corrected typos and a 45-second deadline. See [Typing](../../docs/configuration.md#typing).
 
 ## Location
 

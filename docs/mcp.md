@@ -41,7 +41,7 @@ All nine browser tools require `profileId` and `controlHandle` alongside their e
 
 Read the full argument schemas through `tools/list`.
 Stelz preserves canonical Camofox browser arguments and adds the required profile and control fields.
-`camofox_type` also accepts `mode`: `auto`, `keyboard`, or `instant`.
+`camofox_type` also accepts `mode`: `balanced`, `keyboard`, or `instant`.
 See [Typing](configuration.md#typing) for typing behavior.
 
 `camofox_evaluate` and `camofox_import_cookies` remain excluded.

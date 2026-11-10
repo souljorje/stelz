@@ -69,7 +69,7 @@ async function clickRoute(click, log, remainingBudget, onGoogleSerp) {
         try {
           await click({ timeout: 3000, trial: true });
         } catch (err) {
-          if (clickReachedPage(err)) throw uncertainClickError(err);
+          // A trial sends no input, although Playwright still logs "performing click action" for it.
           if (isTimeoutError(err)) {
             log('warn', 'click intercepted, retrying with force');
             try {

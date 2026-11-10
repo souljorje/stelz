@@ -11,7 +11,7 @@ import { UPSTREAM_VERSION } from "../../src/versions.ts";
 
 const root = resolve(import.meta.dir, "../.."), home = mkdtempSync(join(tmpdir(), "stelz-ui-browser-"));
 process.env.STELZ_HOME = home;
-process.env.STELZ_TYPING_MODE = "auto";
+process.env.STELZ_TYPING_MODE = "balanced";
 // Transfers use an install-compatible synthetic executable; lifecycle actions remain mocked.
 process.env.CAMOUFOX_EXECUTABLE = join(home, "fixture-engine");
 writeFileSync(process.env.CAMOUFOX_EXECUTABLE, "ui-browser-fixture", { mode: 0o600 });
@@ -74,7 +74,7 @@ for (const [index, id] of ["profile-01", "profile-02"].entries()) {
   services.push(service);
   profiles.push({ id, port: service.port!, storage: "native", ...(index === 0 ? { proxyEnv: "UI_FIXTURE_PROXY_URL", expectedIPEnv: "UI_FIXTURE_EXPECTED_IP" } : {}) });
   const state: Record<string, unknown> = { profileId: id, instanceId: randomUUID(), phase: index === 0 ? "ready" : "stopped",
-    typingModeDefault: index === 0 ? "instant" : "auto",
+    typingModeDefault: index === 0 ? "instant" : "balanced",
     exitIp: index === 0 ? "203.0.113.8" : null, expectedIp: index === 0 ? "203.0.113.8" : null,
     checkedAt: index === 0 ? new Date().toISOString() : null, fixedIpVerified: index === 0,
     fingerprintSha256: digest, engineSha256: digest,
@@ -412,7 +412,7 @@ if (process.argv.includes("--serve")) {
     await page.getByRole("button", { name: "Refresh service state", exact: true }).click();
     await page.waitForFunction(() => document.querySelector<HTMLSelectElement>('#typing-profile-01')?.disabled === false);
     const beforeTyping = JSON.stringify(states.get("profile-01")), commandsBeforeTyping = commands.length;
-    for (const mode of ["auto", "keyboard", "instant"]) {
+    for (const mode of ["balanced", "keyboard", "instant"]) {
       const response = page.waitForResponse(response => response.url().endsWith("/api/profiles/profile-01/typing") && response.request().method() === "PUT");
       await typingSelect.selectOption(mode);
       if (!(await response).ok()) throw Error("The UI could not save the typing mode.");
