@@ -55,7 +55,11 @@ test("the launcher reads the paired engine version from a macOS bundle and requi
     await expect(prepareProfileLaunch({}, prepare)).rejects.toThrow("Run stelz setup");
     expect(prepared).toBe(false); expect(readFileSync(join(model, "values.dat"), "utf8")).toBe("short");
     writeFileSync(join(model, "values.dat"), "0123456789");
-    await expect(prepareProfileLaunch({}, prepare)).resolves.toMatchObject({ executable_path: executable, ff_version: "156" });
+    await expect(prepareProfileLaunch({}, prepare)).resolves.toMatchObject({ executable_path: executable, ff_version: "156", config: { showcursor: true } });
+    await expect(prepareProfileLaunch({ config: { timezone: "Europe/London" } }, prepare)).resolves.toMatchObject({
+      config: { showcursor: true, timezone: "Europe/London" },
+    });
+    await expect(prepareProfileLaunch({ config: { showcursor: false } }, prepare)).resolves.toMatchObject({ config: { showcursor: false } });
     expect(prepared).toBe(true);
   } finally {
     Object.defineProperty(process, "platform", platform);

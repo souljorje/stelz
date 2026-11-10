@@ -43,6 +43,7 @@ async function launcherOptions(options: Record<string, unknown>) {
 export async function prepareProfileLaunch(options: Record<string, unknown>, prepare: (options: Record<string, unknown>) => Promise<unknown>) {
   // Runtime geometry admission supports macOS only. Reject before upstream can create Linux home/cache files.
   if (process.platform !== "darwin") throw Error("Browser Start requires macOS. This platform has no supported startup geometry contract.");
+  options = { ...options, config: { showcursor: true, ...options.config as Fingerprint | undefined } };
   if (!process.env.PROXY_HOST) return prepare(await launcherOptions(options));
   let record: LocationRecord | undefined;
   try {
