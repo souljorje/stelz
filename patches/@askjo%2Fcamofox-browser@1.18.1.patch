@@ -438,11 +438,14 @@ index 4a737caba128a8f6a22f789ab9682167660a0589..a947db30362a8a4e0fa578fb1bb66941
      if (err.message?.includes('timed out') || err.message?.includes('not an <input>')) {
        try {
          const session = sessions.get(normalizeUserId(req.body.userId));
-@@ -4670,6 +4690,7 @@ app.post('/tabs/:tabId/scroll', async (req, res) => {
+@@ -4670,6 +4690,10 @@ app.post('/tabs/:tabId/scroll', async (req, res) => {
      await withTabLock(req.params.tabId, async () => {
        const isVertical = direction === 'up' || direction === 'down';
        const delta = (direction === 'up' || direction === 'left') ? -amount : amount;
 +      await tabState.page.bringToFront();
++      // stelz: wheel input targets the pointer, which can still be over a fixed header.
++      const viewport = await tabState.page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
++      await tabState.page.mouse.move(viewport.width / 2, viewport.height / 2);
        await tabState.page.mouse.wheel(isVertical ? 0 : delta, isVertical ? delta : 0);
        await tabState.page.waitForTimeout(300);
      });

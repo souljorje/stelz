@@ -130,6 +130,9 @@ async function withTabLock(tabId, operation, timeoutMs) {
 }
 async function scrollRoute(tabState, isVertical, delta) {
       await tabState.page.bringToFront();
+      // stelz: wheel input targets the pointer, which can still be over a fixed header.
+      const viewport = await tabState.page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
+      await tabState.page.mouse.move(viewport.width / 2, viewport.height / 2);
       await tabState.page.mouse.wheel(isVertical ? 0 : delta, isVertical ? delta : 0);
 }
 const options = { os: hostOS,

@@ -71,6 +71,23 @@ try {
     assert(String(snapshot.snapshot).includes(`Storage marker: ${id}`), "Storage marker is missing from the browser snapshot");
   }
   report.push({ check: "Startup and recheck leave one blank native window with one usable MCP tab", result: "passed" });
+  const scrollTab = await call(a.client, "camofox_create_tab", { url: `${pageServer.url}/scroll` });
+  let scrollX = 0, scrollY = 0;
+  for (const direction of ["down", "up", "right", "left"]) {
+    await call(a.client, "camofox_snapshot", { tabId: scrollTab.tabId });
+    await call(a.client, "camofox_click", { tabId: scrollTab.tabId, selector: "#header" });
+    await call(a.client, "camofox_snapshot", { tabId: scrollTab.tabId });
+    await call(a.client, "camofox_scroll", { tabId: scrollTab.tabId, direction, amount: 500 });
+    const snapshot = await call(a.client, "camofox_snapshot", { tabId: scrollTab.tabId });
+    const match = /Scroll position: x=(\d+) y=(\d+)/.exec(String(snapshot.snapshot));
+    assert(match, "Scroll fixture position is missing");
+    const x = Number(match[1]), y = Number(match[2]);
+    assert(direction === "down" ? y > scrollY : direction === "up" ? y < scrollY : direction === "right" ? x > scrollX : x < scrollX,
+      `Scroll ${direction} returned without moving the feed: ${x},${y}`);
+    scrollX = x; scrollY = y;
+  }
+  await call(a.client, "camofox_close_tab", { tabId: scrollTab.tabId });
+  report.push({ check: "Scroll moves a nested feed in all four directions after a header click", result: "passed" });
   await rejection(a.client, "camofox_snapshot", { tabId: tabs["profile-02"] });
   report.push({ check: "Two browsers, separate storage, explicit profile routing, and duplicate acquire rejection", result: "passed" });
   await call(a.client, "profile_release"); await call(b.client, "profile_acquire");

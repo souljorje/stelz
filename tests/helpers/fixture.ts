@@ -22,6 +22,12 @@ export async function fixture(port = 9410) {
     }
     if (url.pathname === "/slow") await Bun.sleep(1500);
     if (url.pathname === "/fixture.js") return new Response(script, { headers: { "Content-Type": "text/javascript" } });
+    if (url.pathname === "/scroll") return new Response(`<!doctype html><title>Scroll acceptance fixture</title>
+<style>body{margin:0;overflow:hidden;font:18px system-ui}header{height:100px}main{position:absolute;top:100px;bottom:0;left:0;right:0;overflow:auto}article{width:6000px;height:6000px;background:linear-gradient(white,steelblue)}</style>
+<header><button id="header">Header control</button><p id="position">Scroll position: x=0 y=0</p></header>
+<main><article>Scrollable feed</article></main>
+<script>const feed=document.querySelector('main');feed.addEventListener('scroll',()=>{document.querySelector('#position').textContent='Scroll position: x='+Math.round(feed.scrollLeft)+' y='+Math.round(feed.scrollTop)})</script>`,
+      { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
     const challenge = crypto.randomUUID().slice(0, 8);
     const candidate = url.searchParams.get("profile") || "";
     const label = /^[a-z0-9-]{1,64}$/.test(candidate) ? ` — ${candidate}` : "";
