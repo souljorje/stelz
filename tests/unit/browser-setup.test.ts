@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 import { prepareBrowser } from "../../src/browser/browser-setup.ts";
 import { browserExecutable, browserPin, pairedBrowser } from "../../src/browser/camoufox.ts";
 import { hash } from "../../src/browser/location.ts";
+import { readRelease } from "../../src/browser/release-asset.ts";
 
 const { ZipFile } = createRequire(new URL("../../package.json", import.meta.url))("yazl") as typeof import("yazl");
 const homes: string[] = [];
@@ -78,4 +79,10 @@ test.skipIf(process.platform !== "darwin" || process.arch !== "arm64")("setup do
   expect(result.source).toBe("downloaded");
   expect(statSync(result.executable).mode & 0o111).not.toBe(0);
   expect(JSON.parse(readFileSync(join(home, "browsers", pairedBrowser(), "version.json"), "utf8"))).toMatchObject({ asset, sha256: hash(bytes) });
+});
+
+test("a GitHub rate limit names the limit instead of the connection", async () => {
+  const limited = (async () => new Response("{}", { status: 403, headers: { "x-ratelimit-remaining": "0", "x-ratelimit-reset": "1794316800" } })) as unknown as typeof fetch;
+  await expect(readRelease({ label: "location-data", repository: "owner/name", match: () => true, maxBytes: 1, timeoutMs: 1000 }, limited))
+    .rejects.toThrow("GitHub limits release requests from this network. Run stelz setup again after");
 });

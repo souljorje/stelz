@@ -13,7 +13,12 @@ export async function readRelease(request: ReleaseAssetRequest, fetcher: typeof 
   const response = await fetcher(`https://api.github.com/repos/${repository}/releases/${request.tag ? `tags/${request.tag}` : "latest"}`,
     { signal, headers: { Accept: "application/vnd.github+json" } })
     .catch((error: Error) => { throw Error(`Cannot read the ${label} release (${error.message}). ${unavailable}`); });
-  if (!response.ok) throw Error(`Cannot read the ${label} release. ${unavailable}`);
+  if (!response.ok) {
+    const reset = Number(response.headers.get("x-ratelimit-reset"));
+    if ([403, 429].includes(response.status) && response.headers.get("x-ratelimit-remaining") === "0")
+      throw Error(`GitHub limits release requests from this network. Run stelz setup again after ${reset > 0 ? new Date(reset * 1000).toLocaleTimeString() : "an hour"}.`);
+    throw Error(`Cannot read the ${label} release. ${unavailable}`);
+  }
   const value = await response.json() as { tag_name?: string; assets?: Asset[] };
   const assets = value.assets?.filter(asset => request.match(asset.name)) ?? [];
   const asset = assets[0], tag = value.tag_name ?? "";

@@ -38,6 +38,8 @@ for (const [flag, script, suite] of [
   assertArchiveUnchanged(candidate);
   await run([bun, "--no-env-file", join(root, script), ...(["setup", "location"].includes(suite) ? ["--archive", archive] : [])], { cwd, env: { ...cleanEnv, STELZ_TEST_CLI: installedCli,
     ...(suite === "concurrency" ? { STELZ_CLI: installedCli } : {}),
+    // Suites reuse the prepared runtime. The setup suite must prepare its own.
+    ...(suite === "setup" ? {} : { STELZ_TEST_SEED_HOME: home }),
     ...(["setup", "location"].includes(suite) ? { STELZ_TEST_INSTALLATION: installation } : {}),
     ...(["proxy", "location"].includes(suite) && process.env.PROXY_TEST_ENV ? { PROXY_TEST_ENV: process.env.PROXY_TEST_ENV } : {}) }, inherit: true });
   acceptance[suite] = true;

@@ -1,6 +1,6 @@
 // Explicit browser acceptance in a disposable home. Existing service profiles are never selected.
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createTestHome } from "../helpers/test-home.ts";
 import { join, resolve } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -9,7 +9,7 @@ import { routeProfileTools } from "../helpers/mcp-client.ts";
 import { processStart, type Running } from "../../src/runtime/profile-process.ts";
 
 const root = resolve(import.meta.dir, "../.."), cli = process.env.STELZ_CLI || process.env.STELZ_TEST_CLI || join(root, "dist/cli.js");
-const home = mkdtempSync(join(tmpdir(), "stelz-browser-concurrency-"));
+const home = createTestHome("stelz-browser-concurrency");
 const ids = ["concurrency-01", "concurrency-02", "concurrency-03"];
 const env: Record<string, string> = { STELZ_HOME: home };
 for (const key of ["PATH", "HOME", "LANG", "TMPDIR", "CAMOUFOX_EXECUTABLE"]) if (process.env[key]) env[key] = process.env[key]!;
