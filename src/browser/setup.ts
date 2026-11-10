@@ -8,6 +8,7 @@ import {
   readFileSync, readlinkSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync,
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
+import { homedir } from "node:os";
 import { createRequire } from "node:module";
 import { createHash } from "node:crypto";
 import { pathToFileURL } from "node:url";
@@ -368,13 +369,26 @@ async function prepare(admission: string, options: SetupOptions): Promise<SetupR
   }
 }
 
-const browserText: Record<BrowserSource, string> = { configured: "uses the configured executable", managed: "reused",
+const browserText: Record<BrowserSource, string> = { configured: "configured in CAMOUFOX_EXECUTABLE", managed: "reused",
   "upstream-cache": "copied from the upstream cache", downloaded: "downloaded and verified" };
-/** The report for a person. `--json` prints the report object instead. */
+const statusText: Record<GeoipStatus | "prepared", string> = { reused: "reused", downloaded: "downloaded and verified",
+  kept: "kept; the refresh failed", prepared: "prepared" };
+const CLIENTS = "https://github.com/souljorje/stelz/blob/main/docs/clients.md";
+/** The report for a person, as aligned columns. `--json` prints the report object instead. */
 export function setupSummary(report: SetupReport) {
-  const location = (Object.values(report.locationData)).map(entry => `${entry.source} ${entry.release} ${entry.status}`).join(", ");
-  return [`Camoufox: ${browserText[report.browser.source]} (${report.browser.executable})`,
-    ...(location ? [`Location data: ${location}`] : []), `Fingerprint model: ${report.fingerprintModel}`,
-    `Runtime: ${report.runtime.status} ${report.runtime.id}`,
-    `Ready: ${report.home}`, "Next: run stelz ui --open, or register stelz mcp with your agent."].join("\n");
+  const short = (path: string) => path.startsWith(homedir() + "/") ? `~${path.slice(homedir().length)}` : path;
+  // A row is a label, an item, and its status. A detail row has only an item.
+  const rows: [string, string, string?][] = [
+    ["Service home", short(report.home)],
+    ["Browser", `Camoufox ${pairedBrowser()}`, browserText[report.browser.source]],
+    ["", short(report.browser.executable)],
+    ...Object.values(report.locationData).map((entry, index): [string, string, string] =>
+      [index ? "" : "Location data", `${entry.source} ${entry.release}`, statusText[entry.status]]),
+    ["Fingerprint model", fingerprintModel().MODEL_PIN.tag, statusText[report.fingerprintModel]],
+    ["Runtime", report.runtime.id, statusText[report.runtime.status]],
+  ];
+  const label = Math.max(...rows.map(row => row[0].length)), item = Math.max(...rows.filter(row => row[2]).map(row => row[1].length));
+  return ["Stelz is ready.", "",
+    ...rows.map(([name, value, status]) => `  ${name.padEnd(label)}  ${status ? `${value.padEnd(item)}  ${status}` : value}`),
+    "", "Next:", "  stelz ui --open    Open the local UI.", `  stelz mcp          Connect an agent. See ${CLIENTS}`].join("\n");
 }
