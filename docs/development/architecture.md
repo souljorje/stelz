@@ -171,7 +171,7 @@ See [Shared MCP tools](../mcp.md) for names, arguments, and handle lifetimes.
 
 Stelz extends `camofox_type` with per-call modes.
 Camoufox's cursor behavior and Stelz's typing behavior are separate mechanisms.
-See [UI typing controls](../ui.md) and the [canonical skill](../../skills/stelz-browser/SKILL.md) for modes and precedence.
+See [UI typing controls](../ui.md) and [Typing](../configuration.md#typing) for modes and precedence.
 
 New controls must use controller checks, the action queue, network checks, and the service time limit.
 An upstream HTTP endpoint alone does not establish Stelz MCP support.

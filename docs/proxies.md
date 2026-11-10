@@ -23,8 +23,7 @@ The UI shows the saved address without its username or password.
 To replace credentials, paste the replacement details or select **Edit details**.
 Saved credentials remain hidden. Enter them again when you change a saved proxy through the separate fields.
 
-For a proxy, require `phase: "ready"`, `verificationRequired: true`, and `verificationStatus: "verified"` before browser work.
-Check `exitIp` against the intended route.
+Agents check the [IP verification fields](configuration.md#ip-verification-fields) before browser work, as the [browser skill](../skills/stelz-browser/SKILL.md#do-a-browser-task) describes.
 For direct networking without an expected IP, `verificationRequired: false` is normal.
 Such a profile does not perform an IP lookup.
 
@@ -158,7 +157,6 @@ See [IP check policy](configuration.md#ip-check-policy) for providers, cache tim
 4. Run `stelz recheck work` after the connection works again.
 5. Require `verificationStatus: "verified"`.
 6. If `phase` remains `paused`, finish manual work before running `stelz resume work`.
-7. Read a fresh snapshot before the next browser action.
 
 For changed credentials, proxy URLs, or expected IP settings, stop `work` before saving the change.
 Start it explicitly afterward. Recheck does not reload a running browser's network configuration.

@@ -40,9 +40,7 @@ A disabled **Start** means the profile has an issue. Inspect its details or Diag
 Overview shows a shared MCP command and the profile ID for tool arguments.
 The command is identical across profiles in the same service directory.
 Register `stelz mcp` once. Copy the stable profile ID into `profileId` when selecting a profile through tools.
-Acquire with `{profileId}` to receive status and a fresh opaque `controlHandle`.
-Use both fields for control actions and browser tools on that connection.
-The UI and status summaries never show handles.
+The UI and status summaries never show control handles.
 
 Use `profile_list({})` to discover profiles after creation or import. New profiles require no new MCP registration.
 See [Connect your agent](clients.md) for setup, or [Shared MCP tools](mcp.md) for the complete contract.

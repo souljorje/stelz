@@ -44,7 +44,7 @@ for (const path of ["CONTRIBUTING.md", "assets/screenshots/stelz-overview.png", 
   if (!paths.includes(path)) throw Error("Archive is missing " + path);
 for (const name of ["agents", "tests", "distribution", "releasing", "architecture", "camofox-patches", "onboarding-acceptance"])
   if (paths.includes(`docs/${name}.md`)) throw Error(`Archive contains obsolete documentation: docs/${name}.md`);
-for (const path of ["dist/cli.js", "dist/supervisor.js", "dist/plugin.js", "dist/ui/index.html", "README.md", "LICENSE", "examples/profiles.json", "skills/stelz-browser/SKILL.md", "skills/stelz-browser/references/recovery.md", ...["README.md", "stelz-logo.svg", "stelz-logo-full.svg", "stelz-logo-full-dark.svg", "favicon.svg"].map(name => "assets/brand/" + name), ...["react", "react-dom", "scheduler", "ibm-plex-mono", "ibm-plex-sans"].map(name => "dist/ui/licenses/" + name + ".txt")]) {
+for (const path of ["dist/cli.js", "dist/supervisor.js", "dist/plugin.js", "dist/ui/index.html", "README.md", "LICENSE", "examples/profiles.json", "skills/stelz-browser/SKILL.md", ...["README.md", "stelz-logo.svg", "stelz-logo-full.svg", "stelz-logo-full-dark.svg", "favicon.svg"].map(name => "assets/brand/" + name), ...["react", "react-dom", "scheduler", "ibm-plex-mono", "ibm-plex-sans"].map(name => "dist/ui/licenses/" + name + ".txt")]) {
   if (!paths.includes(path)) throw Error("Archive is missing " + path);
 }
 for (const path of paths) if (!/^(?:node_modules\/|dist\/|assets\/(?:brand|screenshots)\/|docs\/|examples\/|skills\/|package.json$|README.md$|CONTRIBUTING.md$|CHANGELOG.md$|LICENSE$)/.test(path)) throw Error("Unexpected archive path: " + path);

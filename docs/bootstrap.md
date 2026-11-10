@@ -40,12 +40,10 @@ stelz setup --yes --json
 Setup creates missing service files and preserves existing configuration. Running profiles continue to run.
 `--json` never prompts. On success, stdout contains one JSON report: the browser source, each location dataset, the fingerprint model, and the runtime.
 A runtime directory from an earlier Stelz version blocks setup while profiles run. Report this blocker as pending. Do not stop unrelated profiles.
-Report a profile that shows `restartToUpdate: true`. Restart it only when the user requests it.
+For a profile that shows `restartToUpdate: true`, follow the skill's [rules](../skills/stelz-browser/SKILL.md#rules).
 
 The human first-use guide creates profiles through the UI.
-An agent with registered tools can use `profile_list({})` before selecting or creating a profile.
-Use `profile_create({profileId})` for direct creation or safe reuse without configuration changes.
-Use `profile_start({profileId})` to start it explicitly.
+An agent with registered tools creates and starts profiles as the [browser skill](../skills/stelz-browser/SKILL.md#do-a-browser-task) describes.
 For setup before registration, an agent can use the supported CLI:
 
 ```sh
@@ -67,11 +65,10 @@ Use project scope when available. Give required global registration changes to t
 Use the same CLI path, service directory, and runtime PATH throughout.
 Preserve unrelated client entries. Reuse a matching entry and report conflicts before replacing one.
 The 18 fixed tools serve all profiles. New profiles require no new registration.
-Acquire each profile with `{profileId}`. Retain its fresh `controlHandle` for control and browser calls on that connection.
 
 Complete [Verify the connection](clients.md#verify-the-connection) through the target session's actual MCP tools.
 A saved configuration, tool listing, or separate SDK probe is insufficient to report **Verified**.
-For failures, follow [Troubleshooting](troubleshooting.md) and the skill's [recovery guidance](../skills/stelz-browser/references/recovery.md).
+For failures, follow [Troubleshooting](troubleshooting.md) and the skill's [recovery steps](../skills/stelz-browser/SKILL.md#recover).
 
 ## Report readiness and resume
 
@@ -85,6 +82,5 @@ For failures, follow [Troubleshooting](troubleshooting.md) and the skill's [reco
 Mark incomplete states as pending. Record absolute paths, profile ID, completed steps, and the next action without credentials.
 If the client needs a new session, give the exact connection and verification step to resume.
 Continue from the first incomplete step with the same profile.
-Release control after verification and leave the browser open.
 
 Historical scope and interventions appear in the [onboarding report](development/reports/onboarding-2026-11-05.md).

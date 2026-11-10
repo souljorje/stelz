@@ -132,7 +132,7 @@ Status and list contain controller summaries without handles.
 An existing acquisition blocks another acquisition on the same connection. Release its current handle before acquiring again.
 If the handle is lost, arrange an operator release and reconnect the affected client.
 Do not reuse handles after release, disconnect, browser restart, or forced handoff.
-Never copy handles between connections or profiles. Do not replay an interrupted action automatically.
+Never copy handles between connections or profiles.
 
 ## Another client controls the profile
 
@@ -154,9 +154,7 @@ It does not transfer the previous client's reasoning or conversation history.
 3. Complete authentication or manual work in that window.
 4. Run `stelz resume work` or call `profile_resume({profileId, controlHandle})` from the controller.
 5. Require `phase: "ready"`.
-6. Read a fresh snapshot before the next browser action.
 
-Do not automate authentication challenges.
 Showing a window does not pause actions. Pause before manual work.
 If resume fails verification, use the next procedure. Release does not resume a paused profile.
 
@@ -190,7 +188,6 @@ Do not delete the fingerprint or native data to repair location alignment.
 4. Run `stelz recheck work`.
 5. Require `verificationStatus: "verified"` and the intended `exitIp`.
 6. If `phase` is `paused`, complete manual work before running `stelz resume work`.
-7. Read a fresh snapshot before the next action.
 
 A valid unexpected IP fails immediately. Another provider does not override that mismatch.
 For a missing secret, invalid URL, changed credentials, or incorrect expected IP, stop `work` before editing.
@@ -217,13 +214,11 @@ A scroll in a tab that is not selected can exceed the deadline, especially when 
 4. Require `phase: "stopped"`. Inspect an unclean lifetime if stopping fails.
 5. Run `stelz start work`.
 6. Reacquire control from the intended client.
-7. Read a fresh snapshot before deciding the next action.
 
 The service bounds an IP check and each short browser action to 60 seconds, and typing to 3.5 minutes.
 A timed-out operation can remain active. The service blocks further browser actions for that lifetime.
 Recheck, release, or resume cannot clear this terminal block.
 An MCP client timeout does not cancel the service operation.
-Do not replay an interrupted click, submission, or partially entered text automatically.
 
 ## Inspect an unclean lifetime
 

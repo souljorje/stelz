@@ -27,7 +27,7 @@ For a custom Camoufox executable, see [How setup finds the browser](getting-star
 
 Install the canonical browser skill through a directory symlink. Keep the package's `docs/` and `skills/` together.
 Reuse a matching existing link. Preserve conflicting files, directories, and dangling links for review.
-Do not copy the skill alone or replace another installation.
+Do not replace another installation.
 
 ## Codex
 
@@ -119,10 +119,7 @@ Copy the printed loopback URL. Ask your agent:
 > Release control and leave the browser open. Acquire again with a fresh handle.
 > Check the same page and result, then release again.
 
-The agent must use `profile_list({})`, `profile_status({profileId: "work"})`, and `profile_acquire({profileId: "work"})`.
-It must pass `profileId` and the returned `controlHandle` to actual `camofox_*` tools and `profile_release`.
-Each successful acquisition returns a fresh handle for that connection, profile, and browser lifetime.
-List and status return controller summaries without handles.
+The agent must use its actual `profile_*` and `camofox_*` tools, as the [browser skill](../skills/stelz-browser/SKILL.md#do-a-browser-task) describes.
 See [Shared MCP tools](mcp.md) for the complete contract.
 Do not substitute a separate SDK script for the agent's interaction.
 Successful verification leaves the same browser **Ready**, without a controller, and the demonstration page still open.
@@ -138,8 +135,6 @@ Reuse the same registration. One connection can acquire both `work` and `researc
 Different agents can control separate profiles concurrently. Each profile permits one controller and has its own action queue.
 There are no agent identities or agent count limits.
 
-Before handing `work` to another agent, call `profile_release` with its profile ID and current handle.
-Disconnect also releases control while preserving browsers and pages.
+The first agent releases `work` before another agent takes over, as the [browser skill](../skills/stelz-browser/SKILL.md#do-a-browser-task) requires.
 The second agent acquires `work` through its existing shared connection and receives a new handle.
-It checks existing tabs and reads a fresh snapshot before an action.
 Keep the browser running throughout. Stopping it would test saved-state restoration instead of a live handoff.

@@ -1,99 +1,64 @@
 ---
 name: stelz-browser
-description: Control persistent browser profiles through Stelz MCP tools, with exclusive control, verified readiness, and human authentication.
+description: Do browser tasks in persistent Stelz profiles through the Stelz MCP tools (`profile_*` and `camofox_*`), with exclusive control, verified readiness, and human authentication. Also use it to install Stelz when a user sends a link to this skill.
 ---
 
-# Instructions for agents
+# Stelz browser
 
-Register `stelz mcp` once. Each connection can control multiple profiles through explicit tool arguments.
-Each profile has one browser instance, one controller, and one action queue. Separate profiles can execute actions concurrently.
-See [Shared MCP tools](../../docs/mcp.md) for the tool contract.
+Stelz runs persistent browser profiles. You control them through the tools of one `stelz mcp` connection.
+[Shared MCP tools](../../docs/mcp.md) is the tool contract, including the control-handle rules.
+Resolve relative links against this file's URL, or against the real path of an installed skill directory.
 
-## Setup
+## Install
 
-A user can give you a link to this file and ask you to install it. That request means: install Stelz and connect its MCP tools.
-Do not copy this file alone. Its links need the package's `docs/` and `references/` folders.
-For installation, missing profiles, or missing tools, follow [Agent setup](../../docs/bootstrap.md). Use profile `work` unless the user names another.
-Resolve relative links against this file's URL, or against the real path of a symlinked skill directory.
-After installation, use the installed copy of this skill. It matches the installed version.
-Reuse existing state and client settings. Check actual tool availability after MCP registration.
+When a user sends a link to this file and asks you to install it, install Stelz and connect its MCP tools. Do not copy this file.
+Follow [Agent setup](../../docs/bootstrap.md). After installation, use the installed copy of this skill. It matches the installed version.
 
-Missing runtime or location data requires `stelz setup`. The operator runs it.
-When the operator allows downloads, you can run `stelz setup --yes --json` in a terminal.
-Never run setup through MCP. MCP calls do not download prerequisites.
+Also use Agent setup when the `stelz` command, a profile, or the MCP tools are missing.
+Run `stelz setup` only in a terminal. MCP tools do not download prerequisites.
 
-## Procedure
+## Do a browser task
 
-1. Call `profile_list({})` for the current catalog.
-2. Select the intended stable profile ID.
-3. Call `profile_create({profileId})` if that profile is missing. Creation never reconfigures an existing profile.
-4. Call `profile_status({profileId})`.
-5. Call `profile_start({profileId})` if that browser is stopped.
-6. Read the `profile_start` result, or call `profile_status({profileId})`, and apply the readiness gate below.
-7. Call `profile_acquire({profileId})`. Retain the returned `controlHandle` with that profile ID.
-8. Startup opens one blank page. Use `camofox_list_tabs` to find its `tabId`, then navigate it.
-9. Read a fresh `camofox_snapshot` before you select an action. Use its element references for clicks and typing.
-10. Check the result with a fresh snapshot.
-11. Call `profile_release({profileId, controlHandle})` when finished or before handoff. Leave the browser open.
+1. Call `profile_list({})`. Select the profile ID that the task needs.
+2. If that profile is missing, call `profile_create({profileId})`.
+3. If its browser is stopped, call `profile_start({profileId})`.
+4. Check readiness in the start result or in `profile_status({profileId})`:
+   - `phase` is `"ready"`.
+   - If `verificationRequired` is true, `verificationStatus` is `"verified"` and `exitIp` agrees with the intended route.
 
-Readiness gate:
+   If a check fails, do not acquire. Report `location` to the user and go to [Recover](#recover).
+5. Call `profile_acquire({profileId})`. Keep the returned `controlHandle` with its profile ID. Never write it in reports, configuration, or handoff notes.
+   Send both fields in each later call for that profile.
+6. Call `camofox_list_tabs` to find the startup page. Navigate that tab.
+7. Before each action, read a fresh `camofox_snapshot`. Use its element references to click and type.
+8. After each action, read a fresh snapshot to check the result.
+9. When you finish, or before another agent takes over, call `profile_release({profileId, controlHandle})`. Leave the browser open.
 
-- Require `phase: "ready"`.
-- When `verificationRequired` is true (a proxy or an expected IP), require `verificationStatus: "verified"`. Check `exitIp` against the intended route.
-- Do not acquire a failed or unverified profile. Report `location` and follow [Recovery](references/recovery.md).
+## Rules
 
-## Control rules
+- Never repeat an action that may have reached the page or that stopped before it finished. Read a fresh snapshot first.
+- If another controller holds the profile, do not start another browser or create another profile. Ask the operator to release it.
+- For changes that the tools cannot make, ask the operator to use the CLI or UI.
+- Before you type long text, read [Typing](../../docs/configuration.md#typing) to select a `camofox_type` mode.
+- Tell the operator about location warnings in `location.evidence`. Never claim a physical location from status, and never bypass a location blocker. See [Managed location data](../../docs/configuration.md#managed-location-data).
+- If status shows `restartToUpdate: true`, tell the user. Restart only when the user asks. Release before the restart, and acquire again after it. See [Restart to update](../../docs/troubleshooting.md#restart-to-update).
 
-Include `profileId` and its current `controlHandle` in every control and browser call, alongside canonical Camofox arguments.
-Follow the handle rules in [Control handles](../../docs/mcp.md#control-handles). Never put handles in configuration, reports, or handoff notes.
-Acquisition never starts a browser. Start remains explicit.
-Use the CLI or UI for configuration, proxies, deletion, import, stop, recovery, and forced handoff.
+## Human authentication
 
-An acquisition fails when another controller holds the profile, or when this connection has an active or pending acquisition.
-Release your own handle first. For another controller, do not start another browser. Ask the operator for a release or a forced handoff.
-Never replay an uncertain or interrupted action. Read a fresh snapshot first.
-For orphaned state, IP failures, or service deadlines, follow [Recovery](references/recovery.md) before another action.
+1. When a page needs a person, for example to sign in, call `profile_pause({profileId, controlHandle})`.
+2. Tell the operator what to do in that browser window. [Find a profile's windows](../../docs/ui.md#find-a-profiles-windows) tells them how to find it.
+3. Wait for the operator. Then call `profile_resume({profileId, controlHandle})`.
+4. Read a fresh snapshot before the next action.
 
-`camofox_evaluate` and `camofox_import_cookies` are unavailable.
-`camofox_type` accepts a per-call `mode`. Omit it to use the profile default.
-The default `keyboard` mode uses paced typing with occasional corrected typos. One call can take up to 3 minutes. Text that needs longer fails before the field changes; use `balanced` or `instant` for it. See [Typing](../../docs/configuration.md#typing).
+Do not try to bypass an authentication challenge.
 
-## Location
+## Recover
 
-Read `location.evidence` in status: `source`, the build date `builtAt`, and `comparison.result`.
-The result is `corroborated`, `uncorroborated`, or `conflicting`.
-Under the default `warn` policy, a conflict or stale data is a warning. Report it to the operator.
-`verified` means that the exit-IP check passed and the browser applies the prepared timezone and language.
-It does not prove a physical location. Never claim one.
-Never bypass a location blocker or change a running browser's location settings.
+After an error, call `profile_status({profileId})` before another browser action. Then use the procedure for the problem:
 
-`profile_recheck` repeats the browser IP check. It needs the handle and a running browser.
-A successful recheck keeps a pause. If the profile is paused, call `profile_resume` afterwards.
+- [IP verification failed](../../docs/troubleshooting.md#ip-verification-failed). After the operator repairs the route, call `profile_recheck({profileId, controlHandle})`.
+- [Missing or stale control handle](../../docs/troubleshooting.md#missing-or-stale-control-handle).
+- [Browser action or IP check timed out](../../docs/troubleshooting.md#browser-action-or-ip-check-timed-out).
+- Other problems: [Troubleshooting](../../docs/troubleshooting.md).
 
-## Authentication and manual work
-
-1. Call `profile_pause({profileId, controlHandle})` when authentication requires a human.
-2. Tell the operator what to do in the same window.
-3. Wait for the operator's result.
-4. Call `profile_resume({profileId, controlHandle})`.
-5. Read a fresh snapshot before the next action.
-
-Find the window through the local UI's profile icon or **Browser windows** list.
-Check its full profile ID in the title. Showing it preserves control and does not pause actions.
-Do not bypass authentication challenges.
-
-## Updates
-
-A profile that shows `restartToUpdate: true` keeps working on its old runtime. Report it.
-Restart it only on an explicit operator or user request.
-`stelz restart ID` closes the browser and its pages and invalidates handles. Release first, and acquire again afterwards.
-
-## Handoff
-
-Release explicitly before a planned handoff. Disconnect also releases control without stopping browsers.
-Release and disconnect preserve pages, browser state, and saved fingerprint settings.
-The next controller acquires a new handle. Conversation and reasoning history stay with the previous client.
-An explicit lifecycle command or closing the browser window stops the profile.
-Preserve profile IDs, saved data, and secret references.
-
-This skill is optional client guidance. Stelz does not load skills.
+Diagnostics, stop, and recovery are operator actions. Never send signals to processes or work around uncertain process ownership.

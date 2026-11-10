@@ -128,7 +128,6 @@ The UI saves a profile preference for future actions without a browser restart.
 A call override applies only to that call.
 Typing retains the tab lock until it completes.
 A timeout blocks further actions and requires an explicit stop and start of that profile.
-For incomplete input without a timeout, read a fresh snapshot before another action.
 The service does not replay partially entered text.
 
 ## IP verification fields
