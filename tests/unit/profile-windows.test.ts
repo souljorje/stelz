@@ -150,6 +150,11 @@ test("startup geometry waits for complete fresh evidence without extending its d
   f.exchange({ instanceId: "lifetime-a", sampledAt: 7_000, windows: [window] });
   f.exchange({ instanceId: "lifetime-a", sampledAt: 10_000, windows: [window] });
   expect(await incomplete).toMatchObject({ zoom: 1, sampledAt: 10_000 });
+  // A caller that brackets a page read accepts only a sample taken after that read.
+  const later = f.observeStartup(token, 8000, 10_000);
+  f.exchange({ instanceId: "lifetime-a", sampledAt: 9_999, windows: [window] });
+  f.exchange({ instanceId: "lifetime-a", sampledAt: 10_000, windows: [window] });
+  expect(await later).toMatchObject({ sampledAt: 10_000 });
   const stale = f.observeStartup(token);
   f.advance(8001);
   f.exchange({ instanceId: "lifetime-a", sampledAt: 10_000, windows: [window] });

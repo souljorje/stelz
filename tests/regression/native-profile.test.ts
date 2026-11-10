@@ -126,6 +126,35 @@ test("fingerprint verification measures the original blank page without extra pa
   } finally { f.close(); }
 });
 
+test("startup geometry is read again while the native window changes, and a stable mismatch fails", async () => {
+  const f = fixture();
+  try {
+    const binary = join(f.directory, "engine");
+    writeFileSync(binary, "engine");
+    writeFileSync(join(f.directory, "running.json"), JSON.stringify({ instanceId: "attempt-a", configurationHash: "a".repeat(64), serverPid: process.pid }));
+    const prepared = applyFingerprint({ env: { CAMOU_CONFIG_1: JSON.stringify(f.identity) }, firefoxUserPrefs: {} }, f.directory, binary, false,
+      { profileId: "profile-a", attemptId: "attempt-a", browserInstanceId: "browser-a", configurationHash: "a".repeat(64), serverPid: process.pid });
+    const context = await f.start({ headless: false, executablePath: binary }, { viewport: null });
+    // The page always reports a 740-pixel viewport. Each list gives the native viewport per sample.
+    const verify = (heights: number[]) => {
+      const notBefore: Array<number | undefined> = [];
+      const done = verifyProfileFingerprint(context, prepared, async (_token, _timeout, after) => {
+        notBefore.push(after);
+        return { ...f.windowObservation(), viewportHeight: heights[Math.min(notBefore.length, heights.length) - 1]! };
+      }, "darwin");
+      return { notBefore, done };
+    };
+    const settling = verify([741, 740, 740]);
+    await settling.done;
+    assert.equal(settling.notBefore.length, 3);
+    assert.equal(settling.notBefore[0], undefined);
+    assert.ok(settling.notBefore.slice(1).every(time => typeof time === "number"));
+    const stable = verify([741]);
+    await assert.rejects(stable.done, /page geometry differs/);
+    assert.equal(stable.notBefore.length, 2);
+  } finally { f.close(); }
+});
+
 test("normal-window equality, unknown mode, and disagreement with privileged geometry block admission", () => {
   const page = { innerWidth: 1200, innerHeight: 740, outerWidth: 1200, outerHeight: 800,
     devicePixelRatio: 2, visualScale: 1, fullscreen: false };

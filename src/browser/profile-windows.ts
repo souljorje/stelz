@@ -67,16 +67,18 @@ export function createProfileWindows(options: {
   }
   prepare();
   let windows: ProfileWindow[] = [], updatedAt: number | undefined, error: string | null = null;
-  let startup: { token: string; startedAt: number; deadline: number; resolve(value: StartupWindowObservation): void; reject(error: Error): void } | undefined;
+  let startup: { token: string; startedAt: number; deadline: number; notBefore: number;
+    resolve(value: StartupWindowObservation): void; reject(error: Error): void } | undefined;
   let selecting = false;
   let pending: { id: string; windowId: number; tabId?: number; delivered: boolean; resolve(): void; reject(error: Error): void } | undefined;
-  function observeStartup(token: string, timeoutMs = 8000): Promise<StartupWindowObservation> {
+  // A caller that brackets a page read passes notBefore, so the sample follows that read.
+  function observeStartup(token: string, timeoutMs = 8000, notBefore = -Infinity): Promise<StartupWindowObservation> {
     if (options.phase() !== "starting" || startup || !/^stelz-startup:[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/.test(token))
       throw Error("Startup window observation is unavailable.");
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => { startup = undefined; reject(Error("Fresh startup window evidence is unavailable.")); }, timeoutMs);
       const startedAt = now();
-      startup = { token, startedAt, deadline: startedAt + timeoutMs, resolve: value => { clearTimeout(timer); startup = undefined; resolve(value); },
+      startup = { token, startedAt, deadline: startedAt + timeoutMs, notBefore, resolve: value => { clearTimeout(timer); startup = undefined; resolve(value); },
         reject: error => { clearTimeout(timer); startup = undefined; reject(error); } };
     });
   }
@@ -123,7 +125,7 @@ export function createProfileWindows(options: {
         // The extension omits zoom when the window changes between its two reads.
         // Wait for complete evidence within the original deadline; never admit a partial or stale sample.
         else if (typeof value.sampledAt === "number" && Number.isFinite(value.sampledAt) && value.sampledAt <= receivedAt &&
-            receivedAt - value.sampledAt <= 2000 && value.sampledAt >= pendingStartup.startedAt - 2000 &&
+            receivedAt - value.sampledAt <= 2000 && value.sampledAt >= pendingStartup.startedAt - 2000 && value.sampledAt >= pendingStartup.notBefore &&
             positive(window.width) && positive(window.height) && positive(tab.width) && positive(tab.height) && positive(tab.zoom))
           pendingStartup.resolve({ instanceId, windowId: window.id, tabId: tab.id, state: window.state,
           outerWidth: window.width, outerHeight: window.height, viewportWidth: tab.width, viewportHeight: tab.height,

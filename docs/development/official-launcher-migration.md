@@ -33,7 +33,7 @@ Preserve profile IDs, data paths, secret references, and saved valid pins. Do no
 
 Every declared supported macOS class must appear in the Phase 3 matrix and produce a usable candidate under its required controls. An all-rejected corpus does not pass. A rejected or unresolved mandatory candidate must not be admitted. Keep existing valid pin bytes unchanged and use the same engine hash. Under fixed conditions, core observables, schemas, controller/queue ownership, and network behavior must have zero unexplained differences. Native canvas variation is allowed.
 
-The declared strata are fresh direct, fresh proxy, saved-valid direct, and saved-valid proxy on the paired engine. Native verification in Phase 3 covers at least three lifetimes per supported class. Window sizes are runtime values. Startup requires the page to report the real window exactly.
+The declared strata are fresh direct, fresh proxy, saved-valid direct, and saved-valid proxy on the paired engine. Native verification in Phase 3 covers at least three lifetimes per supported class. Window sizes are runtime values. Startup requires the page to report the real window exactly. Native samples before and after each page read must agree; while they differ, only the geometry is read again within the same deadline.
 
 The Phase 2 corpus has at least 500 candidates. Reconcile accepted, rejected, and unresolved counts to the total. The exact validator replay must reproduce the result. Every rejected or unresolved candidate is accounted for in the mandatory admission decision.
 

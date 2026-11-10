@@ -185,9 +185,14 @@ async function restoreStartupTitle(page: Page, token: string, previous: string) 
   } finally { if (timer) clearTimeout(timer); }
 }
 
+const sameWindow = (a: StartupWindowObservation, b: StartupWindowObservation) =>
+  (["instanceId", "windowId", "tabId", "state", "outerWidth", "outerHeight", "viewportWidth", "viewportHeight", "zoom"] as const)
+    .every(key => a[key] === b[key]);
+
 // Observe the borrowed startup page without navigating it or creating a window.
 export async function verifyProfileFingerprint(context: Context, prepared: ReturnType<typeof applyFingerprint>,
-  observeWindow: (token: string) => Promise<StartupWindowObservation>, platform: NodeJS.Platform = process.platform) {
+  observeWindow: (token: string, timeoutMs?: number, notBefore?: number) => Promise<StartupWindowObservation>,
+  platform: NodeJS.Platform = process.platform) {
   const record = originalContext(context);
   if (record.options.headless !== false || record.options.viewport !== null)
     throw Error("The browser display mode is unknown; fingerprint admission is blocked.");
@@ -206,8 +211,30 @@ export async function verifyProfileFingerprint(context: Context, prepared: Retur
       if (location.href !== "about:blank") throw Error("Startup page navigated.");
       document.title = value;
     }, token);
-    const nativeWindow = await observeWindow(token);
-    if (nativeWindow.instanceId !== prepared.owner.browserInstanceId) throw Error("Startup window evidence belongs to another browser instance.");
+    // The extension and the page read geometry at different times, and a startup window can still change.
+    // Bracket each page read with native samples. While they differ, read only the geometry again.
+    // A stable mismatch fails the exact check. The whole exchange keeps one deadline.
+    const deadline = Date.now() + 8000;
+    const observe = (notBefore?: number) => {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) throw Error("The startup window did not settle before the deadline.");
+      return observeWindow(token, remaining, notBefore);
+    };
+    const readGeometry = () => page.evaluate(() => ({ identity: {
+      "window.innerWidth": window.innerWidth, "window.innerHeight": window.innerHeight,
+      "window.outerWidth": window.outerWidth, "window.outerHeight": window.outerHeight, "window.devicePixelRatio": window.devicePixelRatio,
+    }, geometry: { visualScale: window.visualViewport?.scale ?? null, fullscreen: document.fullscreenElement !== null } }));
+    let before = await observe();
+    if (before.instanceId !== prepared.owner.browserInstanceId) throw Error("Startup window evidence belongs to another browser instance.");
+    let pageGeometry = await readGeometry(), nativeWindow = await observe(Date.now());
+    while (!sameWindow(before, nativeWindow)) {
+      before = nativeWindow;
+      pageGeometry = await readGeometry(); nativeWindow = await observe(Date.now());
+    }
+    const geometryIdentity = pageGeometry.identity;
+    validateStartupGeometry({ innerWidth: geometryIdentity["window.innerWidth"], innerHeight: geometryIdentity["window.innerHeight"],
+      outerWidth: geometryIdentity["window.outerWidth"], outerHeight: geometryIdentity["window.outerHeight"],
+      devicePixelRatio: geometryIdentity["window.devicePixelRatio"], ...pageGeometry.geometry }, nativeWindow, platform);
     const observed = await page.evaluate(() => {
       const gl = (kind: "webgl" | "webgl2") => {
         const canvas = document.createElement("canvas");
@@ -230,15 +257,11 @@ export async function verifyProfileFingerprint(context: Context, prepared: Retur
         "navigator.deviceMemory": (navigator as Navigator & { deviceMemory?: number }).deviceMemory,
         "screen.width": screen.width, "screen.height": screen.height, "screen.availWidth": screen.availWidth,
         "screen.availHeight": screen.availHeight, "screen.colorDepth": screen.colorDepth, "screen.pixelDepth": screen.pixelDepth,
-        "window.innerWidth": window.innerWidth, "window.innerHeight": window.innerHeight,
-        "window.outerWidth": window.outerWidth, "window.outerHeight": window.outerHeight,
-        "window.devicePixelRatio": window.devicePixelRatio,
-      }, geometry: { visualScale: window.visualViewport?.scale ?? null, fullscreen: document.fullscreenElement !== null },
-        webgl: gl("webgl"), webgl2: gl("webgl2") };
+      }, webgl: gl("webgl"), webgl2: gl("webgl2") };
     });
     if (record.closed || record.context !== context || page.isClosed() || page.url() !== "about:blank")
       throw Error("The startup page changed during fingerprint verification.");
-    const identity: Record<string, unknown> = { ...observed.identity };
+    const identity: Record<string, unknown> = { ...observed.identity, ...geometryIdentity };
     for (const key of ["navigator.userAgent", "navigator.platform"])
       if (typeof identity[key] !== "string" || !identity[key]) throw Error(`Runtime identity evidence is missing: ${key}.`);
     for (const key of ["navigator.hardwareConcurrency", "screen.width", "screen.height", "screen.availWidth", "screen.availHeight",
@@ -249,9 +272,6 @@ export async function verifyProfileFingerprint(context: Context, prepared: Retur
     if ((identity["screen.availWidth"] as number) > (identity["screen.width"] as number) ||
         (identity["screen.availHeight"] as number) > (identity["screen.height"] as number) ||
         identity["screen.colorDepth"] !== identity["screen.pixelDepth"]) throw Error("Runtime screen or window geometry is inconsistent.");
-    validateStartupGeometry({ innerWidth: identity["window.innerWidth"] as number, innerHeight: identity["window.innerHeight"] as number,
-      outerWidth: identity["window.outerWidth"] as number, outerHeight: identity["window.outerHeight"] as number,
-      devicePixelRatio: identity["window.devicePixelRatio"] as number, ...observed.geometry }, nativeWindow, platform);
     for (const [prefix, gl] of [["webGl:", observed.webgl], ["webGl2:", observed.webgl2]] as const) {
       if (!gl.available) continue;
       for (const key of ["vendor", "renderer", "version"] as const) if (gl[key] !== undefined) identity[prefix + key] = gl[key];
