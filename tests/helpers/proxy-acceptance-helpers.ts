@@ -8,25 +8,25 @@ export function assert(value: unknown, message: string): asserts value {
   if (!value) throw Error(message);
 }
 
+function proxyEndpoint(env: Record<string, string | undefined>, urlName: string, ipName: string): ProxyEndpoint {
+  let url: URL;
+  try {
+    const raw = env[urlName];
+    if (!raw || /[\s\\]/.test(raw)) throw Error();
+    url = new URL(raw);
+    if (url.protocol !== "http:" || !url.hostname || url.pathname !== "/" || url.search || url.hash) throw Error();
+    for (const field of [url.username, url.password]) {
+      if (/[\x00-\x1f\x7f]/.test(decodeURIComponent(field))) throw Error();
+    }
+  } catch { throw Error(`Set a valid HTTP proxy in ${urlName}. Private inputs are hidden.`); }
+  const expectedIP = env[ipName] || undefined;
+  assert(!expectedIP || !!isIP(expectedIP) && !expectedIP.includes("%"), `${ipName} must be an IPv4 or IPv6 address. Private inputs are hidden.`);
+  return { url, expectedIP };
+}
+
 export function proxyEndpoints(env: Record<string, string | undefined>): Pair<ProxyEndpoint> {
-  const endpoints = [
-    ["PROXY_TEST_URL", "PROXY_TEST_EXPECTED_IP"],
-    ["PROXY_TEST_SECOND_URL", "PROXY_TEST_SECOND_EXPECTED_IP"],
-  ].map(([urlName, ipName]) => {
-    let url: URL;
-    try {
-      const raw = env[urlName!];
-      if (!raw || /[\s\\]/.test(raw)) throw Error();
-      url = new URL(raw);
-      if (url.protocol !== "http:" || !url.hostname || url.pathname !== "/" || url.search || url.hash) throw Error();
-      for (const field of [url.username, url.password]) {
-        if (/[\x00-\x1f\x7f]/.test(decodeURIComponent(field))) throw Error();
-      }
-    } catch { throw Error(`Set a valid HTTP proxy in ${urlName}. Private inputs are hidden.`); }
-    const expectedIP = env[ipName!] || undefined;
-    assert(!expectedIP || !!isIP(expectedIP) && !expectedIP.includes("%"), `${ipName} must be an IPv4 or IPv6 address. Private inputs are hidden.`);
-    return { url, expectedIP };
-  }) as unknown as Pair<ProxyEndpoint>;
+  const endpoints = [proxyEndpoint(env, "PROXY_TEST_URL", "PROXY_TEST_EXPECTED_IP"),
+    proxyEndpoint(env, "PROXY_TEST_SECOND_URL", "PROXY_TEST_SECOND_EXPECTED_IP")] as const;
   const identity = ({ url }: ProxyEndpoint) => JSON.stringify([
     url.hostname, url.port || "80", decodeURIComponent(url.username), decodeURIComponent(url.password),
   ]);
@@ -34,6 +34,11 @@ export function proxyEndpoints(env: Record<string, string | undefined>): Pair<Pr
   assert(!endpoints[0].expectedIP || endpoints[0].expectedIP !== endpoints[1].expectedIP,
     "The two expected proxy exit IPs must differ.");
   return endpoints;
+}
+
+/** Location acceptance needs one route. A supplied second route must still be valid and distinct. */
+export function locationProxyEndpoints(env: Record<string, string | undefined>): readonly ProxyEndpoint[] {
+  return env.PROXY_TEST_SECOND_URL ? proxyEndpoints(env) : [proxyEndpoint(env, "PROXY_TEST_URL", "PROXY_TEST_EXPECTED_IP")];
 }
 
 // Apply this to every output string, including strings inside report objects.

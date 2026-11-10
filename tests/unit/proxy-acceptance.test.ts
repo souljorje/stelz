@@ -4,7 +4,7 @@ import { createServer, connect } from "node:net";
 import { once } from "node:events";
 import {
   assertDistinctExits, assertFreshVerificationCache, assertNoFallback, assertProxyRoute, assertRoutingCoverage,
-  proxyEndpoints, proxyRedactor, proxyTestConfiguration, PROXY_PROFILE_IDS,
+  locationProxyEndpoints, proxyEndpoints, proxyRedactor, proxyTestConfiguration, PROXY_PROFILE_IDS,
   type ProxyLifetime,
 } from "../helpers/proxy-acceptance-helpers.ts";
 import { assertRelayTraffic, networkProbe, probeExit, proxyRelay } from "../helpers/proxy-network-fixture.ts";
@@ -21,6 +21,9 @@ test("both URL variables are required; expected IP pins are optional and indepen
   const endpoints = proxyEndpoints({ ...inputs, PROXY_TEST_SECOND_EXPECTED_IP: exits[1] });
   expect(endpoints[0].expectedIP).toBeUndefined(); expect(endpoints[1].expectedIP).toBe(exits[1]);
   expect(proxyEndpoints({ ...inputs, PROXY_TEST_EXPECTED_IP: exits[0] })[0].expectedIP).toBe(exits[0]);
+  // Location acceptance accepts one route, and checks a supplied second route.
+  expect(locationProxyEndpoints({ PROXY_TEST_URL: inputs.PROXY_TEST_URL })).toHaveLength(1);
+  expect(locationProxyEndpoints(inputs)).toHaveLength(2);
 });
 
 test("reject unsafe URLs and invalid credentials without including either secret", () => {

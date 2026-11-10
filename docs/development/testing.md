@@ -299,7 +299,7 @@ Advisory warnings do not fail the run. Rebrowser's partial coverage remains expl
 
 ## Installed-package acceptance
 
-For location readiness, run the saved archive with two private proxy routes:
+For location readiness, run the saved archive with one or two private proxy routes:
 
 ```sh
 PROXY_TEST_ENV=/absolute/path/to/private.env CAMOUFOX_EXECUTABLE=/absolute/path/to/camoufox bun run test:location --archive /absolute/path/to/candidate.tgz
@@ -307,7 +307,7 @@ PROXY_TEST_ENV=/absolute/path/to/private.env CAMOUFOX_EXECUTABLE=/absolute/path/
 
 This check reuses the isolated package installer and existing proxy relays.
 It checks setup reuse, preflight, browser location, permissions, native storage, fingerprints, and scrolling across three lifetimes for each of three profiles.
-The first lifetime uses a fresh profile; the next two preserve its saved pin. The third profile reuses the first supplied proxy route through its own relay.
+The first lifetime uses a fresh profile; the next two preserve its saved pin. Each profile has its own relay. Profiles take the supplied routes in turn, so one route serves all three.
 It records proxy destinations and restored fixture requests before Ready. These observations do not establish complete traffic isolation.
 The report states whether the supplied exits cover different timezones. Same-zone exits do not establish cross-zone coverage.
 Only temporary test profiles are stopped. Private proxy credentials stay outside reports and Git.
