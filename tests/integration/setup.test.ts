@@ -55,6 +55,12 @@ function createTabState(page) {
   ownPage(page);
   return { page };
 }
+function healthProbe() {
+setInterval(async () => {
+  // stelz: the probe context opens a visible window, and Stelz refuses a replacement browser.
+  return;
+}, 60_000);
+}
 function reapOrphans(session, contextPages, registered, isPageLeased) {
   for (const page of contextPages) {
       // stelz: a page that a person or a website opened is not an orphan.

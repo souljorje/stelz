@@ -123,7 +123,7 @@ diff --git a/postinstall.js b/postinstall.js
 deleted file mode 100644
 index 488077bfa09b23c4d6ad68a946a5a16be12d7c2d..0000000000000000000000000000000000000000
 diff --git a/server.js b/server.js
-index 4a737caba128a8f6a22f789ab9682167660a0589..8b935ea7ac7248c16acbc0cfe51f71a5611939cf 100644
+index 4a737caba128a8f6a22f789ab9682167660a0589..a947db30362a8a4e0fa578fb1bb669413192470d 100644
 --- a/server.js
 +++ b/server.js
 @@ -1,5 +1,4 @@
@@ -456,3 +456,13 @@ index 4a737caba128a8f6a22f789ab9682167660a0589..8b935ea7ac7248c16acbc0cfe51f71a5
          reaped++;
          page.removeAllListeners();
          page.close({ runBeforeUnload: false }).catch(() => {});
+@@ -7066,6 +7088,9 @@ setInterval(() => {
+ 
+ // Active health probe -- detect hung browser even when isConnected() lies
+ setInterval(async () => {
++  // stelz: the probe context opens a visible window, and Stelz refuses a replacement browser.
++  // A hung browser blocks its lifetime through the service action deadline instead.
++  return;
+   if (!browser || healthState.isRecovering) return;
+   const timeSinceSuccess = Date.now() - healthState.lastSuccessfulNav;
+   // Skip probe if operations are in flight AND last success was recent.

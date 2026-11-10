@@ -55,6 +55,9 @@ export function assertBundledPatches(upstream: string) {
   assertLocationPatches(upstream);
   assertClickPatches(upstream);
   assertReaperPatches(upstream);
+  // The health probe opens a visible window and can only end in a refused replacement browser.
+  check(join(upstream, "server.js"), "setInterval(async () => {\n  if (!browser || healthState.isRecovering) return;",
+    "setInterval(async () => {\n  // stelz: the probe context opens a visible window, and Stelz refuses a replacement browser.\n");
   check(join(upstream, "server.js"), "from 'camoufox-js'", "import { Camoufox, launchOptions, VirtualDisplay } from 'camoufox';");
   check(join(upstream, "server.js"), "const externalCamoufox = getExternalCamoufoxLaunch();",
     "const externalCamoufox = null; // stelz: the plugin passes the executable to the official launcher.");
