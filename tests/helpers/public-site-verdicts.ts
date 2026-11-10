@@ -197,6 +197,7 @@ function binary(field: Field): "clear" | "detected" | "unknown" {
   const label = key(field.label);
   if (["no", "false", "not detected", "not a bot", "you are not a bot", `${label} not detected`, `no ${label} detected`].includes(value)) return "clear";
   if (["yes", "true", "detected", "you are a bot", "bot detected", "automation detected", "tampering detected", `${label} detected`].includes(value)) return "detected";
+  if (field.label === "VPN" && /^you are using a vpn(?: 🌐)?(?: \(timezone mismatch\))?$/.test(value)) return "detected";
   if (field.label === "Proxy Detection" && /^your ip is used by (?:a |an )?(?:residential|public|datacenter|data center|mobile) proxy(?: \(confidence: (?:low|medium|high), ml score: [\d.]+\))?$/.test(value)) return "detected";
   return "unknown";
 }
