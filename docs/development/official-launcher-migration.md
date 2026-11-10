@@ -101,11 +101,15 @@ The final archive SHA-256 is `1df6e2b1f32d83c361eb4385ed140b92efec516380832abf65
 
 Phase 6 must still check two distinct proxy exits and location coverage across timezones. Both need a second proxy route.
 
-Known issue: the integration step after a crashed client sometimes times out in `camofox_scroll` (`tests/browser/integration.ts:109-115`).
-The client opens a second tab, pauses and resumes, and then scrolls the original background tab. About one run in four timed out after 30 seconds. The final gate did not.
-The issue predates this migration. Stelz does not replay the uncertain action. Its root cause is unknown.
-These checks did not reproduce it: a hidden window, 15 background-tab rounds, the location suite, and 11 runs with protocol tracing.
-Investigate it separately. Add timestamps around the bring-to-front and wheel calls of the scroll route, then repeat the integration suite until it fails.
+Known issue, accepted for this release: `camofox_scroll` on a tab that is not selected can exceed the 30-second action deadline.
+Stelz then blocks browser actions for that lifetime, so the profile needs a restart. Stelz does not replay the uncertain action.
+The integration step after a crashed client shows it (`tests/browser/integration.ts:109-115`). The client opens a second tab, pauses and resumes, and then scrolls the original tab.
+It failed in about one run in four, and in one of eight rounds with Playwright API timing on 2026-11-10.
+Those timings show two slow waits inside the browser's automation layer. Selecting the tab (`bringToFront`, which waits for `TabSwitchDone`) took up to 24.5 seconds.
+The wheel's compositor flush (`apz-repaints-flushed`) took up to 8.3 seconds. A selected tab scrolled in 7 ms. The timeout occurs when both waits together exceed 30 seconds.
+Both waits need the window to paint. The likely cause, not yet verified, is a browser window that another window covers.
+`TabSwitchDone` has no deadline in Camoufox. The compositor flush has only the 30-second activation-slot limit.
+Possible fix: before the wheel, wait a bounded time for a rendered frame in an isolated world. Without a frame, fail before any input and ask the user to show the window.
 
 Next, run [Phase 6 acceptance](#phase-6-acceptance-and-delivery). Phase 4 remains merged into Phase 3. This result does not approve a release.
 

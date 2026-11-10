@@ -209,6 +209,8 @@ See [IP check policy](configuration.md#ip-check-policy).
 
 ## Browser action or IP check timed out
 
+A scroll in a tab that is not selected can exceed the deadline, especially when other windows cover the browser window. This is a known issue.
+
 1. Run `stelz status work` and `stelz logs work --lines 200`.
 2. Look for `blocked`, a time-limit error, or refusal of a replacement browser/context.
 3. Run `stelz stop work`.
