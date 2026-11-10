@@ -89,7 +89,7 @@ See [CLI transfer options](cli.md#profile-transfer) for `--all` and structured o
 ## Import from the CLI
 
 Before import, require the same OS, CPU architecture, and exact Camoufox executable SHA-256 as the source.
-Configure the matching existing executable and initialize the destination before continuing.
+Run `stelz setup` on the destination before continuing.
 
 ```sh
 stelz profile import ./work.stelz-profiles.zip

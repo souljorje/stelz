@@ -23,7 +23,7 @@ The MCP process needs Bun and Node.js on PATH, even when your agent starts from 
 The examples pass the current PATH explicitly.
 
 Keep proxy credentials in Stelz's private configuration, outside client configuration and reports.
-Persist a custom Camoufox executable in the service's `secrets.env`, as described in [Getting started](getting-started.md#2-locate-or-download-camoufox).
+For a custom Camoufox executable, see [How setup finds the browser](getting-started.md#how-setup-finds-the-browser).
 
 Install the canonical browser skill through a directory symlink. Keep the package's `docs/` and `skills/` together.
 Reuse a matching existing link. Preserve conflicting files, directories, and dangling links for review.

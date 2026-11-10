@@ -38,6 +38,8 @@ See [CLI output and exit status](cli.md#errors-and-exit-status).
 | --- | --- | --- | --- |
 | No profiles, or `Unknown profile` | `stelz doctor` and `stelz status` | Wrong `home`, `initialized: false`, or no entry for `work`. | [Check installation and home](#installation-or-service-directory-is-wrong). |
 | Start requires setup or a matching plugin | `stelz doctor` and `stelz logs work` | `setup: false`, missing executable, or plugin mismatch. | [Prepare the runtime](#runtime-or-browser-executable-is-unavailable). |
+| Setup fails | The setup error | `confirmation_required`, another setup, or an earlier runtime. | [Repair setup](#setup-fails). |
+| **Restart to update** | `stelz status work` | `restartToUpdate: true`. | [Apply the update](#restart-to-update). |
 | Agent tools are absent | `stelz status work` | Browser can be ready while the intended client has no connection. | [Check the client](#agent-tools-are-missing). |
 | Controller is busy | `stelz status work` | `controller` identifies an active client. | [Arrange a handoff](#another-client-controls-the-profile). |
 | Actions stop during authentication | `stelz status work` | `phase: "paused"`, with the controller retained. | [Complete manual work](#profile-is-paused). |
@@ -68,11 +70,11 @@ Never create another profile to avoid a controller conflict or to conceal broken
 1. Run `stelz doctor` with the intended `STELZ_HOME`.
 2. Check the absolute `home` in its result.
 3. Correct the environment for the CLI, UI, and MCP connection if they select different directories.
-4. Run `stelz init` only if that intended directory is not initialized.
+4. Run `stelz setup` only if that intended directory is not initialized.
 5. Run `stelz status` to find existing IDs.
 6. Create a missing `work` profile through [Getting started](getting-started.md).
 
-Init preserves existing entries. It does not recover profiles stored under another service directory.
+Setup preserves existing entries. It does not recover profiles stored under another service directory.
 See [Service directory precedence](configuration.md#service-directory-and-precedence).
 
 ## Runtime or browser executable is unavailable
@@ -80,19 +82,29 @@ See [Service directory precedence](configuration.md#service-directory-and-preced
 1. Run `stelz doctor`.
 2. Check `setup`, `node`, and `browserExecutable`.
 3. Check dependency versions against [What you need](getting-started.md#what-you-need).
-4. Correct `CAMOUFOX_EXECUTABLE` to the paired browser build if its path or version is wrong.
-5. Follow [Locate or download Camoufox](getting-started.md#2-locate-or-download-camoufox) if the executable is unavailable.
-6. For missing or mismatched runtime files, arrange a maintenance window.
-7. Run `stelz status` to identify active profiles.
-8. Stop each active profile by its ID. Resolve unclean lifetimes before continuing.
-9. Run `stelz setup` with the same service directory.
-10. Run `stelz start work` when you need that browser again.
+4. Run `stelz setup` with the same service directory. It prepares a missing browser, runtime, or plugin.
+5. Run `stelz start work` when you need that browser.
 
-Setup requires all profiles safely stopped because it replaces their shared runtime.
-It uses the installed Camoufox executable. It does not download, update, or migrate that browser.
-If setup reports an older installed build, check `CAMOUFOX_EXECUTABLE` in the process environment and `STELZ_HOME/secrets.env`.
-The process environment takes precedence. Installing another build does not update either setting.
+If Start or setup reports an unsupported Camoufox build, check `CAMOUFOX_EXECUTABLE` in the process environment and `STELZ_HOME/secrets.env`.
+Remove the setting, or point it to the paired build. Then run `stelz setup`.
+The process environment takes precedence. See [How setup finds the browser](getting-started.md#how-setup-finds-the-browser).
 For source or release preparation, see [Releasing](development/releasing.md).
+
+## Setup fails
+
+| Message or code | Action |
+| --- | --- |
+| `confirmation_required` | Setup needs downloads that nobody allowed. Run `stelz setup` in a terminal and confirm, or run `stelz setup --yes`. |
+| Another stelz setup is running | A second setup waits up to one hour for the first one. Let the first setup finish. Then run `stelz setup` again. |
+| Stop running profiles from an earlier Stelz version | Run `stelz status`. Stop those profiles when you can, then run `stelz setup` again. This applies once, to a runtime from an earlier version. |
+| A release or integrity check failed | Check the network connection. Then run `stelz setup` again. An interrupted setup keeps the active runtime. |
+
+## Restart to update
+
+Setup prepared a new runtime while this profile was running. The profile continues to use its earlier runtime.
+Run `stelz restart work` when you can close its browser and pages. Run `stelz restart all` for all running profiles.
+Restart ends control. Clients must acquire the profile again.
+If the start fails, the profile stays stopped. Follow [Read the evidence](#read-the-evidence), then run `stelz start work`.
 
 ## Agent tools are missing
 
@@ -156,8 +168,8 @@ A failed check remains visible after its startup attempt closes.
 
 | Problem | Action |
 | --- | --- |
-| Location data is missing, damaged, or incompatible | Safely stop profiles, run `stelz setup`, then select **Check again**. |
-| Location data is stale (`GEOIP_DATA_STALE`, strict policy) | Safely stop profiles, run `stelz setup` with network access, then check again. |
+| Location data is missing, damaged, or incompatible | Run `stelz setup`, then select **Check again**. |
+| Location data is stale (`GEOIP_DATA_STALE`, strict policy) | Run `stelz setup` with network access, then check again. |
 | Location databases disagree (`LOCATION_CONFLICT`, strict policy) | Use another proxy exit. To start anyway, set `STELZ_LOCATION_POLICY=warn`. |
 | Proxy credentials are missing or rejected | Edit the proxy credentials, then check again. |
 | Proxy connection fails or times out | Check the provider connection, then check again. |

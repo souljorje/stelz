@@ -19,15 +19,28 @@ Do not overwrite a conflicting installation or use `sudo` without authorization.
 
 ## Complete only missing steps
 
-Follow [Getting started](getting-started.md) for missing dependencies, package installation, and Camoufox discovery or download.
+Follow [Getting started](getting-started.md) for missing dependencies and package installation.
 For a supplied archive, use its absolute path in that guide's install command.
 If no usable release or archive exists, report that blocker. Do not install a staging placeholder.
 Resolve the selected CLI's symlink to find its package directory.
 
-Reuse compatible dependencies and a working runtime.
-Run `stelz init` when needed. It preserves existing configuration.
-Run `stelz setup` only when runtime preparation is necessary and all profiles are safely stopped.
-Report an update blocked by unrelated running browsers as pending.
+Check what setup needs first:
+
+```sh
+stelz setup --json
+```
+
+If downloads are necessary, this fails with code `confirmation_required`. Its JSON error on stderr lists the downloads, which can include a browser of over 1 GB.
+Ask the user to approve them. Then run:
+
+```sh
+stelz setup --yes --json
+```
+
+Setup creates missing service files and preserves existing configuration. Running profiles continue to run.
+`--json` never prompts. On success, stdout contains one JSON report: the browser source, each location dataset, the fingerprint model, and the runtime.
+A runtime directory from an earlier Stelz version blocks setup while profiles run. Report this blocker as pending. Do not stop unrelated profiles.
+Report a profile that shows `restartToUpdate: true`. Restart it only when the user requests it.
 
 The human first-use guide creates profiles through the UI.
 An agent with registered tools can use `profile_list({})` before selecting or creating a profile.

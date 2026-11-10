@@ -34,7 +34,7 @@ export function Profiles({ snapshot, context, onInspect, onAction, onShow, expor
 }
 
 export function FirstRun({ snapshot }: { snapshot: UiSnapshot }) {
-  return <section className="first-run"><h2>{!snapshot.initialized ? "Initialize the service" : "Install the browser runtime"}</h2>{!snapshot.initialized && <CopyCommand command={homeCommand("init", snapshot.home)} />}<CopyCommand command={homeCommand("setup", snapshot.home)} /></section>;
+  return <section className="first-run"><h2>Set up Stelz</h2><p>Setup downloads the missing parts after you confirm.</p><CopyCommand command={homeCommand("setup", snapshot.home)} /></section>;
 }
 
 export function Diagnostics({ snapshot, mutationVersion }: { snapshot: UiSnapshot; mutationVersion: number }) {
@@ -47,7 +47,7 @@ export function Diagnostics({ snapshot, mutationVersion }: { snapshot: UiSnapsho
     {!data && diagnostics.loading && <div className="loading-block" role="status">Checking the local service…</div>}
     {data && <><KeyValues rows={[
       { label: "Service home", value: data.home, mono: true },
-      { label: "Configuration", value: <Check ok={data.initialized} yes="Initialized" no="Run stelz init" /> },
+      { label: "Configuration", value: <Check ok={data.initialized} yes="Initialized" no="Run stelz setup" /> },
       { label: "Runtime", value: <Check ok={data.setup} yes="Installed" no="Run stelz setup" /> },
       { label: "Node.js", value: <Check ok={data.node} yes="Available" no="Not available" /> },
       { label: "Browser", value: <Check ok={data.browserExecutable} yes="Available" no="Not available" /> },

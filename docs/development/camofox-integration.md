@@ -73,22 +73,16 @@ Blank startup and MCP gating do not establish that Firefox sends no background w
 The release archive bundles only the prepared Camofox package with its transitive JavaScript dependencies and licenses.
 Camofox registry metadata still names `camoufox-js`. Packing removes packages that no manifest reaches. Archive checks reject any `camoufox-js` file.
 Setup locates the installed packages. It does not download or patch upstream source.
-It prepares the location data and the official pinned fingerprint model under `STELZ_HOME/runtime`. See [Getting started](../getting-started.md#3-prepare-the-runtime-and-open-the-manager).
+It prepares the paired browser, the location data, and the official pinned fingerprint model. See [Run setup](../getting-started.md#2-run-setup).
 Start refuses to launch without the fingerprint model. Start never downloads.
-It uses the existing Camoufox executable and leaves that installation unchanged.
+Setup reads the upstream Camoufox cache only. It never calls upstream code that writes or prunes that cache.
 
-Setup holds the admission lock and requires stopped profiles.
-Symlinks in copied source, unsafe state, unknown process ownership, and unclean lifetimes block setup.
-It creates a private staging directory under `STELZ_HOME`.
-It copies Camofox files, the launcher, and the compiled Stelz plugin into that directory.
-Other dependency links resolve to the supplying package installation.
+Setup copies Camofox files, the launcher, and the compiled Stelz plugin into a staged runtime generation.
+Other dependency links resolve to the supplying package installation. Symlinks in copied source block setup.
 
 The staging checks cover prepared patch matches, exported contracts, plugin functions, and Node syntax.
 `versions.json` records package and dependency versions, the upstream source commit, the browser path, and its executable hash.
-Setup checks the complete runtime before activation.
-For a replacement, it exchanges complete runtime directories atomically.
-A filesystem without atomic exchange support must fail rather than use two separate renames.
-Cleanup removes staging data, or the previous runtime after a successful exchange.
+Setup checks the complete runtime before activation. See [Source layout and runtime updates](architecture.md#source-layout-and-runtime-updates) for generations, locks, and cleanup.
 
 Start compares the installed plugin bytes with the current package.
 An outdated plugin requires setup before a new browser can start.
@@ -119,10 +113,9 @@ See [Testing](testing.md) for procedures and [Releasing](releasing.md) for the s
 
 ## Apply a package or source update
 
-1. Stop all profiles cleanly.
-2. Update the installed package, or build the changed source checkout.
-3. Run `stelz setup`, or `bun run setup` from that checkout, with the same `STELZ_HOME`.
-4. Start the required profiles explicitly.
+1. Update the installed package, or build the changed source checkout.
+2. Run `stelz setup`, or `bun run setup` from that checkout, with the same `STELZ_HOME`.
+3. Restart the running profiles that must use the update. See [Update Stelz](../getting-started.md#update-stelz).
 
 Runtime links still refer to the supplying installation. Keep it available while the runtime uses it.
 Profile IDs, storage paths, and controller rules remain unchanged by setup.

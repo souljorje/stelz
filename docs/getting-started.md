@@ -11,7 +11,6 @@ Linux CI checks builds and package installation. It does not establish desktop b
 
 - [Node.js](https://nodejs.org/en/download) 24 or later, including npm.
 - [Bun](https://bun.sh/docs/installation) 1.4.4 or later.
-- The paired Camoufox browser build. Reuse your existing installation or download it in the [browser step](#2-locate-or-download-camoufox).
 
 Check your environment:
 
@@ -30,73 +29,56 @@ Keep compatible existing installations.
 ## 1. Install Stelz
 
 ```sh
-PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install --global stelz
+npm install --global stelz
 stelz --version
-stelz init
 ```
 
 Keep npm lifecycle scripts enabled. Native dependencies need them.
-The download flags keep browser installation explicit.
 For a supplied release archive, replace `stelz` in the install command with its absolute `.tgz` path.
 
 If the global npm directory is unwritable, use a user-owned npm prefix and add its `bin` directory to PATH.
 The `stelz` command also needs Bun and Node.js on PATH.
 
-Init creates an empty catalog under `~/.local/share/stelz`. It preserves existing profiles and credentials.
-For a different directory, set an absolute `STELZ_HOME` before initialization.
-Use that same value for the UI, lifecycle commands, and agent connection.
-
-## 2. Locate or download Camoufox
-
-Setup does not download Camoufox. It requires an existing executable.
-By default, Stelz checks this location:
-
-```text
-~/Library/Caches/camoufox/Camoufox.app/Contents/MacOS/camoufox
-```
-
-For another location, set `CAMOUFOX_EXECUTABLE` to its absolute path in the service directory's `secrets.env`.
-Preserve other assignments and keep the file private.
-An environment variable with the same name takes precedence over the file.
-The `camoufox` command on PATH is the Python management CLI. Use the browser executable inside `Camoufox.app`.
-Use `file /absolute/path/to/camoufox` to check the executable's architecture.
-Stelz supports only the Camoufox build that its launcher pairs with, currently `156.0.1-beta.36`. Setup and Start reject other builds.
-A profile pinned to another build cannot start. Stelz does not upgrade a profile's browser.
-
-If you do not have the paired build, use the official Camoufox CLI that Stelz installs.
-It installs into the shared official cache, `~/Library/Caches/camoufox` on macOS. It has no option for another directory.
-The command manages that shared cache and can remove older data there. Do not run it while a profile uses a browser from that directory.
-
-```sh
-STELZ_PACKAGE="$(npm root --global)/stelz"
-node "$STELZ_PACKAGE/node_modules/camoufox/dist/__main__.js" fetch
-node --input-type=module -e \
-  'const { launchPath } = await import(process.argv[1]); console.log(launchPath());' \
-  "$STELZ_PACKAGE/node_modules/camoufox/dist/pkgman.js"
-```
-
-The CLI can use versioned directories. Add the printed executable path to `secrets.env`:
-
-```dotenv
-CAMOUFOX_EXECUTABLE=/absolute/path/printed/by/launchPath
-```
-
-The default secret file is `~/.local/share/stelz/secrets.env`.
-With a custom `STELZ_HOME`, use that directory's secret file instead.
-
-## 3. Prepare the runtime and open the manager
+## 2. Run setup
 
 ```sh
 stelz setup
+```
+
+Setup creates missing service files under `~/.local/share/stelz`. It preserves existing profiles and credentials.
+For a different directory, set an absolute `STELZ_HOME` before setup.
+Use that same value for the UI, lifecycle commands, and agent connection.
+
+Setup prepares the browser, the fingerprint model, the location data, and the service runtime.
+It reuses valid parts. Missing, damaged, or older location data requires a download.
+Before a download, setup shows the list of downloads and asks once. Type `y` to continue.
+To allow the downloads without a question, run `stelz setup --yes`.
+The browser download is over 1 GB and unpacks to over 2 GB.
+
+### How setup finds the browser
+
+Stelz supports only the Camoufox build that its launcher pairs with, currently `156.0.1-beta.36`.
+Setup uses the first available source:
+
+1. The executable in `CAMOUFOX_EXECUTABLE`, if you set it.
+2. Stelz's own copy in `STELZ_HOME/browsers/<version>-<build>/`.
+3. The paired build in the upstream Camoufox cache. Setup copies it into `STELZ_HOME/browsers/`. It does not change the cache.
+4. A download of the paired release. Setup verifies the published SHA-256 digest.
+
+You do not need to set `CAMOUFOX_EXECUTABLE`. To use another installation of the paired build, set it to the absolute executable path.
+Use the process environment or `STELZ_HOME/secrets.env`. The process environment takes precedence.
+Use the executable inside `Camoufox.app/Contents/MacOS/`, not the `camoufox` command on PATH.
+Then run `stelz setup`. If that file is not the paired build, setup fails. It does not try another source.
+Start also rejects other builds. A profile pinned to another build cannot start. Stelz does not upgrade a profile's browser.
+
+## 3. Open the manager
+
+```sh
 stelz ui --open
 ```
 
-Setup checks the browser and prepares the service runtime, location data, and fingerprint model. It leaves the installed Camoufox app unchanged.
-Setup reuses recent valid location data and a valid fingerprint model. Missing, damaged, or older location data requires a download.
 For a proxy, **Location alignment** shows known problems before Start. **Check connection** checks the route without launching a browser.
 Start always checks the current route again. **Ready to start** does not mean that a browser is running.
-An existing installation must have all profiles safely stopped before setup can replace its runtime.
-Do not stop unrelated work to repeat this guide. Reuse a working runtime instead.
 
 The UI opens a private session at `127.0.0.1:9380`.
 Keep the terminal command running while you use it.
@@ -127,3 +109,17 @@ Your first-use result is a ready browser, a connected agent, and a successful lo
 
 Closing the UI leaves browsers open. **Stop** or closing a profile's browser window stops that profile.
 See [Manage profiles](ui.md) for everyday controls and [Configure a proxy](proxies.md) for optional networking.
+
+## Update Stelz
+
+```sh
+npm install --global stelz@latest
+stelz setup --yes
+stelz restart all   # When you are ready.
+```
+
+Setup does not stop running profiles. A running profile keeps the runtime that it started with.
+Its dependencies still load from the installed package. If a running profile or `stelz mcp` fails after an update, restart it.
+If setup prepared a new runtime, the profile shows **Restart to update**.
+Restart stops the browser and closes its pages, then starts the browser again.
+To restart one profile, run `stelz restart ID`. See the [CLI reference](cli.md#browser-lifecycle-and-diagnostics).

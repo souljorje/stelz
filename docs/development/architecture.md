@@ -274,20 +274,24 @@ See [UI](../ui.md) for user operations.
 
 Build creates the CLI, supervisor, Node plugin, and bundled UI under `dist/`.
 The early theme script runs before the first page frame.
-Setup stages the prepared dependencies and plugin under `STELZ_HOME` before activation.
-It does not clone upstream source, apply patches, or modify the installed Camoufox app.
+Setup stages the prepared dependencies and plugin as a runtime generation under `STELZ_HOME/runtime-generations/`.
+It does not clone upstream source, apply patches, or modify a configured Camoufox app.
 Start compares the installed plugin with the current package and rejects outdated bytes.
+
+Each generation ID comes from the setup inputs, so setup reuses an unchanged generation.
+Setup switches the `runtime` link atomically under the admission lock. It holds that lock only to create service files and to switch the link.
+Start pins each service to its generation through `STELZ_RUNTIME` and records the generation, so a running browser never sees a newer runtime.
+Status reports `restartToUpdate` for a service on an older generation. Setup removes generations that no running service uses.
+An earlier plain `runtime/` directory blocks setup while any profile runs.
 
 After a source change that affects the runtime:
 
-1. Stop all profiles using the same `STELZ_HOME`.
-2. Run `bun run build` in the source checkout.
-3. Run `bun run setup` with that service directory.
-4. Start the required profiles explicitly.
+1. Run `bun run build` in the source checkout.
+2. Run `bun run setup` with that service directory.
+3. Restart the running profiles that must use the change.
 
-Setup requires stopped profiles and known process ownership.
 Keep the same `STELZ_HOME`, profile IDs, data paths, and secret references.
-It checks the complete staged runtime before atomic activation.
+Setup checks the complete staged runtime before activation.
 Dependencies linked from that runtime still refer to the source checkout or installed package that supplied setup.
 The generated window add-on belongs under `profiles/ID/window-addon/`.
 It communicates only with that profile's authenticated loopback service.

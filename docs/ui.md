@@ -31,6 +31,7 @@ Overview contains connection settings, typing preferences, and browser windows. 
 
 **Ready** describes the browser. A controller label describes the current connection, without a persistent agent identity.
 Reading status does not claim control.
+**Restart to update** means the browser uses an earlier runtime. Run `stelz restart ID`, or stop and start the profile, when you are ready.
 A disabled **Start** means the profile has an issue. Inspect its details or Diagnostics before retrying.
 
 ## Connect through MCP

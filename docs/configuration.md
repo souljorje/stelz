@@ -56,14 +56,14 @@ Start refuses a changed launch configuration while its previous lifetime remains
 Profile display names and profile typing preferences can change while the browser runs.
 Set transfer limits before invoking a CLI transfer or starting the UI.
 
-The supervisor supplies internal `STELZ_PROFILE_*`, `STELZ_EXPECTED_IP`, `CAMOFOX_*`, and `PROXY_*` values.
+The supervisor supplies internal `STELZ_PROFILE_*`, `STELZ_RUNTIME`, `STELZ_EXPECTED_IP`, `CAMOFOX_*`, and `PROXY_*` values.
 These values are not user configuration inputs.
 Generic `HTTP_PROXY` or `HTTPS_PROXY` variables do not select a profile's browser route.
 
 ## Profile catalog schema
 
 `profiles.json` accepts one top-level property: `profiles`, an array.
-Init creates `{ "profiles": [] }`. Prefer the UI or `stelz profile create work` to manual creation.
+Setup creates `{ "profiles": [] }`. Prefer the UI or `stelz profile create work` to manual creation.
 
 ```json
 {
@@ -191,8 +191,8 @@ Setup checks each release SHA-256 and opens each database with the pinned reader
 The manifest records each source, release, content hash, database metadata, build time, and acquisition time.
 Repeated setup reuses a build that is at most 8 days old without contacting its download service.
 It downloads a newer release for an older build. Offline, it keeps the validated older build.
-Setup stages replacements with the runtime. An interrupted download preserves the active runtime and databases.
-All profiles must be safely stopped before setup. Start does not download missing data.
+Setup stages replacements in a new runtime generation. An interrupted download preserves the active runtime and databases.
+A running profile keeps the databases of the generation that it started with. Start does not download missing data.
 
 Each preflight compares the selected location with the comparison record for the exit IP:
 
@@ -208,7 +208,7 @@ No database proves a physical location. Providers often disagree, and a detectio
 
 ## Files and private state
 
-Paths below are relative to `STELZ_HOME`, except the separately installed Camoufox executable.
+Paths below are relative to `STELZ_HOME`, except a `CAMOUFOX_EXECUTABLE` override.
 Managed private directories use mode `0700`. Managed private state and secret files use mode `0600`.
 Do not replace service state or lock files while an operation is active.
 
@@ -217,8 +217,11 @@ Do not replace service state or lock files while an operation is active.
 | `profiles.json` | Profile catalog. |
 | `secrets.env` | Referenced proxy values and optional service settings. |
 | `browsers/VERSION-BUILD/` | Stelz's copy of the paired Camoufox build. Setup clones it from the upstream cache or downloads and verifies it. |
+| `runtime-generations/ID/` | One prepared runtime. Setup reuses an unchanged generation and removes generations that no running profile uses. |
+| `runtime` | Link to the current generation. A running profile keeps the generation that it started with. |
 | `runtime/versions.json` | Prepared runtime versions, executable path, and `executableSha256`. |
 | `runtime/camofox-VERSION/` | Prepared upstream server, contracts, dependencies, and local plugin. |
+| `runtime/geoip/`, `runtime/fpgen/` | Managed location data and the fingerprint model. |
 | `profiles/ID/browser-data/` | Native persistent Firefox profile, including saved login state. |
 | `profiles/ID/native-profile.json` | Native storage marker with `version: 1`. |
 | `profiles/ID/fingerprint.json` | Saved device pin with `version: 2`, `engineSha256`, and `config`. |
@@ -229,7 +232,7 @@ Do not replace service state or lock files while an operation is active.
 | `profiles/ID/running.json` | Supervisor/server PIDs, process birth stamps, instance ID, port, and launch configuration hash. |
 | `profiles/ID/status.json`, `profiles/ID/initialized.json`, `profiles/ID/stopped.json` | Observed state, completed initialization, and clean-stop receipt. |
 | `profiles/ID/server.log`, `profiles/ID/supervisor.log` | Current logs. Rotation can preserve a `.1` file. |
-| `profiles/admission.lock`, `profiles/ID/lifecycle.lock` | Kernel-backed operation locks. Their continued presence does not establish a live owner. |
+| `profiles/admission.lock`, `profiles/setup.lock`, `profiles/ID/lifecycle.lock` | Kernel-backed operation locks. Their continued presence does not establish a live owner. |
 | `trash/ID-TOKEN/profile.json`, `trash/ID-TOKEN/profile/` | Deleted profile configuration and archived directory. Shared secret values remain in `secrets.env`. |
 | `.profile-transfers/` | Private CLI/UI archive and extraction staging. |
 | `profiles/.profile-import-TOKEN/` | Journal-owned staging for an import batch. |

@@ -71,8 +71,7 @@ export function actionReason(profile: UiProfile, action: UiAction, context: Acti
   switch (action) {
     case "start":
       if (profile.phase !== "stopped") return "Stop this profile before starting it.";
-      if (!context.snapshot.initialized) return "Run stelz init first.";
-      if (!context.snapshot.setup) return "Run stelz setup first.";
+      if (!context.snapshot.initialized || !context.snapshot.setup) return "Run stelz setup first.";
       if (profile.configurationError) return "Correct the configuration before starting.";
       if (profile.location?.status === "blocked") return profile.location.message;
       if (profile.location?.status === "checking") return "Wait for the location check to finish.";

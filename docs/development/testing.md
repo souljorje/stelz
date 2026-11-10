@@ -3,8 +3,8 @@
 Run commands from the repository root unless a procedure states otherwise.
 Use the pinned Bun version in `package.json` and Node.js 24 or later.
 See [Runtime requirements](../getting-started.md#what-you-need) for installation prerequisites.
-Actual browser checks require a compatible Camoufox executable and desktop access.
-See [Locate or download Camoufox](../getting-started.md#2-locate-or-download-camoufox) for executable setup.
+Actual browser checks require desktop access. Their setup step prepares the paired Camoufox build.
+See [How setup finds the browser](../getting-started.md#how-setup-finds-the-browser).
 
 ## Standard checks
 
