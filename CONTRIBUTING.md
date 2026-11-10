@@ -12,11 +12,15 @@ Use TypeScript and Bun for new code. Preserve other contributors' edits and exis
    bun install --frozen-lockfile --ignore-scripts
    ```
 
-   Install the Git hooks once per clone. They run fast checks before each commit and `bun run check` before each push:
+   Install the Git hooks once per clone:
 
    ```sh
    bunx lefthook install
    ```
+
+   Git shares the hooks with every worktree of the clone. New BB worktrees install them through `.bb-env-setup.sh`.
+   Before each commit, the hooks check TypeScript and run the regression tests and the Bun tests that import the changed files.
+   That selection misses tests that reach a change only through a CLI subprocess. Before each push, the hooks run `bun run check`.
 
 2. Make the change. Run the standard checks:
 
