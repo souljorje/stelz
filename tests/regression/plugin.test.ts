@@ -15,6 +15,9 @@ import { allowedBrowserTools } from "../../src/mcp/tool-policy.ts";
 import { commitFingerprint, readFingerprintJournal, stageFingerprint, writeInitialized } from "../../src/browser/fingerprint-transaction.ts";
 import type { Tool } from "../../src/browser/upstream.ts";
 import { upstreamTyping } from "../helpers/upstream-typing.ts";
+import { mockLauncherResources } from "../helpers/launcher-resources.ts";
+
+mockLauncherResources();
 
 const contractsUrl = pathToFileURL(join(dirname(createRequire(import.meta.url).resolve("@askjo/camofox-browser/package.json")),
   "mcp/lib/tool-contracts.mjs")).href;

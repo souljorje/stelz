@@ -10,6 +10,9 @@ import { setImmediate } from "node:timers/promises";
 import { launchProfileBrowser, claimProfileContext, createProfilePage, protectProfileStartup, validateStartupGeometry, verifyProfileFingerprint } from "../../src/browser/native-profile.ts";
 import { applyFingerprint } from "../../src/browser/fingerprint.ts";
 import type { StartupWindowObservation } from "../../src/browser/profile-windows.ts";
+import { mockLauncherResources } from "../helpers/launcher-resources.ts";
+
+mockLauncherResources();
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const leaseApi = await import(new URL("../../node_modules/@askjo/camofox-browser/lib/page-lease.js", import.meta.url).href);
