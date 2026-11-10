@@ -38,9 +38,23 @@ function assertClickPatches(upstream: string) {
   check(server, "remainingBudget())), force: true });", "log('warn', 'click timeout, retrying with force');\n" + force);
 }
 
+// The orphan page reaper closes only pages that Camofox owned. Pages that a person or a website opens stay open.
+function assertReaperPatches(upstream: string) {
+  const server = join(upstream, "server.js");
+  check(join(upstream, "lib/stelz-page-ownership.js"), "return true;", "return owned.has(page) && !registered.has(page) && !leased;");
+  check(server, "import { isOrphanPage, ownPage } from './lib/stelz-page-ownership.js';\n\n",
+    "import { clickReachedPage, domClickRejected, uncertainClickError } from './lib/stelz-click-guard.js';\nimport { isOrphanPage, ownPage } from './lib/stelz-page-ownership.js';\n");
+  check(server, "async function safePageClose(page) {\n  if (!page || page.isClosed()) return;\n  try {",
+    "async function safePageClose(page) {\n  if (!page || page.isClosed()) return;\n  ownPage(page);\n");
+  check(server, "function createTabState(page) {\n  const healthTracker", "function createTabState(page) {\n  ownPage(page);\n");
+  check(server, "if (!registered.has(page) && !isPageLeased(session, page)) {",
+    "      // stelz: a page that a person or a website opened is not an orphan.\n      if (isOrphanPage(page, registered, isPageLeased(session, page))) {");
+}
+
 export function assertBundledPatches(upstream: string) {
   assertLocationPatches(upstream);
   assertClickPatches(upstream);
+  assertReaperPatches(upstream);
   check(join(upstream, "server.js"), "from 'camoufox-js'", "import { Camoufox, launchOptions, VirtualDisplay } from 'camoufox';");
   check(join(upstream, "server.js"), "const externalCamoufox = getExternalCamoufoxLaunch();",
     "const externalCamoufox = null; // stelz: the plugin passes the executable to the official launcher.");

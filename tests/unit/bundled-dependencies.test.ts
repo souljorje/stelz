@@ -13,7 +13,7 @@ const required = [
 
 test("the installed Camofox contains the committed patches", () => {
   const files = inspectBundledDependencies(resolve(import.meta.dir, "../.."));
-  expect(Object.keys(files)).toHaveLength(5);
+  expect(Object.keys(files)).toHaveLength(6);
   expect(files["@askjo/camofox-browser/lib/stelz-click-guard.js"]).toContain("performing click action");
   expect(files["@askjo/camofox-browser/lib/new-page-recovery.js"]).toContain("createProfilePage(session.context)");
   expect(files["@askjo/camofox-browser/server.js"]).toContain("from 'camoufox';");

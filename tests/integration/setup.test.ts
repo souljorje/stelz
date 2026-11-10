@@ -45,6 +45,24 @@ import {
   isTimeoutError,
 } from './lib/browser-errors.js';
 import { clickReachedPage, domClickRejected, uncertainClickError } from './lib/stelz-click-guard.js';
+import { isOrphanPage, ownPage } from './lib/stelz-page-ownership.js';
+async function safePageClose(page) {
+  if (!page || page.isClosed()) return;
+  ownPage(page);
+  await page.close();
+}
+function createTabState(page) {
+  ownPage(page);
+  return { page };
+}
+function reapOrphans(session, contextPages, registered, isPageLeased) {
+  for (const page of contextPages) {
+      // stelz: a page that a person or a website opened is not an orphan.
+      if (isOrphanPage(page, registered, isPageLeased(session, page))) {
+        page.close();
+      }
+  }
+}
 async function recoverForceClickFailure(dispatchDomClick, dispatchMouseSequence, log) {
         try {
           await dispatchDomClick();
@@ -178,6 +196,7 @@ async function typeRoute(req, locator, tabState, selector, text, mode) {
 }
 `);
   file(join(upstream, "LICENSE"), "fixture license");
+  file(join(upstream, "lib/stelz-page-ownership.js"), "const owned = new WeakSet();\nexport function ownPage(page) { owned.add(page); return page; }\nexport function isOrphanPage(page, registered, leased) {\n  return owned.has(page) && !registered.has(page) && !leased;\n}\n");
   file(join(upstream, "lib/browser-errors.js"), "export function isTimeoutError() { return false; }\n");
   file(join(upstream, "lib/stelz-click-guard.js"), "export function clickReachedPage(error) { return String(error?.message || '').includes('performing click action'); }\nexport function domClickRejected() { return false; }\nexport function uncertainClickError(cause) { return Object.assign(Error('uncertain'), { cause }); }\n");
   file(join(upstream, "lib/browser-identity.js"), "function contextIdentityOptions(hasProxy) { if (hasProxy) return {}; // Stelz never grants location access to arbitrary sites.\n}\n");

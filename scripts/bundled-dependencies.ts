@@ -4,7 +4,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { assertBundledPatches } from "../src/browser/camofox-adapter.ts";
 
 const serverName = "@askjo/camofox-browser";
-const serverFiles = ["server.js", "lib/browser-identity.js", "lib/new-page-recovery.js", "lib/stelz-click-guard.js", "plugins/persistence/index.js"];
+const serverFiles = ["server.js", "lib/browser-identity.js", "lib/new-page-recovery.js", "lib/stelz-click-guard.js", "lib/stelz-page-ownership.js", "plugins/persistence/index.js"];
 
 function packageDirectory(name: string, from: string): string {
   const require = createRequire(join(from, "package.json"));

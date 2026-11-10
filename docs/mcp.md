@@ -30,7 +30,7 @@ All nine browser tools require `profileId` and `controlHandle` alongside their e
 | Browser tool | Purpose |
 | --- | --- |
 | `camofox_create_tab` | Open a page. |
-| `camofox_list_tabs` | Read open tabs. |
+| `camofox_list_tabs` | Read the tabs that Stelz manages. Tabs that a person opens stay open but are not listed. |
 | `camofox_snapshot` | Read a fresh accessibility snapshot. |
 | `camofox_click` | Click an observed element. |
 | `camofox_type` | Enter text. |

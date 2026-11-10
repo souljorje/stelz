@@ -16,6 +16,7 @@ mockLauncherResources();
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const leaseApi = await import(new URL("../../node_modules/@askjo/camofox-browser/lib/page-lease.js", import.meta.url).href);
+const ownership = await import(new URL("../../node_modules/@askjo/camofox-browser/lib/stelz-page-ownership.js", import.meta.url).href);
 
 // Exercise the pending patch without changing the shared dependency installation.
 function patchedServer() {
@@ -507,7 +508,8 @@ async function startupHarness() {
       if (!session.tabGroups.has(key)) session.tabGroups.set(key, new Map());
       return session.tabGroups.get(key)!;
     },
-    fly: { makeTabId: () => String(++sequence) }, createTabState: (page: TestPage) => ({ page, visitedUrls: new Set() }),
+    fly: { makeTabId: () => String(++sequence) }, createTabState: (page: TestPage) => ({ page: ownership.ownPage(page), visitedUrls: new Set() }),
+    isOrphanPage: ownership.isOrphanPage,
     attachDownloadListener() {}, attachPopupHandler() { if (failRegistration) throw Error("registration interrupted"); },
     pluginEvents: { emit() {} },
     withTimeout(work: Promise<unknown>, ms: number, label: string) {

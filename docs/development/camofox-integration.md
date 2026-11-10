@@ -12,13 +12,14 @@ The Camofox patch changes its launcher dependency to that same version. No overr
 Its `patchedDependencies` field selects the files under `patches/`.
 The upstream source commit is recorded in `src/versions.ts`.
 
-The patches cover thirteen compatibility areas:
+The patches cover fourteen compatibility areas:
 
 | Area | Purpose | Removal criterion |
 | --- | --- | --- |
 | Locator fill and type route | Forward each call's typing mode. Support balanced pacing, keyboard events, and bulk entry. | Upstream provides equivalent configurable typing behavior and timeout handling. |
 | Scroll tab activation | Activate the selected native tab before Playwright waits for a frame and sends wheel input. Keep the existing tab lock and deadline. | Upstream activates the target before wheel preparation and passes background-tab and parallel-profile acceptance. |
 | Click retry guard | Check the target with a trial click that sends no input. Fall back to a forced, DOM, or mouse click only when that check fails. Input gets the remaining action budget, because Camoufox confirms each mouse event. A failure after input returns a non-retryable conflict that asks for a fresh snapshot. | Upstream no longer repeats a click that may have reached the page. |
+| Orphan page reaper | Close only pages that Camofox created, registered, or tried to close. Pages that a person or a website opens stay open. | Upstream limits its reaper to pages that it owns. |
 | Official launcher import | Import `Camoufox`, `launchOptions`, and `VirtualDisplay` from `camoufox`. | Upstream depends on the official launcher. |
 | Virtual display | Pass the 1280x720x24 screen to the official display. It removes its X lock and socket files on kill. | Upstream uses the official display with an equivalent screen. |
 | External executable shim | Disable the Camofox executable shim. It writes `version.json` into the shared Camoufox cache. The Stelz plugin passes the executable to the launcher. | Upstream passes an external executable without cache writes. |

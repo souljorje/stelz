@@ -58,6 +58,25 @@ index 0000000000000000000000000000000000000000..8c665a60cb51b44a138a5ff83dd8a539
 +  error.cause = cause;
 +  return error;
 +}
+diff --git a/lib/stelz-page-ownership.js b/lib/stelz-page-ownership.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..85901c85b9f589dc2a0c198608a4107db4c823cc
+--- /dev/null
++++ b/lib/stelz-page-ownership.js
+@@ -0,0 +1,13 @@
++// stelz: Camofox creates, registers, and closes its own pages. A person or a website can open
++// other pages in the same headed browser. The orphan page reaper must leave those pages open.
++const owned = new WeakSet();
++
++export function ownPage(page) {
++  if (page) owned.add(page);
++  return page;
++}
++
++// An orphan is a page that Camofox owned and no longer tracks or leases.
++export function isOrphanPage(page, registered, leased) {
++  return owned.has(page) && !registered.has(page) && !leased;
++}
 diff --git a/package.json b/package.json
 index d3dfd239f35c136825cc8a5295cd53efac13ada3..a4d43ff934fda09402fab155450eb877ac3c4144 100644
 --- a/package.json
@@ -104,7 +123,7 @@ diff --git a/postinstall.js b/postinstall.js
 deleted file mode 100644
 index 488077bfa09b23c4d6ad68a946a5a16be12d7c2d..0000000000000000000000000000000000000000
 diff --git a/server.js b/server.js
-index 4a737caba128a8f6a22f789ab9682167660a0589..7a01dbe91cdd6c20aa8de9aad3604b2df010add0 100644
+index 4a737caba128a8f6a22f789ab9682167660a0589..8b935ea7ac7248c16acbc0cfe51f71a5611939cf 100644
 --- a/server.js
 +++ b/server.js
 @@ -1,5 +1,4 @@
@@ -114,15 +133,16 @@ index 4a737caba128a8f6a22f789ab9682167660a0589..7a01dbe91cdd6c20aa8de9aad3604b2d
  import { firefox } from 'playwright-core';
  import express from 'express';
  import crypto from 'crypto';
-@@ -63,6 +62,7 @@ import {
+@@ -63,6 +62,8 @@ import {
    isTabLockQueueTimeout, isTabDestroyedError,
    browserErrorStatus, browserErrorCode, browserErrorRecovery, isRetryableBrowserError,
  } from './lib/browser-errors.js';
 +import { clickReachedPage, domClickRejected, uncertainClickError } from './lib/stelz-click-guard.js';
++import { isOrphanPage, ownPage } from './lib/stelz-page-ownership.js';
  
  const CONFIG = loadConfig();
  
-@@ -276,9 +276,9 @@ async function assertLocatorFillable(locator) {
+@@ -276,9 +277,9 @@ async function assertLocatorFillable(locator) {
    });
  }
  
@@ -134,7 +154,7 @@ index 4a737caba128a8f6a22f789ab9682167660a0589..7a01dbe91cdd6c20aa8de9aad3604b2d
  }
  
  function safeError(err) {
-@@ -579,7 +579,8 @@ async function withTabLock(tabId, operation, timeoutMs = HANDLER_TIMEOUT_MS, onT
+@@ -579,7 +580,8 @@ async function withTabLock(tabId, operation, timeoutMs = HANDLER_TIMEOUT_MS, onT
    const lock = getTabLock(tabId);
    await lock.acquire(TAB_LOCK_TIMEOUT_MS);
    try {
@@ -144,7 +164,15 @@ index 4a737caba128a8f6a22f789ab9682167660a0589..7a01dbe91cdd6c20aa8de9aad3604b2d
    } catch (err) {
      if (onTimeout && isTimeoutError(err)) {
        await onTimeout();
-@@ -863,27 +864,8 @@ function getTotalTabCount() {
+@@ -651,6 +653,7 @@ async function withUserLimit(userId, operation) {
+ 
+ async function safePageClose(page) {
+   if (!page || page.isClosed()) return;
++  ownPage(page);
+   try {
+     await Promise.race([
+       page.close({ runBeforeUnload: false }),
+@@ -863,27 +866,8 @@ function getTotalTabCount() {
  const DEFAULT_VIRTUAL_DISPLAY_RESOLUTION = '1280x720x24';
  
  class DefaultVirtualDisplay extends VirtualDisplay {
@@ -174,7 +202,7 @@ index 4a737caba128a8f6a22f789ab9682167660a0589..7a01dbe91cdd6c20aa8de9aad3604b2d
  }
  
  let virtualDisplay = null;
-@@ -1108,25 +1090,17 @@ function isCamoufoxGeoipError(err) {
+@@ -1108,25 +1092,17 @@ function isCamoufoxGeoipError(err) {
  const virtualDisplayRegistry = createVirtualDisplayRegistry(() => new DefaultVirtualDisplay());
  
  async function buildLaunchOptionsWithGeoipFallback(baseOptions, attemptMeta) {
@@ -205,7 +233,7 @@ index 4a737caba128a8f6a22f789ab9682167660a0589..7a01dbe91cdd6c20aa8de9aad3604b2d
  
    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
      const launchProxy = proxyPool
-@@ -1172,9 +1146,12 @@ async function launchBrowserInstance() {
+@@ -1172,9 +1148,12 @@ async function launchBrowserInstance() {
          executable_path: externalCamoufox?.executablePath,
          headless: useVirtualDisplay ? false : !useDesktopWindow,
          os: hostOS,
@@ -218,7 +246,7 @@ index 4a737caba128a8f6a22f789ab9682167660a0589..7a01dbe91cdd6c20aa8de9aad3604b2d
          geoip: !!launchProxy,
          locale: launchLocale({ hasProxy: !!proxyPool, directIdentity: CONFIG.directIdentity }),
          virtual_display: vdDisplay,
-@@ -1196,7 +1173,7 @@ async function launchBrowserInstance() {
+@@ -1196,7 +1175,7 @@ async function launchBrowserInstance() {
        options.handleSIGHUP = false;
        await pluginEvents.emitAsync('browser:launching', { options });
  
@@ -227,7 +255,7 @@ index 4a737caba128a8f6a22f789ab9682167660a0589..7a01dbe91cdd6c20aa8de9aad3604b2d
  
        if (proxyPool?.canRotateSessions) {
          const probe = await probeGoogleSearch(candidateBrowser);
-@@ -1408,7 +1385,7 @@ async function getSession(userId, { trace = false } = {}) {
+@@ -1408,7 +1387,7 @@ async function getSession(userId, { trace = false } = {}) {
          log('info', 'session proxy assigned', { userId: key, proxy: sessionProxy.server });
        }
        await pluginEvents.emitAsync('session:creating', { userId: key, contextOptions });
@@ -236,7 +264,7 @@ index 4a737caba128a8f6a22f789ab9682167660a0589..7a01dbe91cdd6c20aa8de9aad3604b2d
  
        let tracePath = null;
        if (trace) {
-@@ -1424,6 +1401,7 @@ async function getSession(userId, { trace = false } = {}) {
+@@ -1424,6 +1403,7 @@ async function getSession(userId, { trace = false } = {}) {
        }
  
        const created = { context, tabGroups: new Map(), pageLeases: new Set(), lastAccess: Date.now(), proxySessionId: sessionProxy?.sessionId || null, tracePath };
@@ -244,7 +272,15 @@ index 4a737caba128a8f6a22f789ab9682167660a0589..7a01dbe91cdd6c20aa8de9aad3604b2d
        sessions.set(key, created);
        await pluginEvents.emitAsync('session:created', { userId: key, context });
        log('info', 'session created', {
-@@ -2909,6 +2887,7 @@ app.post('/pressure/cleanup', async (req, res) => {
+@@ -1786,6 +1766,7 @@ function tabNotFoundResponse(res, tabId) {
+ }
+ 
+ function createTabState(page) {
++  ownPage(page);
+   const healthTracker = createTabHealthTracker(page);
+   const tabState = {
+     page,
+@@ -2909,6 +2890,7 @@ app.post('/pressure/cleanup', async (req, res) => {
   *             schema:
   *               $ref: '#/components/schemas/Error'
   */
@@ -252,7 +288,7 @@ index 4a737caba128a8f6a22f789ab9682167660a0589..7a01dbe91cdd6c20aa8de9aad3604b2d
  app.post('/tabs', async (req, res) => {
    // The tab is registered before it navigates, and the route deadline can pass
    // while navigation is still in flight. An error response carries no tabId, so
-@@ -2916,8 +2895,9 @@ app.post('/tabs', async (req, res) => {
+@@ -2916,8 +2898,9 @@ app.post('/tabs', async (req, res) => {
    // completed after abandonment attempts its own cleanup.
    let createdTabId = null;
    let abandoned = false;
@@ -263,7 +299,7 @@ index 4a737caba128a8f6a22f789ab9682167660a0589..7a01dbe91cdd6c20aa8de9aad3604b2d
      const session = sessions.get(normalizeUserId(req.body.userId));
      if (session) await destroyTimedOutTab(session, createdTabId, 'tab_create_failed', req.body.userId);
      createdTabId = null;
-@@ -2930,6 +2910,18 @@ app.post('/tabs', async (req, res) => {
+@@ -2930,6 +2913,18 @@ app.post('/tabs', async (req, res) => {
        return res.status(400).json({ error: 'userId and sessionKey required' });
      }
  
@@ -282,7 +318,7 @@ index 4a737caba128a8f6a22f789ab9682167660a0589..7a01dbe91cdd6c20aa8de9aad3604b2d
      // Session overflow redirect (Fly.io only) — if this machine is above its
      // fair share of sessions and the user doesn't already have one here,
      // bounce back through the Fly Proxy to land on a less-loaded machine.
-@@ -2978,6 +2970,8 @@ app.post('/tabs', async (req, res) => {
+@@ -2978,6 +2973,8 @@ app.post('/tabs', async (req, res) => {
        attachDownloadListener(tabState, tabId, log, pluginEvents, userId);
        group.set(tabId, tabState);
        createdTabId = tabId;
@@ -291,7 +327,7 @@ index 4a737caba128a8f6a22f789ab9682167660a0589..7a01dbe91cdd6c20aa8de9aad3604b2d
        releasePageLease(session, lease);
        attachPopupHandler(page, userId, resolvedSessionKey);
        refreshActiveTabsGauge();
-@@ -3932,6 +3926,8 @@ app.post('/tabs/:tabId/click', async (req, res) => {
+@@ -3932,6 +3929,8 @@ app.post('/tabs/:tabId/click', async (req, res) => {
          try {
            await dispatchDomClick(locator);
          } catch (domErr) {
@@ -300,7 +336,7 @@ index 4a737caba128a8f6a22f789ab9682167660a0589..7a01dbe91cdd6c20aa8de9aad3604b2d
            log('warn', 'DOM click fallback failed, trying mouse sequence', { error: domErr.message });
            await dispatchMouseSequence(locator);
          }
-@@ -3957,10 +3953,13 @@ app.post('/tabs/:tabId/click', async (req, res) => {
+@@ -3957,10 +3956,13 @@ app.post('/tabs/:tabId/click', async (req, res) => {
          }
          const click = async (options) => clickWithDownloadGuard(tabState, () => locator.click(options));
          
@@ -315,7 +351,7 @@ index 4a737caba128a8f6a22f789ab9682167660a0589..7a01dbe91cdd6c20aa8de9aad3604b2d
              log('warn', 'google force click failed, trying DOM click fallback');
              await recoverForceClickFailure(locator);
            }
-@@ -3968,29 +3967,40 @@ app.post('/tabs/:tabId/click', async (req, res) => {
+@@ -3968,29 +3970,40 @@ app.post('/tabs/:tabId/click', async (req, res) => {
          }
          
          try {
@@ -360,7 +396,7 @@ index 4a737caba128a8f6a22f789ab9682167660a0589..7a01dbe91cdd6c20aa8de9aad3604b2d
          }
        };
        
-@@ -4371,7 +4381,7 @@ app.post('/tabs/:tabId/type', async (req, res) => {
+@@ -4371,7 +4384,7 @@ app.post('/tabs/:tabId/type', async (req, res) => {
    const tabId = req.params.tabId;
    
    try {
@@ -369,7 +405,7 @@ index 4a737caba128a8f6a22f789ab9682167660a0589..7a01dbe91cdd6c20aa8de9aad3604b2d
      const session = sessions.get(normalizeUserId(userId));
      const found = session && findTab(session, tabId);
      if (!found) return tabNotFoundResponse(res, req.params.tabId || req.body?.tabId);
-@@ -4409,9 +4419,9 @@ app.post('/tabs/:tabId/type', async (req, res) => {
+@@ -4409,9 +4422,9 @@ app.post('/tabs/:tabId/type', async (req, res) => {
        
        if (mode === 'fill') {
          if (locator) {
@@ -381,7 +417,7 @@ index 4a737caba128a8f6a22f789ab9682167660a0589..7a01dbe91cdd6c20aa8de9aad3604b2d
          }
        } else {
          // keyboard mode -- char-by-char real key events (required for Ember/contenteditable)
-@@ -4423,12 +4433,19 @@ app.post('/tabs/:tabId/type', async (req, res) => {
+@@ -4423,12 +4436,19 @@ app.post('/tabs/:tabId/type', async (req, res) => {
          await tabState.page.keyboard.type(text, { delay });
        }
        if (shouldSubmit) await tabState.page.keyboard.press('Enter');
@@ -402,7 +438,7 @@ index 4a737caba128a8f6a22f789ab9682167660a0589..7a01dbe91cdd6c20aa8de9aad3604b2d
      if (err.message?.includes('timed out') || err.message?.includes('not an <input>')) {
        try {
          const session = sessions.get(normalizeUserId(req.body.userId));
-@@ -4670,6 +4687,7 @@ app.post('/tabs/:tabId/scroll', async (req, res) => {
+@@ -4670,6 +4690,7 @@ app.post('/tabs/:tabId/scroll', async (req, res) => {
      await withTabLock(req.params.tabId, async () => {
        const isVertical = direction === 'up' || direction === 'down';
        const delta = (direction === 'up' || direction === 'left') ? -amount : amount;
@@ -410,3 +446,13 @@ index 4a737caba128a8f6a22f789ab9682167660a0589..7a01dbe91cdd6c20aa8de9aad3604b2d
        await tabState.page.mouse.wheel(isVertical ? 0 : delta, isVertical ? delta : 0);
        await tabState.page.waitForTimeout(300);
      });
+@@ -6187,7 +6208,8 @@ setInterval(() => {
+       for (const tabState of group.values()) registered.add(tabState.page);
+     }
+     for (const page of contextPages) {
+-      if (!registered.has(page) && !isPageLeased(session, page)) {
++      // stelz: a page that a person or a website opened is not an orphan.
++      if (isOrphanPage(page, registered, isPageLeased(session, page))) {
+         reaped++;
+         page.removeAllListeners();
+         page.close({ runBeforeUnload: false }).catch(() => {});
