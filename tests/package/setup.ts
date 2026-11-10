@@ -52,7 +52,7 @@ function check(condition: unknown, message: string, detail?: unknown): asserts c
 /** A failed JSON command prints nothing on stdout and one JSON error as the last stderr line. */
 function failure(result: Run, label: string) {
   check(result.code && !result.out.trim(), `${label} must fail without stdout`, result);
-  return (JSON.parse(result.err.trim().split("\n").at(-1)!) as { error: { code: string; message: string; downloads?: string[] } }).error;
+  return (JSON.parse(result.err.trim().split("\n").at(-1)!) as { error: { code: string; message: string; downloads?: { name: string; source: string }[] } }).error;
 }
 /** A successful setup prints exactly one JSON report on stdout. */
 function report(result: Run, home: string, label: string) {
@@ -98,10 +98,10 @@ try {
   // 1. Without consent, setup lists every download and prepares nothing.
   const fresh = createTestHome("fresh", temp);
   const refused = failure(await cli(["setup", "--json"], envFor(fresh, hidden)), "Setup without consent");
-  check(refused.code === "confirmation_required" && refused.downloads?.length === 4 && refused.downloads[0]!.startsWith(`Camoufox ${paired}`),
+  check(refused.code === "confirmation_required" && refused.downloads?.length === 4 && refused.downloads[0]!.name === `Camoufox ${paired}`,
     "Setup without consent must list the browser, both location datasets, and the model", refused);
   check(!prepared(fresh), "Setup without consent prepared a browser or runtime");
-  evidence.consent = refused.downloads;
+  evidence.consent = refused.downloads.map(item => item.name);
 
   // 2. A configured executable must be the paired build. Setup selects no other browser.
   const configured = createTestHome("configured", temp), wrong = join(temp, "wrong-browser");

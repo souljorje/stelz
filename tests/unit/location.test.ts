@@ -52,7 +52,7 @@ test("setup reuses a recent build without a request and keeps older data when of
   for (const [build, requests] of [[new Date().toISOString(), 0], ["2023-11-14T22:13:20.000Z", 2]] as const) {
     const current = temp(), stage = temp(); managedFixture(current, undefined, undefined, build); let calls = 0;
     const original = readFileSync(join(current, "geoip/manifest.json"), "utf8");
-    await prepareGeoip(stage, current, (() => { calls++; throw Error("offline"); }) as unknown as typeof fetch);
+    await prepareGeoip(stage, current, { request: (() => { calls++; throw Error("offline"); }) as unknown as typeof fetch });
     expect(JSON.parse(readFileSync(join(stage, "geoip/manifest.json"), "utf8"))).toEqual(JSON.parse(original));
     expect(calls).toBe(requests);
   }
@@ -68,7 +68,7 @@ test("an older build that is still the latest release needs only a release reque
   }) as unknown as typeof fetch;
   const current = temp(), urls: string[] = []; managedFixture(current);
   expect(await geoipPlan(current, Date.now(), latest("fixture"))).toEqual([]);
-  expect((await prepareGeoip(temp(), current, latest("fixture", urls))).status).toEqual({ selection: "reused", comparison: "reused" });
+  expect((await prepareGeoip(temp(), current, { request: latest("fixture", urls) })).status).toEqual({ selection: "reused", comparison: "reused" });
   expect(urls).toHaveLength(2);
   // A newer release or a failed release request lists the download.
   expect(await geoipPlan(current, Date.now(), latest("newer"))).toEqual(["selection", "comparison"]);
@@ -85,9 +85,9 @@ test("setup validates release integrity for both datasets before retaining them"
     }
     throw Error("Unexpected request");
   }) as unknown as typeof fetch;
-  const stage = temp(); await prepareGeoip(stage, current, request());
+  const stage = temp(); await prepareGeoip(stage, current, { request: request() });
   expect((await managedGeoip(stage)).sha256).toBe(hash(`${hash(bytes.selection)}:${hash(bytes.comparison)}`));
-  await expect(prepareGeoip(temp(), current, request({ comparison: "0".repeat(64) }))).rejects.toThrow("integrity");
+  await expect(prepareGeoip(temp(), current, { request: request({ comparison: "0".repeat(64) }) })).rejects.toThrow("integrity");
 });
 test("location evidence separates corroborated, uncorroborated, conflicting, and stale data", async () => {
   const now = Date.parse("2026-11-10T00:00:00Z"), london = { latitude: 0, longitude: 0, time_zone: "Europe/London" };

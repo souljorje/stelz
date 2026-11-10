@@ -23,7 +23,7 @@ function clone(source: string, target: string) {
   cpSync(source, target, { recursive: true, verbatimSymlinks: true });
 }
 
-type BrowserDependencies = { request?: typeof fetch; installed?: () => Installed[] };
+type BrowserDependencies = { request?: typeof fetch; installed?: () => Installed[]; progress?: (message: string) => void };
 /** Decide which browser setup uses, without changes. A configured executable must be the paired build. */
 export function browserPlan(home: string, configured?: string, { installed = upstreamInstalls }: BrowserDependencies = {}) {
   if (configured) {
@@ -52,10 +52,13 @@ export async function prepareBrowser(home: string, configured?: string, dependen
   for (const name of readdirSync(join(home, "browsers"))) if (name.startsWith(".stage-")) rmSync(join(home, "browsers", name), { recursive: true, force: true });
   const stage = mkdtempSync(join(home, "browsers", ".stage-")), install = join(stage, "browser");
   try {
-    if (plan.source === "upstream-cache") clone(plan.cached, install);
-    else {
+    const progress = dependencies.progress ?? console.error;
+    if (plan.source === "upstream-cache") {
+      progress(`Copying Camoufox ${pairedBrowser()} from the upstream cache…`);
+      clone(plan.cached, install);
+    } else {
       const pin = browserPin(), pattern = browserAssetPattern(), zip = join(stage, "browser.zip");
-      console.error(`Downloading Camoufox ${pairedBrowser()}…`);
+      progress(`Downloading Camoufox ${pairedBrowser()} (over 1 GB). This can take several minutes…`);
       const asset = await downloadReleaseAsset({ label: "Camoufox", repository: pin.repo, tag: pin.tag, maxBytes: 2 * 1024 ** 3, timeoutMs: 3_600_000,
         match: name => { const groups = pattern.exec(name)?.groups; return groups?.version === pin.version && groups?.build === pin.build; } },
         zip, dependencies.request ?? fetch);

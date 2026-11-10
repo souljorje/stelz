@@ -24,7 +24,8 @@ Help is available through `stelz --help`, `stelz help`, and the listed profile h
 
 Setup asks once in a terminal before it downloads. `--yes` allows the downloads without a question.
 Without a terminal or `--yes`, a setup that needs downloads fails with code `confirmation_required` and a `downloads` list.
-`--json` never prompts. It prints one JSON report on stdout and a JSON error on stderr.
+Each download has a `name`, `size`, `purpose`, and `source` link. The question shows the same details.
+Setup prints progress on stdout. `--json` never prompts. It prints one JSON report on stdout, and progress and a JSON error on stderr.
 The report contains `browser` with its `source`, `locationData` for each dataset, `fingerprintModel`, and `runtime` with its `id` and `status` (`prepared` or `reused`).
 Setup does not stop running profiles. They keep their runtime until [restart](#browser-lifecycle-and-diagnostics).
 See [How setup finds the browser](getting-started.md#how-setup-finds-the-browser), [Update Stelz](getting-started.md#update-stelz), and [Setup fails](troubleshooting.md#setup-fails).

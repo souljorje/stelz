@@ -1,6 +1,6 @@
 import { assertBundledPatches } from "./camofox-adapter.ts";
 import { geoipPlan, prepareGeoip, type GeoipStatus } from "./geoip-setup.ts";
-import { fingerprintModel, isPreparedModel, pairedBrowser } from "./camoufox.ts";
+import { browserPin, fingerprintModel, isPreparedModel, pairedBrowser } from "./camoufox.ts";
 import { browserPlan, prepareBrowser, type BrowserSource } from "./browser-setup.ts";
 import { GEOIP_SOURCES, type GeoipRole } from "./location.ts";
 import {
@@ -191,10 +191,11 @@ function stageRuntime(stage: string, source: string, browser: string, plugin: st
 }
 
 /** Stage the pinned fingerprint model. Reuse the current copy, or download and verify it. */
-export async function prepareModel(stage: string, current: string): Promise<"reused" | "downloaded"> {
+export async function prepareModel(stage: string, current: string, progress: Progress = console.error): Promise<"reused" | "downloaded"> {
   const target = join(stage, "fpgen"), previous = join(current, "fpgen");
   if (stat(previous)?.isDirectory()) copy(previous, target);
   const reused = isPreparedModel(target);
+  if (!reused) progress("Downloading the fingerprint model…");
   await fingerprintModel().ensureModel({ dir: target });
   return reused ? "reused" : "downloaded";
 }
@@ -263,24 +264,43 @@ export type SetupReport = {
   runtime: { id: string; status: "reused" | "prepared" };
 };
 /** Setup needs downloads that nobody authorized. */
+/** Setup progress for a person or, with `--json`, for stderr. */
+export type Progress = (message: string) => void;
+/** One download that needs consent. */
+export type PlannedDownload = { name: string; size: string; purpose: string; source: string };
+/** Each download with its size, purpose, and source. */
+export const downloadList = (downloads: PlannedDownload[]) =>
+  downloads.map(item => `- ${item.name} (${item.size}): ${item.purpose}\n  ${item.source}`).join("\n");
 export class SetupConfirmationError extends Error {
   readonly code = "confirmation_required";
-  constructor(readonly downloads: string[]) {
-    super(`Setup needs to download ${downloads.join(", ")}. Run stelz setup --yes to allow it.`);
+  constructor(readonly downloads: PlannedDownload[]) {
+    super(`Setup needs these downloads:\n${downloadList(downloads)}\nRun stelz setup --yes to allow them.`);
   }
 }
+const locationPurpose: Record<GeoipRole, Pick<PlannedDownload, "size" | "purpose">> = {
+  selection: { size: "about 120 MB", purpose: "Matches the timezone and language of a proxied browser to its exit IP." },
+  comparison: { size: "about 50 MB", purpose: "A second database that cross-checks that location." },
+};
 /** What setup would download now. A setup that needs none never asks. */
-async function plannedDownloads(configured?: string) {
-  const current = runtimeDir();
-  return [
-    ...(browserPlan(HOME_DIR, configured).source === "downloaded" ? [`Camoufox ${pairedBrowser()} (over 1 GB)`] : []),
-    ...(await geoipPlan(current)).map(role => `${GEOIP_SOURCES[role].name} location data`),
-    ...(isPreparedModel(join(current, "fpgen")) ? [] : ["the fingerprint model"]),
-  ];
+async function plannedDownloads(configured?: string): Promise<PlannedDownload[]> {
+  const current = runtimeDir(), downloads: PlannedDownload[] = [];
+  if (browserPlan(HOME_DIR, configured).source === "downloaded") {
+    const { repo, tag } = browserPin();
+    downloads.push({ name: `Camoufox ${pairedBrowser()}`, size: "over 1 GB", purpose: "The browser build that every profile runs.",
+      source: `https://github.com/${repo}/releases/tag/${tag}` });
+  }
+  for (const role of await geoipPlan(current)) downloads.push({ name: `${GEOIP_SOURCES[role].name} location data`, ...locationPurpose[role],
+    source: `https://github.com/${GEOIP_SOURCES[role].repository}/releases/latest` });
+  if (!isPreparedModel(join(current, "fpgen"))) {
+    const { repo, tag, size } = fingerprintModel().MODEL_PIN;
+    downloads.push({ name: "Fingerprint model", size: `about ${Math.ceil(size / 1e6)} MB`, purpose: "Generates the fingerprint of each new profile.",
+      source: `https://github.com/${repo}/releases/tag/${tag}` });
+  }
+  return downloads;
 }
 
 type SetupOptions = {
-  yes?: boolean; confirm?: (downloads: string[]) => Promise<boolean>;
+  yes?: boolean; confirm?: (downloads: PlannedDownload[]) => Promise<boolean>; progress?: Progress;
   prepareGeoip?: typeof prepareGeoip; prepareModel?: typeof prepareModel; prepareBrowser?: typeof prepareBrowser;
 };
 /** Prepare everything that Start needs, and create missing service files. Downloads require `yes` or a positive `confirm`. */
@@ -307,7 +327,8 @@ async function prepare(admission: string, options: SetupOptions): Promise<SetupR
     const downloads = await plannedDownloads(configured);
     if (downloads.length && !(await options.confirm?.(downloads))) throw new SetupConfirmationError(downloads);
   }
-  const browser = await (options.prepareBrowser ?? prepareBrowser)(HOME_DIR, configured);
+  const progress = options.progress ?? console.error;
+  const browser = await (options.prepareBrowser ?? prepareBrowser)(HOME_DIR, configured, { progress });
 
   const source = packagePath(CAMOFOX, ROOT);
   if (JSON.parse(readFileSync(join(source, "package.json"), "utf8")).version !== UPSTREAM_VERSION) {
@@ -325,10 +346,10 @@ async function prepare(admission: string, options: SetupOptions): Promise<SetupR
   try {
     stageRuntime(stage, source, browser.executable, plugin);
     const current = runtimeDir();
-    const geoip = await (options.prepareGeoip ?? prepareGeoip)(stage, current);
+    const geoip = await (options.prepareGeoip ?? prepareGeoip)(stage, current, { progress });
     const locationData: SetupReport["locationData"] = Object.fromEntries((Object.keys(geoip.status) as GeoipRole[]).map(role => [role, {
       source: geoip.datasets[role].source, release: geoip.datasets[role].release, builtAt: geoip.datasets[role].buildEpoch, status: geoip.status[role] }]));
-    const model = await (options.prepareModel ?? prepareModel)(stage, current);
+    const model = await (options.prepareModel ?? prepareModel)(stage, current, progress);
     const id = generationId(stage), target = join(RUNTIME_GENERATIONS, id);
     const runtime: SetupReport["runtime"] = { id, status: "reused" };
     if (id !== currentRuntimeId()) {

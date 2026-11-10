@@ -31,7 +31,7 @@ stelz setup --json
 ```
 
 If downloads are necessary, this fails with code `confirmation_required`. Its JSON error on stderr lists the downloads, which can include a browser of over 1 GB.
-Ask the user to approve them. Then run:
+Each download has a `name`, `size`, `purpose`, and `source` link. Show these to the user and ask for approval. Then run:
 
 ```sh
 stelz setup --yes --json

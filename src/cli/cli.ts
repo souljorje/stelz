@@ -2,6 +2,7 @@
 import type { UiAction } from "../api/contracts.ts";
 import { STELZ_VERSION } from "../versions.ts";
 import { LocationError } from "../browser/location.ts";
+import type { PlannedDownload } from "../browser/setup.ts";
 
 const [command = "help", ...rawArgs] = process.argv.slice(2);
 const rootJsonMode = ["setup", "start", "restart", "recheck", "status", "doctor"].includes(command) && rawArgs.includes("--json");
@@ -15,10 +16,11 @@ function diagnostic(error: unknown) {
     ...(error instanceof LocationError ? { location: error.location } : {}) }) : message;
 }
 /** Ask once in a terminal before setup downloads anything. */
-async function confirmDownloads(downloads: string[]) {
+async function confirmDownloads(downloads: PlannedDownload[]) {
   const { createInterface } = await import("node:readline/promises");
-  const prompt = createInterface({ input: process.stdin, output: process.stderr });
-  try { return /^y(es)?$/i.test((await prompt.question(`Setup will download:\n${downloads.map(item => `- ${item}`).join("\n")}\nDownload now? [y/N] `)).trim()); }
+  const { downloadList } = await import("../browser/setup.ts");
+  const prompt = createInterface({ input: process.stdin, output: process.stdout });
+  try { return /^y(es)?$/i.test((await prompt.question(`Setup will download:\n${downloadList(downloads)}\nDownload now? [y/N] `)).trim()); }
   finally { prompt.close(); }
 }
 try {
@@ -36,8 +38,10 @@ try {
   else if (command === "profile") await (await import("./profile.ts")).runProfile(args);
   else if (command === "setup") {
     if (args.some(arg => arg !== "--yes")) throw Error("Use: stelz setup [--yes] [--json]");
-    const interactive = !jsonMode && process.stdin.isTTY && process.stderr.isTTY;
-    const report = await setup({ yes: args.includes("--yes"), confirm: interactive ? confirmDownloads : undefined });
+    // A person reads progress on stdout. With --json, stdout carries only the report.
+    const interactive = !jsonMode && process.stdin.isTTY && process.stdout.isTTY;
+    const report = await setup({ yes: args.includes("--yes"), confirm: interactive ? confirmDownloads : undefined,
+      progress: jsonMode ? console.error : console.log });
     console.log(jsonMode ? JSON.stringify({ ok: true, ...report }, null, 2) : setupSummary(report));
   }
   else if (command === "ui") (await import("../api/ui-server.ts")).runUi(args);

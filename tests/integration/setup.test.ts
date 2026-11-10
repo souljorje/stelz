@@ -142,7 +142,7 @@ async function typeRoute(req, locator, tabState, selector, text, mode) {
   file(join(camoufox, "package.json"), JSON.stringify({ name: "camoufox", version: "0.5.8", type: "module" }));
   file(join(camoufox, "dist/index.js"), "export {};\n");
   file(join(camoufox, "dist/coherence.js"), "export function validate() { return []; }\n");
-  file(join(camoufox, "dist/fpgen/index.js"), "export function isModelInstalled() { return false; }\n");
+  file(join(camoufox, "dist/fpgen/index.js"), 'export function isModelInstalled() { return false; }\nexport const MODEL_PIN = { repo: "scrapfly/fingerprint-generator", tag: "model-2/2026", size: 1564571 };\n');
   file(join(camoufox, "dist/data-files/browser-pin.json"), JSON.stringify({ version: "156.0.1", build: "beta.36" }));
   for (const [name, version] of [["playwright-core", "1.62.1"], ["@modelcontextprotocol/sdk", "1.30.0"], ["better-sqlite3", "13.0.1"], ["impit", "0.14.8"]]) {
     file(join(project, "node_modules", name!, "package.json"), JSON.stringify({ name, version }));
@@ -238,8 +238,12 @@ test("setup without consent lists its downloads and changes nothing", async () =
   const f = fixture();
   const result = await finish(launch(f, "setup-unconfirmed"));
   expect(result.code).not.toBe(0);
-  expect(JSON.parse(result.stdout.trim())).toEqual(["GeoIP AIO location data", "GeoLite2 City location data", "the fingerprint model"]);
-  expect(result.stderr).toContain("Run stelz setup --yes to allow it.");
+  const downloads = JSON.parse(result.stdout.trim()) as { name: string; size: string; purpose: string; source: string }[];
+  expect(downloads.map(item => item.name)).toEqual(["GeoIP AIO location data", "GeoLite2 City location data", "Fingerprint model"]);
+  expect(downloads.map(item => item.source)).toEqual(["https://github.com/daijro/geoip-all-in-one/releases/latest",
+    "https://github.com/P3TERX/GeoLite.mmdb/releases/latest", "https://github.com/scrapfly/fingerprint-generator/releases/tag/model-2/2026"]);
+  expect(downloads.every(item => item.size && item.purpose)).toBe(true);
+  expect(result.stderr).toContain("Run stelz setup --yes to allow them.");
   expect(existsSync(join(f.home, "runtime"))).toBe(false);
 });
 

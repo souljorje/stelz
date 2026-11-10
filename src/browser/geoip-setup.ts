@@ -28,7 +28,8 @@ export async function geoipPlan(current: string, now = Date.now(), request: type
   return roles;
 }
 /** Stage data with the runtime. Only setup activates this directory. Reuse a recent build or the latest release; refresh an older one. */
-export async function prepareGeoip(stage: string, current: string, request: typeof fetch = fetch, now = Date.now()) {
+type GeoipOptions = { request?: typeof fetch; now?: number; progress?: (message: string) => void };
+export async function prepareGeoip(stage: string, current: string, { request = fetch, now = Date.now(), progress = console.error }: GeoipOptions = {}) {
   const target = join(stage, "geoip");
   mkdirSync(target, { mode: 0o700 });
   const existing = await existingDatasets(current);
@@ -45,12 +46,13 @@ export async function prepareGeoip(stage: string, current: string, request: type
       // An older build that is still the latest release stays. A source can publish less often than the refresh limit.
       const release = await readRelease(releaseRequest(role), request);
       if (release.tag === previous?.release) { keep("reused"); continue; }
+      progress(`Downloading ${GEOIP_SOURCES[role].name} location data…`);
       datasets[role] = await download(stage, role, request, release); status[role] = "downloaded";
     }
     catch (error) {
       // An offline setup keeps validated older data. Preflight reports its age.
       if (!previous) throw error;
-      console.error(`Kept the existing ${GEOIP_SOURCES[role].name} data: ${(error as Error).message}`);
+      progress(`Kept the existing ${GEOIP_SOURCES[role].name} data: ${(error as Error).message}`);
       keep("kept");
     }
   }
@@ -60,7 +62,6 @@ export async function prepareGeoip(stage: string, current: string, request: type
 
 async function download(stage: string, role: GeoipRole, request: typeof fetch, release: Release): Promise<GeoipDataset> {
   const source = GEOIP_SOURCES[role], file = geoipFile(stage, role);
-  console.error(`Preparing ${source.name} location data…`);
   const asset = await downloadReleaseAsset(releaseRequest(role), file, request, release);
   const data = validateGeoip(file, role, asset.sha256);
   return { source: source.name, sha256: data.sha256, release: asset.release, acquiredAt: new Date().toISOString(),
