@@ -80,6 +80,7 @@
     "check": "bun run build && bun run typecheck && bun run test",
     "test:transfer": "bun --no-env-file tests/browser/profile-transfer.ts",
     "test:install": "bun tests/package/install.ts",
+    "test:setup": "bun --no-env-file tests/package/setup.ts",
     "test:location": "bun --no-env-file tests/package/location.ts",
     "release": "changeset publish --from-pack-dir release-artifacts"
   },

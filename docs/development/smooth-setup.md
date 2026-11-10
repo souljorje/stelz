@@ -40,8 +40,8 @@ Setup selects the first available source:
 | --- | --- | --- |
 | 1 | `CAMOUFOX_EXECUTABLE`. It must be the paired build. Otherwise setup fails and selects no other browser. | Paired-build check |
 | 2 | The managed copy in `STELZ_HOME/browsers/<version>-<build>/`. | `launchPath(dir)` |
-| 3 | The paired build in the upstream cache. Setup reads it only and clones it into the managed directory. | `listInstalled`, `findInstalledVersion` |
-| 4 | The paired release download. `browser-pin.json` identifies the release and `repos.yml` names the asset. Setup verifies the GitHub SHA-256 digest and fails closed without one. It stages the files before activation. | `webdl`, `verifySha256`, `unzip`, `makeExecutable` |
+| 3 | The paired build in the upstream cache. Setup reads it only and clones it into the managed directory. | `listInstalled` |
+| 4 | The paired release download. `browser-pin.json` identifies the release and `repos.yml` names the asset. Setup verifies the GitHub SHA-256 digest and fails closed without one. It stages the files before activation. | Asset name rule, `unzip`, `makeExecutable` |
 
 Do not call `CamoufoxFetcher.install`, the `camoufox fetch` CLI, `resolveInstalledPath`, or `ensureCamoufoxInstalled`. They write only to the shared cache, can delete it, or download during launch.
 The runtime manifest records the selected browser. It becomes the default executable. `CAMOUFOX_EXECUTABLE` remains an override.
@@ -78,7 +78,7 @@ The report states for each part whether setup selected, reused, or downloaded it
 2. One setup command, with `--yes`, `--json`, and the report.
 3. Versioned runtimes, the shorter lock, the update mark, and `stelz restart`.
 4. Documentation, the UI, and the agent skill.
-5. Acceptance on one archive:
+5. Acceptance on one archive with `bun run test:setup --archive FILE`:
    - a fresh install without a browser;
    - an offline repeat;
    - a clone from the upstream cache;

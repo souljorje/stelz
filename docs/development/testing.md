@@ -38,6 +38,7 @@ Build also checks Markdown links in the packaged documentation.
 | `bun run pack` | Build a local candidate archive and checksum in `release-artifacts/`. |
 | `bun run test:install --archive FILE` | Inspect an unchanged archive, isolated npm installation with scripts disabled, CLI, HTTP UI, and staged setup. No browser. |
 | `bun run test:install --archive FILE --native` | Ordinary npm installation, SQLite queries, and Impit construction from the installation and staged runtime. No browser. |
+| `bun run test:setup --archive FILE` | Install one unchanged archive. Check setup consent, a wrong configured browser, an upstream cache clone, an interrupted and repeated download, concurrent and offline setup, and an update while a profile runs. Downloads the browser once and starts one headed browser. |
 | `bun run test:package --archive FILE` | Install one unchanged archive. Run integration, native persistence, transfer, concurrency, and typing acceptance. |
 | `bun run test:package --archive FILE --windows --proxy --manual` | Add window controls, proxy and location checks, and human acceptance. |
 
@@ -317,8 +318,12 @@ Only temporary test profiles are stopped. Private proxy credentials stay outside
 ```sh
 bun run pack
 bun run test:install --archive /absolute/path/to/candidate.tgz
+bun run test:setup --archive /absolute/path/to/candidate.tgz
 bun run test:package --archive /absolute/path/to/candidate.tgz
 ```
+
+`test:setup` hides the upstream Camoufox cache for its download cases. Its clone case reads the paired build from that cache and needs it. The suite needs network access to GitHub.
+It writes `.state/package-test/setup-report.json` and removes its files after a pass.
 
 The package suite installs with lifecycle scripts and runs the native dependency checks, so it replaces `test:install --native` here.
 It also replaces separate source-tree runs of the suites it repeats against the installation. Use those for development.
