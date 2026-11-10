@@ -165,7 +165,11 @@ See [Profile transfer](../profile-transfer.md) for supported behavior.
 
 ## Proxy and human acceptance
 
-1. Create a private env file outside the repository.
+Use local fixtures and synthetic proxy inputs for routine tests.
+Live acceptance requires dedicated test proxies. Never copy proxies from everyday profiles.
+The runner cannot verify proxy ownership. The operator must supply the correct route.
+
+1. Create a private env file outside the repository with `PROXY_TEST_USAGE=dedicated-acceptance`.
 2. Set `PROXY_TEST_URL` in that file. Also set `PROXY_TEST_SECOND_URL` to check two different exits.
 3. Optionally set `PROXY_TEST_EXPECTED_IP` and `PROXY_TEST_SECOND_EXPECTED_IP` to require known exits.
 4. Build the service.
@@ -269,10 +273,27 @@ Numeric scores, mobile signals, and fields that require location permission rema
 The suite requests no location permission and does not trigger Rebrowser's scripted probes.
 Skipped and untriggered probes do not count as passes.
 
-The suite creates one disposable native profile and four tabs in sequence.
+Public checks are occasional acceptance checks. Reserve a separate proxy for these checks.
+Do not share this proxy with lifecycle tests, which create multiple identities.
+The suite reuses one native profile and opens four tabs in sequence.
 It rejects `--profile` and ignores the operator's `STELZ_HOME`.
-To check a proxy route, set `PROXY_TEST_ENV` to a private file with `PROXY_TEST_URL`.
+Set `PROXY_TEST_ENV` to a private file with `PROXY_TEST_USAGE=dedicated-public` and `PROXY_TEST_URL`.
 Add `PROXY_TEST_EXPECTED_IP` when an exit pin is necessary.
+Create a test home once, then save the printed path:
+
+```sh
+bun --no-env-file -e 'import { createTestHome } from "./tests/helpers/test-home.ts"; console.log(createTestHome("public-profile", ".state"));'
+```
+
+Use that same path for every public check:
+
+```sh
+PUBLIC_TEST_HOME=/absolute/path/printed/above PROXY_TEST_ENV=/absolute/path/to/public.env bun run test:public
+```
+
+The home retains cookies and device settings. The runner refuses a different proxy route or IP pin for that home.
+Concurrent runs cannot share the home. After a crash, verify that the run has stopped before removing `.public-check.lock`.
+There is no automatic direct-connection fallback or shell proxy URL fallback.
 The suite copies those inputs to its test directory and removes that copy during cleanup.
 
 Each page receives checks every two seconds for up to 120 seconds, excluding human authentication time.
@@ -283,7 +304,7 @@ A site error does not prevent later checks when the profile remains usable.
 Authentication pauses the profile. Complete authentication in the same Camoufox window.
 Then type `done` in the terminal.
 A noninteractive terminal or cancelled authentication produces an incomplete run.
-Cleanup stops the disposable browser. Another run creates another profile.
+Cleanup stops the browser. Another run reuses the saved profile.
 
 Artifacts are in `.state/public-sites/<run>/`.
 Each run writes `report.json` and `report.md`.

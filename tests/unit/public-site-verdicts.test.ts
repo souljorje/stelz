@@ -138,6 +138,24 @@ describe("desktop SMART SIGNALS", () => {
     expect(assessSite("fingerprint-playground", playground({ "Developer Tools": "Maybe 🔧" })).verdict).toBe("INCONCLUSIVE");
   });
 
+  test.each(["You are using a VPN", "You are using a VPN (timezone mismatch)", "You are using a VPN 🌐 (timezone mismatch)"])("recognizes the native VPN result: %s", value => {
+    const result = assessSite("fingerprint-playground", playground({ VPN: value }));
+    expect(result.verdict).toBe("FAIL");
+    expect(result.reason).toBe("VPN reports detection.");
+    expect(result.details.VPN).toBe(value);
+  });
+
+  test("keeps VPN wording scoped to a completed VPN result", () => {
+    const value = "You are using a VPN 🌐 (timezone mismatch)";
+    for (const text of ["You are not using a VPN", `${value} (example)`, "You are using a VPN (unknown reason)"]) {
+      expect(assessSite("fingerprint-playground", playground({ VPN: text })).verdict).toBe("INCONCLUSIVE");
+    }
+    expect(assessSite("fingerprint-playground", playground({ Bot: value })).verdict).toBe("INCONCLUSIVE");
+    const busy = playground({ VPN: value }).replace(`row "VPN ${value}":`, `row "VPN ${value}" [busy]:`);
+    expect(assessSite("fingerprint-playground", busy).verdict).toBe("INCONCLUSIVE");
+    expect(assessSite("fingerprint-playground", `${playground()}\n${heading("How to use this demo")}\n${row("VPN", value)}`).verdict).toBe("PASS");
+  });
+
   test.each(signalNames)("does not pass when %s is absent", name => {
     const result = assessSite("fingerprint-playground", playground({}, [name]));
     expect(result.verdict).toBe("INCONCLUSIVE");

@@ -3,8 +3,10 @@ import { packageArguments, assertArchiveUnchanged } from "../../scripts/package-
 import { mkdirSync, readFileSync, writeFileSync, readdirSync, lstatSync, realpathSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { STELZ_VERSION } from "../../src/versions.ts";
+import { dedicatedProxyInputs } from "../helpers/dedicated-proxy.ts";
 const root = resolve(import.meta.dir, "../..");
 const input = packageArguments(process.argv.slice(2), ["--native", "--setup", "--proxy", "--manual", "--windows"]);
+if (input.flags.has("--proxy")) dedicatedProxyInputs(process.env.PROXY_TEST_ENV, "acceptance");
 const archive = input.archive ?? join(root, "release-artifacts", `stelz-${STELZ_VERSION}.tgz`);
 const installed = await installPackage(archive, { native: true, keep: true });
 const { candidate, env: installedEnv, cwd, home, prefix, bun, executable, installedCli, version, nativeCheck, uiChecked } = installed;

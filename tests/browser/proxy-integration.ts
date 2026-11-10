@@ -1,7 +1,7 @@
 // Live acceptance only. The offline tests do not import or execute this file.
 import { readFileSync, writeFileSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { parseEnv } from "node:util";
+import { dedicatedProxyInputs } from "../helpers/dedicated-proxy.ts";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { fixture } from "../helpers/fixture.ts";
@@ -126,11 +126,7 @@ async function openProbe(c: Client) {
   return channel;
 }
 try {
-  let secrets: Record<string, string | undefined> = process.env;
-  if (process.env.PROXY_TEST_ENV) {
-    try { secrets = parseEnv(readFileSync(process.env.PROXY_TEST_ENV, "utf8")); }
-    catch { throw Error("Cannot read PROXY_TEST_ENV. Private inputs are hidden."); }
-  }
+  const secrets = dedicatedProxyInputs(process.env.PROXY_TEST_ENV, "acceptance");
   const raw = [secrets.PROXY_TEST_URL, secrets.PROXY_TEST_SECOND_URL];
   redact = proxyRedactor([...raw, process.env.PROXY_TEST_URL, process.env.PROXY_TEST_SECOND_URL]);
   const supplied = suppliedProxyEndpoints(secrets); shared = supplied.length === 1;

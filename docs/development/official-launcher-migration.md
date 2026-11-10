@@ -47,7 +47,7 @@ The Phase 2 corpus has at least 500 candidates. Reconcile accepted, rejected, an
 | 3 | Prepared runtime, production cutover, and service contracts | PASS. Final archive from `e57bd81`. See the [result](#phase-3-result). |
 | 4 | Merged into Phase 3 | — |
 | 5 | Explicit previewed fingerprint repair | Dropped. See [Phase 5](#phase-5-dropped). |
-| 6 | Installed-archive and real-world acceptance | Pending |
+| 6 | Installed-archive and real-world acceptance | BLOCKED. Installed-package and real-agent checks passed. Public-site findings and missing cross-timezone coverage remain. See the [acceptance report](reports/official-launcher-phase6-2026-11-10.md). |
 
 ## Phase 1: validation and readiness
 

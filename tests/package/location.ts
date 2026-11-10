@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { parseEnv } from "node:util";
+import { dedicatedProxyInputs } from "../helpers/dedicated-proxy.ts";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { installPackage } from "./install.ts";
@@ -14,7 +14,7 @@ import { assertSingleStartupWindow } from "../helpers/startup-window.ts";
 
 const { archive } = packageArguments(process.argv.slice(2), []);
 if (!archive || !process.env.PROXY_TEST_ENV || !process.env.CAMOUFOX_EXECUTABLE) throw Error("Supply --archive, PROXY_TEST_ENV, and CAMOUFOX_EXECUTABLE.");
-const secrets = parseEnv(readFileSync(process.env.PROXY_TEST_ENV, "utf8"));
+const secrets = dedicatedProxyInputs(process.env.PROXY_TEST_ENV, "acceptance");
 const endpoints = suppliedProxyEndpoints(secrets), redact = proxyRedactor([secrets.PROXY_TEST_URL, secrets.PROXY_TEST_SECOND_URL]);
 // The package suite passes its installation, so one archive installation serves every installed check.
 const installed: Awaited<ReturnType<typeof installPackage>> = process.env.STELZ_TEST_INSTALLATION
