@@ -1,7 +1,7 @@
 # Official launcher Phase 6 acceptance — 2026-11-10
 
-Status: acceptance run finished. The Phase 6 gate remains blocked by public-site findings and missing cross-timezone coverage.
-This report does not approve a release.
+Status: ACCEPTED WITH LIMITATIONS by the owner on 10 November 2026. The Phase 6 acceptance decision is closed.
+Publication still requires the normal release workflow and its checks.
 Scope and gates: [migration plan](../official-launcher-migration.md#phase-6-acceptance-and-delivery).
 
 ## Candidate
@@ -117,14 +117,28 @@ The different sampled OS also prevents attribution of result differences to Stel
 Evidence: `.state/python-camoufox-2026-11-10/report.md`, snapshots, screenshots, and captured JSON responses.
 The browser closed after one visit to each site. No Stelz profile or configuration changed.
 
-## Remaining work
+## Acceptance decision
 
-- Resolve location uncertainty before another acceptance decision. Changing the browser timezone merely to match one detector is not validated by these results.
-- Diagnose Pixelscan with a completed observation of the same saved profile on a dedicated test exit. Preserve the failed-property details if exposed.
-- Reserve repeated lifecycle checks for local fixtures. Use dedicated test exits for public checks and preserve each public-check profile between runs.
-- Keep cross-timezone coverage marked unexecuted, as the operator requested. The existing release gate still requires this evidence.
+On 10 November 2026, the owner explicitly accepted the remaining limitations and closed the acceptance decision.
+The following items no longer block this release:
+
+- GeoIP disagreement and the resulting Playground timezone warning. The browser applied the configured timezone correctly.
+- Pixelscan masking with no established cause. The incomplete Python comparison does not resolve this finding.
+- Missing cross-timezone coverage. This check remains NOT COVERED.
+
+The background-tab scroll timeout remains an accepted limitation, as recorded in the Phase 3 result.
+No failed or incomplete observation becomes a passing test through this decision. The original evidence remains unchanged.
+Further detector investigation and cross-timezone testing are follow-up work, not prerequisites for this release.
+
+Routine tests use local fixtures. Live checks require dedicated test proxies, and public checks preserve their saved profile.
+The test-isolation changes passed 191 focused tests and typecheck. They did not contact real proxies or public sites.
+
+Remaining delivery steps are push and merge, required CI, version PR review, and publication through the [release workflow](../releasing.md).
+The workflow must validate the final publication archive. This decision does not claim browser acceptance of different archive bytes.
 
 ## Commands
+
+These commands record the original run. For future runs, use the dedicated-input and persistent-home instructions in [Testing](../testing.md).
 
 ```sh
 bun run check

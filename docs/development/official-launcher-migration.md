@@ -47,7 +47,7 @@ The Phase 2 corpus has at least 500 candidates. Reconcile accepted, rejected, an
 | 3 | Prepared runtime, production cutover, and service contracts | PASS. Final archive from `e57bd81`. See the [result](#phase-3-result). |
 | 4 | Merged into Phase 3 | — |
 | 5 | Explicit previewed fingerprint repair | Dropped. See [Phase 5](#phase-5-dropped). |
-| 6 | Installed-archive and real-world acceptance | BLOCKED. Installed-package and real-agent checks passed. Public-site findings and missing cross-timezone coverage remain. See the [acceptance report](reports/official-launcher-phase6-2026-11-10.md). |
+| 6 | Installed-archive and real-world acceptance | ACCEPTED WITH LIMITATIONS by the owner on 10 November 2026. Functional checks passed. Public-site findings and missing cross-timezone coverage are accepted limitations. See the [decision](reports/official-launcher-phase6-2026-11-10.md#acceptance-decision). |
 
 ## Phase 1: validation and readiness
 
@@ -119,6 +119,11 @@ The owner removed backward compatibility with earlier Stelz versions. No saved p
 An invalid pin blocks Start. Create a new profile instead.
 
 ## Phase 6: acceptance and delivery
+
+The owner closed Phase 6 on 10 November 2026 with the [recorded limitations](reports/official-launcher-phase6-2026-11-10.md#acceptance-decision).
+For this release, GeoIP disagreement, unresolved Pixelscan masking, and missing cross-timezone coverage do not block acceptance.
+This decision supersedes the requirements below for those items only. Recorded failures and unexecuted checks retain their original results.
+Publication still requires the [release workflow](releasing.md) and its checks.
 
 The validator runs `bun run check`, then one unchanged installed candidate archive in a clean consumer. A changed archive requires renewed acceptance. Check invalid pins and hash faults. Check two headed profiles through shared MCP, all 18 schemas, all nine tools, typing, ownership races, handoff, cookies/storage/IDB/preferences across three lifetimes, and duplicate starts and windows. Use a real agent in a fresh workspace with two TodoMVC profiles, creating the second in the same chat.
 
