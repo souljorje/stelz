@@ -45,6 +45,9 @@ Review the version, changelog, and CI results before merging that PR.
 The workflow explicitly dispatches CI for the bot-created branch because its token does not trigger ordinary PR workflows.
 The workflow never approves or merges a PR.
 
+Temporary exception: CI and release installation checks run on Ubuntu only because GitHub macOS runners lack capacity.
+The macOS matrix entries remain commented in both workflows. Restore them to resume the two-platform checks described below.
+
 The shared setup action installs Node.js 24, Bun from the `packageManager` pin, and its pinned npm version.
 It installs frozen dependencies with lifecycle scripts disabled and skips browser downloads.
 Checks and packaging have read-only repository access.

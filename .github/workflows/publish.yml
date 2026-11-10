@@ -109,7 +109,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os:
+          - ubuntu-latest
+          # Temporarily disabled while GitHub macOS runners have capacity issues.
+          # - macos-latest
     permissions:
       contents: read
     steps:
