@@ -137,6 +137,26 @@ The test-isolation changes passed 191 focused tests and typecheck. They did not 
 Remaining delivery steps are push and merge, required CI, version PR review, and publication through the [release workflow](../releasing.md).
 The workflow must validate the final publication archive. This decision does not claim browser acceptance of different archive bytes.
 
+## Release candidate check
+
+After acceptance, five commits changed shipped behavior: `2f56b05` (action limits and 3-minute typing), `50921eb` (opened tabs stay open), `f3f59fb` (no health-probe window), `aec4ac9` (cursor marker), and `f4281c0` (pointer position before a scroll).
+
+| Check | Result | Evidence and limits |
+| --- | --- | --- |
+| Build, typecheck, unit/integration and regression tests | PASS | 778 Bun tests and 167 Node tests at `01fc056`. |
+| Installed package with setup | PASS | `stelz-0.4.0.tgz` from `01fc056`, SHA-256 `d4f468ba8a4d20bbc62f9aaab991bd5b03b2c99ce6a3f61ea16ca2395ea9d69a`, unchanged after the run. Integration, native persistence (3 fresh and 6 saved lifetimes), concurrency, typing, transfer, and setup. |
+| Proxy and location | NOT REPEATED | The owner skipped this check. No proxy or location code changed after acceptance. |
+| Fresh-agent install from the skill link | PARTIAL | Claude Code with Sonnet 5.5 and the archive from `430512a` (SHA-256 `11927e66141ee464768bdb934a422f721aa479e975ffa9d94c39f1788147db21`). See below. |
+
+The first session received only the skill link and the test locations. It installed the archive, asked before the setup downloads, prepared setup, linked the skill, and registered MCP at project scope.
+The bb sandbox blocked writes outside the project, so the agent ran those commands outside the sandbox and wrote `.mcp.json` directly.
+In a new session, the agent listed, acquired, navigated, read snapshots, released, and acquired again through the registered tools.
+Two fixture clicks returned uncertain-click errors while the browser window was not in front. The owner accepted this as the known background-window limitation.
+
+After this run, agent setup changed: it no longer creates a profile or runs a browser check. It opens the UI and gives the next steps (`576211d`). No fresh agent has run this flow.
+The later commits change only the skill, documentation, and release notes. They do not change browser code.
+Private evidence: `.state/official-launcher-migration/release-0.5.0-01fc056/` and `release-0.5.0-430512a/`.
+
 ## Commands
 
 These commands record the original run. For future runs, use the dedicated-input and persistent-home instructions in [Testing](../testing.md).
