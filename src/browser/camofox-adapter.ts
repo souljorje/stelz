@@ -27,7 +27,7 @@ function assertClickPatches(upstream: string) {
   check(server, "        } catch (domErr) {\n          log('warn', 'DOM click fallback failed",
     "        } catch (domErr) {\n          // stelz: a DOM click can reach the page before it fails. Then the mouse sequence would repeat it.\n          if (!domClickRejected(domErr)) throw uncertainClickError(domErr);\n");
   check(server, "          await click({ timeout: 3000 });\n        } catch (err) {",
-    "          await click({ timeout: 3000, trial: true });\n        } catch (err) {\n          if (clickReachedPage(err)) throw uncertainClickError(err);\n");
+    "          await click({ timeout: 3000, trial: true });\n        } catch (err) {\n          // A trial sends no input, although Playwright still logs \"performing click action\" for it.\n");
   check(server, "await click({ timeout: 3000 });\n",
     "        // stelz: a failure after input started is uncertain. Never repeat it.\n        try {\n          await click({ timeout: inputTimeout() });\n" +
     "        } catch (err) {\n          if (clickReachedPage(err)) throw uncertainClickError(err);\n          throw err;\n        }\n");
