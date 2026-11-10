@@ -56,9 +56,10 @@ async function recoverForceClickFailure(dispatchDomClick, dispatchMouseSequence,
         }
 }
 async function clickRoute(click, log, remainingBudget, onGoogleSerp) {
+        const inputTimeout = () => Math.max(1, remainingBudget());
         if (onGoogleSerp) {
           try {
-            await click({ timeout: 3000, force: true });
+            await click({ timeout: inputTimeout(), force: true });
           } catch (forceErr) {
             if (clickReachedPage(forceErr)) throw uncertainClickError(forceErr);
             log('warn', 'google force click failed, trying DOM click fallback');
@@ -66,26 +67,32 @@ async function clickRoute(click, log, remainingBudget, onGoogleSerp) {
           return;
         }
         try {
-          await click({ timeout: 3000 });
+          await click({ timeout: 3000, trial: true });
         } catch (err) {
-          // stelz: retry only an attempt that failed before it sent input.
           if (clickReachedPage(err)) throw uncertainClickError(err);
-          // Fallback 1: If intercepted by overlay, retry with force
           if (isTimeoutError(err)) {
+            log('warn', 'click intercepted, retrying with force');
             try {
-              await click({ timeout: 3000, force: true });
+              await click({ timeout: inputTimeout(), force: true });
             } catch (forceErr) {
               if (clickReachedPage(forceErr)) throw uncertainClickError(forceErr);
-              log('warn', 'force click failed, trying DOM click fallback');
             }
           } else {
+            log('warn', 'click timeout, retrying with force');
             try {
-              await click({ timeout: Math.max(1, Math.min(3000, remainingBudget())), force: true });
+              await click({ timeout: inputTimeout(), force: true });
             } catch (forceErr) {
               if (clickReachedPage(forceErr)) throw uncertainClickError(forceErr);
-              log('warn', 'force click failed, trying DOM click fallback');
             }
           }
+          return;
+        }
+        // stelz: a failure after input started is uncertain. Never repeat it.
+        try {
+          await click({ timeout: inputTimeout() });
+        } catch (err) {
+          if (clickReachedPage(err)) throw uncertainClickError(err);
+          throw err;
         }
 }
 const externalCamoufox = null; // stelz: the plugin passes the executable to the official launcher.

@@ -322,6 +322,7 @@ bun run test:package --archive /absolute/path/to/candidate.tgz --setup
 ```
 
 `test:package --setup` runs `test:setup` on its own installation, so release acceptance installs the archive once with lifecycle scripts.
+Each installation uses a new prefix. The npm download cache persists in `.state/npm-cache`, and npm verifies each package's integrity hash.
 `test:setup` hides the upstream Camoufox cache for its consent case. Its other cases read the paired build from that cache and need it. Unit tests cover the browser download with a fixture release. The suite needs network access to GitHub.
 It writes `.state/package-test/setup-report.json` and removes its files after a pass.
 

@@ -104,7 +104,7 @@ diff --git a/postinstall.js b/postinstall.js
 deleted file mode 100644
 index 488077bfa09b23c4d6ad68a946a5a16be12d7c2d..0000000000000000000000000000000000000000
 diff --git a/server.js b/server.js
-index 4a737caba128a8f6a22f789ab9682167660a0589..df2edd4c2d898dff735170a7f132e8a7859e32d0 100644
+index 4a737caba128a8f6a22f789ab9682167660a0589..812635a8505e111a33eba868fe43ef24b50a8b49 100644
 --- a/server.js
 +++ b/server.js
 @@ -1,5 +1,4 @@
@@ -300,39 +300,67 @@ index 4a737caba128a8f6a22f789ab9682167660a0589..df2edd4c2d898dff735170a7f132e8a7
            log('warn', 'DOM click fallback failed, trying mouse sequence', { error: domErr.message });
            await dispatchMouseSequence(locator);
          }
-@@ -3961,6 +3957,7 @@ app.post('/tabs/:tabId/click', async (req, res) => {
+@@ -3957,10 +3953,13 @@ app.post('/tabs/:tabId/click', async (req, res) => {
+         }
+         const click = async (options) => clickWithDownloadGuard(tabState, () => locator.click(options));
+         
++        // stelz: input waits for the browser to confirm each mouse event, so input gets the remaining budget.
++        const inputTimeout = () => Math.max(1, remainingBudget());
+         if (onGoogleSerp) {
            try {
-             await click({ timeout: 3000, force: true });
+-            await click({ timeout: 3000, force: true });
++            await click({ timeout: inputTimeout(), force: true });
            } catch (forceErr) {
 +            if (clickReachedPage(forceErr)) throw uncertainClickError(forceErr);
              log('warn', 'google force click failed, trying DOM click fallback');
              await recoverForceClickFailure(locator);
            }
-@@ -3971,12 +3968,15 @@ app.post('/tabs/:tabId/click', async (req, res) => {
-           // First try normal click (respects visibility, enabled, not-obscured)
-           await click({ timeout: 3000 });
+@@ -3968,29 +3967,40 @@ app.post('/tabs/:tabId/click', async (req, res) => {
+         }
+         
+         try {
+-          // First try normal click (respects visibility, enabled, not-obscured)
+-          await click({ timeout: 3000 });
++          // stelz: check visibility, enabled state, and obstruction without input. Only this check may fall back.
++          await click({ timeout: 3000, trial: true });
          } catch (err) {
-+          // stelz: retry only an attempt that failed before it sent input.
 +          if (clickReachedPage(err)) throw uncertainClickError(err);
            // Fallback 1: If intercepted by overlay, retry with force
            if (err.message.includes('intercepts pointer events')) {
              log('warn', 'click intercepted, retrying with force');
              try {
-               await click({ timeout: 3000, force: true });
+-              await click({ timeout: 3000, force: true });
++              await click({ timeout: inputTimeout(), force: true });
              } catch (forceErr) {
 +              if (clickReachedPage(forceErr)) throw uncertainClickError(forceErr);
                log('warn', 'force click failed, trying DOM click fallback');
                await recoverForceClickFailure(locator);
              }
-@@ -3985,6 +3985,7 @@ app.post('/tabs/:tabId/click', async (req, res) => {
+           } else if (err.message.includes('not visible') || err.message.toLowerCase().includes('timeout')) {
+             log('warn', 'click timeout, retrying with force');
              try {
-               await click({ timeout: Math.max(1, Math.min(3000, remainingBudget())), force: true });
+-              await click({ timeout: Math.max(1, Math.min(3000, remainingBudget())), force: true });
++              await click({ timeout: inputTimeout(), force: true });
              } catch (forceErr) {
 +              if (clickReachedPage(forceErr)) throw uncertainClickError(forceErr);
                log('warn', 'force click failed, trying DOM click fallback');
                await recoverForceClickFailure(locator);
              }
-@@ -4371,7 +4372,7 @@ app.post('/tabs/:tabId/type', async (req, res) => {
+           } else {
+             throw err;
+           }
++          return;
++        }
++        // stelz: a failure after input started is uncertain. Never repeat it.
++        try {
++          await click({ timeout: inputTimeout() });
++        } catch (err) {
++          if (clickReachedPage(err)) throw uncertainClickError(err);
++          throw err;
+         }
+       };
+       
+@@ -4371,7 +4381,7 @@ app.post('/tabs/:tabId/type', async (req, res) => {
    const tabId = req.params.tabId;
    
    try {
@@ -341,7 +369,7 @@ index 4a737caba128a8f6a22f789ab9682167660a0589..df2edd4c2d898dff735170a7f132e8a7
      const session = sessions.get(normalizeUserId(userId));
      const found = session && findTab(session, tabId);
      if (!found) return tabNotFoundResponse(res, req.params.tabId || req.body?.tabId);
-@@ -4409,9 +4410,9 @@ app.post('/tabs/:tabId/type', async (req, res) => {
+@@ -4409,9 +4419,9 @@ app.post('/tabs/:tabId/type', async (req, res) => {
        
        if (mode === 'fill') {
          if (locator) {
@@ -353,7 +381,7 @@ index 4a737caba128a8f6a22f789ab9682167660a0589..df2edd4c2d898dff735170a7f132e8a7
          }
        } else {
          // keyboard mode -- char-by-char real key events (required for Ember/contenteditable)
-@@ -4423,12 +4424,19 @@ app.post('/tabs/:tabId/type', async (req, res) => {
+@@ -4423,12 +4433,19 @@ app.post('/tabs/:tabId/type', async (req, res) => {
          await tabState.page.keyboard.type(text, { delay });
        }
        if (shouldSubmit) await tabState.page.keyboard.press('Enter');
@@ -374,7 +402,7 @@ index 4a737caba128a8f6a22f789ab9682167660a0589..df2edd4c2d898dff735170a7f132e8a7
      if (err.message?.includes('timed out') || err.message?.includes('not an <input>')) {
        try {
          const session = sessions.get(normalizeUserId(req.body.userId));
-@@ -4670,6 +4678,7 @@ app.post('/tabs/:tabId/scroll', async (req, res) => {
+@@ -4670,6 +4687,7 @@ app.post('/tabs/:tabId/scroll', async (req, res) => {
      await withTabLock(req.params.tabId, async () => {
        const isVertical = direction === 'up' || direction === 'down';
        const delta = (direction === 'up' || direction === 'left') ? -amount : amount;
