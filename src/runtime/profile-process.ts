@@ -27,7 +27,7 @@ const macSysctl =
       })
     : undefined;
 
-export async function lock<T>(path: string, action: () => Promise<T>, timeout = 45000): Promise<T> {
+export async function lock<T>(path: string, action: () => Promise<T>, timeout = 45000, busy = "Profile operation is busy. Wait for the current action."): Promise<T> {
   const token = crypto.randomUUID(),
     end = Date.now() + timeout;
   const flags = constants.O_CREAT | constants.O_RDWR | constants.O_APPEND | constants.O_NOFOLLOW;
@@ -52,7 +52,7 @@ export async function lock<T>(path: string, action: () => Promise<T>, timeout = 
         writeSync(fd, JSON.stringify({ version: 2, pid: process.pid, token }));
         break;
       }
-      if (Date.now() >= end) throw Error("Profile operation is busy. Wait for the current action.");
+      if (Date.now() >= end) throw Error(busy);
       await Bun.sleep(50);
     }
     return await action();

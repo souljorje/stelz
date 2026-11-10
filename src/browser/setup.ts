@@ -1,7 +1,7 @@
 import { assertBundledPatches } from "./camofox-adapter.ts";
 import { prepareGeoip } from "./geoip-setup.ts";
 import { fingerprintModel } from "./camoufox.ts";
-import { engineVersion } from "./location-launch.ts";
+import { prepareBrowser, type BrowserSource } from "./browser-setup.ts";
 import {
   copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync,
   readFileSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync,
@@ -11,7 +11,7 @@ import { createRequire } from "node:module";
 import { createHash } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { dlopen, FFIType } from "bun:ffi";
-import { ROOT, HOME_DIR, STATE, UPSTREAM, COMMIT, UPSTREAM_VERSION, executable, initialize, settings } from "../profiles/config.ts";
+import { ROOT, HOME_DIR, STATE, UPSTREAM, COMMIT, UPSTREAM_VERSION, initialize, secret, settings } from "../profiles/config.ts";
 import { STELZ_VERSION } from "../versions.ts";
 import { lock, running } from "../runtime/runtime.ts";
 
@@ -239,12 +239,18 @@ function activate(stage: string) {
   if (result !== 0) throw Error("Cannot atomically replace the runtime on this filesystem.");
 }
 
-export async function setup(options: { prepareGeoip?: typeof prepareGeoip; prepareModel?: typeof prepareModel } = {}) {
+const browserReport: Record<BrowserSource, string> = { configured: "Using the configured Camoufox", managed: "Reused the prepared Camoufox",
+  "upstream-cache": "Copied Camoufox from the upstream cache", downloaded: "Downloaded and verified Camoufox" };
+export async function setup(options: { prepareGeoip?: typeof prepareGeoip; prepareModel?: typeof prepareModel; prepareBrowser?: typeof prepareBrowser } = {}) {
   directory(HOME_DIR);
   directory(STATE);
   directory(join(HOME_DIR, "runtime"));
   mkdirSync(STATE, { recursive: true, mode: 0o700 });
 
+  // The browser has its own directory and lock, so a slow download never blocks lifecycle commands.
+  const browser = await lock(join(STATE, "browser.lock"),
+    () => (options.prepareBrowser ?? prepareBrowser)(HOME_DIR, secret("CAMOUFOX_EXECUTABLE") || undefined), 3_600_000,
+    "Another stelz setup is preparing Camoufox. Wait for it to finish, then run stelz setup again.");
   const admission = join(STATE, "admission.lock");
   const existingLock = stat(admission);
   if (existingLock && (!existingLock.isFile() || existingLock.nlink !== 1)) {
@@ -254,11 +260,6 @@ export async function setup(options: { prepareGeoip?: typeof prepareGeoip; prepa
     initialize();
     assertStopped();
 
-    const browser = executable();
-    if (!existsSync(browser) || !statSync(browser).isFile()) {
-      throw Error(`Camoufox is missing at ${browser}. Set CAMOUFOX_EXECUTABLE in secrets.env.`);
-    }
-    engineVersion(browser);
     const source = packagePath(CAMOFOX, ROOT);
     if (JSON.parse(readFileSync(join(source, "package.json"), "utf8")).version !== UPSTREAM_VERSION) {
       throw Error("The installed Camofox version does not match the pinned version.");
@@ -269,7 +270,7 @@ export async function setup(options: { prepareGeoip?: typeof prepareGeoip; prepa
     const stage = mkdtempSync(join(HOME_DIR, ".runtime-setup-"));
     let activated = false;
     try {
-      stageRuntime(stage, source, browser, plugin);
+      stageRuntime(stage, source, browser.executable, plugin);
       const current = join(HOME_DIR, "runtime");
       await (options.prepareGeoip ?? prepareGeoip)(stage, current);
       await (options.prepareModel ?? prepareModel)(stage, current);
@@ -284,5 +285,5 @@ export async function setup(options: { prepareGeoip?: typeof prepareGeoip; prepa
       }
     }
   });
-  console.log(`Service files are ready in ${HOME_DIR}. The installed browser is unchanged.`);
+  console.log(`${browserReport[browser.source]}: ${browser.executable}\nService files are ready in ${HOME_DIR}.`);
 }

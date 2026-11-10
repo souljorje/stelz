@@ -1,0 +1,46 @@
+import { createHash } from "node:crypto";
+import { closeSync, constants, fsyncSync, openSync, rmSync, writeSync } from "node:fs";
+
+export type ReleaseAssetRequest = {
+  label: string; repository: string; tag?: string; match: (name: string) => boolean; maxBytes: number; timeoutMs: number;
+};
+type Release = { tag_name?: string; assets?: { name: string; digest?: string; size: number; browser_download_url: string }[] };
+
+/**
+ * Download one GitHub release asset to a new file and verify the SHA-256 digest that GitHub publishes for it.
+ * A missing digest, an unexpected URL, or a size or digest mismatch fails and removes the file.
+ */
+export async function downloadReleaseAsset(request: ReleaseAssetRequest, file: string, fetcher: typeof fetch = fetch) {
+  const { label, repository } = request, signal = AbortSignal.timeout(request.timeoutMs);
+  const release = await fetcher(`https://api.github.com/repos/${repository}/releases/${request.tag ? `tags/${request.tag}` : "latest"}`,
+    { signal, headers: { Accept: "application/vnd.github+json" } });
+  if (!release.ok) throw Error(`Cannot read the ${label} release. Check the connection and run stelz setup again.`);
+  const value = await release.json() as Release;
+  const assets = value.assets?.filter(asset => request.match(asset.name)) ?? [];
+  const asset = assets[0], tag = value.tag_name ?? "";
+  const invalid = (reason: string) => Error(`The ${label} release ${tag || "(unknown)"} ${reason}. Run stelz setup again after the release is available.`);
+  if (!/^[\w.-]+$/.test(tag) || (request.tag && tag !== request.tag)) throw invalid(`does not match the expected release ${request.tag ?? "latest"}`);
+  if (assets.length !== 1 || !asset) throw invalid(`has ${assets.length} matching assets for this platform instead of one`);
+  // Upstream skips verification without a digest. Stelz refuses the download.
+  if (!/^sha256:[a-f0-9]{64}$/.test(asset.digest || "")) throw invalid(`has no published SHA-256 digest for ${asset.name}`);
+  if (asset.browser_download_url !== `https://github.com/${repository}/releases/download/${tag}/${encodeURIComponent(asset.name)}` ||
+    !Number.isSafeInteger(asset.size) || asset.size <= 0 || asset.size > request.maxBytes) throw invalid(`has unexpected metadata for ${asset.name}`);
+  const response = await fetcher(asset.browser_download_url, { signal });
+  if (!response.ok || !response.body) throw Error(`Cannot download ${label}. Check the connection and run stelz setup again.`);
+  const digest = createHash("sha256"), fd = openSync(file, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
+  let length = 0, complete = false;
+  try {
+    for await (const chunk of response.body) {
+      signal.throwIfAborted();
+      length += chunk.length;
+      if (length > asset.size) throw Error(`The ${label} download exceeds its release size.`);
+      digest.update(chunk); writeSync(fd, chunk);
+    }
+    if (length !== asset.size || digest.digest("hex") !== asset.digest!.slice(7)) throw Error(`The ${label} integrity check failed. Run stelz setup again.`);
+    fsyncSync(fd); complete = true;
+  } finally {
+    closeSync(fd);
+    if (!complete) rmSync(file, { force: true });
+  }
+  return { name: asset.name, release: tag, sha256: asset.digest!.slice(7), size: length };
+}

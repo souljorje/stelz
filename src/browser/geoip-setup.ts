@@ -1,6 +1,7 @@
 import { copyFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { managedGeoip, validateGeoip, hash, geoipFile, GEOIP_SOURCES, GEOIP_REFRESH_DAYS,
+import { downloadReleaseAsset } from "./release-asset.ts";
+import { managedGeoip, validateGeoip, geoipFile, GEOIP_SOURCES, GEOIP_REFRESH_DAYS,
   type GeoipDataset, type GeoipManifest, type GeoipRole } from "./location.ts";
 
 const MAX_BYTES = 256 * 1024 * 1024, DAY_MS = 86_400_000;
@@ -31,32 +32,11 @@ export async function prepareGeoip(stage: string, current: string, request: type
 }
 
 async function download(stage: string, role: GeoipRole, request: typeof fetch): Promise<GeoipDataset> {
-  const source = GEOIP_SOURCES[role];
+  const source = GEOIP_SOURCES[role], file = geoipFile(stage, role);
   console.error(`Preparing ${source.name} location data…`);
-  const signal = AbortSignal.timeout(300_000);
-  const response = await request(`https://api.github.com/repos/${source.repository}/releases/latest`, { signal, headers: { Accept: "application/vnd.github+json" } });
-  if (!response.ok) throw Error("Cannot read the location-data release. Check the connection and run stelz setup again.");
-  const release = await response.json() as { tag_name?: string; assets?: { name: string; digest?: string; size: number; browser_download_url: string }[] };
-  const asset = release.assets?.find(asset => asset.name === source.asset);
-  if (!asset || !/^sha256:[a-f0-9]{64}$/.test(asset.digest || "") || !/^[\w.-]+$/.test(release.tag_name || "") ||
-    asset.browser_download_url !== `https://github.com/${source.repository}/releases/download/${release.tag_name}/${source.asset}` ||
-    !Number.isSafeInteger(asset.size) || asset.size <= 0 || asset.size > MAX_BYTES)
-    throw Error("The location-data release has no valid integrity metadata. Run stelz setup again after the release is available.");
-  const downloaded = await request(asset.browser_download_url, { signal });
-  if (!downloaded.ok || !downloaded.body) throw Error("Cannot download location data. Check the connection and run stelz setup again.");
-  const chunks: Uint8Array[] = [];
-  let length = 0;
-  for await (const chunk of downloaded.body) {
-    signal.throwIfAborted();
-    length += chunk.length;
-    if (length > asset.size) throw Error("The location-data download exceeds its release size.");
-    chunks.push(chunk);
-  }
-  const bytes = Buffer.concat(chunks);
-  if (length !== asset.size || hash(bytes) !== asset.digest!.slice(7)) throw Error("Location-data integrity check failed. Run stelz setup again.");
-  const file = geoipFile(stage, role);
-  writeFileSync(file, bytes, { mode: 0o600 });
-  const data = validateGeoip(file, role, asset.digest!.slice(7));
-  return { source: source.name, sha256: data.sha256, release: release.tag_name!, acquiredAt: new Date().toISOString(),
+  const asset = await downloadReleaseAsset({ label: "location-data", repository: source.repository, match: name => name === source.asset,
+    maxBytes: MAX_BYTES, timeoutMs: 300_000 }, file, request);
+  const data = validateGeoip(file, role, asset.sha256);
+  return { source: source.name, sha256: data.sha256, release: asset.release, acquiredAt: new Date().toISOString(),
     databaseType: data.reader.metadata.databaseType, buildEpoch: data.reader.metadata.buildEpoch.toISOString() };
 }

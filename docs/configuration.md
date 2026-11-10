@@ -35,7 +35,7 @@ Preserve existing secret reference names when changing a value.
 | Setting | Source | Accepted value and default |
 | --- | --- | --- |
 | `STELZ_HOME` | Process only | Service directory. Default: `~/.local/share/stelz`. |
-| `CAMOUFOX_EXECUTABLE` | Process, then `secrets.env` | Existing Camoufox executable path. Default: `~/Library/Caches/camoufox/Camoufox.app/Contents/MacOS/camoufox`. |
+| `CAMOUFOX_EXECUTABLE` | Process, then `secrets.env` | Optional path to the paired Camoufox build. Default: the copy that setup prepares in `browsers/`. |
 | `STELZ_TYPING_MODE` | Process, then `secrets.env` | `auto`, `keyboard`, or `instant`. Default: `auto`. |
 | `STELZ_IP_CHECK_INTERVAL_MS` | Process, then `secrets.env` | Decimal integer from `0` to `120000`, without leading zeros. Default: `120000`. |
 | `STELZ_LOCATION_POLICY` | Process, then `secrets.env` | `warn` or `strict`. Default: `warn`. See [Managed location data](#managed-location-data). |
@@ -216,6 +216,7 @@ Do not replace service state or lock files while an operation is active.
 | --- | --- |
 | `profiles.json` | Profile catalog. |
 | `secrets.env` | Referenced proxy values and optional service settings. |
+| `browsers/VERSION-BUILD/` | Stelz's copy of the paired Camoufox build. Setup clones it from the upstream cache or downloads and verifies it. |
 | `runtime/versions.json` | Prepared runtime versions, executable path, and `executableSha256`. |
 | `runtime/camofox-VERSION/` | Prepared upstream server, contracts, dependencies, and local plugin. |
 | `profiles/ID/browser-data/` | Native persistent Firefox profile, including saved login state. |

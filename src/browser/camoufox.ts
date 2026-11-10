@@ -5,7 +5,7 @@
  */
 import { createRequire } from "node:module";
 import { readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { zstdDecompressSync } from "node:zlib";
 import { validate } from "camoufox/dist/coherence.js";
 
@@ -30,8 +30,27 @@ export function isPreparedModel(directory: string): boolean {
     return size > 0 && data.isFile() && data.size === size;
   } catch { return false; }
 }
+/** The browser release that this launcher pairs with. A copy, so no caller can change the cached pin. */
+export function browserPin() {
+  const { tag, repo, version, build } = load("camoufox/dist/data-files/browser-pin.json") as Record<string, string>;
+  return { tag: tag!, repo: repo!, version: version!, build: build! };
+}
 /** The browser build that this launcher release pairs with, as `version-build`. */
 export function pairedBrowser() {
-  const { version, build } = load("camoufox/dist/data-files/browser-pin.json") as { version: string; build: string };
+  const { version, build } = browserPin();
   return `${version}-${build}`;
+}
+// Package helpers that work on a caller-chosen directory. Stelz never calls the ones that write the shared cache.
+const pkgman = () => load("camoufox/dist/pkgman.js") as typeof import("camoufox/dist/pkgman.js");
+/** Upstream's release asset rule for this platform: `{name}-{version}-{build}-{os}.{arch}.zip`. */
+export const browserAssetPattern = () => pkgman().RepoConfig.getDefault().buildPattern();
+export const browserPackage = () => {
+  const { unzip, makeExecutable } = pkgman();
+  const { listInstalled } = load("camoufox/dist/multiversion.js") as typeof import("camoufox/dist/multiversion.js");
+  return { unzip, makeExecutable, listInstalled };
+};
+/** The executable inside a browser directory, by upstream's per-platform layout. Unlike `launchPath`, it does not require the file. */
+export function browserExecutable(directory: string) {
+  const { OS_NAME, LAUNCH_FILE } = pkgman();
+  return OS_NAME === "mac" ? resolve(directory, "Camoufox.app/Contents/Resources", LAUNCH_FILE.mac) : join(directory, LAUNCH_FILE[OS_NAME]);
 }

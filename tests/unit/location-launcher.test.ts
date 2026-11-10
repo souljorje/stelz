@@ -35,7 +35,7 @@ test("the launcher reads the paired engine version from a macOS bundle and requi
     mkdirSync(join(home, "Camoufox.app/Contents/Resources"), { recursive: true }); mkdirSync(join(home, "Camoufox.app/Contents/MacOS"));
     const ini = join(home, "Camoufox.app/Contents/Resources/application.ini");
     writeFileSync(ini, "[App]\nVersion=152.0.4-beta.30\n");
-    expect(() => engineVersion(executable)).toThrow(`Configured Camoufox 152.0.4-beta.30 at ${executable} is not supported. Set CAMOUFOX_EXECUTABLE to the installed Camoufox 156.0.1-beta.36 executable.`);
+    expect(() => engineVersion(executable)).toThrow(`Camoufox 152.0.4-beta.30 at ${executable} is not supported. Stelz requires Camoufox 156.0.1-beta.36. Run stelz setup to prepare it.`);
     writeFileSync(ini, "[App]\nVersion=156.0.1-beta.36\n");
     expect(engineVersion(executable)).toBe("156");
     Object.assign(process.env, { CAMOUFOX_EXECUTABLE: executable, CAMOUFOX_FPGEN_DATA: join(home, "missing") }); delete process.env.PROXY_HOST;

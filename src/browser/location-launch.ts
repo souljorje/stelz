@@ -25,10 +25,12 @@ export function engineVersion(executable: string) {
     try { text = readFileSync(file, "utf8"); } catch { continue; }
     const version = /^Version=(.+)$/m.exec(text)?.[1]?.trim();
     if (!version) continue;
-    if (version !== paired) throw Error(`Configured Camoufox ${version} at ${executable} is not supported. Set CAMOUFOX_EXECUTABLE to the installed Camoufox ${paired} executable. Check both the process environment and STELZ_HOME/secrets.env. If that build is missing, install it with camoufox fetch. Then run stelz setup.`);
+    if (version !== paired) throw Error(`Camoufox ${version} at ${executable} is not supported. Stelz requires Camoufox ${paired}. ` +
+      "Run stelz setup to prepare it. If CAMOUFOX_EXECUTABLE is set in the process environment or STELZ_HOME/secrets.env, remove it or point it to that build.");
     return version.split(".")[0]!;
   }
-  throw Error("Cannot read the Camoufox version. Set CAMOUFOX_EXECUTABLE to a complete Camoufox installation, then run stelz setup.");
+  throw Error(`Cannot read the Camoufox version at ${executable}. Run stelz setup to prepare Camoufox ${paired}. ` +
+    "If CAMOUFOX_EXECUTABLE is set, remove it or point it to a complete installation of that build.");
 }
 /** Launch uses prepared files only. A missing prerequisite fails instead of downloading. */
 async function launcherOptions(options: Record<string, unknown>) {

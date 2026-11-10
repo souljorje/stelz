@@ -9,6 +9,7 @@ import { UPSTREAM_VERSION } from "../versions.ts";
 import { isTypingMode, parseTypingMode, type TypingMode } from "../browser/typing.ts";
 import { parseIpCheckInterval } from "../browser/ip-verification.ts";
 import { validateProxy } from "./proxy-url.ts";
+import { browserExecutable, pairedBrowser } from "../browser/camoufox.ts";
 export { validateProxy } from "./proxy-url.ts";
 export { UPSTREAM_VERSION, COMMIT } from "../versions.ts";
 
@@ -71,7 +72,9 @@ export function secret(name: string) {
   const file = join(HOME_DIR, "secrets.env");
   return process.env[name] ?? (existsSync(file) ? parseEnv(readFileSync(file, "utf8"))[name] : undefined);
 }
-export const executable = () => secret("CAMOUFOX_EXECUTABLE") || join(homedir(), "Library/Caches/camoufox/Camoufox.app/Contents/MacOS/camoufox");
+/** Setup keeps Stelz's private copy of the paired browser here. */
+export const browserDirectory = (home = HOME_DIR) => join(home, "browsers", pairedBrowser());
+export const executable = () => secret("CAMOUFOX_EXECUTABLE") || browserExecutable(browserDirectory());
 export const typingMode = (p?: Profile) => p?.typingMode ?? parseTypingMode(secret("STELZ_TYPING_MODE"));
 export const ipCheckIntervalMs = () => parseIpCheckInterval(secret("STELZ_IP_CHECK_INTERVAL_MS"));
 
