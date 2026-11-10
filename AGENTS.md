@@ -40,3 +40,7 @@ A failed startup closes only its owned attempt and preserves the location failur
 
 Browser tasks must use fresh observations. Pause for human authentication in the same window.
 Do not bypass authentication challenges or write website-specific task scripts.
+
+Use local fixtures and synthetic proxy inputs for routine tests. Never copy everyday profile proxies into test inputs.
+Live checks require explicitly designated test proxies. Reserve a separate proxy and persistent test profile for occasional public-site checks.
+See `docs/development/testing.md` for the dedicated-input declarations and test-home setup.
