@@ -42,7 +42,8 @@ Build also checks Markdown links in the packaged documentation.
 | `bun run test:package --archive FILE` | Install one unchanged archive. Run integration, native persistence, transfer, concurrency, and typing acceptance. |
 | `bun run test:package --archive FILE --setup --windows --proxy --manual` | Add setup, window controls, proxy and location checks, and human acceptance on the same installation. |
 
-Select suites according to changed behavior. Browser checks require an explicit command.
+Select suites according to changed behavior. `bunx lefthook run browser` selects them from the files the branch changes.
+The repository root `lefthook.yml` holds the file map and the run options. Browser checks require an explicit command.
 The default tests do not establish browser persistence, proxy routing, or human takeover.
 Historical results are in [Browser acceptance, November 2026](reports/browser-acceptance-2026-11.md)
 and [Onboarding, 2026-11-05](reports/onboarding-2026-11-05.md).

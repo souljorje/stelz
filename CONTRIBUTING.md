@@ -12,6 +12,12 @@ Use TypeScript and Bun for new code. Preserve other contributors' edits and exis
    bun install --frozen-lockfile --ignore-scripts
    ```
 
+   Install the Git hooks once per clone. They run fast checks before each commit and `bun run check` before each push:
+
+   ```sh
+   bunx lefthook install
+   ```
+
 2. Make the change. Run the standard checks:
 
    ```sh
@@ -21,6 +27,7 @@ Use TypeScript and Bun for new code. Preserve other contributors' edits and exis
    This command builds the package, checks TypeScript, and runs the tests that require no browser.
 
 3. Select additional tests from [Testing](docs/development/testing.md).
+   `bunx lefthook run browser` runs the browser suites for the files that your branch changes.
    Browser, proxy, UI, transfer, and package changes need the relevant acceptance checks.
    Record results and limits. Keep credentials and private browser data outside Git.
 
