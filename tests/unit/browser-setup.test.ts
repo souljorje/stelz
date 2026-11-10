@@ -16,9 +16,10 @@ const offline = (() => { throw Error("Unexpected network request"); }) as unknow
 // A browser directory with the paired version, as upstream lays it out.
 function browserFixture(directory: string, version = pairedBrowser()) {
   const executable = browserExecutable(directory);
-  mkdirSync(dirname(executable), { recursive: true }); mkdirSync(join(dirname(executable), "../Resources"), { recursive: true });
+  const resources = process.platform === "darwin" ? join(dirname(executable), "../Resources") : dirname(executable);
+  mkdirSync(dirname(executable), { recursive: true }); mkdirSync(resources, { recursive: true });
   writeFileSync(executable, "#!/bin/sh\n", { mode: 0o755 });
-  writeFileSync(join(dirname(executable), "../Resources/application.ini"), `[App]\nVersion=${version}\n`);
+  writeFileSync(join(resources, "application.ini"), `[App]\nVersion=${version}\n`);
   return executable;
 }
 function zipFixture() {

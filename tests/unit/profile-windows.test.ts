@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, statSync, symlinkSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runInNewContext } from "node:vm";
@@ -8,6 +8,7 @@ import { addProfileExtension, createProfileWindows } from "../../src/browser/pro
 import { createUiApp, createUiSessionState } from "../../src/api/ui-server.ts";
 import type { UiModel, UiSnapshot } from "../../src/api/contracts.ts";
 import { profileBrowserPid } from "../../src/browser/window-activation.ts";
+import { launcher } from "../../src/browser/camoufox.ts";
 
 const folders: string[] = [];
 afterEach(() => { for (const folder of folders.splice(0)) rmSync(folder, { recursive: true, force: true }); });
@@ -39,11 +40,20 @@ test("application activation selects only the exact browser child of this profil
 });
 
 test("runtime add-on preserves current launch configuration and never changes saved preferences", () => {
+  const directory = mkdtempSync(join(tmpdir(), "stelz-window-config-")); folders.push(directory);
+  mkdirSync(join(directory, "fontconfig/linux"), { recursive: true });
+  writeFileSync(join(directory, "fontconfig/linux/fonts.conf"), '<fontconfig><dir prefix="cwd">fonts</dir></fontconfig>');
   const config = { addons: ["/existing/addon"], "canvas:seed": 42, text: "x".repeat(40_000) };
   const serialized = JSON.stringify(config);
-  const options = { env: { CAMOU_CONFIG_1: serialized.slice(0, 32767), CAMOU_CONFIG_2: serialized.slice(32767), KEEP: "yes" },
+  const options = { executablePath: join(directory, "browser"),
+    env: { CAMOU_CONFIG_1: serialized.slice(0, 32767), CAMOU_CONFIG_2: serialized.slice(32767), KEEP: "yes" },
     firefoxUserPrefs: { "media.peerconnection.enabled": false } };
-  addProfileExtension(options, "/profile/addon"); addProfileExtension(options, "/profile/addon");
+  // Exercise Linux serialization on every host without reading or writing the user's browser cache.
+  const deps = launcher().utilsDeps, original = { osName: deps.osName, installDir: deps.installDir };
+  try {
+    deps.osName = () => "lin"; deps.installDir = () => join(directory, "cache");
+    addProfileExtension(options, "/profile/addon"); addProfileExtension(options, "/profile/addon");
+  } finally { Object.assign(deps, original); }
   const chunks = Object.entries(options.env).filter(([key]) => key.startsWith("CAMOU_CONFIG_")).sort(([a], [b]) => a.localeCompare(b));
   expect(JSON.parse(chunks.map(([, value]) => value).join(""))).toEqual({ ...config, addons: ["/existing/addon", "/profile/addon"] });
   expect(chunks.every(([, value]) => value.length <= 32767)).toBe(true);

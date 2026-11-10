@@ -30,6 +30,8 @@ async function fixture() {
   writeFileSync(join(pkg.packageRoot, "dist/plugin.js"), compiled);
   writeFileSync(join(upstream, "plugins/local-profile/index.js"), compiled);
   const binary = join(directory, "browser"); writeFileSync(binary, "fixture browser");
+  mkdirSync(join(directory, "fontconfig/linux"), { recursive: true });
+  writeFileSync(join(directory, "fontconfig/linux/fonts.conf"), '<fontconfig><dir prefix="cwd">fonts</dir></fontconfig>');
   writeFileSync(join(upstream, "mcp/lib/tool-contracts.mjs"), `
     export const TOOL_DEFS = [{ name: 'camofox_snapshot', description: 'snapshot', inputSchema: { type: 'object', required: ['tabId'] } }];
     export async function runTool() { return globalThis.__gatewayAction(); }
@@ -58,7 +60,7 @@ async function fixture() {
     (async () => {
       const { register } = await import(${JSON.stringify(plugin)});
       await register(app, { auth, events }, { actionTimeoutMs: 100, verifyFingerprint: async () => {}, shutdown });
-      await emit('browser:launching', { options: { env: { CAMOU_CONFIG_1: JSON.stringify({ 'navigator.userAgent': 'fixture' }) }, firefoxUserPrefs: {} } });
+      await emit('browser:launching', { options: { executablePath: ${JSON.stringify(binary)}, env: { CAMOU_CONFIG_1: JSON.stringify({ 'navigator.userAgent': 'fixture' }) }, firefoxUserPrefs: {} } });
       server = http.createServer(async (req, res) => {
         const response = { status(code) { res.statusCode = code; return response; }, json(value) {
           res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(value));
@@ -80,7 +82,7 @@ async function fixture() {
       process.on('SIGTERM', shutdown);
     })().catch(error => { console.error(error); process.exit(1); });
   `);
-  const env = { ...process.env, STELZ_HOME: directory, CAMOUFOX_EXECUTABLE: binary };
+  const env = { ...process.env, HOME: directory, STELZ_HOME: directory, CAMOUFOX_EXECUTABLE: binary };
   async function command(action: string) {
     const child = Bun.spawn([process.execPath, "--no-env-file", pkg.cli, action, "test"], { env, stdout: "pipe", stderr: "pipe" });
     const timer = setTimeout(() => child.kill("SIGTERM"), 15000);
