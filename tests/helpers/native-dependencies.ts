@@ -7,8 +7,8 @@ export async function nativeSmoke(node: string, installed: string, stagedServer:
     import { realpathSync } from "node:fs";
     const own = createRequire(process.argv[1]), staged = createRequire(process.argv[2]);
     const server = createRequire(own.resolve("@askjo/camofox-browser/package.json"));
-    const launcher = createRequire(server.resolve("camoufox-js/package.json"));
-    const stagedLauncher = createRequire(staged.resolve("camoufox-js/package.json"));
+    const launcher = createRequire(server.resolve("camoufox/package.json"));
+    const stagedLauncher = createRequire(staged.resolve("camoufox/package.json"));
     const manifest = own("./package.json");
     const checks = [];
     function resolved(require, name) {

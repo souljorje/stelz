@@ -2,21 +2,23 @@
 import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
-import { parseEnv } from "node:util";
+import { dedicatedProxyInputs } from "../helpers/dedicated-proxy.ts";
+import { lockPublicProfile, PUBLIC_PROFILE } from "../helpers/public-profile.ts";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { STELZ_VERSION } from "../../src/versions.ts";
 import { assessSite, detectHumanChallenge, type Assessment, type SiteId, type Verdict } from "../helpers/public-site-verdicts.ts";
-import { assertTestHome, createTestHome } from "../helpers/test-home.ts";
+import { assertTestHome } from "../helpers/test-home.ts";
 import { proxyRedactor } from "../helpers/proxy-acceptance-helpers.ts";
 import { routeProfileTools } from "../helpers/mcp-client.ts";
 const ROOT = resolve(import.meta.dir, "../..");
 const cli = process.env.STELZ_TEST_CLI || join(ROOT, "src/cli/cli.ts");
 
 export const PUBLIC_SITES: ReadonlyArray<{ id: SiteId; name: string; url: string; screenshotHeading?: string; screenshotControl?: string }> = [
+  // Phase 6 order: Playground first, then web scraping, Pixelscan, and Rebrowser.
+  { id: "fingerprint-playground", name: "Fingerprint Playground", url: "https://demo.fingerprint.com/playground" },
   { id: "fingerprint-web-scraping", name: "Fingerprint web scraping", url: "https://demo.fingerprint.com/web-scraping",
     screenshotHeading: "Search for today's flights", screenshotControl: "Search" },
-  { id: "fingerprint-playground", name: "Fingerprint Playground", url: "https://demo.fingerprint.com/playground" },
   { id: "pixelscan", name: "Pixelscan", url: "https://pixelscan.net/fingerprint-check" },
   { id: "rebrowser", name: "Rebrowser", url: "https://bot-detector.rebrowser.net/" },
 ];
@@ -397,16 +399,12 @@ export function parsePublicArgs(args: string[]): { help: boolean } {
 if (import.meta.main) {
   try {
     const args = parsePublicArgs(process.argv.slice(2));
-    if (args.help) console.log("Use: bun run test:public\nThe check creates and stops its own temporary native profile. PROXY_TEST_ENV can supply a private proxy input file.");
+    if (args.help) console.log("Use: bun run test:public\nRequires PROXY_TEST_ENV with PROXY_TEST_USAGE=dedicated-public and a persistent PUBLIC_TEST_HOME. See docs/development/testing.md.");
     else {
-      const home = createTestHome("public-profile", join(ROOT, ".state")), profile = "public-check";
+      const input = dedicatedProxyInputs(process.env.PROXY_TEST_ENV, "public");
+      const proxy = input.PROXY_TEST_URL!, expected = input.PROXY_TEST_EXPECTED_IP || undefined;
+      const { home, release } = lockPublicProfile(process.env.PUBLIC_TEST_HOME, proxy, expected), profile = PUBLIC_PROFILE;
       let started = false;
-      let proxy: string | undefined, expected: string | undefined;
-      if (process.env.PROXY_TEST_ENV) {
-        const input = parseEnv(readFileSync(process.env.PROXY_TEST_ENV, "utf8"));
-        proxy = input.PROXY_TEST_URL; expected = input.PROXY_TEST_EXPECTED_IP;
-        if (!proxy) throw Error("PROXY_TEST_ENV must contain PROXY_TEST_URL.");
-      }
       const redact = proxyRedactor([proxy]), env = serviceEnvironment(home);
       async function command(...args: string[]) {
         assertTestHome(home);
@@ -419,15 +417,9 @@ if (import.meta.main) {
       const abort = new AbortController(), onInt = () => abort.abort("SIGINT"), onTerm = () => abort.abort("SIGTERM");
       process.once("SIGINT", onInt); process.once("SIGTERM", onTerm);
       try {
-        await command("init");
-        const reservation = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() });
-        const port = reservation.port; reservation.stop(true);
-        writeFileSync(join(home, "profiles.json"), JSON.stringify({ profiles: [{ id: profile, port, storage: "native",
-          mode: proxy ? "proxy" : "direct", ...(proxy ? { proxyEnv: "PUBLIC_TEST_PROXY_URL" } : {}),
-          ...(expected ? { expectedIPEnv: "PUBLIC_TEST_EXPECTED_IP" } : {}) }] }), { mode: 0o600 });
-        if (proxy) writeFileSync(join(home, "secrets.env"), `PUBLIC_TEST_PROXY_URL=${JSON.stringify(proxy)}\n`
+        writeFileSync(join(home, "secrets.env"), `PUBLIC_TEST_PROXY_URL=${JSON.stringify(proxy)}\n`
           + (expected ? `PUBLIC_TEST_EXPECTED_IP=${JSON.stringify(expected)}\n` : ""), { mode: 0o600 });
-        await command("setup"); started = true; await command("start", profile);
+        await command("setup", "--yes"); started = true; await command("start", profile);
         const report = await runPublicSites({ profile, home, signal: abort.signal });
         started = !report.stopped;
         for (const error of report.errors) console.error(error);
@@ -438,7 +430,8 @@ if (import.meta.main) {
           try { await command("stop", profile); started = false; }
           catch (error) { console.error(message(error)); process.exitCode = 1; }
         }
-        if (!started) rmSync(join(home, "secrets.env"), { force: true });
+        try { if (!started) rmSync(join(home, "secrets.env"), { force: true }); }
+        finally { if (!started) release(); }
         process.off("SIGINT", onInt); process.off("SIGTERM", onTerm);
       }
     }

@@ -1,24 +1,60 @@
 import { setTimeout as delay } from "node:timers/promises";
 import type { Locator } from "playwright-core";
+import { TYPING_LIMIT_MS } from "./deadlines.ts";
 
-export const TYPING_MODES = ["auto", "keyboard", "instant"] as const;
+export const TYPING_MODES = ["balanced", "keyboard", "instant"] as const;
 export type TypingMode = typeof TYPING_MODES[number];
-type Target = Pick<Locator, "evaluate" | "fill" | "pressSequentially">;
+type Target = Pick<Locator, "evaluate" | "fill" | "pressSequentially" | "press">;
 type Timing = { random(): number; now(): number; sleep(ms: number): Promise<void> };
 const timing: Timing = { random: Math.random, now: () => performance.now(), sleep: async ms => { await delay(ms); } };
 const textInputs = new Set(["text", "search", "email", "url", "tel", "password", "number"]);
 const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
-const actionBudget = 45_000;
-export const AUTO_TYPING_BUDGET_MS = 10_000;
+const words = new Intl.Segmenter("en", { granularity: "word" });
+// Playwright's work for each key step, beyond the planned hold and gap.
+const STEP_OVERHEAD_MS = 20;
+export const BALANCED_TYPING_BUDGET_MS = 10_000;
+
+// Adjacent letter keys on a US QWERTY keyboard. Preserve the requested case.
+const neighbors: Record<string, string> = {
+  q: "wa", w: "qeas", e: "wrsd", r: "etdf", t: "ryfg", y: "tugh", u: "yihj", i: "uojk", o: "ipkl", p: "ol",
+  a: "qwsz", s: "weadzx", d: "ersfxc", f: "rtdgcv", g: "tyfhvb", h: "yugjbn", j: "uihknm", k: "iojlm", l: "opk",
+  z: "asx", x: "zsdc", c: "xdfv", v: "cfgb", b: "vghn", n: "bhjm", m: "njk",
+};
+type Correction = { correct: string; typo: string };
+type Step = { text: string; hold: number; gap: number } | { backspace: true; hold: number; gap: number } | { pause: number };
+
+function corrections(value: string, clock: Timing): Map<number, Correction> {
+  const plan = new Map<number, Correction>();
+  const tokens = [...words.segment(value)].filter(word => word.isWordLike);
+  if (tokens.length < 2) return plan;
+  let previous = -16;
+  for (const [index, word] of tokens.entries()) {
+    const text = word.segment;
+    if (index - previous < 16 || !/^[a-z]{4,}$/i.test(text) || /^([a-z])\1+$/i.test(text) || clock.random() >= 0.03) continue;
+    const last = text.at(-1)!;
+    const kind = Math.floor(clock.random() * 4);
+    let correct = last, typo: string;
+    if (kind === 0) {
+      const adjacent = neighbors[last.toLowerCase()]!;
+      typo = adjacent[Math.floor(clock.random() * adjacent.length)]!;
+      if (last === last.toUpperCase()) typo = typo.toUpperCase();
+    } else if (kind === 1) typo = last + last;
+    else if (kind === 2) { correct = text.slice(-2); typo = last; }
+    else typo = last === last.toLowerCase() ? last.toUpperCase() : last.toLowerCase();
+    plan.set(word.index + text.length - correct.length, { correct, typo });
+    previous = index;
+  }
+  return plan;
+}
 
 export function isTypingMode(value: unknown): value is TypingMode {
   return TYPING_MODES.includes(value as TypingMode);
 }
 
 export function parseTypingMode(value?: string): TypingMode {
-  if (value === undefined) return "auto";
+  if (value === undefined) return "keyboard";
   if (isTypingMode(value)) return value;
-  throw Error("STELZ_TYPING_MODE must be auto, keyboard, or instant.");
+  throw Error("STELZ_TYPING_MODE must be balanced, keyboard, or instant.");
 }
 
 function typingError(message: string, code: string, statusCode = 409) {
@@ -28,48 +64,80 @@ function typingError(message: string, code: string, statusCode = 409) {
 // Called inside Camofox's existing tab lock. Never replay a partially typed value.
 export async function typeIntoLocator(target: Target, text: string,
   mode: TypingMode = parseTypingMode(process.env.STELZ_TYPING_MODE), clock: Timing = timing) {
-  if (!isTypingMode(mode)) throw Error("Typing mode must be auto, keyboard, or instant.");
+  if (!isTypingMode(mode)) throw Error("Typing mode must be balanced, keyboard, or instant.");
   if (mode === "instant") return target.fill(text, { timeout: 10_000 });
-  const deadline = clock.now() + actionBudget;
-  const remaining = (cap = 10_000) => {
+  const deadline = clock.now() + TYPING_LIMIT_MS;
+  const remaining = () => {
     const ms = deadline - clock.now();
     if (ms <= 0) throw typingError("Typing timeout. Stop and start the profile before another browser action.", "typing_timeout");
-    return Math.min(ms, cap);
+    return Math.min(ms, 10_000);
   };
   const field = await target.evaluate(el => ({
     tag: el.tagName.toLowerCase(),
     type: (el.getAttribute("type") || "text").toLowerCase(),
+    maxLength: (el as HTMLInputElement).maxLength ?? -1,
+    autocomplete: (el.getAttribute("autocomplete") || "").toLowerCase(),
+    inputMode: (el.getAttribute("inputmode") || "").toLowerCase(),
+    // Live suggestions can react to each key, so a typo could select another value.
+    suggestions: el.getAttribute("role") === "combobox" || el.hasAttribute("list") ||
+      ["list", "both", "inline"].includes((el.getAttribute("aria-autocomplete") || "").toLowerCase()),
   }), undefined, { timeout: remaining() });
   // Date and similar controls require Playwright's specialized fill behavior.
   if (field.tag === "input" && !textInputs.has(field.type)) return target.fill(text, { timeout: remaining() });
   // Match the native newline normalization performed by fill().
   const value = field.tag === "input" ? text.replace(/[\r\n]/g, "") : text.replace(/\r\n?/g, "\n");
-  const base = mode === "auto" ? 55 + clock.random() * 35 : 0;
-  const plan: Array<{ text: string; hold: number; gap: number }> = [];
+  const base = 55 + clock.random() * 35;
+  // A typo needs plain text in a field without a length limit, code entry, or suggestions. Rich editors are excluded.
+  const editableText = (field.tag === "textarea" || (field.tag === "input" && field.type === "text")) &&
+    !((field.maxLength ?? -1) >= 0) && !field.autocomplete?.includes("one-time-code") && !field.suggestions &&
+    !["numeric", "decimal", "tel", "email", "url", "search"].includes(field.inputMode ?? "");
+  const mistakes = editableText ? corrections(value, clock) : new Map<number, Correction>();
+  const plan: Step[] = [];
   let duration = 0;
-  for (const { segment } of mode === "auto" ? segmenter.segment(value) : []) {
+  const append = (segment: string) => {
     const hold = Math.round(15 + clock.random() * 25);
     let gap = Math.round(base * (0.6 + clock.random() * 0.8));
     if (/[.!?,;:\n]$/u.test(segment)) gap += Math.round(120 + clock.random() * 180);
     else if (/\s$/u.test(segment) && clock.random() < 0.2) gap += Math.round(80 + clock.random() * 120);
     duration += hold * Array.from(segment).length + gap;
-    // Select bulk entry before clearing the field. Never fall back after typing.
-    if (duration > AUTO_TYPING_BUDGET_MS) return target.fill(text, { timeout: remaining() });
     plan.push({ text: segment, hold, gap });
+  };
+  const pause = (ms: number) => { plan.push({ pause: ms }); duration += ms; };
+  let skipUntil = 0;
+  for (const { segment, index } of segmenter.segment(value)) {
+    if (index < skipUntil) continue;
+    const mistake = mistakes.get(index);
+    if (!mistake) append(segment);
+    else {
+      for (const letter of mistake.typo) append(letter);
+      pause(Math.round(150 + clock.random() * 250));
+      for (const _ of mistake.typo) {
+        const hold = Math.round(15 + clock.random() * 25), gap = Math.round(base * (0.6 + clock.random() * 0.8));
+        plan.push({ backspace: true, hold, gap }); duration += hold + gap;
+      }
+      pause(Math.round(80 + clock.random() * 170));
+      for (const letter of mistake.correct) append(letter);
+      skipUntil = index + mistake.correct.length;
+    }
+    // Select bulk entry before clearing the field. Never fall back after typing.
+    if (mode === "balanced" && duration > BALANCED_TYPING_BUDGET_MS) return target.fill(text, { timeout: remaining() });
+  }
+  // Refuse text that cannot finish within the limit before the field changes.
+  const estimate = duration + plan.length * STEP_OVERHEAD_MS;
+  if (estimate > TYPING_LIMIT_MS - 10_000) {
+    throw typingError(`This text needs about ${Math.ceil(estimate / 1000)} seconds of keyboard typing, more than the ` +
+      `${TYPING_LIMIT_MS / 1000}-second limit. The field is unchanged. Use mode balanced or instant, or type shorter text.`, "typing_too_long");
   }
   remaining();
   try {
     // Preserve replacement and empty-string semantics. This also checks editability.
     await target.fill("", { timeout: remaining() });
-    if (mode === "keyboard") {
-      await target.pressSequentially(value, { delay: 0, timeout: remaining(actionBudget) });
-      remaining();
-      return;
-    }
     for (const step of plan) {
-      await target.pressSequentially(step.text, { delay: step.hold, timeout: remaining() });
-      if (step.gap >= remaining()) throw typingError("Typing timeout.", "typing_timeout");
-      await clock.sleep(step.gap);
+      if ("backspace" in step) await target.press("Backspace", { delay: step.hold, timeout: remaining() });
+      else if ("text" in step) await target.pressSequentially(step.text, { delay: step.hold, timeout: remaining() });
+      const gap = "pause" in step ? step.pause : step.gap;
+      if (gap >= remaining()) throw typingError("Typing timeout.", "typing_timeout");
+      await clock.sleep(gap);
     }
     remaining();
   } catch (error) {

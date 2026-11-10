@@ -1,6 +1,9 @@
 # Working rules
 
 - Be brief. Use TypeScript and Bun for custom code.
+- Keep all documentation concise. Reference existing details instead of repeating them.
+- Review code for DRY and YAGNI. Fix only concrete findings.
+- After a fix, run only the browser suites that `bunx lefthook run browser` selects. Run the full archive suites once per candidate. See `docs/development/testing.md`.
 - Read `docs/README.md` for service operations.
 - Read `skills/stelz-browser/SKILL.md` for the MCP control protocol.
 - Use the installed ASD-STE100 skill for documentation.
@@ -26,8 +29,7 @@ Only an explicit lifecycle command stops a browser.
 
 Runtime creation makes direct profiles or safely reuses existing profiles unchanged. Start remains explicit.
 Keep configuration, proxies, deletion, import, stop, recovery, and forced handoff in the CLI or UI.
-Reject the removed MCP `--profile` option with migration guidance. Preserve profile-import `--profile` selectors.
-Migration requires the same `STELZ_HOME`, updated runtime setup, and explicit restarts of old browser services.
+Preserve profile-import `--profile` selectors. Stelz has no backward compatibility with earlier versions or their data.
 Do not migrate browser data or edit global harness configuration. Previously planned browser controls remain deferred.
 
 Keep profile state under `STELZ_HOME`. Never derive a profile from a client PID, conversation ID, or harness directory.
@@ -39,3 +41,7 @@ A failed startup closes only its owned attempt and preserves the location failur
 
 Browser tasks must use fresh observations. Pause for human authentication in the same window.
 Do not bypass authentication challenges or write website-specific task scripts.
+
+Use local fixtures and synthetic proxy inputs for routine tests. Never copy everyday profile proxies into test inputs.
+Live checks require a declared test proxy, which the operator must keep separate from everyday profiles. Reserve a separate proxy and persistent test profile for occasional public-site checks.
+See `docs/development/testing.md` for the dedicated-input declarations and test-home setup.

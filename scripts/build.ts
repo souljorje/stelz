@@ -15,4 +15,4 @@ for (const [name, domain, target] of [["cli", "cli", "bun"], ["supervisor", "run
 const ui = Bun.spawn([process.execPath, join(root, "ui/build.ts")], { stdout: "inherit", stderr: "inherit" });
 if (await ui.exited) throw Error("UI build failed.");
 checkMarkdownLinks(["README.md", "CONTRIBUTING.md", "AGENTS.md", "docs", "examples", "skills"].map(path => join(root, path)));
-console.error("Built standalone CLI, browser service, and local UI.");
+console.log("Built standalone CLI, browser service, and local UI.");

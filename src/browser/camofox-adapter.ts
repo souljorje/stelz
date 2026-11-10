@@ -9,21 +9,66 @@ function check(file: string, before: string, after: string) {
   }
 }
 
-export function assertLocationPatches(upstream: string, launcher = join(upstream, "node_modules/camoufox-js")) {
+export function assertLocationPatches(upstream: string) {
   check(join(upstream, "server.js"), "return await launchOptions({ ...baseOptions, geoip: false });",
     "const prepared = await (await import('./plugins/local-profile/index.js')).prepareProfileLaunch(baseOptions,");
   check(join(upstream, "lib/browser-identity.js"), "if (hasProxy) return { permissions: ['geolocation'] };",
     "if (hasProxy) return {}; // Stelz never grants location access to arbitrary sites.");
-  check(join(launcher, "dist/utils.js"), "const geolocation = await getGeolocation(geoip);",
-    "const locationConfig = stelzGeoip || (await getGeolocation(geoip)).asConfig();");
-  check(join(launcher, "dist/locale.js"), "export async function getGeolocation(ip) {",
-    "export async function getGeolocation(ip, options = {}) {");
-  check(join(launcher, "dist/ip.js"), "export async function publicIP(proxy) {",
-    "export async function publicIP(proxy, options = {}) {");
 }
 
-export function assertBundledPatches(upstream: string, launcher = join(upstream, "node_modules/camoufox-js")) {
-  assertLocationPatches(upstream, launcher);
+// A fallback click runs only when the failed attempt sent no input. Otherwise one request could click twice.
+// Input gets the remaining budget, because the browser confirms each mouse event before a click completes.
+function assertClickPatches(upstream: string) {
+  const server = join(upstream, "server.js"), guard = "if (clickReachedPage(forceErr)) throw uncertainClickError(forceErr);\n";
+  const force = "            try {\n              await click({ timeout: inputTimeout(), force: true });\n            } catch (forceErr) {\n              " + guard;
+  check(join(upstream, "lib/stelz-click-guard.js"), "return true;", "includes('performing click action')");
+  check(server, "} from './lib/browser-errors.js';\n\nconst CONFIG",
+    "} from './lib/browser-errors.js';\nimport { clickReachedPage, domClickRejected, uncertainClickError } from './lib/stelz-click-guard.js';\n");
+  check(server, "        } catch (domErr) {\n          log('warn', 'DOM click fallback failed",
+    "        } catch (domErr) {\n          // stelz: a DOM click can reach the page before it fails. Then the mouse sequence would repeat it.\n          if (!domClickRejected(domErr)) throw uncertainClickError(domErr);\n");
+  check(server, "          await click({ timeout: 3000 });\n        } catch (err) {",
+    "          await click({ timeout: 3000, trial: true });\n        } catch (err) {\n          // A trial sends no input, although Playwright still logs \"performing click action\" for it.\n");
+  check(server, "await click({ timeout: 3000 });\n",
+    "        // stelz: a failure after input started is uncertain. Never repeat it.\n        try {\n          await click({ timeout: inputTimeout() });\n" +
+    "        } catch (err) {\n          if (clickReachedPage(err)) throw uncertainClickError(err);\n          throw err;\n        }\n");
+  check(server, "          } catch (forceErr) {\n            log('warn', 'google force click failed",
+    "          } catch (forceErr) {\n            " + guard + "            log('warn', 'google force click failed");
+  check(server, "log('warn', 'click intercepted, retrying with force');\n            try {\n              await click({ timeout: 3000, force: true });",
+    "log('warn', 'click intercepted, retrying with force');\n" + force);
+  check(server, "remainingBudget())), force: true });", "log('warn', 'click timeout, retrying with force');\n" + force);
+}
+
+// The orphan page reaper closes only pages that Camofox owned. Pages that a person or a website opens stay open.
+function assertReaperPatches(upstream: string) {
+  const server = join(upstream, "server.js");
+  check(join(upstream, "lib/stelz-page-ownership.js"), "return true;", "return owned.has(page) && !registered.has(page) && !leased;");
+  check(server, "import { isOrphanPage, ownPage } from './lib/stelz-page-ownership.js';\n\n",
+    "import { clickReachedPage, domClickRejected, uncertainClickError } from './lib/stelz-click-guard.js';\nimport { isOrphanPage, ownPage } from './lib/stelz-page-ownership.js';\n");
+  check(server, "async function safePageClose(page) {\n  if (!page || page.isClosed()) return;\n  try {",
+    "async function safePageClose(page) {\n  if (!page || page.isClosed()) return;\n  ownPage(page);\n");
+  check(server, "function createTabState(page) {\n  const healthTracker", "function createTabState(page) {\n  ownPage(page);\n");
+  check(server, "if (!registered.has(page) && !isPageLeased(session, page)) {",
+    "      // stelz: a page that a person or a website opened is not an orphan.\n      if (isOrphanPage(page, registered, isPageLeased(session, page))) {");
+}
+
+export function assertBundledPatches(upstream: string) {
+  assertLocationPatches(upstream);
+  assertClickPatches(upstream);
+  assertReaperPatches(upstream);
+  // The health probe opens a visible window and can only end in a refused replacement browser.
+  check(join(upstream, "server.js"), "setInterval(async () => {\n  if (!browser || healthState.isRecovering) return;",
+    "setInterval(async () => {\n  // stelz: the probe context opens a visible window, and Stelz refuses a replacement browser.\n");
+  check(join(upstream, "server.js"), "from 'camoufox-js'", "import { Camoufox, launchOptions, VirtualDisplay } from 'camoufox';");
+  check(join(upstream, "server.js"), "const externalCamoufox = getExternalCamoufoxLaunch();",
+    "const externalCamoufox = null; // stelz: the plugin passes the executable to the official launcher.");
+  check(join(upstream, "server.js"), "get xvfb_args() {", "constructor() { super(false, DEFAULT_VIRTUAL_DISPLAY_RESOLUTION); }");
+  check(join(upstream, "server.js"),
+    "      const delta = (direction === 'up' || direction === 'left') ? -amount : amount;\n      await tabState.page.mouse.wheel(isVertical ? 0 : delta, isVertical ? delta : 0);",
+    "      await tabState.page.bringToFront();\n" +
+    "      // stelz: wheel input targets the pointer, which can still be over a fixed header.\n" +
+    "      const viewport = await tabState.page.evaluate(() => ({ width: innerWidth, height: innerHeight }));\n" +
+    "      await tabState.page.mouse.move(viewport.width / 2, viewport.height / 2);\n" +
+    "      await tabState.page.mouse.wheel(isVertical ? 0 : delta, isVertical ? delta : 0);");
   check(join(upstream, "server.js"),
     "    return await withTimeout(operation(), timeoutMs, 'action');",
     "    // Stelz owns the deadline for typing. Keep its tab lock until input settles.\n    return await (timeoutMs === null ? operation() : withTimeout(operation(), timeoutMs, 'action'));");
@@ -45,12 +90,6 @@ export function assertBundledPatches(upstream: string, launcher = join(upstream,
   check(join(upstream, "server.js"),
     "      if (mode === 'fill') {\n        if (locator) {\n          await fillLocator(locator, text);\n        } else {\n          await fillLocator(tabState.page.locator(selector), text);\n        }",
     "      if (mode === 'fill') {\n        if (locator) {\n          await fillLocator(locator, text, typingMode);\n        } else {\n          await fillLocator(tabState.page.locator(selector), text, typingMode);\n        }");
-  check(join(upstream, "lib/camoufox-executable.js"),
-    "if (!existsSync(executableProperties)) ensureSymlink(realpathSync(resourceProperties), executableProperties);",
-    "// stelz: read macOS resources without changing the installed app bundle.");
-  check(join(launcher, "dist/utils.js"),
-    'propFile = path.join(path.dirname(filePath), "properties.json");',
-    'propFile = process.platform === "darwin" && filePath.includes(".app/Contents/MacOS/") ? path.join(path.dirname(filePath), "../Resources/properties.json") : path.join(path.dirname(filePath), "properties.json");');
   check(join(upstream, "server.js"), "os: hostOS,\n        humanize: true,",
     "os: hostOS,\n        window: [1200, 800],\n        screen: { minWidth: 1280, minHeight: 900, maxWidth: 1920, maxHeight: 1200 },\n        humanize: true,");
   check(join(upstream, "server.js"), "proxy: launchProxy,\n        geoip: !!launchProxy,",

@@ -14,7 +14,7 @@ test("package inspection records exact bytes and detects replacement after accep
   const home = mkdtempSync(join(tmpdir(), "stelz-candidate-test-"));
   try {
     const files = ["node_modules/@askjo/camofox-browser/package.json", "node_modules/@askjo/camofox-browser/server.js",
-      "node_modules/@askjo/camofox-browser/plugins/persistence/index.js", "node_modules/camoufox-js/package.json", "node_modules/camoufox-js/dist/utils.js"];
+      "node_modules/@askjo/camofox-browser/plugins/persistence/index.js"];
     for (const path of files) { const file = join(home, "package", path); mkdirSync(join(file, ".."), { recursive: true }); writeFileSync(file, "{}"); }
     writeFileSync(join(home, "package/package.json"), JSON.stringify({ name: "stelz", version: "0.2.0", license: "MIT" }));
     writeFileSync(join(home, "package/LICENSE"), "MIT License\n");

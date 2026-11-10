@@ -23,42 +23,16 @@ The MCP process needs Bun and Node.js on PATH, even when your agent starts from 
 The examples pass the current PATH explicitly.
 
 Keep proxy credentials in Stelz's private configuration, outside client configuration and reports.
-Persist a custom Camoufox executable in the service's `secrets.env`, as described in [Getting started](getting-started.md#2-locate-or-download-camoufox).
+For a custom Camoufox executable, see [How setup finds the browser](getting-started.md#how-setup-finds-the-browser).
 
 Install the canonical browser skill through a directory symlink. Keep the package's `docs/` and `skills/` together.
 Reuse a matching existing link. Preserve conflicting files, directories, and dangling links for review.
-Do not copy the skill alone or replace another installation.
-
-## Migrate an existing registration
-
-The old `stelz mcp --profile ID` command now fails with migration guidance.
-Replace per-profile registrations with one shared entry named `stelz` in the intended client scope.
-This is a one-time control protocol update. It requires no browser data migration.
-
-1. Record the existing CLI path, runtime PATH, and absolute `STELZ_HOME`.
-2. Arrange a maintenance window for browsers that use that service directory.
-3. Have active clients explicitly release their profiles before disconnecting.
-4. Run `stelz status` to identify old browser services.
-5. Stop each active profile explicitly with `stelz stop ID`.
-6. Update the installed package through [Getting started](getting-started.md#1-install-stelz).
-7. Run `stelz setup` with the same `STELZ_HOME` after all profiles stop safely.
-8. Replace the old MCP arguments with `["mcp"]` in one project or operator-managed registration.
-9. Remove only superseded Stelz entries from that same scope.
-10. Restart or reconnect the client to load the new tools.
-11. Explicitly restart each required browser with `stelz start ID` or `profile_start({profileId})`.
-12. Complete [verification](#verify-the-connection) with new acquisitions and handles.
-
-Do not reuse old running services with the new control protocol. A client reconnect alone does not update them.
-Preserve profile IDs, data paths, secret references, and browser installations.
-Do not migrate saved browser data, create replacement profiles, or edit global harness configuration.
-Preserve approval protections and unrelated client entries.
-If migration requires a global client change, give the exact entry to the operator for that change.
-The profile-import `--profile` selector remains supported.
+Do not replace another installation.
 
 ## Codex
 
 Merge [the TOML example](../examples/codex.toml) into the project's `.codex/config.toml` as the shared `stelz` entry.
-Set its command, `STELZ_HOME`, and PATH to the values above.
+Set its command, `STELZ_HOME`, and PATH to the values above. Keep `tool_timeout_sec` at 240 or more, so a 3-minute `camofox_type` call can finish.
 Preserve other entries and complete normal project-trust prompts.
 Inspect the resulting registration with:
 
@@ -103,7 +77,7 @@ Sources: [Claude Code MCP](https://code.claude.com/docs/en/mcp) and [skills](htt
 
 The operator can merge [the YAML example](../examples/hermes.yaml) into the active Hermes profile's configuration, normally `~/.hermes/config.yaml`.
 Agents must preserve global harness configuration. If no project scope is available, provide this entry to the operator.
-Replace its absolute command, service directory, and PATH examples with your selected values.
+Replace its absolute command, service directory, and PATH examples with your selected values. Keep `timeout` at 240 seconds or more for long typing.
 Keep other mappings. Reuse `stelz` only when its command, arguments, home, and environment match.
 
 Install the skill in the active Hermes profile's skill directory, normally:
@@ -145,10 +119,7 @@ Copy the printed loopback URL. Ask your agent:
 > Release control and leave the browser open. Acquire again with a fresh handle.
 > Check the same page and result, then release again.
 
-The agent must use `profile_list({})`, `profile_status({profileId: "work"})`, and `profile_acquire({profileId: "work"})`.
-It must pass `profileId` and the returned `controlHandle` to actual `camofox_*` tools and `profile_release`.
-Each successful acquisition returns a fresh handle for that connection, profile, and browser lifetime.
-List and status return controller summaries without handles.
+The agent must use its actual `profile_*` and `camofox_*` tools, as the [browser skill](../skills/stelz-browser/SKILL.md#do-a-browser-task) describes.
 See [Shared MCP tools](mcp.md) for the complete contract.
 Do not substitute a separate SDK script for the agent's interaction.
 Successful verification leaves the same browser **Ready**, without a controller, and the demonstration page still open.
@@ -164,8 +135,6 @@ Reuse the same registration. One connection can acquire both `work` and `researc
 Different agents can control separate profiles concurrently. Each profile permits one controller and has its own action queue.
 There are no agent identities or agent count limits.
 
-Before handing `work` to another agent, call `profile_release` with its profile ID and current handle.
-Disconnect also releases control while preserving browsers and pages.
+The first agent releases `work` before another agent takes over, as the [browser skill](../skills/stelz-browser/SKILL.md#do-a-browser-task) requires.
 The second agent acquires `work` through its existing shared connection and receives a new handle.
-It checks existing tabs and reads a fresh snapshot before an action.
 Keep the browser running throughout. Stopping it would test saved-state restoration instead of a live handoff.

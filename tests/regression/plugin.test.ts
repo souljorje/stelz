@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { EventEmitter, once } from "node:events";
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -12,9 +12,12 @@ import { freezeDevice, replayFingerprint, launchPreferences, applyProxyLocale } 
 import { locationResult } from "../../src/browser/location.ts";
 import { register } from "../../src/browser/plugin.ts";
 import { allowedBrowserTools } from "../../src/mcp/tool-policy.ts";
-import { CONTROL_PROTOCOL_VERSION } from "../../src/mcp/control-protocol.ts";
+import { commitFingerprint, readFingerprintJournal, stageFingerprint, writeInitialized } from "../../src/browser/fingerprint-transaction.ts";
 import type { Tool } from "../../src/browser/upstream.ts";
 import { upstreamTyping } from "../helpers/upstream-typing.ts";
+import { mockLauncherResources } from "../helpers/launcher-resources.ts";
+
+mockLauncherResources();
 
 const contractsUrl = pathToFileURL(join(dirname(createRequire(import.meta.url).resolve("@askjo/camofox-browser/package.json")),
   "mcp/lib/tool-contracts.mjs")).href;
@@ -29,7 +32,7 @@ test("typing advertises optional per-call modes without changing upstream defini
   assert.ok(typing);
   const mode = typing.inputSchema.properties?.mode;
   assert.ok(mode && typeof mode === "object" && "enum" in mode);
-  assert.deepEqual(mode.enum, ["auto", "keyboard", "instant"]);
+  assert.deepEqual(mode.enum, ["balanced", "keyboard", "instant"]);
   assert.deepEqual(typing.inputSchema.required, TOOL_DEFS.find((tool: { name: string }) => tool.name === "camofox_type").inputSchema.required);
   assert.ok(!typing.inputSchema.required?.includes("mode"));
   assert.deepEqual(TOOL_DEFS, original);
@@ -57,15 +60,20 @@ test("status advertises window controls only for a current browser inventory", a
   } finally { await h.close(); }
 });
 
-test("device replay preserves hardware but refreshes language, location, paths and new settings", () => {
-  const saved = { ...generated, "navigator.hardwareConcurrency": 4, timezone: "Old/Zone", addons: [join(tmpdir(), "stelz-test-addons", "old")] };
-  const fresh = { ...generated, "navigator.languages": ["en-GB"], "window.history.length": 3, futureSetting: true };
+test("device replay preserves hardware, refreshes runtime settings, and leaves native window dimensions unspoofed", () => {
+  const saved = { ...generated, "navigator.hardwareConcurrency": 4, timezone: "Old/Zone", addons: [join(tmpdir(), "stelz-test-addons", "old")],
+    "window.outerHeight": 800 };
+  const fresh = { ...generated, "navigator.languages": ["en-GB"], "window.history.length": 3,
+    "window.outerHeight": 790, "window.outerWidth": 1200, "window.innerWidth": 1200, "window.innerHeight": 704, futureSetting: true };
   const result = replayFingerprint(saved, fresh);
   assert.equal(result["navigator.hardwareConcurrency"], 4);
   for (const key of ["timezone", "addons", "navigator.languages", "window.history.length", "futureSetting"] as const) {
     assert.deepEqual(result[key], fresh[key]);
   }
   assert.equal(freezeDevice(saved).timezone, undefined);
+  for (const key of ["window.innerWidth", "window.innerHeight", "window.outerWidth", "window.outerHeight"]) assert.equal(key in result, false);
+  assert.equal(saved["window.outerHeight"], 800);
+  assert.equal(fresh["window.outerHeight"], 790);
 });
 
 test("proxy policy wins and unrelated fresh preferences survive", () => {
@@ -138,11 +146,11 @@ type App = Parameters<typeof register>[0];
 type Handler = Parameters<App["post"]>[1];
 async function harness(mode: "direct" | "proxy" = "direct", waitForIP?: Promise<void>,
   fixture: { expected?: string; timeout?: number; ipError?: string; canonical?: boolean; port?: number;
-    interval?: number; now?: () => number; observedTimezone?: string } = {}) {
+    interval?: number; now?: () => number; observedTimezone?: string; fingerprintError?: string } = {}) {
   const root = mkdtempSync(join(tmpdir(), "stelz-regression-")), id = "profile-01";
   const stateDir = join(root, id), upstream = join(root, "upstream"), binary = join(root, "browser");
   mkdirSync(stateDir); mkdirSync(join(upstream, "mcp/lib"), { recursive: true });
-  writeFileSync(join(root, "profiles.json"), JSON.stringify({ profiles: [{ id, typingMode: "auto" }] }));
+  writeFileSync(join(root, "profiles.json"), JSON.stringify({ profiles: [{ id, typingMode: "balanced" }] }));
   writeFileSync(binary, "test browser binary");
   writeFileSync(join(upstream, "mcp/lib/tool-contracts.mjs"), fixture.canonical ? `export * from ${JSON.stringify(contractsUrl)};` : `
     export { TOOL_DEFS } from ${JSON.stringify(contractsUrl)};
@@ -152,11 +160,15 @@ async function harness(mode: "direct" | "proxy" = "direct", waitForIP?: Promise<
   const locationConfig = { timezone: "America/New_York", "locale:language": "en", "locale:region": "US", "geolocation:latitude": 40, "geolocation:longitude": -73 };
   const location = { version: 1, inputId: "fixture", attemptId: "test-start", result: { ...locationResult("ready"), valid: true, network: "passed", geoip: "passed" },
     prepared: { ip: "198.51.100.10", config: locationConfig, dataId: "fixture", engineId: "fixture" } };
+  if (mode === "proxy") writeFileSync(join(stateDir, "location.json"), JSON.stringify(location));
   const settings = { STELZ_LOCATION_LAUNCH: JSON.stringify(location), STELZ_START_ID: "test-start", STELZ_HOME: root, STELZ_PROFILE_ID: id, STELZ_PROFILE_DIR: stateDir, STELZ_UPSTREAM: upstream,
+    STELZ_CONFIGURATION_HASH: "a".repeat(64), STELZ_BOOTSTRAP_TOKEN: "test-bootstrap-secret",
     CAMOUFOX_EXECUTABLE: binary, PROXY_HOST: mode === "proxy" ? "127.0.0.1" : "", STELZ_EXPECTED_IP: fixture.expected ?? "198.51.100.10",
     CAMOFOX_PORT: String(fixture.port ?? 0), CAMOFOX_ACCESS_KEY: "fixture-key" };
   const previous = Object.fromEntries(Object.keys(settings).map(key => [key, process.env[key]]));
   Object.assign(process.env, settings);
+  writeFileSync(join(stateDir, "running.json"), JSON.stringify({ instanceId: settings.STELZ_START_ID,
+    configurationHash: settings.STELZ_CONFIGURATION_HASH, serverPid: process.pid }));
   const events = new EventEmitter(), routes = new Map<string, Handler>();
   const app: App = { get(path, ...handlers) { routes.set(path, handlers.at(-1)!); }, post(path, ...handlers) { routes.set(path, handlers.at(-1)!); } };
   let ipGate = waitForIP;
@@ -174,6 +186,7 @@ async function harness(mode: "direct" | "proxy" = "direct", waitForIP?: Promise<
   const context = Object.assign(new EventEmitter(), { pages: () => [...pages], async close() { context.emit("close"); } });
   await register(app, { auth: () => () => {}, events },
     { actionTimeoutMs: fixture.timeout, ipCheckIntervalMs: fixture.interval ?? 0, now: fixture.now,
+      verifyFingerprint: async () => { if (fixture.fingerprintError) throw Error(fixture.fingerprintError); },
       shutdown: () => { shutdowns++; events.emit("server:shutdown"); } });
   const emit = async (name: string, value: unknown = {}) => { await Promise.all(events.listeners(name).map(fn => fn(value))); };
   const state = () => JSON.parse(readFileSync(join(stateDir, "status.json"), "utf8")) as {
@@ -184,15 +197,25 @@ async function harness(mode: "direct" | "proxy" = "direct", waitForIP?: Promise<
     firefoxUserPrefs: { fresh: true, "media.peerconnection.enabled": mode !== "proxy" } as Record<string, unknown>,
     ...(mode === "proxy" ? { proxy: { server: "http://127.0.0.1:9999" } } : {}) });
   const launch = async () => { const value = options(); await emit("browser:launching", { options: value }); return value; };
-  const create = async () => {
+  const create = async (admit = true) => {
     await emit("session:creating", { userId: id, contextOptions: {} });
     await emit("session:created", { userId: id, context });
+    if (admit) await commit();
   };
-  const rawRequest = async (action: string, body?: Record<string, unknown>) => {
+  const rawRequest = async (action: string, body?: Record<string, unknown>, headers?: Record<string, string>) => {
     let code = 200, payload: unknown;
     const response = { status(value: number) { code = value; return response; }, json(value: unknown) { payload = value; } };
-    await routes.get(`/local-profile/${action}`)!({ body }, response);
+    await routes.get(`/local-profile/${action}`)!({ body, headers }, response);
     return { code, payload };
+  };
+  const commit = async () => {
+    const journal = readFingerprintJournal(stateDir)!;
+    commitFingerprint(stateDir, journal.owner, journal.sha256);
+    writeInitialized(stateDir, { instanceId: journal.owner.attemptId, browserInstanceId: journal.owner.browserInstanceId,
+      configurationHash: journal.owner.configurationHash, fingerprintSha256: journal.sha256 });
+    const ack = await rawRequest("startup-ack", { instanceId: journal.owner.attemptId, browserInstanceId: journal.owner.browserInstanceId },
+      { "x-stelz-bootstrap": settings.STELZ_BOOTSTRAP_TOKEN });
+    assert.equal(ack.code, 200);
   };
   const identity = { profileId: id, instanceId: state().instanceId };
   let bridgeStopped = false, bridgeTimer: ReturnType<typeof setTimeout>;
@@ -211,7 +234,7 @@ async function harness(mode: "direct" | "proxy" = "direct", waitForIP?: Promise<
   bridgeTimer = setTimeout(networkTick, 0);
   const request = (action: string, body: Record<string, unknown> = {}) => rawRequest(action,
     ["acquire", "release", "tool"].includes(action) || Object.hasOwn(body, "controllerId") ? { ...identity, ...body } : body);
-  return { id, identity, stateDir, binary, context, emit, state, options, launch, create, request, rawRequest,
+  return { id, identity, stateDir, binary, context, emit, state, options, launch, create, commit, request, rawRequest,
     setIPGate(value: Promise<void> | undefined) { ipGate = value; },
     setIPError(value: string | undefined) { ipError = value; },
     setIP(value: string) { ip = value; },
@@ -241,7 +264,7 @@ test("the actual launch hook rejects schema-1 fingerprint pins", async () => {
       config: generated, preferences: { "media.peerconnection.enabled": true, stale: true } };
     writeFileSync(join(h.stateDir, "fingerprint.json"), JSON.stringify(pin));
     const before = readFileSync(join(h.stateDir, "fingerprint.json"), "utf8");
-    await assert.rejects(h.launch(), /explicit migration/);
+    await assert.rejects(h.launch(), /pin\.version/);
     assert.equal(readFileSync(join(h.stateDir, "fingerprint.json"), "utf8"), before);
   } finally { await h.close(); }
 });
@@ -264,10 +287,53 @@ test("the launch hook applies current-country language without changing an exist
   } finally { await h.close(); }
 });
 
+test("a saved pin replays despite an invalid unused generated device sample", async () => {
+  const h = await harness("direct", undefined, { expected: "" });
+  try {
+    const pin = { version: 2, engineSha256: createHash("sha256").update(readFileSync(h.binary)).digest("hex"), config: freezeDevice(generated) };
+    const before = JSON.stringify(pin, null, 4) + "\n";
+    writeFileSync(join(h.stateDir, "fingerprint.json"), before);
+    const options = h.options();
+    options.env.CAMOU_CONFIG_1 = JSON.stringify({ ...generated, "screen.width": -1 });
+    await h.emit("browser:launching", { options });
+    assert.equal(JSON.parse(options.env.CAMOU_CONFIG_1!)["screen.width"], generated["screen.width"]);
+    assert.equal(readFileSync(join(h.stateDir, "fingerprint.json"), "utf8"), before);
+  } finally { await h.close(); }
+});
+
+test("an unfinished journal replays its candidate despite an invalid unused generated sample", async () => {
+  const h = await harness("direct", undefined, { expected: "" });
+  try {
+    const engineSha256 = createHash("sha256").update(readFileSync(h.binary)).digest("hex");
+    const owner = { profileId: h.id, attemptId: "test-start", browserInstanceId: h.identity.instanceId,
+      configurationHash: "a".repeat(64), serverPid: process.pid };
+    const staged = stageFingerprint(h.stateDir, owner, { version: 2, engineSha256, config: freezeDevice(generated) }, engineSha256);
+    const options = h.options();
+    options.env.CAMOU_CONFIG_1 = JSON.stringify({ ...generated, "screen.width": -1 });
+    await h.emit("browser:launching", { options });
+    assert.equal(readFingerprintJournal(h.stateDir)!.candidate, staged.candidate);
+    assert.equal(JSON.parse(options.env.CAMOU_CONFIG_1!)["screen.width"], generated["screen.width"]);
+    assert.equal(existsSync(join(h.stateDir, "fingerprint.json")), false);
+  } finally { await h.close(); }
+});
+
+test("an invalid selected new device is rejected before staging", async () => {
+  const h = await harness("direct", undefined, { expected: "" });
+  try {
+    const options = h.options();
+    options.env.CAMOU_CONFIG_1 = JSON.stringify({ ...generated, "screen.width": -1 });
+    await assert.rejects(h.emit("browser:launching", { options }), /geometry\.value\.invalid/);
+    assert.equal(readFingerprintJournal(h.stateDir), undefined);
+    assert.equal(existsSync(join(h.stateDir, "fingerprint.json")), false);
+  } finally { await h.close(); }
+});
+
 test("a new pin stores device fields, not Firefox security preferences", async () => {
   const h = await harness();
   try {
     await h.launch();
+    assert.equal(existsSync(join(h.stateDir, "fingerprint.json")), false);
+    await h.create();
     const pin = JSON.parse(readFileSync(join(h.stateDir, "fingerprint.json"), "utf8"));
     assert.equal(pin.version, 2); assert.equal(pin.preferences, undefined);
     assert.equal(pin.config.timezone, undefined); assert.equal(pin.config["canvas:seed"], 123);
@@ -386,6 +452,8 @@ test("an in-flight IP check cannot restore ready after context loss", async () =
     const rejected = assert.rejects(pending);
     await h.emit("browser:restart"); resolve(); await rejected;
     assert.equal(h.state().phase, "blocked");
+    assert.match(h.state().error!, /Browser restart refused/);
+    assert.equal(h.shutdowns(), 1);
   } finally { resolve(); await h.close(); }
 });
 
@@ -420,6 +488,86 @@ test("pausing during an IP check does not become an irreversible context-loss bl
 const controller = { id: "controller-a", pid: process.pid, label: "test" };
 const snapshot = { controllerId: controller.id, name: "camofox_snapshot", args: { tabId } };
 
+test("bootstrap preparation cannot admit control before the commit and matching marker", async () => {
+  const h = await harness("direct", undefined, { expected: "" });
+  try {
+    await h.launch();
+    await h.create(false);
+    assert.equal(h.state().phase, "starting");
+    assert.equal(existsSync(join(h.stateDir, "fingerprint.json")), false);
+    for (const [action, body] of [["acquire", controller], ["check", {}], ["pause", {}], ["resume", {}],
+      ["window-show", {}], ["tool", snapshot]] as const) assert.equal((await h.request(action, body)).code, 409, action);
+    const journal = readFingerprintJournal(h.stateDir)!;
+    const body = { instanceId: journal.owner.attemptId, browserInstanceId: journal.owner.browserInstanceId };
+    assert.equal((await h.rawRequest("startup-ack", body, { "x-stelz-bootstrap": "wrong" })).code, 409);
+    assert.equal((await h.rawRequest("startup-ack", body, { "x-stelz-bootstrap": "test-bootstrap-secret" })).code, 409);
+    writeInitialized(h.stateDir, { instanceId: journal.owner.attemptId, browserInstanceId: journal.owner.browserInstanceId,
+      configurationHash: journal.owner.configurationHash, fingerprintSha256: journal.sha256 });
+    assert.equal((await h.rawRequest("startup-ack", body, { "x-stelz-bootstrap": "test-bootstrap-secret" })).code, 409);
+    assert.equal((await h.request("acquire", controller)).code, 409);
+    commitFingerprint(h.stateDir, journal.owner, journal.sha256);
+    assert.equal((await h.rawRequest("startup-ack", { ...body, instanceId: "older-attempt" },
+      { "x-stelz-bootstrap": "test-bootstrap-secret" })).code, 409);
+    assert.equal((await h.rawRequest("startup-ack", { ...body, browserInstanceId: "older-browser" },
+      { "x-stelz-bootstrap": "test-bootstrap-secret" })).code, 409);
+    await h.commit();
+    assert.equal(h.state().phase, "ready");
+    assert.equal((await h.request("acquire", controller)).code, 200);
+  } finally { await h.close(); }
+});
+
+test("a stale reservation cannot acknowledge or retain browser admission", async () => {
+  const h = await harness("direct", undefined, { expected: "" });
+  try {
+    await h.launch(); await h.create(false);
+    const journal = readFingerprintJournal(h.stateDir)!;
+    commitFingerprint(h.stateDir, journal.owner, journal.sha256);
+    writeInitialized(h.stateDir, { instanceId: journal.owner.attemptId, browserInstanceId: journal.owner.browserInstanceId,
+      configurationHash: journal.owner.configurationHash, fingerprintSha256: journal.sha256 });
+    writeFileSync(join(h.stateDir, "running.json"), JSON.stringify({ instanceId: "new-attempt",
+      configurationHash: journal.owner.configurationHash, serverPid: process.pid }));
+    assert.equal((await h.rawRequest("startup-ack", { instanceId: journal.owner.attemptId,
+      browserInstanceId: journal.owner.browserInstanceId }, { "x-stelz-bootstrap": "test-bootstrap-secret" })).code, 409);
+    assert.equal((await h.request("acquire", controller)).code, 409);
+    assert.equal(h.state().phase, "starting");
+  } finally { await h.close(); }
+});
+
+test("removing the matching marker blocks an existing controller's actions and recheck", async () => {
+  const h = await harness("direct", undefined, { expected: "" });
+  try {
+    await h.launch(); await h.create();
+    assert.equal((await h.request("acquire", controller)).code, 200);
+    rmSync(join(h.stateDir, "initialized.json"));
+    assert.equal((await h.request("tool", snapshot)).code, 409);
+    assert.equal((await h.request("check", { controllerId: controller.id })).code, 409);
+    assert.equal((await h.request("pause", { controllerId: controller.id })).code, 409);
+  } finally { await h.close(); }
+});
+
+test("admission rejects a journal owned by a different profile", async () => {
+  const h = await harness("direct", undefined, { expected: "" });
+  try {
+    await h.launch(); await h.create();
+    const file = join(h.stateDir, "fingerprint-transaction.json");
+    const journal = JSON.parse(readFileSync(file, "utf8"));
+    journal.owner.profileId = "another-profile";
+    writeFileSync(file, JSON.stringify(journal));
+    assert.equal((await h.request("acquire", controller)).code, 409);
+    assert.equal(h.state().phase, "ready");
+  } finally { await h.close(); }
+});
+
+test("a stop for an older service instance leaves the current browser running", async () => {
+  const h = await harness("direct", undefined, { expected: "" });
+  try {
+    await h.launch(); await h.create();
+    assert.equal((await h.rawRequest("stop", { instanceId: "older-attempt" })).code, 409);
+    assert.equal(h.state().phase, "ready");
+    assert.equal(h.shutdowns(), 0);
+  } finally { await h.close(); }
+});
+
 test("control status pins protocol and service identity without disclosing controller credentials", async () => {
   const h = await harness("direct", undefined, { expected: "" });
   try {
@@ -429,8 +577,6 @@ test("control status pins protocol and service identity without disclosing contr
     const summary = { pid: controller.pid, label: controller.label, activeActions: 0, releasing: false };
     for (const response of [acquired, await h.request("status")]) {
       const value = response.payload as Record<string, unknown>;
-      assert.equal(value.controlProtocolVersion, CONTROL_PROTOCOL_VERSION);
-      assert.equal(value.controlProtocolVersion, 1);
       assert.equal(value.profileId, h.id);
       assert.equal(value.instanceId, h.identity.instanceId);
       assert.deepEqual(value.controller, summary);
@@ -756,7 +902,7 @@ test("canonical dispatch preserves valid tool routes, arguments, and authenticat
       if (method === "POST") {
         const { tabId: _tabId, ...body } = args;
         assert.deepEqual(req.body, { ...body, userId: h.id, ...(name === "camofox_create_tab" ? { sessionKey: "default" } : {}),
-          ...(name === "camofox_type" ? { typingMode: "auto" } : {}) });
+          ...(name === "camofox_type" ? { typingMode: "balanced" } : {}) });
       } else assert.equal(url.searchParams.get("userId"), h.id);
       if (name === "camofox_snapshot") assert.equal(url.searchParams.get("offset"), "10");
     }
@@ -774,7 +920,7 @@ test("typing overrides reach Camofox per call and profile defaults update in the
       name: "camofox_type", args: { tabId, selector: "#message", text: "hello", ...args } });
     const lastBody = () => { const body = requests.at(-1)?.body; if (!body) throw Error("Missing request body"); return body; };
     configure("instant");
-    for (const mode of ["auto", "keyboard", "instant"]) {
+    for (const mode of ["balanced", "keyboard", "instant"]) {
       assert.equal((await type({ mode })).code, 200);
       assert.equal(lastBody().typingMode, mode);
       assert.equal(Object.hasOwn(lastBody(), "mode"), false, "Do not collide with Camofox's REST mode");
@@ -785,7 +931,7 @@ test("typing overrides reach Camofox per call and profile defaults update in the
     assert.equal((await type({ typingMode: "instant" })).code, 200);
     assert.equal(lastBody().typingMode, "keyboard", "Ignore caller-supplied internal fields");
     const count = requests.length;
-    for (const mode of ["paced", "fill", "other", null, false, 1]) assert.equal((await type({ mode })).code, 409);
+    for (const mode of ["auto", "paced", "fill", "other", null, false, 1]) assert.equal((await type({ mode })).code, 409);
     assert.equal(requests.length, count);
     assert.equal(h.state().phase, "ready");
   } finally { await fixture.close(); }
@@ -833,10 +979,10 @@ test("the service deadline prevents overlap while the upstream typing lock remai
 });
 
 for (const [serviceMode, profileMode, expected, fallback] of [
-  [undefined, undefined, "auto", "auto"],
+  [undefined, undefined, "keyboard", "keyboard"],
   ["instant", undefined, "instant", "instant"],
   ["keyboard", undefined, "keyboard", "keyboard"],
-  ["instant", "auto", "auto", "instant"],
+  ["instant", "balanced", "balanced", "instant"],
 ] as const) test(`typing dispatch uses ${expected} with service ${serviceMode ?? "unset"} and profile ${profileMode ?? "unset"}`, async () => {
   const fixture = await canonicalHarness(), { h, requests } = fixture;
   const previous = process.env.STELZ_TYPING_MODE;
@@ -1147,13 +1293,28 @@ test("a startup IP failure closes only its attempt and denies acquisition", asyn
   try {
     await h.launch();
     await assert.rejects(h.create(), /browser exit IP check failed/);
-    assert.equal(h.state().phase, "stopped");
+    assert.equal(h.state().phase, "blocked");
     assert.equal(h.shutdowns(), 1);
     assert.equal((await h.request("acquire", controller)).code, 409);
     const failure = JSON.parse(readFileSync(join(h.stateDir, "location.json"), "utf8")).result;
     assert.equal(failure.phase, "browser_verification");
     assert.equal(failure.code, "BROWSER_IP_FAILED");
     assert.equal(failure.browserStarted, true);
+  } finally { await h.close(); }
+});
+
+test("a proxied fingerprint failure preserves the unchecked browser location result", async () => {
+  const h = await harness("proxy", undefined, { fingerprintError: "Runtime fingerprint geometry differs" });
+  try {
+    const before = readFileSync(join(h.stateDir, "location.json"), "utf8");
+    await h.launch();
+    await assert.rejects(h.create(), /fingerprint geometry differs/);
+    assert.equal(readFileSync(join(h.stateDir, "location.json"), "utf8"), before);
+    assert.equal(JSON.parse(before).result.browser, "not_checked");
+    assert.match(h.state().error!, /fingerprint geometry differs/);
+    assert.equal(h.state().phase, "blocked");
+    assert.equal(existsSync(join(h.stateDir, "fingerprint.json")), false);
+    assert.equal((await h.request("acquire", controller)).code, 409);
   } finally { await h.close(); }
 });
 
@@ -1320,7 +1481,7 @@ test("initial browser location mismatch closes the attempt and persists its spec
     const failure = JSON.parse(readFileSync(join(h.stateDir, "location.json"), "utf8"));
     assert.equal(failure.result.code, "BROWSER_LOCATION_MISMATCH"); assert.equal(failure.result.browserStarted, true);
     assert.equal((await h.request("acquire", controller)).code, 409);
-    assert.equal(h.state().phase, "stopped");
+    assert.equal(h.state().phase, "blocked");
   } finally { await h.close(); }
 });
 test("a startup verification deadline closes its attempt and a late reply cannot make it ready", async () => {
@@ -1332,6 +1493,6 @@ test("a startup verification deadline closes its attempt and a late reply cannot
     const failure = JSON.parse(readFileSync(join(h.stateDir, "location.json"), "utf8"));
     assert.equal(failure.result.status, "blocked"); assert.equal(failure.result.browserStarted, true);
     assert.equal((await h.request("acquire", controller)).code, 409);
-    assert.equal(h.state().phase, "stopped");
+    assert.equal(h.state().phase, "blocked");
   } finally { release(); await h.close(); }
 });

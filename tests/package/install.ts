@@ -7,6 +7,10 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { STELZ_VERSION } from "../../src/versions.ts";
 import { createTestHome } from "../helpers/test-home.ts";
+import { pairedBrowser } from "../../src/browser/camoufox.ts";
+
+// Each run installs into a new prefix. The download cache persists, as in CI: npm verifies every package's integrity hash.
+export const NPM_CACHE = resolve(import.meta.dir, "../../.state/npm-cache");
 
 export async function installPackage(archive: string, options: { native?: boolean; keep?: boolean } = {}) {
 const root = resolve(import.meta.dir, "../.."), temp = mkdtempSync(join(tmpdir(), "stelz-package-"));
@@ -15,7 +19,7 @@ const prefix = join(temp, "global"), cwd = join(temp, "empty"), home = createTes
 for (const path of [cwd, bin]) mkdirSync(path, { recursive: true });
 const npm = Bun.which("npm")!, node = Bun.which("node")!, bun = Bun.which("bun")!;
 symlinkSync(node, join(bin, "node")); symlinkSync(bun, join(bin, "bun"));
-const env: Record<string, string> = { PATH: process.env.PATH!, HOME: process.env.HOME!, CAMOFOX_SKIP_DOWNLOAD: "1", npm_config_cache: join(temp, "npm-cache") };
+const env: Record<string, string> = { PATH: process.env.PATH!, HOME: process.env.HOME!, npm_config_cache: NPM_CACHE };
 if (process.env.TMPDIR) env.TMPDIR = process.env.TMPDIR;
 async function run(args: string[], options: { cwd?: string; env?: Record<string, string>; inherit?: boolean } = {}) {
   const p = Bun.spawn(args, { cwd: options.cwd || root, env: options.env || env, stdout: options.inherit ? "inherit" : "pipe", stderr: options.inherit ? "inherit" : "pipe" });
@@ -40,11 +44,11 @@ for (const path of ["CONTRIBUTING.md", "assets/screenshots/stelz-overview.png", 
   if (!paths.includes(path)) throw Error("Archive is missing " + path);
 for (const name of ["agents", "tests", "distribution", "releasing", "architecture", "camofox-patches", "onboarding-acceptance"])
   if (paths.includes(`docs/${name}.md`)) throw Error(`Archive contains obsolete documentation: docs/${name}.md`);
-for (const path of ["dist/cli.js", "dist/supervisor.js", "dist/plugin.js", "dist/ui/index.html", "README.md", "LICENSE", "examples/profiles.json", "skills/stelz-browser/SKILL.md", "skills/stelz-browser/references/recovery.md", ...["README.md", "stelz-logo.svg", "stelz-logo-full.svg", "stelz-logo-full-dark.svg", "favicon.svg"].map(name => "assets/brand/" + name), ...["react", "react-dom", "scheduler", "ibm-plex-mono", "ibm-plex-sans"].map(name => "dist/ui/licenses/" + name + ".txt")]) {
+for (const path of ["dist/cli.js", "dist/supervisor.js", "dist/plugin.js", "dist/ui/index.html", "README.md", "LICENSE", "examples/profiles.json", "skills/stelz-browser/SKILL.md", ...["README.md", "stelz-logo.svg", "stelz-logo-full.svg", "stelz-logo-full-dark.svg", "favicon.svg"].map(name => "assets/brand/" + name), ...["react", "react-dom", "scheduler", "ibm-plex-mono", "ibm-plex-sans"].map(name => "dist/ui/licenses/" + name + ".txt")]) {
   if (!paths.includes(path)) throw Error("Archive is missing " + path);
 }
 for (const path of paths) if (!/^(?:node_modules\/|dist\/|assets\/(?:brand|screenshots)\/|docs\/|examples\/|skills\/|package.json$|README.md$|CONTRIBUTING.md$|CHANGELOG.md$|LICENSE$)/.test(path)) throw Error("Unexpected archive path: " + path);
-await run([npm, "install", "--global", ...(input.flags.has("--native") ? [] : ["--ignore-scripts"]), "--no-audit", "--no-fund", "--prefix", prefix, archive]);
+await run([npm, "install", "--global", ...(input.flags.has("--native") ? [] : ["--ignore-scripts"]), "--no-audit", "--no-fund", "--prefer-offline", "--prefix", prefix, archive]);
 const installed = join(prefix, "lib/node_modules/stelz");
 const installedDependencies = inspectBundledDependencies(installed);
 if (JSON.stringify(installedDependencies) !== JSON.stringify(preparedDependencies))
@@ -64,7 +68,14 @@ const defaultEnv = { ...cleanEnv }; delete defaultEnv.STELZ_HOME;
 if ((await run([executable, "--help"], { cwd, env: defaultEnv })).includes(poisonHome)) throw Error("The global command loaded project environment state.");
 const version = (await run([executable, "--version"], { cwd, env: cleanEnv })).trim();
 if (version !== STELZ_VERSION) throw Error("Global command version does not match.");
-await run([executable, "init"], { cwd, env: cleanEnv });
+// Setup creates the service files and validates the complete installed runtime without launching a browser.
+const fakeBrowser = join(temp, "fake-browser/camoufox"), launched = join(temp, "browser-was-launched");
+// Setup accepts only the paired build, so the fake reports its version.
+mkdirSync(join(temp, "fake-browser")); writeFileSync(join(temp, "fake-browser/application.ini"), `[App]\nVersion=${pairedBrowser()}\n`);
+writeFileSync(fakeBrowser, `#!/usr/bin/env bun\nawait Bun.write(${JSON.stringify(launched)}, "unexpected launch");\nprocess.exit(99);\n`);
+chmodSync(fakeBrowser, 0o755);
+await run([executable, "setup", "--yes"], { cwd, env: { ...cleanEnv, CAMOUFOX_EXECUTABLE: fakeBrowser } });
+if (existsSync(launched)) throw Error("Setup executed the fake browser.");
 // The installed UI must serve without source files, dev dependencies, or a build server.
 const reservation = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() });
 const uiPort = reservation.port;
@@ -113,7 +124,6 @@ try {
   ui.kill("SIGTERM");
   await ui.exited;
 }
-// Setup validates the complete installed runtime without launching a browser.
 const created = JSON.parse(await run([executable, "profile", "create", "work", "--direct", "--json"], { cwd, env: cleanEnv }));
 if (!created.ok || !created.created || created.profile.id !== "work" || created.profile.storage !== "native")
   throw Error("The installed CLI did not create a native profile.");
@@ -122,17 +132,12 @@ const reused = JSON.parse(await run([executable, "profile", "create", "work", "-
 if (!reused.ok || reused.created || reused.profile.port !== created.profile.port ||
     readFileSync(join(home, "profiles.json"), "utf8") !== configBeforeReuse || readFileSync(join(home, "secrets.env"), "utf8") !== secretsBeforeReuse)
   throw Error("The installed CLI changed an existing profile.");
-const fakeBrowser = join(temp, "fake-browser"), launched = join(temp, "browser-was-launched");
-writeFileSync(fakeBrowser, `#!/usr/bin/env bun\nawait Bun.write(${JSON.stringify(launched)}, "unexpected launch");\nprocess.exit(99);\n`);
-chmodSync(fakeBrowser, 0o755);
-await run([executable, "setup"], { cwd, env: { ...cleanEnv, CAMOUFOX_EXECUTABLE: fakeBrowser } });
-if (existsSync(launched)) throw Error("Setup executed the fake browser.");
 const runtime = join(home, "runtime");
 const versions = JSON.parse(readFileSync(join(runtime, "versions.json"), "utf8"));
 if (versions.stelz !== STELZ_VERSION || versions.camoufoxExecutable !== fakeBrowser || versions.upstreamVersion !== manifest.dependencies["@askjo/camofox-browser"])
   throw Error("Installed setup wrote an invalid runtime manifest.");
 const upstream = join(runtime, "camofox-" + versions.upstreamVersion);
-for (const path of ["server.js", "plugins/local-profile/index.js", "mcp/lib/tool-contracts.mjs", "node_modules/camoufox-js/dist/utils.js"])
+for (const path of ["server.js", "plugins/local-profile/index.js", "mcp/lib/tool-contracts.mjs", "node_modules/camoufox/dist/index.js"])
   if (!existsSync(join(upstream, path))) throw Error("Installed setup omitted " + path);
 let links = 0;
 function checkRuntimeLinks(folder: string) {
@@ -152,7 +157,7 @@ const nativeCheck = input.flags.has("--native") ? await nativeSmoke(node, instal
 assertArchiveUnchanged(candidate);
 console.log(JSON.stringify({ result: "passed", archive, sha256: candidate.sha256, nativeCheck,
   checks: "Archive contents, Markdown links, isolated CLI, HTTP UI, and installed setup/dependency validation" }));
-return { candidate, env: cleanEnv, cwd, home, prefix, node, bun, executable, installedCli: join(installed, "dist/cli.js"), version, nativeCheck, uiChecked: true };
+return { candidate, env: cleanEnv, cwd, home, prefix, node, bun, npm, executable, installedCli: join(installed, "dist/cli.js"), version, nativeCheck, uiChecked: true };
 } finally { if (!options.keep) rmSync(temp, { recursive: true, force: true }); }
 }
 

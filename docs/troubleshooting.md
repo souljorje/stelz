@@ -38,6 +38,8 @@ See [CLI output and exit status](cli.md#errors-and-exit-status).
 | --- | --- | --- | --- |
 | No profiles, or `Unknown profile` | `stelz doctor` and `stelz status` | Wrong `home`, `initialized: false`, or no entry for `work`. | [Check installation and home](#installation-or-service-directory-is-wrong). |
 | Start requires setup or a matching plugin | `stelz doctor` and `stelz logs work` | `setup: false`, missing executable, or plugin mismatch. | [Prepare the runtime](#runtime-or-browser-executable-is-unavailable). |
+| Setup fails | The setup error | `confirmation_required`, another setup, or an earlier runtime. | [Repair setup](#setup-fails). |
+| **Restart to update** | `stelz status work` | `restartToUpdate: true`. | [Apply the update](#restart-to-update). |
 | Agent tools are absent | `stelz status work` | Browser can be ready while the intended client has no connection. | [Check the client](#agent-tools-are-missing). |
 | Controller is busy | `stelz status work` | `controller` identifies an active client. | [Arrange a handoff](#another-client-controls-the-profile). |
 | Actions stop during authentication | `stelz status work` | `phase: "paused"`, with the controller retained. | [Complete manual work](#profile-is-paused). |
@@ -68,11 +70,11 @@ Never create another profile to avoid a controller conflict or to conceal broken
 1. Run `stelz doctor` with the intended `STELZ_HOME`.
 2. Check the absolute `home` in its result.
 3. Correct the environment for the CLI, UI, and MCP connection if they select different directories.
-4. Run `stelz init` only if that intended directory is not initialized.
+4. Run `stelz setup` only if that intended directory is not initialized.
 5. Run `stelz status` to find existing IDs.
 6. Create a missing `work` profile through [Getting started](getting-started.md).
 
-Init preserves existing entries. It does not recover profiles stored under another service directory.
+Setup preserves existing entries. It does not recover profiles stored under another service directory.
 See [Service directory precedence](configuration.md#service-directory-and-precedence).
 
 ## Runtime or browser executable is unavailable
@@ -80,17 +82,29 @@ See [Service directory precedence](configuration.md#service-directory-and-preced
 1. Run `stelz doctor`.
 2. Check `setup`, `node`, and `browserExecutable`.
 3. Check dependency versions against [What you need](getting-started.md#what-you-need).
-4. Correct `CAMOUFOX_EXECUTABLE` to the compatible existing browser if its path is wrong.
-5. Follow [Locate or download Camoufox](getting-started.md#2-locate-or-download-camoufox) if the executable is unavailable.
-6. For missing or mismatched runtime files, arrange a maintenance window.
-7. Run `stelz status` to identify active profiles.
-8. Stop each active profile by its ID. Resolve unclean lifetimes before continuing.
-9. Run `stelz setup` with the same service directory.
-10. Run `stelz start work` when you need that browser again.
+4. Run `stelz setup` with the same service directory. It prepares a missing browser, runtime, or plugin.
+5. Run `stelz start work` when you need that browser.
 
-Setup requires all profiles safely stopped because it replaces their shared runtime.
-It uses the installed Camoufox executable. It does not download, update, or migrate that browser.
+If Start or setup reports an unsupported Camoufox build, check `CAMOUFOX_EXECUTABLE` in the process environment and `STELZ_HOME/secrets.env`.
+Remove the setting, or point it to the paired build. Then run `stelz setup`.
+The process environment takes precedence. See [How setup finds the browser](getting-started.md#how-setup-finds-the-browser).
 For source or release preparation, see [Releasing](development/releasing.md).
+
+## Setup fails
+
+| Message or code | Action |
+| --- | --- |
+| `confirmation_required` | Setup needs downloads that nobody allowed. Run `stelz setup` in a terminal and confirm, or run `stelz setup --yes`. |
+| Another stelz setup is running | A second setup waits up to one hour for the first one. Let the first setup finish. Then run `stelz setup` again. |
+| Stop running profiles from an earlier Stelz version | Run `stelz status`. Stop those profiles when you can, then run `stelz setup` again. This applies once, to a runtime from an earlier version. |
+| A release or integrity check failed | Check the network connection. Then run `stelz setup` again. An interrupted setup keeps the active runtime. |
+
+## Restart to update
+
+Setup prepared a new runtime while this profile was running. The profile continues to use its earlier runtime.
+Run `stelz restart work` when you can close its browser and pages. Run `stelz restart all` for all running profiles.
+Restart ends control. Clients must acquire the profile again.
+If the start fails, the profile stays stopped. Follow [Read the evidence](#read-the-evidence), then run `stelz start work`.
 
 ## Agent tools are missing
 
@@ -102,15 +116,6 @@ For source or release preparation, see [Releasing](development/releasing.md).
 A saved MCP entry or a separate probe does not establish that the target session can control the browser.
 Complete the fixture interaction and release check through the target client's actual tools.
 Use [Bootstrap](bootstrap.md) for agent orchestration.
-
-## Old MCP registration or control protocol
-
-The removed `stelz mcp --profile ID` command returns migration guidance.
-Follow [Migration](clients.md#migrate-an-existing-registration) to replace per-profile registrations with one shared entry.
-Keep the same `STELZ_HOME`. Stop old browser services explicitly before updating their runtime with `stelz setup`.
-Start each required profile explicitly afterward. Reconnecting the client alone does not update an old browser service.
-Preserve profile IDs, saved browser data, and secret references. Do not edit global harness configuration.
-Profile-import `--profile` selectors remain supported.
 
 ## Missing or stale control handle
 
@@ -127,7 +132,7 @@ Status and list contain controller summaries without handles.
 An existing acquisition blocks another acquisition on the same connection. Release its current handle before acquiring again.
 If the handle is lost, arrange an operator release and reconnect the affected client.
 Do not reuse handles after release, disconnect, browser restart, or forced handoff.
-Never copy handles between connections or profiles. Do not replay an interrupted action automatically.
+Never copy handles between connections or profiles.
 
 ## Another client controls the profile
 
@@ -149,9 +154,7 @@ It does not transfer the previous client's reasoning or conversation history.
 3. Complete authentication or manual work in that window.
 4. Run `stelz resume work` or call `profile_resume({profileId, controlHandle})` from the controller.
 5. Require `phase: "ready"`.
-6. Read a fresh snapshot before the next browser action.
 
-Do not automate authentication challenges.
 Showing a window does not pause actions. Pause before manual work.
 If resume fails verification, use the next procedure. Release does not resume a paused profile.
 
@@ -163,7 +166,9 @@ A failed check remains visible after its startup attempt closes.
 
 | Problem | Action |
 | --- | --- |
-| Location data is missing, damaged, or incompatible | Safely stop profiles, run `stelz setup`, then select **Check again**. |
+| Location data is missing, damaged, or incompatible | Run `stelz setup`, then select **Check again**. |
+| Location data is stale (`GEOIP_DATA_STALE`, strict policy) | Run `stelz setup` with network access, then check again. |
+| Location databases disagree (`LOCATION_CONFLICT`, strict policy) | Use another proxy exit. To start anyway, set `STELZ_LOCATION_POLICY=warn`. |
 | Proxy credentials are missing or rejected | Edit the proxy credentials, then check again. |
 | Proxy connection fails or times out | Check the provider connection, then check again. |
 | IP detection fails | Check again after the IP services respond. |
@@ -183,7 +188,6 @@ Do not delete the fingerprint or native data to repair location alignment.
 4. Run `stelz recheck work`.
 5. Require `verificationStatus: "verified"` and the intended `exitIp`.
 6. If `phase` is `paused`, complete manual work before running `stelz resume work`.
-7. Read a fresh snapshot before the next action.
 
 A valid unexpected IP fails immediately. Another provider does not override that mismatch.
 For a missing secret, invalid URL, changed credentials, or incorrect expected IP, stop `work` before editing.
@@ -202,19 +206,19 @@ See [IP check policy](configuration.md#ip-check-policy).
 
 ## Browser action or IP check timed out
 
+A click or scroll can exceed its deadline when the browser window is not in front, especially when other windows cover it. A scroll in a tab that is not selected has the same risk. This is a known issue.
+
 1. Run `stelz status work` and `stelz logs work --lines 200`.
 2. Look for `blocked`, a time-limit error, or refusal of a replacement browser/context.
 3. Run `stelz stop work`.
 4. Require `phase: "stopped"`. Inspect an unclean lifetime if stopping fails.
 5. Run `stelz start work`.
 6. Reacquire control from the intended client.
-7. Read a fresh snapshot before deciding the next action.
 
-The service bounds each browser action or IP check to 60 seconds.
+The service bounds an IP check and each short browser action to 60 seconds, and typing to 3.5 minutes.
 A timed-out operation can remain active. The service blocks further browser actions for that lifetime.
 Recheck, release, or resume cannot clear this terminal block.
 An MCP client timeout does not cancel the service operation.
-Do not replay an interrupted click, submission, or partially entered text automatically.
 
 ## Inspect an unclean lifetime
 
@@ -250,11 +254,15 @@ See [Configuration](configuration.md).
 ## Native data or fingerprint is unavailable
 
 Use `stelz logs work --lines 200` to distinguish missing native data from a fingerprint or engine mismatch.
+Run the [fingerprint check](cli.md#check-a-saved-fingerprint) without starting a browser.
+`fingerprint_uninitialized` means no pin exists. This does not indicate an invalid identity.
+`fingerprint_invalid` reports static pin errors. `fingerprint_engine_mismatch` requires the matching executable.
+`fingerprint_engine_unavailable` means the command could not read the configured executable.
 For missing `browser-data/`, restore the original matching directory while the profile is stopped.
 For an executable mismatch, restore the matching Camoufox executable path.
-For a corrupt or missing pin, restore the matching original pin and data from a trusted backup.
+For a corrupt or missing pin with saved native data, restore the matching pin and data from a trusted backup.
 Do not remove the native marker or fingerprint to generate replacement identity.
-This release has no engine migration command.
+There is no fingerprint repair or engine migration command.
 
 ## Configuration save or import is pending
 

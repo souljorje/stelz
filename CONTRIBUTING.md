@@ -12,6 +12,16 @@ Use TypeScript and Bun for new code. Preserve other contributors' edits and exis
    bun install --frozen-lockfile --ignore-scripts
    ```
 
+   Install the Git hooks once per clone:
+
+   ```sh
+   bunx lefthook install
+   ```
+
+   Git shares the hooks with every worktree of the clone. New BB worktrees install them through `.bb-env-setup.sh`.
+   Before each commit, the hooks check TypeScript and run the regression tests and the Bun tests that import the changed files.
+   That selection misses tests that reach a change only through a CLI subprocess. Before each push, the hooks run `bun run check`.
+
 2. Make the change. Run the standard checks:
 
    ```sh
@@ -21,6 +31,7 @@ Use TypeScript and Bun for new code. Preserve other contributors' edits and exis
    This command builds the package, checks TypeScript, and runs the tests that require no browser.
 
 3. Select additional tests from [Testing](docs/development/testing.md).
+   `bunx lefthook run browser` runs the browser suites for the files that your branch changes.
    Browser, proxy, UI, transfer, and package changes need the relevant acceptance checks.
    Record results and limits. Keep credentials and private browser data outside Git.
 
@@ -38,6 +49,21 @@ Use TypeScript and Bun for new code. Preserve other contributors' edits and exis
 
 For dependency patches, follow [Camofox integration](docs/development/camofox-integration.md).
 Use plain English in documentation. Keep dated acceptance results in `docs/development/reports/`.
+
+## Run Stelz from a checkout
+
+Link the checkout to use your local build as the `stelz` command:
+
+```sh
+bun run build
+bun link
+stelz setup
+```
+
+`bun link` adds `stelz` to `~/.bun/bin`. Bun's installer puts that folder on `PATH`. The command runs the checkout's `dist/` files.
+After a change, run `bun run build` and `stelz setup`. Then run `stelz restart all` to move running profiles to the new runtime.
+Running profiles load dependencies from the checkout's `node_modules`. Restart them after `bun install` or after a switch to a branch with other dependencies.
+Run `bun unlink` to remove the command. For release acceptance, install the packed archive instead. See [Installed-package acceptance](docs/development/testing.md#installed-package-acceptance).
 
 ## Service rules
 

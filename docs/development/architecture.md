@@ -15,7 +15,7 @@ It contains no reasoning loop, agent framework, generic plugin framework, or fle
 | Stelz profile plugin | Runs inside Camofox. Enforces controller ownership, serializes actions, checks network state, and preserves the original browser context. |
 | Playwright | Starts and controls the browser. Executes clicks, typing, and navigation. |
 | Camoufox browser | The Firefox-based executable. Applies device settings and cursor behavior. |
-| `camoufox-js` | Prepares Camoufox startup options, including device settings, locale, proxy, and browser preferences. |
+| `camoufox` launcher | The official npm launcher. Prepares Camoufox startup options, including device settings, locale, proxy, and browser preferences. |
 
 ```mermaid
 flowchart LR
@@ -23,13 +23,13 @@ flowchart LR
     MCP <-->|"Authenticated loopback HTTP"| Server["Camofox server with Stelz plugin"]
     Server -->|"Browser actions"| Playwright
     Playwright --> Browser["Camoufox browser"]
-    Launcher["camoufox-js"] -.->|"Startup options"| Server
+    Launcher["camoufox launcher"] -.->|"Startup options"| Server
 ```
 
 Camoufox is the browser. Camofox is the automation server.
-`camoufox-js` supplies `launchOptions()` before Playwright starts the browser.
+The official `camoufox` launcher supplies `launchOptions()` before Playwright starts the browser.
 Stelz adds persistent profile handling and reuses saved device properties before startup.
-`camoufox-js` does not define MCP tools or process agent requests.
+The launcher does not define MCP tools or process agent requests.
 
 A browser tool call follows this path:
 
@@ -90,8 +90,7 @@ Playwright starts its persistent context. Camofox claims that same context for b
 On restart, Stelz reuses those properties while retaining current language, location, and security policy.
 Saved device data cannot replace current add-on paths, session history, or Firefox security preferences.
 WebGL2 capability follows the saved GPU properties.
-A changed executable or invalid fingerprint record blocks startup. Browser changes require an explicit migration.
-There is no browser-version migration command.
+A changed executable or invalid fingerprint record blocks startup. Create a new profile for another browser.
 
 Saved settings do not guarantee identical observable output.
 The [historical browser report](reports/browser-acceptance-2026-11.md) records varying canvas hashes and the measurement limits.
@@ -172,7 +171,7 @@ See [Shared MCP tools](../mcp.md) for names, arguments, and handle lifetimes.
 
 Stelz extends `camofox_type` with per-call modes.
 Camoufox's cursor behavior and Stelz's typing behavior are separate mechanisms.
-See [UI typing controls](../ui.md) and the [canonical skill](../../skills/stelz-browser/SKILL.md) for modes and precedence.
+See [UI typing controls](../ui.md) and [Typing](../configuration.md#typing) for modes and precedence.
 
 New controls must use controller checks, the action queue, network checks, and the service time limit.
 An upstream HTTP endpoint alone does not establish Stelz MCP support.
@@ -210,7 +209,7 @@ JavaScript evaluation and cookie import remain excluded from this plan.
 
 ## Failures and network policy
 
-The service limits browser operations and IP checks to 60 seconds.
+The service limits IP checks and short browser operations to 60 seconds, and typing to 3.5 minutes. `src/browser/deadlines.ts` sets these limits.
 A timeout blocks subsequent actions because the original operation may remain active.
 An MCP client timeout does not cancel the service operation.
 Stelz requires explicit stop and start after a blocked browser operation. It does not replay interrupted actions.
@@ -275,23 +274,24 @@ See [UI](../ui.md) for user operations.
 
 Build creates the CLI, supervisor, Node plugin, and bundled UI under `dist/`.
 The early theme script runs before the first page frame.
-Setup stages the prepared dependencies and plugin under `STELZ_HOME` before activation.
-It does not clone upstream source, apply patches, or modify the installed Camoufox app.
+Setup stages the prepared dependencies and plugin as a runtime generation under `STELZ_HOME/runtime-generations/`.
+It does not clone upstream source, apply patches, or modify a configured Camoufox app.
 Start compares the installed plugin with the current package and rejects outdated bytes.
+
+Each generation ID comes from the setup inputs, so setup reuses an unchanged generation.
+Setup switches the `runtime` link atomically under the admission lock. It holds that lock only to create service files and to switch the link.
+Start pins each service to its generation through `STELZ_RUNTIME` and records the generation, so a running browser never sees a newer runtime.
+Status reports `restartToUpdate` for a service on an older generation. Setup removes generations that no running service uses.
+An earlier plain `runtime/` directory blocks setup while any profile runs.
 
 After a source change that affects the runtime:
 
-1. Stop all profiles using the same `STELZ_HOME`.
-2. Run `bun run build` in the source checkout.
-3. Run `bun run setup` with that service directory.
-4. Start the required profiles explicitly.
+1. Run `bun run build` in the source checkout.
+2. Run `bun run setup` with that service directory.
+3. Restart the running profiles that must use the change.
 
-Setup requires stopped profiles and known process ownership.
-The shared MCP protocol requires this update and explicit restarts of old browser services.
 Keep the same `STELZ_HOME`, profile IDs, data paths, and secret references.
-No browser data migration or global harness configuration edits are necessary.
-See [Registration migration](../clients.md#migrate-an-existing-registration) for the one-time procedure.
-It checks the complete staged runtime before atomic activation.
+Setup checks the complete staged runtime before activation.
 Dependencies linked from that runtime still refer to the source checkout or installed package that supplied setup.
 The generated window add-on belongs under `profiles/ID/window-addon/`.
 It communicates only with that profile's authenticated loopback service.

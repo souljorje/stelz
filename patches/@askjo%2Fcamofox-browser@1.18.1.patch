@@ -1,7 +1,148 @@
+diff --git a/lib/browser-identity.js b/lib/browser-identity.js
+index ab3ecf821b07d4a353ef7b161d2c90a5604793d4..ac4c9499248b3e127bf7b2c44d3d4d7fb26cb030 100644
+--- a/lib/browser-identity.js
++++ b/lib/browser-identity.js
+@@ -1,5 +1,5 @@
+ export function contextIdentityOptions({ hasProxy, directIdentity }) {
+-  if (hasProxy) return { permissions: ['geolocation'] };
++  if (hasProxy) return {}; // Stelz never grants location access to arbitrary sites.
+   return directIdentity ? { ...directIdentity } : {};
+ }
+ 
+diff --git a/lib/camoufox-download.js b/lib/camoufox-download.js
+deleted file mode 100644
+index 68d8da7c60fbe50bf33113ed619bcc1183e4ed3a..0000000000000000000000000000000000000000
+diff --git a/lib/new-page-recovery.js b/lib/new-page-recovery.js
+index 4a0fd1a2d2e28d433a030f9fac6874c594df932c..a412169f49ff0e7fcdd97fded96886015a3dad2a 100644
+--- a/lib/new-page-recovery.js
++++ b/lib/new-page-recovery.js
+@@ -15,7 +15,7 @@ export async function createPageWithSessionRecovery({
+ }) {
+   let lease = acquirePageLease(session);
+   try {
+-    const page = setLeasedPage(lease, await withTimeout(session.context.newPage(), timeoutMs, 'new page'));
++    const page = setLeasedPage(lease, await withTimeout((await import('../plugins/local-profile/index.js')).createProfilePage(session.context), timeoutMs, 'new page'));
+     return { session, page, lease };
+   } catch (err) {
+     releasePageLease(session, lease);
+@@ -35,7 +35,7 @@ export async function createPageWithSessionRecovery({
+     session = await getSession(userId, { trace });
+     lease = acquirePageLease(session);
+     try {
+-      const page = setLeasedPage(lease, await withTimeout(session.context.newPage(), timeoutMs, 'new page retry'));
++      const page = setLeasedPage(lease, await withTimeout((await import('../plugins/local-profile/index.js')).createProfilePage(session.context), timeoutMs, 'new page retry'));
+       return { session, page, lease };
+     } catch (retryErr) {
+       releasePageLease(session, lease);
+diff --git a/lib/stelz-click-guard.js b/lib/stelz-click-guard.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..8c665a60cb51b44a138a5ff83dd8a5395ad989d2
+--- /dev/null
++++ b/lib/stelz-click-guard.js
+@@ -0,0 +1,18 @@
++// stelz: Playwright logs "performing click action" once a click attempt sends input.
++// After that point the page may have received the click, so a fallback click could repeat it.
++export function clickReachedPage(error) {
++  return String(error?.message || '').includes('performing click action');
++}
++
++// The DOM fallback rejects a non-HTML element before it clicks. Any other failure may follow the click.
++export function domClickRejected(error) {
++  return String(error?.message || '').includes('Element is not an HTMLElement');
++}
++
++// A conflict without a recovery hint: the caller must observe the page before another action.
++export function uncertainClickError(cause) {
++  const error = new Error('The click may have reached the page, so it was not repeated. Read a fresh snapshot before the next action.');
++  error.statusCode = 409;
++  error.cause = cause;
++  return error;
++}
+diff --git a/lib/stelz-page-ownership.js b/lib/stelz-page-ownership.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..85901c85b9f589dc2a0c198608a4107db4c823cc
+--- /dev/null
++++ b/lib/stelz-page-ownership.js
+@@ -0,0 +1,13 @@
++// stelz: Camofox creates, registers, and closes its own pages. A person or a website can open
++// other pages in the same headed browser. The orphan page reaper must leave those pages open.
++const owned = new WeakSet();
++
++export function ownPage(page) {
++  if (page) owned.add(page);
++  return page;
++}
++
++// An orphan is a page that Camofox owned and no longer tracks or leases.
++export function isOrphanPage(page, registered, leased) {
++  return owned.has(page) && !registered.has(page) && !leased;
++}
+diff --git a/package.json b/package.json
+index d3dfd239f35c136825cc8a5295cd53efac13ada3..a4d43ff934fda09402fab155450eb877ac3c4144 100644
+--- a/package.json
++++ b/package.json
+@@ -54,8 +54,7 @@
+     "plugins/vnc/vnc-watcher.sh",
+     "plugins/vnc/vnc-watcher-lib.sh",
+     "plugins/youtube/index.js",
+-    "plugins/youtube/youtube.js",
+-    "postinstall.js"
++    "plugins/youtube/youtube.js"
+   ],
+   "openclaw": {
+     "extensions": [
+@@ -131,13 +130,11 @@
+     "test:debug": "DEBUG_SERVER=1 NODE_OPTIONS='--experimental-vm-modules' jest --runInBand --forceExit",
+     "generate-openapi": "node scripts/generate-openapi.js",
+     "version:sync": "node scripts/sync-version.js",
+-    "version": "node scripts/sync-version.js && node scripts/generate-openapi.js && git add openclaw.plugin.json mcp/package.json mcp/package-lock.json openapi.json",
+-    "postinstall": "node postinstall.js",
+-    "fetch-bin": "node lib/camoufox-download.js"
++    "version": "node scripts/sync-version.js && node scripts/generate-openapi.js && git add openclaw.plugin.json mcp/package.json mcp/package-lock.json openapi.json"
+   },
+   "dependencies": {
+     "better-sqlite3": "13.0.1",
+-    "camoufox-js": "0.11.5",
++    "camoufox": "0.5.8",
+     "express": "^5.2.1",
+     "playwright-core": "^1.58.0",
+     "prom-client": "^15.1.3",
+diff --git a/plugins/persistence/index.js b/plugins/persistence/index.js
+index 7c5199d3b00c39325b660699581f4298a334808e..80596f5f9e0fc4fd89c309188f9115fdc77fdb71 100644
+--- a/plugins/persistence/index.js
++++ b/plugins/persistence/index.js
+@@ -47,6 +47,7 @@ async function removeIfExists(p) {
+ }
+ 
+ export async function register(app, ctx, pluginConfig = {}) {
++  return; // Native Firefox profile owns storage.
+   const { events, config, log } = ctx;
+ 
+   // Resolve profileDir: env var > plugin config > global config default (~/.camofox/profiles)
+diff --git a/postinstall.js b/postinstall.js
+deleted file mode 100644
+index 488077bfa09b23c4d6ad68a946a5a16be12d7c2d..0000000000000000000000000000000000000000
 diff --git a/server.js b/server.js
+index 4a737caba128a8f6a22f789ab9682167660a0589..a947db30362a8a4e0fa578fb1bb669413192470d 100644
 --- a/server.js
 +++ b/server.js
-@@ -276,9 +276,9 @@
+@@ -1,5 +1,4 @@
+-import { Camoufox, launchOptions } from 'camoufox-js';
+-import { VirtualDisplay } from 'camoufox-js/dist/virtdisplay.js';
++import { Camoufox, launchOptions, VirtualDisplay } from 'camoufox';
+ import { firefox } from 'playwright-core';
+ import express from 'express';
+ import crypto from 'crypto';
+@@ -63,6 +62,8 @@ import {
+   isTabLockQueueTimeout, isTabDestroyedError,
+   browserErrorStatus, browserErrorCode, browserErrorRecovery, isRetryableBrowserError,
+ } from './lib/browser-errors.js';
++import { clickReachedPage, domClickRejected, uncertainClickError } from './lib/stelz-click-guard.js';
++import { isOrphanPage, ownPage } from './lib/stelz-page-ownership.js';
+ 
+ const CONFIG = loadConfig();
+ 
+@@ -276,9 +277,9 @@ async function assertLocatorFillable(locator) {
    });
  }
  
@@ -13,7 +154,7 @@ diff --git a/server.js b/server.js
  }
  
  function safeError(err) {
-@@ -579,7 +579,8 @@
+@@ -579,7 +580,8 @@ async function withTabLock(tabId, operation, timeoutMs = HANDLER_TIMEOUT_MS, onT
    const lock = getTabLock(tabId);
    await lock.acquire(TAB_LOCK_TIMEOUT_MS);
    try {
@@ -23,7 +164,45 @@ diff --git a/server.js b/server.js
    } catch (err) {
      if (onTimeout && isTimeoutError(err)) {
        await onTimeout();
-@@ -1108,18 +1109,10 @@
+@@ -651,6 +653,7 @@ async function withUserLimit(userId, operation) {
+ 
+ async function safePageClose(page) {
+   if (!page || page.isClosed()) return;
++  ownPage(page);
+   try {
+     await Promise.race([
+       page.close({ runBeforeUnload: false }),
+@@ -863,27 +866,8 @@ function getTotalTabCount() {
+ const DEFAULT_VIRTUAL_DISPLAY_RESOLUTION = '1280x720x24';
+ 
+ class DefaultVirtualDisplay extends VirtualDisplay {
+-  get xvfb_args() {
+-    const args = super.xvfb_args;
+-    const idx = args.indexOf('0');
+-    if (idx > 0 && args[idx - 1] === '-screen') {
+-      const patched = [...args];
+-      patched[idx + 1] = DEFAULT_VIRTUAL_DISPLAY_RESOLUTION;
+-      return patched;
+-    }
+-    return args;
+-  }
+-
+-  kill() {
+-    const proc = this.proc;
+-    if (!proc || this.xvfbDisplayFilesCleanupRegistered) return super.kill();
+-
+-    this.xvfbDisplayFilesCleanupRegistered = true;
+-    const cleanup = () => removeXvfbDisplayFiles(this.display);
+-    if (proc.exitCode === null) proc.once('exit', cleanup);
+-    else cleanup();
+-    return super.kill();
+-  }
++  // stelz: the official display removes its lock and socket files on kill.
++  constructor() { super(false, DEFAULT_VIRTUAL_DISPLAY_RESOLUTION); }
+ }
+ 
+ let virtualDisplay = null;
+@@ -1108,25 +1092,17 @@ function isCamoufoxGeoipError(err) {
  const virtualDisplayRegistry = createVirtualDisplayRegistry(() => new DefaultVirtualDisplay());
  
  async function buildLaunchOptionsWithGeoipFallback(baseOptions, attemptMeta) {
@@ -46,7 +225,15 @@ diff --git a/server.js b/server.js
  }
  
  async function launchBrowserInstance() {
-@@ -1172,9 +1165,12 @@
+   const hostOS = getHostOS();
+   const maxAttempts = proxyPool?.launchRetries ?? 1;
+   let lastError = null;
+-  const externalCamoufox = getExternalCamoufoxLaunch();
++  const externalCamoufox = null; // stelz: the plugin passes the executable to the official launcher.
+ 
+   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+     const launchProxy = proxyPool
+@@ -1172,9 +1148,12 @@ async function launchBrowserInstance() {
          executable_path: externalCamoufox?.executablePath,
          headless: useVirtualDisplay ? false : !useDesktopWindow,
          os: hostOS,
@@ -59,7 +246,7 @@ diff --git a/server.js b/server.js
          geoip: !!launchProxy,
          locale: launchLocale({ hasProxy: !!proxyPool, directIdentity: CONFIG.directIdentity }),
          virtual_display: vdDisplay,
-@@ -1196,7 +1192,7 @@
+@@ -1196,7 +1175,7 @@ async function launchBrowserInstance() {
        options.handleSIGHUP = false;
        await pluginEvents.emitAsync('browser:launching', { options });
  
@@ -68,7 +255,7 @@ diff --git a/server.js b/server.js
  
        if (proxyPool?.canRotateSessions) {
          const probe = await probeGoogleSearch(candidateBrowser);
-@@ -1408,7 +1404,7 @@
+@@ -1408,7 +1387,7 @@ async function getSession(userId, { trace = false } = {}) {
          log('info', 'session proxy assigned', { userId: key, proxy: sessionProxy.server });
        }
        await pluginEvents.emitAsync('session:creating', { userId: key, contextOptions });
@@ -77,7 +264,7 @@ diff --git a/server.js b/server.js
  
        let tracePath = null;
        if (trace) {
-@@ -1424,6 +1420,7 @@
+@@ -1424,6 +1403,7 @@ async function getSession(userId, { trace = false } = {}) {
        }
  
        const created = { context, tabGroups: new Map(), pageLeases: new Set(), lastAccess: Date.now(), proxySessionId: sessionProxy?.sessionId || null, tracePath };
@@ -85,7 +272,15 @@ diff --git a/server.js b/server.js
        sessions.set(key, created);
        await pluginEvents.emitAsync('session:created', { userId: key, context });
        log('info', 'session created', {
-@@ -2909,6 +2906,7 @@
+@@ -1786,6 +1766,7 @@ function tabNotFoundResponse(res, tabId) {
+ }
+ 
+ function createTabState(page) {
++  ownPage(page);
+   const healthTracker = createTabHealthTracker(page);
+   const tabState = {
+     page,
+@@ -2909,6 +2890,7 @@ app.post('/pressure/cleanup', async (req, res) => {
   *             schema:
   *               $ref: '#/components/schemas/Error'
   */
@@ -93,7 +288,7 @@ diff --git a/server.js b/server.js
  app.post('/tabs', async (req, res) => {
    // The tab is registered before it navigates, and the route deadline can pass
    // while navigation is still in flight. An error response carries no tabId, so
-@@ -2916,8 +2914,9 @@
+@@ -2916,8 +2898,9 @@ app.post('/tabs', async (req, res) => {
    // completed after abandonment attempts its own cleanup.
    let createdTabId = null;
    let abandoned = false;
@@ -104,12 +299,10 @@ diff --git a/server.js b/server.js
      const session = sessions.get(normalizeUserId(req.body.userId));
      if (session) await destroyTimedOutTab(session, createdTabId, 'tab_create_failed', req.body.userId);
      createdTabId = null;
-@@ -2928,6 +2927,18 @@
-     const resolvedSessionKey = sessionKey || listItemId;
-     if (!userId || !resolvedSessionKey) {
+@@ -2930,6 +2913,18 @@ app.post('/tabs', async (req, res) => {
        return res.status(400).json({ error: 'userId and sessionKey required' });
-+    }
-+
+     }
+ 
 +    if (req.body.stelzStartup !== undefined) {
 +      if (req.body.stelzStartup !== true || stelzStartupAdmitted || sessions.has(normalizeUserId(userId)) ||
 +          userId !== process.env.STELZ_PROFILE_ID || sessionKey !== 'default' ||
@@ -120,10 +313,12 @@ diff --git a/server.js b/server.js
 +      // Startup verification has its own service deadline. Normal /tabs calls keep theirs.
 +      // The supervisor waits for browser prewarm before this one-time initialization.
 +      await getSession(userId);
-     }
- 
++    }
++
      // Session overflow redirect (Fly.io only) — if this machine is above its
-@@ -2978,6 +2989,8 @@
+     // fair share of sessions and the user doesn't already have one here,
+     // bounce back through the Fly Proxy to land on a less-loaded machine.
+@@ -2978,6 +2973,8 @@ app.post('/tabs', async (req, res) => {
        attachDownloadListener(tabState, tabId, log, pluginEvents, userId);
        group.set(tabId, tabState);
        createdTabId = tabId;
@@ -132,7 +327,76 @@ diff --git a/server.js b/server.js
        releasePageLease(session, lease);
        attachPopupHandler(page, userId, resolvedSessionKey);
        refreshActiveTabsGauge();
-@@ -4371,7 +4384,7 @@
+@@ -3932,6 +3929,8 @@ app.post('/tabs/:tabId/click', async (req, res) => {
+         try {
+           await dispatchDomClick(locator);
+         } catch (domErr) {
++          // stelz: a DOM click can reach the page before it fails. Then the mouse sequence would repeat it.
++          if (!domClickRejected(domErr)) throw uncertainClickError(domErr);
+           log('warn', 'DOM click fallback failed, trying mouse sequence', { error: domErr.message });
+           await dispatchMouseSequence(locator);
+         }
+@@ -3957,10 +3956,13 @@ app.post('/tabs/:tabId/click', async (req, res) => {
+         }
+         const click = async (options) => clickWithDownloadGuard(tabState, () => locator.click(options));
+         
++        // stelz: input waits for the browser to confirm each mouse event, so input gets the remaining budget.
++        const inputTimeout = () => Math.max(1, remainingBudget());
+         if (onGoogleSerp) {
+           try {
+-            await click({ timeout: 3000, force: true });
++            await click({ timeout: inputTimeout(), force: true });
+           } catch (forceErr) {
++            if (clickReachedPage(forceErr)) throw uncertainClickError(forceErr);
+             log('warn', 'google force click failed, trying DOM click fallback');
+             await recoverForceClickFailure(locator);
+           }
+@@ -3968,29 +3970,40 @@ app.post('/tabs/:tabId/click', async (req, res) => {
+         }
+         
+         try {
+-          // First try normal click (respects visibility, enabled, not-obscured)
+-          await click({ timeout: 3000 });
++          // stelz: check visibility, enabled state, and obstruction without input. Only this check may fall back.
++          await click({ timeout: 3000, trial: true });
+         } catch (err) {
++          // A trial sends no input, although Playwright still logs "performing click action" for it.
+           // Fallback 1: If intercepted by overlay, retry with force
+           if (err.message.includes('intercepts pointer events')) {
+             log('warn', 'click intercepted, retrying with force');
+             try {
+-              await click({ timeout: 3000, force: true });
++              await click({ timeout: inputTimeout(), force: true });
+             } catch (forceErr) {
++              if (clickReachedPage(forceErr)) throw uncertainClickError(forceErr);
+               log('warn', 'force click failed, trying DOM click fallback');
+               await recoverForceClickFailure(locator);
+             }
+           } else if (err.message.includes('not visible') || err.message.toLowerCase().includes('timeout')) {
+             log('warn', 'click timeout, retrying with force');
+             try {
+-              await click({ timeout: Math.max(1, Math.min(3000, remainingBudget())), force: true });
++              await click({ timeout: inputTimeout(), force: true });
+             } catch (forceErr) {
++              if (clickReachedPage(forceErr)) throw uncertainClickError(forceErr);
+               log('warn', 'force click failed, trying DOM click fallback');
+               await recoverForceClickFailure(locator);
+             }
+           } else {
+             throw err;
+           }
++          return;
++        }
++        // stelz: a failure after input started is uncertain. Never repeat it.
++        try {
++          await click({ timeout: inputTimeout() });
++        } catch (err) {
++          if (clickReachedPage(err)) throw uncertainClickError(err);
++          throw err;
+         }
+       };
+       
+@@ -4371,7 +4384,7 @@ app.post('/tabs/:tabId/type', async (req, res) => {
    const tabId = req.params.tabId;
    
    try {
@@ -141,7 +405,7 @@ diff --git a/server.js b/server.js
      const session = sessions.get(normalizeUserId(userId));
      const found = session && findTab(session, tabId);
      if (!found) return tabNotFoundResponse(res, req.params.tabId || req.body?.tabId);
-@@ -4409,9 +4422,9 @@
+@@ -4409,9 +4422,9 @@ app.post('/tabs/:tabId/type', async (req, res) => {
        
        if (mode === 'fill') {
          if (locator) {
@@ -153,7 +417,7 @@ diff --git a/server.js b/server.js
          }
        } else {
          // keyboard mode -- char-by-char real key events (required for Ember/contenteditable)
-@@ -4423,12 +4436,19 @@
+@@ -4423,12 +4436,19 @@ app.post('/tabs/:tabId/type', async (req, res) => {
          await tabState.page.keyboard.type(text, { delay });
        }
        if (shouldSubmit) await tabState.page.keyboard.press('Enter');
@@ -174,57 +438,34 @@ diff --git a/server.js b/server.js
      if (err.message?.includes('timed out') || err.message?.includes('not an <input>')) {
        try {
          const session = sessions.get(normalizeUserId(req.body.userId));
-diff --git a/lib/browser-identity.js b/lib/browser-identity.js
---- a/lib/browser-identity.js
-+++ b/lib/browser-identity.js
-@@ -1,5 +1,5 @@
- export function contextIdentityOptions({ hasProxy, directIdentity }) {
--  if (hasProxy) return { permissions: ['geolocation'] };
-+  if (hasProxy) return {}; // Stelz never grants location access to arbitrary sites.
-   return directIdentity ? { ...directIdentity } : {};
- }
+@@ -4670,6 +4690,10 @@ app.post('/tabs/:tabId/scroll', async (req, res) => {
+     await withTabLock(req.params.tabId, async () => {
+       const isVertical = direction === 'up' || direction === 'down';
+       const delta = (direction === 'up' || direction === 'left') ? -amount : amount;
++      await tabState.page.bringToFront();
++      // stelz: wheel input targets the pointer, which can still be over a fixed header.
++      const viewport = await tabState.page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
++      await tabState.page.mouse.move(viewport.width / 2, viewport.height / 2);
+       await tabState.page.mouse.wheel(isVertical ? 0 : delta, isVertical ? delta : 0);
+       await tabState.page.waitForTimeout(300);
+     });
+@@ -6187,7 +6208,8 @@ setInterval(() => {
+       for (const tabState of group.values()) registered.add(tabState.page);
+     }
+     for (const page of contextPages) {
+-      if (!registered.has(page) && !isPageLeased(session, page)) {
++      // stelz: a page that a person or a website opened is not an orphan.
++      if (isOrphanPage(page, registered, isPageLeased(session, page))) {
+         reaped++;
+         page.removeAllListeners();
+         page.close({ runBeforeUnload: false }).catch(() => {});
+@@ -7066,6 +7088,9 @@ setInterval(() => {
  
-diff --git a/lib/camoufox-executable.js b/lib/camoufox-executable.js
---- a/lib/camoufox-executable.js
-+++ b/lib/camoufox-executable.js
-@@ -193,7 +193,7 @@
-     mkdirSync(cacheDir, { recursive: true });
-     writeFileSync(cacheVersion, readFileSync(bundledVersion));
-   }
--  if (!existsSync(executableProperties)) ensureSymlink(realpathSync(resourceProperties), executableProperties);
-+  // stelz: read macOS resources without changing the installed app bundle.
- }
- 
- export function prepareExternalCamoufoxExecutable(executablePath, { cacheDir } = {}) {
-diff --git a/lib/new-page-recovery.js b/lib/new-page-recovery.js
---- a/lib/new-page-recovery.js
-+++ b/lib/new-page-recovery.js
-@@ -15,7 +15,7 @@
- }) {
-   let lease = acquirePageLease(session);
-   try {
--    const page = setLeasedPage(lease, await withTimeout(session.context.newPage(), timeoutMs, 'new page'));
-+    const page = setLeasedPage(lease, await withTimeout((await import('../plugins/local-profile/index.js')).createProfilePage(session.context), timeoutMs, 'new page'));
-     return { session, page, lease };
-   } catch (err) {
-     releasePageLease(session, lease);
-@@ -35,7 +35,7 @@
-     session = await getSession(userId, { trace });
-     lease = acquirePageLease(session);
-     try {
--      const page = setLeasedPage(lease, await withTimeout(session.context.newPage(), timeoutMs, 'new page retry'));
-+      const page = setLeasedPage(lease, await withTimeout((await import('../plugins/local-profile/index.js')).createProfilePage(session.context), timeoutMs, 'new page retry'));
-       return { session, page, lease };
-     } catch (retryErr) {
-       releasePageLease(session, lease);
-diff --git a/plugins/persistence/index.js b/plugins/persistence/index.js
---- a/plugins/persistence/index.js
-+++ b/plugins/persistence/index.js
-@@ -47,6 +47,7 @@
- }
- 
- export async function register(app, ctx, pluginConfig = {}) {
-+  return; // Native Firefox profile owns storage.
-   const { events, config, log } = ctx;
- 
-   // Resolve profileDir: env var > plugin config > global config default (~/.camofox/profiles)
+ // Active health probe -- detect hung browser even when isConnected() lies
+ setInterval(async () => {
++  // stelz: the probe context opens a visible window, and Stelz refuses a replacement browser.
++  // A hung browser blocks its lifetime through the service action deadline instead.
++  return;
+   if (!browser || healthState.isRecovering) return;
+   const timeSinceSuccess = Date.now() - healthState.lastSuccessfulNav;
+   // Skip probe if operations are in flight AND last success was recent.

@@ -29,31 +29,30 @@ Stelz manages the browsers. Your agent decides what to do.
 ## Quickstart
 
 The tested desktop platform is macOS on Apple Silicon.
-You need Bun ≥1.4.4, Node.js ≥24, and a compatible Camoufox installation.
-Follow [Getting started](docs/getting-started.md) to install the prerequisites and locate or download Camoufox.
-`stelz setup` requires the browser to exist already.
-
-With those prerequisites ready:
+You need Bun ≥1.4.4 and Node.js ≥24. See [Getting started](docs/getting-started.md) for details.
 
 ```sh
-CAMOFOX_SKIP_DOWNLOAD=1 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install --global stelz
-stelz init
+npm install --global stelz
 stelz setup
 stelz ui --open
 ```
+
+Setup prepares the paired Camoufox browser and asks before it downloads.
 
 Create a profile named `work` in the UI. Leave the proxy blank for a direct connection, then select **Start**.
 [Connect your agent](docs/clients.md) to use that browser.
 Agents can also create direct profiles and start browsers through the shared MCP tools.
 Each profile permits one browser and one controller.
 
-For an existing profile-bound registration, follow the [one-time migration](docs/clients.md#migrate-an-existing-registration).
-
 ## Let your agent set it up
 
-Give a local coding agent this request:
+Send this message to a local coding agent, such as Claude Code, Codex, or Hermes:
 
-> Follow the [agent setup guide](docs/bootstrap.md). Create or reuse profile `work`. Start its browser. Connect your browser tools. Preserve existing profiles, credentials, and client settings. Check browser control. Report anything I must complete.
+> Install this skill: https://github.com/souljorje/stelz/blob/main/skills/stelz-browser/SKILL.md
+
+The agent installs Stelz, connects its browser tools, and opens the Stelz UI. It asks before large downloads and preserves existing profiles and client settings.
+Then create and start a profile in the UI, and start a new agent session so that the client loads the tools.
+See [Agent setup](docs/bootstrap.md) for the steps.
 
 ## Documentation
 

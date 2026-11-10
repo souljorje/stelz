@@ -1,19 +1,24 @@
 import { assertBundledPatches } from "./camofox-adapter.ts";
-import { prepareGeoip } from "./geoip-setup.ts";
-import { NATIVE_DEPENDENCIES } from "./native-dependencies.ts";
+import { geoipPlan, prepareGeoip, type GeoipStatus } from "./geoip-setup.ts";
+import { browserPin, fingerprintModel, isPreparedModel, pairedBrowser } from "./camoufox.ts";
+import { browserPlan, prepareBrowser, type BrowserSource } from "./browser-setup.ts";
+import { GEOIP_SOURCES, type GeoipRole } from "./location.ts";
 import {
   copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync,
-  readFileSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync,
+  readFileSync, readlinkSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync,
 } from "node:fs";
-import { basename, dirname, join, relative, sep } from "node:path";
+import { basename, dirname, join } from "node:path";
+import { homedir } from "node:os";
 import { createRequire } from "node:module";
 import { createHash } from "node:crypto";
 import { pathToFileURL } from "node:url";
-import { dlopen, FFIType } from "bun:ffi";
-import { ROOT, HOME_DIR, STATE, UPSTREAM, COMMIT, UPSTREAM_VERSION, executable, initialize, settings } from "../profiles/config.ts";
-import { MCP_SDK_VERSION, STELZ_VERSION } from "../versions.ts";
-import { lock, running } from "../runtime/runtime.ts";
+import {
+  ROOT, HOME_DIR, STATE, RUNTIME, RUNTIME_GENERATIONS, COMMIT, UPSTREAM_VERSION, currentRuntimeId, initialize, isRuntimeId, runtimeDir, secret,
+} from "../profiles/config.ts";
+import { STELZ_VERSION } from "../versions.ts";
+import { lock, running, type Running } from "../runtime/runtime.ts";
 
+const CAMOFOX = "@askjo/camofox-browser";
 function packagePath(name: string, from: string): string {
   const require = createRequire(join(from, "package.json"));
   let path: string;
@@ -46,45 +51,36 @@ function directory(path: string) {
   if (info && !info.isDirectory()) throw Error(`Expected a directory, not a link or file: ${path}`);
 }
 
-function stateFile<T>(file: string): T | undefined {
-  const info = stat(file);
-  if (!info) return;
-  if (!info.isFile()) throw Error(`Invalid profile state: ${file}`);
-  try {
-    return JSON.parse(readFileSync(file, "utf8")) as T;
-  } catch {
-    throw Error(`Cannot read profile state: ${file}`);
-  }
+/** Accept a missing runtime, an earlier plain directory, or a link to a generation. Reject any other link. */
+function runtimeLayout(): "missing" | "plain" | "generation" {
+  directory(RUNTIME_GENERATIONS);
+  const info = stat(RUNTIME);
+  if (!info) return "missing";
+  if (info.isDirectory()) return "plain";
+  if (info.isSymbolicLink() && currentRuntimeId()) return "generation";
+  // A dangling link has no running user, so activation replaces it. A link to anything else is refused.
+  if (info.isSymbolicLink() && !existsSync(RUNTIME)) return "missing";
+  throw Error(`Expected a runtime directory or a link to a runtime generation: ${RUNTIME}`);
 }
 
-function assertStopped() {
-  settings();
+/** Records of running services, including reservations. Malformed records stop setup. */
+function runningServices(): Running[] {
+  const services: Running[] = [];
   for (const item of readdirSync(STATE, { withFileTypes: true })) {
-    if (item.name === "admission.lock") continue;
     if (item.isSymbolicLink()) throw Error(`Invalid profile directory: ${item.name}`);
     if (!item.isDirectory()) continue;
-
-    const base = join(STATE, item.name);
-    const record = stateFile<{ pid?: unknown; serverPid?: unknown; instanceId?: unknown }>(join(base, "running.json"));
-    if (record === undefined) continue;
-    if (record === null || typeof record !== "object" || !Number.isSafeInteger(record.pid) || (record.pid as number) < 0 ||
-        (record.serverPid !== undefined && (!Number.isSafeInteger(record.serverPid) || (record.serverPid as number) < 1)) ||
-        typeof record.instanceId !== "string" || !record.instanceId) {
-      throw Error(`Invalid profile state: ${item.name}`);
-    }
-
-    const stopped = stateFile<{ instanceId?: unknown }>(join(base, "stopped.json"));
-    if (stopped?.instanceId !== record.instanceId || running(item.name)) {
-      throw Error(`${item.name}: stop all profiles and resolve unclean or orphaned processes before setup.`);
-    }
+    const record = stat(join(STATE, item.name, "running.json"));
+    if (record && !record.isFile()) throw Error(`Invalid profile state: ${item.name}`);
+    const service = running(item.name);
+    if (service) services.push(service);
   }
+  return services;
 }
 
-function copy(source: string, target: string, skipModules = false) {
+function copy(source: string, target: string) {
   cpSync(source, target, {
     recursive: true,
     filter: path => {
-      if (skipModules && relative(source, path).split(sep).includes("node_modules")) return false;
       if (lstatSync(path).isSymbolicLink()) throw Error(`Setup source contains a symbolic link: ${path}`);
       return true;
     },
@@ -99,33 +95,25 @@ function node(args: string[]) {
   return result.stdout.toString().trim();
 }
 
+// Stelz dependencies, including the launcher and the plugin's imports, come from the product.
+// Other Camofox dependencies resolve from Camofox.
 function copyDependencies(source: string, upstream: string) {
   const modules = join(upstream, "node_modules");
   mkdirSync(modules, { recursive: true });
-  const camoufox = packagePath("camoufox-js", ROOT);
-  const productDependencies = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).dependencies;
-  const nativeDependencies = Object.fromEntries(NATIVE_DEPENDENCIES.filter(name => productDependencies[name]).map(name => [name, productDependencies[name]]));
-  const dependencies = {
-    ...JSON.parse(readFileSync(join(source, "package.json"), "utf8")).dependencies,
-    ...JSON.parse(readFileSync(join(camoufox, "package.json"), "utf8")).dependencies,
-    ...nativeDependencies,
-    "@modelcontextprotocol/sdk": MCP_SDK_VERSION,
-  };
+  const product = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).dependencies as Record<string, string>;
+  const names = new Set([...Object.keys(JSON.parse(readFileSync(join(source, "package.json"), "utf8")).dependencies), ...Object.keys(product)]);
+  names.delete(CAMOFOX);
   const paths = new Map<string, string>();
-  for (const name of Object.keys(dependencies)) {
+  for (const name of names) {
     if (!/^(?:@[a-z0-9][a-z0-9._~-]*\/)?[a-z0-9][a-z0-9._~-]*$/.test(name)) {
       throw Error(`Invalid dependency name: ${name}`);
     }
     const target = join(modules, name);
     mkdirSync(dirname(target), { recursive: true });
-    const dependency = name === "camoufox-js" ? camoufox : packagePath(name, name in nativeDependencies ? ROOT : source);
+    const dependency = packagePath(name, name in product ? ROOT : source);
     paths.set(name, dependency);
-    if (name === "camoufox-js") {
-      copy(dependency, target, true);
-    } else {
-      symlinkSync(dependency, target, "dir");
-      if (realpathSync(target) !== realpathSync(dependency)) throw Error(`Cannot validate dependency: ${name}`);
-    }
+    symlinkSync(dependency, target, "dir");
+    if (realpathSync(target) !== realpathSync(dependency)) throw Error(`Cannot validate dependency: ${name}`);
   }
   return paths;
 }
@@ -135,7 +123,7 @@ function writeManifest(stage: string, browser: string, dependencies: Map<string,
     ? dirname(dirname(dirname(dirname(browser))))
     : dirname(browser);
   const versionPath = join(versionDirectory, "version.json");
-  const versions = Object.fromEntries(["camoufox-js", "playwright-core", "@modelcontextprotocol/sdk"].map(name => {
+  const versions = Object.fromEntries(["camoufox", "playwright-core", "@modelcontextprotocol/sdk"].map(name => {
     const path = dependencies.get(name);
     if (!path) throw Error(`Missing dependency: ${name}`);
     return [name, JSON.parse(readFileSync(join(path, "package.json"), "utf8")).version];
@@ -174,8 +162,7 @@ function validate(upstream: string) {
   node(["--input-type=module", "-e", script, pathToFileURL(contract).href, pathToFileURL(plugin).href]);
   for (const file of [
     "server.js",
-    "lib/camoufox-executable.js",
-    "node_modules/camoufox-js/dist/utils.js",
+    "node_modules/camoufox/dist/index.js",
     "plugins/persistence/index.js",
     "plugins/local-profile/index.js",
   ]) {
@@ -184,7 +171,7 @@ function validate(upstream: string) {
 }
 
 function stageRuntime(stage: string, source: string, browser: string, plugin: string) {
-  const upstream = join(stage, basename(UPSTREAM));
+  const upstream = join(stage, `camofox-${UPSTREAM_VERSION}`);
   mkdirSync(upstream, { mode: 0o700 });
   for (const name of ["server.js", "package.json", "LICENSE", "lib", "mcp", "plugins/persistence"]) {
     copy(join(source, name), join(upstream, name));
@@ -204,83 +191,204 @@ function stageRuntime(stage: string, source: string, browser: string, plugin: st
   validate(upstream);
 }
 
-// Exchange complete sibling directories so an installed runtime and its manifest move together.
-// A filesystem without an atomic exchange must fail rather than use a two-rename fallback.
-function activate(stage: string) {
-  const target = join(HOME_DIR, "runtime");
-  directory(target);
-  if (!stat(target)) {
-    renameSync(stage, target);
-    return;
-  }
-  const a = Buffer.from(`${stage}\0`);
-  const b = Buffer.from(`${target}\0`);
-  let result: number;
-  if (process.platform === "darwin") {
-    const lib = dlopen("/usr/lib/libSystem.B.dylib", {
-      renamex_np: { args: [FFIType.cstring, FFIType.cstring, FFIType.u32], returns: FFIType.i32 },
-    });
-    try {
-      result = lib.symbols.renamex_np(a, b, 2);
-    } finally {
-      lib.close();
-    }
-  } else if (process.platform === "linux") {
-    const lib = dlopen("libc.so.6", {
-      renameat2: { args: [FFIType.i32, FFIType.cstring, FFIType.i32, FFIType.cstring, FFIType.u32], returns: FFIType.i32 },
-    });
-    try {
-      result = lib.symbols.renameat2(-100, a, -100, b, 2);
-    } finally {
-      lib.close();
-    }
-  } else {
-    throw Error("Atomic runtime replacement is not supported on this platform.");
-  }
-  if (result !== 0) throw Error("Cannot atomically replace the runtime on this filesystem.");
+/** Stage the pinned fingerprint model. Reuse the current copy, or download and verify it. */
+export async function prepareModel(stage: string, current: string, progress: Progress = console.error): Promise<"reused" | "downloaded"> {
+  const target = join(stage, "fpgen"), previous = join(current, "fpgen");
+  if (stat(previous)?.isDirectory()) copy(previous, target);
+  const reused = isPreparedModel(target);
+  if (!reused) progress("Downloading the fingerprint model…");
+  await fingerprintModel().ensureModel({ dir: target });
+  return reused ? "reused" : "downloaded";
 }
 
-export async function setup(options: { prepareGeoip?: typeof prepareGeoip } = {}) {
+// Sort object keys so that equal inputs give equal text.
+const canonical = (value: unknown) => JSON.stringify(value, (_key, item: unknown) =>
+  item && typeof item === "object" && !Array.isArray(item) ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => a < b ? -1 : 1)) : item);
+const sha256 = (value: string | Buffer) => createHash("sha256").update(value).digest("hex");
+
+/** Content identity of the staged Camofox tree: the plugin, patches, and dependency links. */
+function treeDigest(root: string) {
+  const entries: string[] = [];
+  const walk = (path: string, prefix: string) => {
+    for (const item of readdirSync(path, { withFileTypes: true }).sort((a, b) => a.name < b.name ? -1 : 1)) {
+      const full = join(path, item.name), name = prefix + item.name;
+      if (item.isSymbolicLink()) entries.push(`l ${name} ${readlinkSync(full)}`);
+      else if (item.isDirectory()) { entries.push(`d ${name}`); walk(full, `${name}/`); }
+      else entries.push(`f ${name} ${sha256(readFileSync(full))}`);
+    }
+  };
+  walk(root, "");
+  return sha256(entries.join("\0"));
+}
+
+/** Equal setup inputs give the same generation ID. */
+function generationId(stage: string) {
+  // Bun and Node describe the host that ran setup, not the runtime contents.
+  const { bun: _bun, node: _node, ...manifest } = JSON.parse(readFileSync(join(stage, "versions.json"), "utf8"));
+  const geoipManifest = join(stage, "geoip/manifest.json"), pin = join(stage, "fpgen/.pinned-model");
+  const datasets = stat(geoipManifest)
+    ? Object.fromEntries(Object.entries((JSON.parse(readFileSync(geoipManifest, "utf8")).datasets ?? {}) as Record<string, { sha256: string }>)
+      .map(([role, entry]) => [role, entry.sha256]))
+    : {};
+  const model = stat(pin)?.isFile() ? readFileSync(pin, "utf8").trim() : fingerprintModel().MODEL_PIN?.sha256 ?? null;
+  return sha256(canonical({ manifest, datasets, model, camofox: treeDigest(join(stage, `camofox-${UPSTREAM_VERSION}`)) })).slice(0, 16);
+}
+
+// Move a directory aside atomically. Setup removes it after it releases the admission lock.
+function retire(path: string) {
+  const target = join(RUNTIME_GENERATIONS, `.stage-retired-${crypto.randomUUID()}`);
+  renameSync(path, target);
+  return target;
+}
+
+/** Point the runtime link at a generation, then retire generations that no running service uses. */
+function activate(id: string) {
+  const layout = runtimeLayout(), services = runningServices(), retired: string[] = [];
+  if (layout === "plain") {
+    if (services.length) throw Error("Stop running profiles from an earlier Stelz version before you run stelz setup.");
+    retired.push(retire(RUNTIME));
+  }
+  const temporary = `${RUNTIME}.${process.pid}.${crypto.randomUUID()}.tmp`;
+  symlinkSync(join(basename(RUNTIME_GENERATIONS), id), temporary, "dir");
+  renameSync(temporary, RUNTIME);
+  const keep = new Set([id, ...services.map(service => service.runtime)]);
+  for (const item of readdirSync(RUNTIME_GENERATIONS, { withFileTypes: true })) {
+    if (item.isDirectory() && isRuntimeId(item.name) && !keep.has(item.name)) retired.push(retire(join(RUNTIME_GENERATIONS, item.name)));
+  }
+  return retired;
+}
+
+export type SetupReport = {
+  home: string; browser: { source: BrowserSource; executable: string };
+  locationData: Partial<Record<GeoipRole, { source: string; release: string; builtAt: string; status: GeoipStatus }>>;
+  fingerprintModel: "reused" | "downloaded";
+  runtime: { id: string; status: "reused" | "prepared" };
+};
+/** Setup needs downloads that nobody authorized. */
+/** Setup progress for a person or, with `--json`, for stderr. */
+export type Progress = (message: string) => void;
+/** One download that needs consent. */
+export type PlannedDownload = { name: string; size: string; purpose: string; source: string };
+/** Each download with its size, purpose, and source. */
+export const downloadList = (downloads: PlannedDownload[]) =>
+  downloads.map(item => `- ${item.name} (${item.size}): ${item.purpose}\n  ${item.source}`).join("\n");
+export class SetupConfirmationError extends Error {
+  readonly code = "confirmation_required";
+  constructor(readonly downloads: PlannedDownload[]) {
+    super(`Setup needs these downloads:\n${downloadList(downloads)}\nRun stelz setup --yes to allow them.`);
+  }
+}
+const locationPurpose: Record<GeoipRole, Pick<PlannedDownload, "size" | "purpose">> = {
+  selection: { size: "about 120 MB", purpose: "Matches the timezone and language of a proxied browser to its exit IP." },
+  comparison: { size: "about 50 MB", purpose: "A second database that cross-checks that location." },
+};
+/** What setup would download now. A setup that needs none never asks. */
+async function plannedDownloads(configured?: string): Promise<PlannedDownload[]> {
+  const current = runtimeDir(), downloads: PlannedDownload[] = [];
+  if (browserPlan(HOME_DIR, configured).source === "downloaded") {
+    const { repo, tag } = browserPin();
+    downloads.push({ name: `Camoufox ${pairedBrowser()}`, size: "over 1 GB", purpose: "The browser build that every profile runs.",
+      source: `https://github.com/${repo}/releases/tag/${tag}` });
+  }
+  for (const role of await geoipPlan(current)) downloads.push({ name: `${GEOIP_SOURCES[role].name} location data`, ...locationPurpose[role],
+    source: `https://github.com/${GEOIP_SOURCES[role].repository}/releases/latest` });
+  if (!isPreparedModel(join(current, "fpgen"))) {
+    const { repo, tag, size } = fingerprintModel().MODEL_PIN;
+    downloads.push({ name: "Fingerprint model", size: `about ${Math.ceil(size / 1e6)} MB`, purpose: "Generates the fingerprint of each new profile.",
+      source: `https://github.com/${repo}/releases/tag/${tag}` });
+  }
+  return downloads;
+}
+
+type SetupOptions = {
+  yes?: boolean; confirm?: (downloads: PlannedDownload[]) => Promise<boolean>; progress?: Progress;
+  prepareGeoip?: typeof prepareGeoip; prepareModel?: typeof prepareModel; prepareBrowser?: typeof prepareBrowser;
+};
+/** Prepare everything that Start needs, and create missing service files. Downloads require `yes` or a positive `confirm`. */
+export async function setup(options: SetupOptions = {}): Promise<SetupReport> {
   directory(HOME_DIR);
   directory(STATE);
-  directory(join(HOME_DIR, "runtime"));
+  runtimeLayout();
   mkdirSync(STATE, { recursive: true, mode: 0o700 });
-
   const admission = join(STATE, "admission.lock");
   const existingLock = stat(admission);
   if (existingLock && (!existingLock.isFile() || existingLock.nlink !== 1)) {
     throw Error(`Invalid admission lock: ${admission}`);
   }
-  await lock(admission, async () => {
-    initialize();
-    assertStopped();
+  return lock(join(STATE, "setup.lock"), () => prepare(admission, options), 3_600_000,
+    "Another stelz setup is running. Wait for it to finish, then run stelz setup again.");
+}
 
-    const browser = executable();
-    if (!existsSync(browser) || !statSync(browser).isFile()) {
-      throw Error(`Camoufox is missing at ${browser}. Set CAMOUFOX_EXECUTABLE in secrets.env.`);
-    }
-    const source = packagePath("@askjo/camofox-browser", ROOT);
-    if (JSON.parse(readFileSync(join(source, "package.json"), "utf8")).version !== UPSTREAM_VERSION) {
-      throw Error("The installed Camofox version does not match the pinned version.");
-    }
-    const plugin = join(ROOT, "dist/plugin.js");
-    if (!stat(plugin)?.isFile()) throw Error("Build the package before setup.");
+// The caller holds the setup lock. Running services keep their generations, so only activation needs the admission lock.
+async function prepare(admission: string, options: SetupOptions): Promise<SetupReport> {
+  await lock(admission, async () => { initialize(); });
+  const configured = secret("CAMOUFOX_EXECUTABLE") || undefined;
+  // `yes` authorizes every planned download, so only an unconfirmed setup needs the plan.
+  if (!options.yes) {
+    const downloads = await plannedDownloads(configured);
+    if (downloads.length && !(await options.confirm?.(downloads))) throw new SetupConfirmationError(downloads);
+  }
+  const progress = options.progress ?? console.error;
+  const browser = await (options.prepareBrowser ?? prepareBrowser)(HOME_DIR, configured, { progress });
 
-    const stage = mkdtempSync(join(HOME_DIR, ".runtime-setup-"));
-    let activated = false;
-    try {
-      stageRuntime(stage, source, browser, plugin);
-      await (options.prepareGeoip ?? prepareGeoip)(stage, join(HOME_DIR, "runtime"), join(stage, basename(UPSTREAM), "node_modules/camoufox-js"));
-      activate(stage);
-      activated = true;
-    } finally {
-      // After exchange this path contains the old runtime. Do not follow links during cleanup.
-      try {
-        rmSync(stage, { recursive: true, force: true });
-      } catch (error) {
-        if (!activated) throw error;
-      }
+  const source = packagePath(CAMOFOX, ROOT);
+  if (JSON.parse(readFileSync(join(source, "package.json"), "utf8")).version !== UPSTREAM_VERSION) {
+    throw Error("The installed Camofox version does not match the pinned version.");
+  }
+  const plugin = join(ROOT, "dist/plugin.js");
+  if (!stat(plugin)?.isFile()) throw Error("Build the package before setup.");
+
+  mkdirSync(RUNTIME_GENERATIONS, { recursive: true, mode: 0o700 });
+  // The setup lock guarantees that every stage is stale.
+  for (const name of readdirSync(RUNTIME_GENERATIONS)) {
+    if (name.startsWith(".stage-")) rmSync(join(RUNTIME_GENERATIONS, name), { recursive: true, force: true });
+  }
+  const stage = mkdtempSync(join(RUNTIME_GENERATIONS, ".stage-"));
+  try {
+    stageRuntime(stage, source, browser.executable, plugin);
+    const current = runtimeDir();
+    const geoip = await (options.prepareGeoip ?? prepareGeoip)(stage, current, { progress });
+    const locationData: SetupReport["locationData"] = Object.fromEntries((Object.keys(geoip.status) as GeoipRole[]).map(role => [role, {
+      source: geoip.datasets[role].source, release: geoip.datasets[role].release, builtAt: geoip.datasets[role].buildEpoch, status: geoip.status[role] }]));
+    const model = await (options.prepareModel ?? prepareModel)(stage, current, progress);
+    const id = generationId(stage), target = join(RUNTIME_GENERATIONS, id);
+    const runtime: SetupReport["runtime"] = { id, status: "reused" };
+    if (id !== currentRuntimeId()) {
+      // A generation appears only by rename of a complete stage, so an existing one is complete.
+      const existing = stat(target);
+      if (existing && !existing.isDirectory()) throw Error(`Expected a directory, not a link or file: ${target}`);
+      if (!existing) { renameSync(stage, target); runtime.status = "prepared"; }
     }
-  });
-  console.log(`Service files are ready in ${HOME_DIR}. The installed browser is unchanged.`);
+    rmSync(stage, { recursive: true, force: true });
+    const retired = await lock(admission, async () => activate(id));
+    // The runtime is active now. The next setup removes any stage that remains.
+    for (const path of retired) try { rmSync(path, { recursive: true, force: true }); } catch {}
+    return { home: HOME_DIR, browser, locationData, fingerprintModel: model, runtime };
+  } finally {
+    rmSync(stage, { recursive: true, force: true });
+  }
+}
+
+const browserText: Record<BrowserSource, string> = { configured: "configured in CAMOUFOX_EXECUTABLE", managed: "reused",
+  "upstream-cache": "copied from the upstream cache", downloaded: "downloaded and verified" };
+const statusText: Record<GeoipStatus | "prepared", string> = { reused: "reused", downloaded: "downloaded and verified",
+  kept: "kept; the refresh failed", prepared: "prepared" };
+const CLIENTS = "https://github.com/souljorje/stelz/blob/main/docs/clients.md";
+/** The report for a person, as aligned columns. `--json` prints the report object instead. */
+export function setupSummary(report: SetupReport) {
+  const short = (path: string) => path.startsWith(homedir() + "/") ? `~${path.slice(homedir().length)}` : path;
+  // A row is a label, an item, and its status. A detail row has only an item.
+  const rows: [string, string, string?][] = [
+    ["Service home", short(report.home)],
+    ["Browser", `Camoufox ${pairedBrowser()}`, browserText[report.browser.source]],
+    ["", short(report.browser.executable)],
+    ...Object.values(report.locationData).map((entry, index): [string, string, string] =>
+      [index ? "" : "Location data", `${entry.source} ${entry.release}`, statusText[entry.status]]),
+    ["Fingerprint model", fingerprintModel().MODEL_PIN.tag, statusText[report.fingerprintModel]],
+    ["Runtime", report.runtime.id, statusText[report.runtime.status]],
+  ];
+  const label = Math.max(...rows.map(row => row[0].length)), item = Math.max(...rows.filter(row => row[2]).map(row => row[1].length));
+  return ["Stelz is ready.", "",
+    ...rows.map(([name, value, status]) => `  ${name.padEnd(label)}  ${status ? `${value.padEnd(item)}  ${status}` : value}`),
+    "", "Next:", "  stelz ui --open    Open the local UI.", `  stelz mcp          Connect an agent. See ${CLIENTS}`].join("\n");
 }

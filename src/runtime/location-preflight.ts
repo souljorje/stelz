@@ -1,12 +1,13 @@
 import { lstatSync } from "node:fs";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
-import { ROOT, HOME_DIR, UPSTREAM, profile, dir, secret, configurationHash, executable, type Profile, validateProxy } from "../profiles/config.ts";
+import { ROOT, runtimeDir, upstream, profile, dir, secret, configurationHash, executable, type Profile, validateProxy } from "../profiles/config.ts";
 import { assertRuntimePlugin } from "./runtime-plugin.ts";
 import { assertLocationPatches } from "../browser/camofox-adapter.ts";
+import { publicIP } from "./public-ip.ts";
 import { prepareProfileConfiguration } from "../profiles/profile-configuration.ts";
 import { hash, fileIdentity, readLocationFile, managedGeoip, locationResult, locationFailure, LocationError,
-  readLocationRecord, writeLocationRecord, resolveLocation, preparedLanguage, type LocationRecord, type LocationResult } from "../browser/location.ts";
+  readLocationRecord, writeLocationRecord, resolveLocation, preparedLanguage, locationEvidence, assertCredibleLocation, evidenceMessage, parseLocationPolicy,
+  type LocationRecord, type LocationResult } from "../browser/location.ts";
 
 const digests = new Map<string, { stamp: string; value: string }>();
 let checkedIntegration: string | undefined;
@@ -17,34 +18,34 @@ function digest(file: string) {
 }
 export async function locationInputs(p: Profile) {
   if (!p.proxyEnv) return;
+  const policy = parseLocationPolicy(secret("STELZ_LOCATION_POLICY"));
   let proxy: string, configuration: string;
   try {
     proxy = secret(p.proxyEnv) || "";
     validateProxy(proxy);
     configuration = configurationHash(p);
   } catch { throw locationFailure("PROXY_CONFIGURATION"); }
-  const launcher = join(UPSTREAM, "node_modules/camoufox-js");
   let engine: string, integration: string[];
   try {
     engine = digest(executable());
-    integration = ["server.js", "lib/browser-identity.js", "plugins/local-profile/index.js", "node_modules/camoufox-js/dist/locale.js", "node_modules/camoufox-js/dist/ip.js", "node_modules/camoufox-js/dist/utils.js"]
-      .map(file => digest(join(UPSTREAM, file)));
+    integration = ["server.js", "lib/browser-identity.js", "plugins/local-profile/index.js"]
+      .map(file => digest(join(upstream(), file)));
     integration.push(digest(join(ROOT, "dist/plugin.js")));
     const identity = hash(integration.join(":"));
     if (checkedIntegration !== identity) {
       assertRuntimePlugin();
-      assertLocationPatches(UPSTREAM, launcher);
+      assertLocationPatches(upstream());
       checkedIntegration = identity;
     }
   } catch { throw locationFailure("GEOIP_RUNTIME_MISSING"); }
-  const data = await managedGeoip(join(HOME_DIR, "runtime"), launcher);
+  const data = await managedGeoip(runtimeDir());
   let directory: ReturnType<typeof lstatSync> | undefined;
   try { directory = lstatSync(dir(p.id)); }
   catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
   if (directory && !directory.isDirectory()) throw locationFailure("LOCATION_INPUT_CHANGED");
   const inputId = hash(JSON.stringify({ configuration, engine, integration, data: data.sha256,
-    directory: directory ? [directory.dev, directory.ino] : null, policy: "country-default-v1", icu: process.versions.icu }));
-  return { inputId, engine, proxy, expected: p.expectedIPEnv ? secret(p.expectedIPEnv) || "" : "", data, launcher };
+    directory: directory ? [directory.dev, directory.ino] : null, policy: "country-default-v1", locationPolicy: policy, icu: process.versions.icu }));
+  return { inputId, engine, proxy, expected: p.expectedIPEnv ? secret(p.expectedIPEnv) || "" : "", data, policy };
 }
 export async function profileLocation(p: Profile): Promise<LocationResult> {
   if (!p.proxyEnv) return locationResult("not_applicable");
@@ -77,16 +78,17 @@ export async function checkProfileLocation(id: string, signal?: AbortSignal): Pr
   let result = checking;
   let record: LocationRecord;
   try {
-    const module = await import(pathToFileURL(join(input.launcher, "dist/ip.js")).href) as { publicIP(proxy: string, options: { signal: AbortSignal }): Promise<string> };
-    const ip = await module.publicIP(input.proxy, { signal: abort });
+    const ip = await publicIP(input.proxy, abort);
     abort.throwIfAborted();
     result = { ...result, network: "passed" };
     if (input.expected && ip !== input.expected) throw locationFailure("EXPECTED_IP_MISMATCH", result);
-    const config = await resolveLocation(input.launcher, input.data.reader, ip);
+    const config = resolveLocation(input.data.reader, ip), evidence = locationEvidence(input.data, ip, config);
+    result = { ...result, geoip: "passed", evidence };
+    assertCredibleLocation(evidence, input.policy, result);
     abort.throwIfAborted();
-    result = { ...result, status: "ready", valid: true, checkedAt: new Date().toISOString(), geoip: "passed", timezone: String(config.timezone), language: preparedLanguage(config),
-      message: "Ready to start. Browser verification runs after launch." };
-    record = { version: 1, inputId: input.inputId, result, prepared: { ip, config, dataId: input.data.sha256, engineId: input.engine } };
+    result = { ...result, status: "ready", valid: true, checkedAt: new Date().toISOString(), timezone: String(config.timezone), language: preparedLanguage(config),
+      message: `Ready to start. ${evidenceMessage(evidence)} Browser verification runs after launch.` };
+    record = { version: 1, inputId: input.inputId, result, prepared: { ip, config, dataId: input.data.sha256, engineId: input.engine, policy: input.policy } };
   } catch (error) {
     const code = (error as { code?: string }).code;
     const failure = signal?.aborted ? locationFailure("PREFLIGHT_CANCELLED", result) : deadline.aborted ? locationFailure("PREFLIGHT_TIMEOUT", result)

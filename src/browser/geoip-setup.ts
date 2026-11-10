@@ -1,45 +1,69 @@
 import { copyFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { managedGeoip, validateGeoip, hash, type GeoipManifest } from "./location.ts";
+import { downloadReleaseAsset, readRelease, type Release } from "./release-asset.ts";
+import { managedGeoip, validateGeoip, geoipFile, GEOIP_SOURCES, GEOIP_REFRESH_DAYS,
+  type GeoipDataset, type GeoipManifest, type GeoipRole } from "./location.ts";
 
-const RELEASES = "https://api.github.com/repos/P3TERX/GeoLite.mmdb/releases/latest";
-/** Stage data with the runtime. Only setup activates this directory. */
-export async function prepareGeoip(stage: string, current: string, launcher: string, request: typeof fetch = fetch) {
+const MAX_BYTES = 256 * 1024 * 1024, DAY_MS = 86_400_000;
+export type GeoipStatus = "reused" | "downloaded" | "kept";
+async function existingDatasets(current: string) {
+  try { return (await managedGeoip(current)).manifest.datasets; } catch { /* Missing, old, or invalid data requires a validated replacement. */ }
+}
+const recent = (dataset: GeoipDataset | undefined, now: number) =>
+  !!dataset && now - Date.parse(dataset.buildEpoch) <= GEOIP_REFRESH_DAYS * DAY_MS;
+const releaseRequest = (role: GeoipRole) => ({ label: "location-data", repository: GEOIP_SOURCES[role].repository,
+  match: (name: string) => name === GEOIP_SOURCES[role].asset, maxBytes: MAX_BYTES, timeoutMs: 300_000 });
+/**
+ * The datasets that setup would download: missing ones, and older builds that have a newer release.
+ * Only an older build needs a release request. A failed request lists the download.
+ */
+export async function geoipPlan(current: string, now = Date.now(), request: typeof fetch = fetch): Promise<GeoipRole[]> {
+  const existing = await existingDatasets(current), roles: GeoipRole[] = [];
+  for (const role of ["selection", "comparison"] as const) {
+    const previous = existing?.[role];
+    if (recent(previous, now)) continue;
+    const latest = previous && await readRelease(releaseRequest(role), request).then(release => release.tag, () => undefined);
+    if (!previous || latest !== previous.release) roles.push(role);
+  }
+  return roles;
+}
+/** Stage data with the runtime. Only setup activates this directory. Reuse a recent build or the latest release; refresh an older one. */
+type GeoipOptions = { request?: typeof fetch; now?: number; progress?: (message: string) => void };
+export async function prepareGeoip(stage: string, current: string, { request = fetch, now = Date.now(), progress = console.error }: GeoipOptions = {}) {
   const target = join(stage, "geoip");
   mkdirSync(target, { mode: 0o700 });
-  try {
-    const data = await managedGeoip(current, launcher);
-    copyFileSync(join(current, "geoip/GeoLite2-City.mmdb"), join(target, "GeoLite2-City.mmdb"));
-    await validateGeoip(join(target, "GeoLite2-City.mmdb"), launcher, data.sha256);
-    writeFileSync(join(target, "manifest.json"), JSON.stringify(data.manifest, null, 2), { mode: 0o600, flag: "wx" });
-    return;
-  } catch { /* Missing or invalid managed data requires a validated replacement. */ }
-  console.error("Preparing location data…");
-  const signal = AbortSignal.timeout(120_000);
-  const response = await request(RELEASES, { signal, headers: { Accept: "application/vnd.github+json" } });
-  if (!response.ok) throw Error("Cannot read the location-data release. Check the connection and run stelz setup again.");
-  const release = await response.json() as { tag_name?: string; assets?: { name: string; digest?: string; size: number; browser_download_url: string }[] };
-  const asset = release.assets?.find(asset => asset.name === "GeoLite2-City.mmdb");
-  if (!asset || !/^sha256:[a-f0-9]{64}$/.test(asset.digest || "") || !/^[\w.-]+$/.test(release.tag_name || "") ||
-    asset.browser_download_url !== `https://github.com/P3TERX/GeoLite.mmdb/releases/download/${release.tag_name}/GeoLite2-City.mmdb` ||
-    !Number.isSafeInteger(asset.size) || asset.size <= 0 || asset.size > 256 * 1024 * 1024)
-    throw Error("The location-data release has no valid integrity metadata. Run stelz setup again after the release is available.");
-  const downloaded = await request(asset.browser_download_url, { signal });
-  if (!downloaded.ok || !downloaded.body) throw Error("Cannot download location data. Check the connection and run stelz setup again.");
-  const chunks: Uint8Array[] = [];
-  let length = 0;
-  for await (const chunk of downloaded.body) {
-    signal.throwIfAborted();
-    length += chunk.length;
-    if (length > asset.size) throw Error("The location-data download exceeds its release size.");
-    chunks.push(chunk);
+  const existing = await existingDatasets(current);
+  const datasets = {} as Record<GeoipRole, GeoipDataset>, status = {} as Record<GeoipRole, GeoipStatus>;
+  for (const role of ["selection", "comparison"] as const) {
+    const previous = existing?.[role];
+    const keep = (result: GeoipStatus) => {
+      copyFileSync(geoipFile(current, role), geoipFile(stage, role));
+      validateGeoip(geoipFile(stage, role), role, previous!.sha256);
+      datasets[role] = previous!; status[role] = result;
+    };
+    if (recent(previous, now)) { keep("reused"); continue; }
+    try {
+      // An older build that is still the latest release stays. A source can publish less often than the refresh limit.
+      const release = await readRelease(releaseRequest(role), request);
+      if (release.tag === previous?.release) { keep("reused"); continue; }
+      progress(`Downloading ${GEOIP_SOURCES[role].name} location data…`);
+      datasets[role] = await download(stage, role, request, release); status[role] = "downloaded";
+    }
+    catch (error) {
+      // An offline setup keeps validated older data. Preflight reports its age.
+      if (!previous) throw error;
+      progress(`Kept the existing ${GEOIP_SOURCES[role].name} data: ${(error as Error).message}`);
+      keep("kept");
+    }
   }
-  const bytes = Buffer.concat(chunks);
-  if (length !== asset.size || hash(bytes) !== asset.digest!.slice(7)) throw Error("Location-data integrity check failed. Run stelz setup again.");
-  const file = join(target, "GeoLite2-City.mmdb");
-  writeFileSync(file, bytes, { mode: 0o600 });
-  const data = await validateGeoip(file, launcher, asset.digest!.slice(7));
-  const manifest: GeoipManifest = { version: 1, sha256: data.sha256, release: release.tag_name!, acquiredAt: new Date().toISOString(),
+  writeFileSync(join(target, "manifest.json"), JSON.stringify({ version: 2, datasets } satisfies GeoipManifest, null, 2), { mode: 0o600, flag: "wx" });
+  return { datasets, status };
+}
+
+async function download(stage: string, role: GeoipRole, request: typeof fetch, release: Release): Promise<GeoipDataset> {
+  const source = GEOIP_SOURCES[role], file = geoipFile(stage, role);
+  const asset = await downloadReleaseAsset(releaseRequest(role), file, request, release);
+  const data = validateGeoip(file, role, asset.sha256);
+  return { source: source.name, sha256: data.sha256, release: asset.release, acquiredAt: new Date().toISOString(),
     databaseType: data.reader.metadata.databaseType, buildEpoch: data.reader.metadata.buildEpoch.toISOString() };
-  writeFileSync(join(target, "manifest.json"), JSON.stringify(manifest, null, 2), { mode: 0o600 });
 }

@@ -1,6 +1,6 @@
 import { pathToFileURL } from "node:url";
 import { join } from "node:path";
-import { UPSTREAM } from "../profiles/config.ts";
+import { upstream } from "../profiles/config.ts";
 export type Content = { type: "text"; text: string } | { type: "image"; data: string; mimeType: string };
 export type Tool = { name: string; description: string; inputSchema: { type: "object"; properties?: Record<string, unknown>; required?: string[]; [key: string]: unknown } };
 export type Contracts = {
@@ -9,5 +9,5 @@ export type Contracts = {
   adaptResponse(spec: unknown, payload: unknown): Content[];
 };
 export async function contracts(): Promise<Contracts> {
-  return import(pathToFileURL(join(UPSTREAM, "mcp/lib/tool-contracts.mjs")).href);
+  return import(pathToFileURL(join(upstream(), "mcp/lib/tool-contracts.mjs")).href);
 }

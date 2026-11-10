@@ -3,8 +3,8 @@ import { join } from "node:path";
 import { dir } from "../profiles/config.ts";
 import { assertRunning, running, type Running } from "../runtime/runtime.ts";
 import { ownership } from "../runtime/profile-process.ts";
-import { CONTROL_PROTOCOL_VERSION } from "./control-protocol.ts";
 import type { ControlTransport } from "./control-registry.ts";
+import { replyTimeout } from "../browser/deadlines.ts";
 
 type ServiceBinding = {
   readonly profileId: string;
@@ -30,7 +30,8 @@ async function request(binding: ServiceBinding, action: string, body?: Record<st
     headers: { Authorization: `Bearer ${binding.accessKey}`, "Content-Type": "application/json" },
     ...(body ? { body: JSON.stringify(body) } : {}),
     redirect: "error",
-    signal: AbortSignal.timeout(body ? 120000 : 5000),
+    // A browser tool waits for its service deadline. Other control requests keep their own limits.
+    signal: AbortSignal.timeout(action === "tool" ? replyTimeout(String(body?.name)) : body ? 120_000 : 5_000),
   });
   const result = await response.json() as Record<string, unknown>;
   if (!response.ok) throw Error(String(result.error || `Profile control returned ${response.status}.`));
@@ -53,8 +54,6 @@ export const serviceTransport: ControlTransport<ServiceBinding> = {
     const binding = { profileId, instanceId: "", record: Object.freeze({ ...record }),
       address: `http://127.0.0.1:${record.port}`, accessKey: readFileSync(join(dir(profileId), "access-key"), "utf8").trim() };
     const status = await request(binding, "status");
-    if (status.controlProtocolVersion !== CONTROL_PROTOCOL_VERSION)
-      throw Error(`${profileId}: incompatible control protocol. Explicitly stop running profiles before stelz setup. Then run stelz start ${profileId} before acquiring control.`);
     if (status.profileId !== profileId || typeof status.instanceId !== "string" || !status.instanceId)
       throw Error("The service identity does not match this profile. Inspect it with stelz doctor.");
     assertCurrent(binding);

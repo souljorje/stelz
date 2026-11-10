@@ -1,5 +1,5 @@
-import { readFileSync, mkdirSync, writeFileSync, renameSync, existsSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { readFileSync, mkdirSync, writeFileSync, renameSync, existsSync, lstatSync, realpathSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { ROOT, entry } from "../paths.ts";
 export { ROOT, entry } from "../paths.ts";
@@ -9,13 +9,33 @@ import { UPSTREAM_VERSION } from "../versions.ts";
 import { isTypingMode, parseTypingMode, type TypingMode } from "../browser/typing.ts";
 import { parseIpCheckInterval } from "../browser/ip-verification.ts";
 import { validateProxy } from "./proxy-url.ts";
+import { browserExecutable, pairedBrowser } from "../browser/camoufox.ts";
 export { validateProxy } from "./proxy-url.ts";
 export { UPSTREAM_VERSION, COMMIT } from "../versions.ts";
 
 export const HOME_DIR = resolve(process.env.STELZ_HOME || join(homedir(), ".local/share/stelz"));
 export const CONFIG_FILE = join(HOME_DIR, "profiles.json");
 export const STATE = join(HOME_DIR, "profiles");
-export const UPSTREAM = join(HOME_DIR, "runtime", `camofox-${UPSTREAM_VERSION}`);
+export const RUNTIME = join(HOME_DIR, "runtime");
+export const RUNTIME_GENERATIONS = join(HOME_DIR, "runtime-generations");
+export const isRuntimeId = (value: unknown): value is string => typeof value === "string" && /^[a-f0-9]{16}$/.test(value);
+/** The runtime of this process. A service keeps the generation it started with; other callers resolve the current one per call. */
+export function runtimeDir(): string {
+  if (process.env.STELZ_RUNTIME) return process.env.STELZ_RUNTIME;
+  try { if (!lstatSync(RUNTIME).isSymbolicLink()) return RUNTIME; }
+  catch (e) { if ((e as NodeJS.ErrnoException).code === "ENOENT") return RUNTIME; throw e; }
+  // Never follow a link outside the generations. Start then asks for setup.
+  return currentRuntimeId() ? realpathSync(RUNTIME) : join(RUNTIME_GENERATIONS, ".invalid");
+}
+/** The current generation ID, or undefined for a missing runtime or an earlier plain directory. */
+export function currentRuntimeId(): string | undefined {
+  try {
+    if (!lstatSync(RUNTIME).isSymbolicLink()) return;
+    const target = realpathSync(RUNTIME), id = basename(target);
+    return dirname(target) === realpathSync(RUNTIME_GENERATIONS) && isRuntimeId(id) ? id : undefined;
+  } catch { return; }
+}
+export const upstream = () => join(runtimeDir(), `camofox-${UPSTREAM_VERSION}`);
 export type Profile = { id: string; name?: string; port: number; proxyEnv?: string; expectedIPEnv?: string; storage?: "native"; typingMode?: TypingMode };
 export type Settings = { profiles: Profile[] };
 export function parseProfileName(value: unknown): string {
@@ -34,7 +54,7 @@ export function initialize() {
 }
 export function settings(): Settings {
   const value = json<unknown>(CONFIG_FILE);
-  if (!value) throw Error("Run stelz init first.");
+  if (!value) throw Error("Run stelz setup first.");
   return validateSettings(value);
 }
 export function validateSettings(input: unknown): Settings {
@@ -48,7 +68,7 @@ export function validateSettings(input: unknown): Settings {
     if (Object.keys(p).some(key => !["id", "name", "port", "proxyEnv", "expectedIPEnv", "storage", "typingMode"].includes(key))) throw Error("Profile configuration contains an unknown field.");
     if (p.storage !== undefined && p.storage !== "native") throw Error("Storage must be native.");
     if (p.name !== undefined && parseProfileName(p.name) !== p.name) throw Error("Profile display names must have no leading or trailing whitespace.");
-    if (p.typingMode !== undefined && !isTypingMode(p.typingMode)) throw Error("Typing mode must be auto, keyboard, or instant.");
+    if (p.typingMode !== undefined && !isTypingMode(p.typingMode)) throw Error("Typing mode must be balanced, keyboard, or instant.");
     for (const name of [p.proxyEnv, p.expectedIPEnv]) {
       if (name !== undefined && (typeof name !== "string" || !/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(name))) throw Error("Environment variable names must be valid.");
     }
@@ -71,7 +91,9 @@ export function secret(name: string) {
   const file = join(HOME_DIR, "secrets.env");
   return process.env[name] ?? (existsSync(file) ? parseEnv(readFileSync(file, "utf8"))[name] : undefined);
 }
-export const executable = () => secret("CAMOUFOX_EXECUTABLE") || join(homedir(), "Library/Caches/camoufox/Camoufox.app/Contents/MacOS/camoufox");
+/** Setup keeps Stelz's private copy of the paired browser here. */
+export const browserDirectory = (home = HOME_DIR) => join(home, "browsers", pairedBrowser());
+export const executable = () => secret("CAMOUFOX_EXECUTABLE") || browserExecutable(browserDirectory());
 export const typingMode = (p?: Profile) => p?.typingMode ?? parseTypingMode(secret("STELZ_TYPING_MODE"));
 export const ipCheckIntervalMs = () => parseIpCheckInterval(secret("STELZ_IP_CHECK_INTERVAL_MS"));
 

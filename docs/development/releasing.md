@@ -30,8 +30,8 @@ Changes to shipped package behavior or content require a release entry when they
 
 The `plan` job uses Changesets to select a version, publish, or inactive mode.
 It suppresses publication when the current version's `vVERSION` tag already exists.
-The `checks` job calls `.github/workflows/ci.yml`.
-That workflow builds, checks TypeScript, and runs automated tests on Linux and macOS.
+The `checks` job calls `.github/workflows/ci.yml` with `skip-package: true`.
+That workflow builds, checks TypeScript, and runs automated tests on Linux and macOS. The `installation` job checks the release archive.
 
 | Selected mode | Result after required checks |
 | --- | --- |
@@ -44,6 +44,9 @@ It updates `package.json`, `bun.lock`, and `CHANGELOG.md` and consumes the pendi
 Review the version, changelog, and CI results before merging that PR.
 The workflow explicitly dispatches CI for the bot-created branch because its token does not trigger ordinary PR workflows.
 The workflow never approves or merges a PR.
+
+Temporary exception: CI and release installation checks run on Ubuntu only because GitHub macOS runners lack capacity.
+The macOS matrix entries remain commented in both workflows. Restore them to resume the two-platform checks described below.
 
 The shared setup action installs Node.js 24, Bun from the `packageManager` pin, and its pinned npm version.
 It installs frozen dependencies with lifecycle scripts disabled and skips browser downloads.
@@ -89,7 +92,8 @@ It uses canonical documentation directly, without generated copies.
 It excludes Stelz source, tests, browser state, credentials, and compiled native binaries in bundled dependencies.
 Profile ZIP archives are a separate format. See [Profile transfer](../profile-transfer.md).
 
-The package bundles prepared Camofox and `camoufox-js` dependencies, including transitive JavaScript sources and licenses.
+The package bundles only prepared Camofox, including transitive JavaScript sources and licenses.
+Packing removes packages that no manifest reaches, such as `camoufox-js` from Camofox registry metadata. Archive checks reject any `camoufox-js` file.
 Bun applies committed patches during workspace installation.
 Packing resolves dependency links into a temporary physical tree.
 It removes bundled native packages and their platform binaries before creating the final archive.
@@ -109,10 +113,10 @@ Use its printed archive path for every acceptance command. Do not repack between
 `--destination DIRECTORY` selects another local output directory.
 Local candidate preparation does not publish a package or replace the Release workflow.
 
-For full package acceptance, run `bun run test:package --archive FILE --proxy --manual`.
-The package suite includes native persistence, profile transfers, shared-connection concurrency, and typing.
+For full package acceptance, run `bun run test:package --archive FILE --setup --proxy --manual`.
+The package suite includes native persistence, profile transfers, shared-connection concurrency, and typing. `--proxy` adds proxy and location acceptance on the same installation.
 Add `--windows` to check visible window controls.
-Supply two distinct private proxy routes as described in [Proxy and human acceptance](testing.md#proxy-and-human-acceptance).
+Supply one or two private proxy routes as described in [Proxy and human acceptance](testing.md#proxy-and-human-acceptance).
 Complete human authentication and takeover in the same visible browser when prompted.
 Keep credentials and private reports outside Git. Tests use disposable profiles.
 Run the relevant package acceptance on each supported browser target.

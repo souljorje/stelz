@@ -4,8 +4,10 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { createControllerLease } from "../mcp/controller.ts";
-import { CONTROL_PROTOCOL_VERSION, type ControlIdentity, type OwnedControlRequest, type AcquireControlRequest } from "../mcp/control-protocol.ts";
-import { applyFingerprint, type LaunchOptions } from "./fingerprint.ts";
+import { type ControlIdentity, type OwnedControlRequest, type AcquireControlRequest } from "../mcp/control-protocol.ts";
+import { applyFingerprint, validateFinalLaunch, type LaunchOptions } from "./fingerprint.ts";
+import { initializedFingerprint, type FingerprintOwner } from "./fingerprint-transaction.ts";
+import { verifyProfileFingerprint, type ProfileBrowserContext, type ProfilePage } from "./native-profile.ts";
 import { createIpVerification, parseIpCheckInterval } from "./ip-verification.ts";
 import { allowedBrowserTools, browserToolArguments } from "../mcp/tool-policy.ts";
 import type { Contracts } from "./upstream.ts";
@@ -13,18 +15,15 @@ import { addProfileExtension, createProfileWindows } from "./profile-windows.ts"
 import { activateProfileBrowser } from "./window-activation.ts";
 import { profileTypingMode } from "../profiles/typing-mode.ts";
 import { parseTypingMode } from "./typing.ts";
+import { SERVICE_DEADLINE_MS, serviceDeadline } from "./deadlines.ts";
 import { launchLocation, checkLaunchLocation, verifyLaunchLocation, saveLaunchLocation, type LocationPage } from "./location-launch.ts";
-import { LocationError, locationFailure } from "./location.ts";
+import { LocationError, locationFailure, evidenceMessage } from "./location.ts";
 export { prepareProfileLaunch } from "./location-launch.ts";
 export { typeIntoLocator } from "./typing.ts";
+export { initializedFingerprint } from "./fingerprint-transaction.ts";
 
-type Page = { on(event: "close", listener: () => void): unknown };
-type Context = {
-  close(): Promise<void>;
-  pages(): Page[];
-  on(event: "close", listener: () => void): unknown;
-  on(event: "page", listener: (page: Page) => void): unknown;
-};
+type Page = ProfilePage;
+type Context = ProfileBrowserContext;
 type Events = {
   "browser:launching": { options: LaunchOptions };
   "browser:launched": { browser: { on(event: "disconnected", listener: () => void): unknown } };
@@ -36,7 +35,7 @@ type Events = {
   "server:shutdown": unknown;
 };
 type Response = { status(n: number): Response; json(value: unknown): void };
-type Handler = (req: { body?: Record<string, unknown> }, res: Response, next?: () => void) => unknown;
+type Handler = (req: { body?: Record<string, unknown>; headers?: Record<string, string | string[] | undefined> }, res: Response, next?: () => void) => unknown;
 type App = { get(path: string, ...handlers: Handler[]): void; post(path: string, ...handlers: Handler[]): void };
 type PluginContext = {
   auth(): Handler;
@@ -56,11 +55,12 @@ type ProfileState = {
   fixedIpVerified?: boolean;
   fingerprintSha256?: string;
   engineSha256?: string;
+  pinSha256?: string;
+  startupPrepared?: boolean;
   error?: string | null;
   checkFailure?: string | null;
 };
 
-const ACTION_TIMEOUT_MS = 60_000;
 
 function isBrowserNetworkFailure(value: unknown) {
   let diagnostic: unknown;
@@ -82,6 +82,8 @@ function isBrowserNetworkFailure(value: unknown) {
 
 export async function register(app: App, ctx: PluginContext, options: {
   actionTimeoutMs?: number; shutdown?: () => void; ipCheckIntervalMs?: number; now?: () => number;
+  verifyFingerprint?: (context: Parameters<typeof verifyProfileFingerprint>[0], prepared: ReturnType<typeof applyFingerprint>) =>
+    Promise<Awaited<ReturnType<typeof verifyProfileFingerprint>> | void>;
 } = {}) {
   const id = process.env.STELZ_PROFILE_ID!;
   const stateDir = process.env.STELZ_PROFILE_DIR!;
@@ -101,7 +103,6 @@ export async function register(app: App, ctx: PluginContext, options: {
   const upstream = await import(pathToFileURL(join(process.env.STELZ_UPSTREAM!, "mcp/lib/tool-contracts.mjs")).href) as Contracts;
   const browserTools = new Map(allowedBrowserTools(upstream.TOOL_DEFS).map(tool => [tool.name, tool]));
   const ipVerification = createIpVerification(state.instanceId, expected);
-  const timeout = options.actionTimeoutMs ?? ACTION_TIMEOUT_MS;
   let context: Context | undefined;
   let stopping = false;
   let launchAdmitted = false;
@@ -109,6 +110,10 @@ export async function register(app: App, ctx: PluginContext, options: {
   let invalidated = false;
   let pauseGeneration = 0;
   let restorePhase: "ready" | "paused" = "ready";
+  const owner: FingerprintOwner = { profileId: id, attemptId: process.env.STELZ_START_ID || "",
+    browserInstanceId: state.instanceId, configurationHash: process.env.STELZ_CONFIGURATION_HASH || "", serverPid: process.pid };
+  if (!owner.attemptId || !owner.configurationHash || !process.env.STELZ_BOOTSTRAP_TOKEN) throw Error("The service startup reservation is missing.");
+  let fingerprint: ReturnType<typeof applyFingerprint> | undefined;
   const windows = createProfileWindows({ id, instanceId: state.instanceId, directory: stateDir,
     port: Number(process.env.CAMOFOX_PORT), accessKey: process.env.CAMOFOX_ACCESS_KEY!, phase: () => state.phase,
     activate: () => activateProfileBrowser(process.env.CAMOUFOX_EXECUTABLE!), verifyNetwork: requiresCheck });
@@ -139,15 +144,17 @@ export async function register(app: App, ctx: PluginContext, options: {
       shutdown();
     })();
   }
+  function assertAdmitted() {
+    if (!fingerprint || !initializedFingerprint(stateDir, owner, fingerprint.pinSha256))
+      throw Error("The profile startup transaction is not admitted.");
+  }
   function assertUsable() {
-    if (invalidated || stopping || (state.phase !== "starting" && state.phase !== "ready")) {
+    assertAdmitted();
+    if (invalidated || stopping || state.phase !== "ready") {
       throw Error(state.phase === "verification_failed"
         ? "IP verification failed. Run stelz recheck before browser actions."
         : `Profile is ${state.phase}; browser actions are unavailable.`);
     }
-  }
-  function verificationFailed() {
-    return state.phase === "verification_failed";
   }
   function verificationIsFresh() {
     if (lastVerifiedAt === undefined || invalidated || stopping || !context) return false;
@@ -155,7 +162,7 @@ export async function register(app: App, ctx: PluginContext, options: {
     return elapsed >= 0 && elapsed < interval;
   }
   function snapshot() {
-    return { ...state, controlProtocolVersion: CONTROL_PROTOCOL_VERSION,
+    return { ...state,
       verificationFresh: verificationIsFresh(), typingModeDefault: parseTypingMode(process.env.STELZ_TYPING_MODE) };
   }
   function assertIdentity(body: Record<string, unknown> | undefined): asserts body is Record<string, unknown> & ControlIdentity {
@@ -175,7 +182,7 @@ export async function register(app: App, ctx: PluginContext, options: {
   function runControl<T>(controllerId: string | undefined, action: () => Promise<T>) {
     return controllerId === undefined ? controller.runExclusive(action) : controller.run(controllerId, action);
   }
-  async function bounded<T>(action: () => Promise<T>): Promise<T> {
+  async function bounded<T>(action: () => Promise<T>, limit = SERVICE_DEADLINE_MS): Promise<T> {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const work = action();
     const deadline = new Promise<never>((_resolve, reject) => {
@@ -183,7 +190,7 @@ export async function register(app: App, ctx: PluginContext, options: {
         controller.retain(work);
         invalidate("A service operation exceeded its time limit. Stop the profile before another browser action.");
         reject(Error("A service operation exceeded its time limit. Stop the profile before another browser action."));
-      }, timeout);
+      }, options.actionTimeoutMs ?? limit);
     });
     try {
       return await Promise.race([work, deadline]);
@@ -194,9 +201,12 @@ export async function register(app: App, ctx: PluginContext, options: {
 
   // All checks and browser actions use the same queue. A deadline latches a
   // terminal block because a timed-out upstream operation may still be active.
-  async function ensureVerified(explicit = false) {
-    if (explicit) {
-      if (invalidated || stopping || !["starting", "ready", "paused", "verification_failed"].includes(state.phase)) {
+  async function ensureVerified(explicit = false, startup = false, startupPage?: Page) {
+    if (startup) {
+      if (invalidated || stopping || state.phase !== "starting" || !fingerprint) throw Error("Startup verification is unavailable.");
+    } else if (explicit) {
+      assertAdmitted();
+      if (invalidated || stopping || !["ready", "paused", "verification_failed"].includes(state.phase)) {
         throw Error(`Cannot recheck a ${state.phase} profile.`);
       }
     } else {
@@ -209,12 +219,14 @@ export async function register(app: App, ctx: PluginContext, options: {
     try {
       const ip = await ipVerification.check();
       if (location) {
-        const page = original.pages()[0] as unknown as LocationPage | undefined;
+        const page = (startupPage ?? original.pages()[0]) as unknown as LocationPage | undefined;
         if (!page || state.phase === "starting" && page.url() !== "about:blank") throw locationFailure("BROWSER_LOCATION_MISMATCH");
-        const observed = await verifyLaunchLocation(location, ip, page);
+        const { observed, evidence } = await verifyLaunchLocation(location, ip, page);
         if (invalidated || stopping || context !== original) throw Error("Original browser context was lost during verification");
+        // This verifies applied settings, not the physical location. The evidence states how credible the location is.
         saveLaunchLocation(location, { ...location.result, phase: "browser_verification", status: "ready", browserStarted: true,
-          browser: "passed", observed, geolocation: "configured", checkedAt: new Date().toISOString(), message: "Browser IP and location checks passed." });
+          browser: "passed", observed, evidence, geolocation: "configured", checkedAt: new Date().toISOString(),
+          message: `The browser uses the checked exit and the prepared timezone and language.${evidence ? ` ${evidenceMessage(evidence)}` : ""}` });
       }
       if (invalidated || stopping || context !== original) throw Error("Original browser context was lost during verification");
       const phase = state.phase === "verification_failed" && explicit ? restorePhase : state.phase;
@@ -226,7 +238,9 @@ export async function register(app: App, ctx: PluginContext, options: {
       if (location) {
         const failure = locationFailure(error instanceof LocationError ? error.location.code as Parameters<typeof locationFailure>[0] : "BROWSER_IP_FAILED",
           { ...location.result, phase: "browser_verification", browserStarted: true, browser: "failed", geolocation: "configured" });
+        // Keep what the failed check measured, including a rotated exit's own evidence.
         if (error instanceof LocationError && error.location.observed) failure.location.observed = error.location.observed;
+        if (error instanceof LocationError && error.location.evidence) failure.location.evidence = error.location.evidence;
         saveLaunchLocation(location, failure.location);
         if (state.phase === "starting") {
           invalidated = true;
@@ -249,7 +263,7 @@ export async function register(app: App, ctx: PluginContext, options: {
       }
       throw error;
     }
-    if (!explicit) assertUsable();
+    if (!explicit && !startup) assertUsable();
   }
 
   async function recheckAfterNetworkFailure(value: unknown) {
@@ -267,19 +281,28 @@ export async function register(app: App, ctx: PluginContext, options: {
       throw Error(error);
     }
     launchAdmitted = true;
-    const hashes = applyFingerprint(launchOptions, stateDir, process.env.CAMOUFOX_EXECUTABLE!, proxied);
-    if (location) {
-      try { checkLaunchLocation(launchOptions, location); }
-      catch {
-        const failure = locationFailure("BROWSER_LOCATION_MISMATCH", location.result);
-        saveLaunchLocation(location, failure.location);
-        setTimeout(shutdown, 20);
-        throw failure;
+    try {
+      // Add the window extension first, so validation covers the complete launch config.
+      windows.prepare(launchOptions.proxy);
+      addProfileExtension(launchOptions, windows.extensionPath);
+      fingerprint = applyFingerprint(launchOptions, stateDir, process.env.CAMOUFOX_EXECUTABLE!, proxied, owner);
+      if (location) {
+        try { checkLaunchLocation(launchOptions, location); }
+        catch {
+          const failure = locationFailure("BROWSER_LOCATION_MISMATCH", location.result);
+          saveLaunchLocation(location, failure.location);
+          setTimeout(() => { if (!stopping) shutdown(); }, 20);
+          throw failure;
+        }
       }
+      validateFinalLaunch(launchOptions, fingerprint);
+      persist({ phase: "starting", fingerprintSha256: fingerprint.fingerprintSha256, engineSha256: fingerprint.engineSha256,
+        pinSha256: fingerprint.pinSha256, startupPrepared: false });
+    } catch (error) {
+      invalidate((error as Error).message);
+      setTimeout(() => { if (!stopping) shutdown(); }, 20);
+      throw error;
     }
-    windows.prepare(launchOptions.proxy);
-    addProfileExtension(launchOptions, windows.extensionPath);
-    persist({ phase: "starting", ...hashes });
   });
   ctx.events.on("browser:launched", ({ browser }) => browser.on("disconnected", browserClosed));
   ctx.events.on("session:creating", ({ userId, contextOptions }) => {
@@ -307,11 +330,21 @@ export async function register(app: App, ctx: PluginContext, options: {
     });
     for (const page of created.pages()) watchPage(page);
     created.on("page", watchPage);
+    let verifyingNetwork = false;
     try {
-      await controller.runExclusive(() => bounded(() => ensureVerified()));
-      if (state.phase === "starting") persist({ phase: "ready" });
+      await controller.runExclusive(() => bounded(async () => {
+        if (!fingerprint) throw Error("The staged fingerprint is unavailable.");
+        const page = options.verifyFingerprint ? await options.verifyFingerprint(created, fingerprint)
+          : await verifyProfileFingerprint(created, fingerprint, windows.observeStartup);
+        if (invalidated || stopping || context !== created) throw Error("Original browser context was lost during verification.");
+        verifyingNetwork = true;
+        await ensureVerified(false, true, page || undefined);
+        verifyingNetwork = false;
+        if (invalidated || stopping || context !== created || state.phase !== "starting") throw Error("Startup ownership changed during verification.");
+        persist({ startupPrepared: true });
+      }));
     } catch (error) {
-      if (location && !stopping) {
+      if (location && verifyingNetwork && !stopping) {
         // A queue deadline can fire before ensureVerified settles. Close only
         // this initial context, and prevent its late result from granting control.
         invalidated = true;
@@ -324,8 +357,13 @@ export async function register(app: App, ctx: PluginContext, options: {
         await created.close().catch(() => {});
         shutdown();
       }
-      if (verificationFailed()) return;
-      if (!invalidated) invalidate("Original browser context initialization failed; explicit stop/start is required");
+      if (!stopping) {
+        const message = invalidated && state.error ? state.error : (error as Error).message || "Original browser context initialization failed.";
+        invalidated = true; stopping = true; context = undefined;
+        persist({ phase: "blocked", error: message, startupPrepared: false });
+        await created.close().catch(() => {});
+        shutdown();
+      }
       throw error;
     }
   });
@@ -341,12 +379,23 @@ export async function register(app: App, ctx: PluginContext, options: {
     invalidated = true;
     context = undefined;
     void ipVerification.close();
-    persist({ phase: "stopped" });
+    persist({ phase: state.phase === "blocked" ? "blocked" : "stopped" });
   });
 
   app.get("/local-profile/status", ctx.auth(), (_req, res) => {
     const { available, reason } = windows.snapshot();
     res.json({ ...snapshot(), controller: controller.status(), windowControls: { available, reason } });
+  });
+  app.post("/local-profile/startup-ack", ctx.auth(), (req, res) => {
+    try {
+      if (req.headers?.["x-stelz-bootstrap"] !== process.env.STELZ_BOOTSTRAP_TOKEN ||
+          req.body?.instanceId !== owner.attemptId || req.body?.browserInstanceId !== owner.browserInstanceId ||
+          invalidated || stopping || !context || state.phase !== "starting" || !state.startupPrepared)
+        throw Error("Startup acknowledgment does not match this browser instance.");
+      assertAdmitted();
+      persist({ phase: "ready" });
+      res.json(snapshot());
+    } catch (error) { res.status(409).json({ error: (error as Error).message }); }
   });
   app.get("/local-profile/windows", ctx.auth(), (_req, res) => res.json(windows.snapshot()));
   app.post("/local-profile/network-bridge", ctx.auth(), (req, res) => {
@@ -359,6 +408,8 @@ export async function register(app: App, ctx: PluginContext, options: {
   });
   app.post("/local-profile/window-show", ctx.auth(), async (req, res) => {
     try {
+      assertAdmitted();
+      if (!["ready", "paused", "verification_failed"].includes(state.phase)) throw Error(`Profile is ${state.phase}.`);
       await controller.runExclusive(() => windows.show(req.body));
       res.json({ shown: true });
     } catch (error) { res.status(409).json({ error: (error as Error).message }); }
@@ -367,6 +418,7 @@ export async function register(app: App, ctx: PluginContext, options: {
     try {
       const body = req.body;
       assertIdentity(body);
+      assertAdmitted();
       if (!["ready", "paused", "verification_failed"].includes(state.phase)) throw Error(`Profile is ${state.phase}.`);
       const lease = controller.acquire(body as AcquireControlRequest);
       res.json({ ...snapshot(), ...lease });
@@ -414,24 +466,29 @@ export async function register(app: App, ctx: PluginContext, options: {
           }
           throw error;
         }
-      }));
+      }, serviceDeadline(name)));
       res.json(result);
     } catch (error) {
       res.status(409).json({ error: (error as Error).message });
     }
   });
-  app.post("/local-profile/stop", ctx.auth(), async (_req, res) => {
+  app.post("/local-profile/stop", ctx.auth(), async (req, res) => {
+    if (req.body?.instanceId !== undefined && req.body.instanceId !== owner.attemptId) {
+      res.status(409).json({ error: "Stop request does not match this service instance." });
+      return;
+    }
+    if (stopping) { res.json({ stopping: true }); return; }
     stopping = true;
     persist({ phase: "stopping" });
     // Explicit stop may terminate an uncertain browser operation. Keep the
     // controller closed to admission while shutdown ends the browser lifetime.
     void controller.releaseCurrent();
-    await controller.drain();
     res.json({ stopping: true });
-    setTimeout(shutdown, 20);
+    void (async () => { await controller.drain(); setTimeout(shutdown, 20); })();
   });
   app.post("/local-profile/check", ctx.auth(), async (req, res) => {
     try {
+      assertAdmitted();
       const controllerId = optionalController(req.body);
       await runControl(controllerId, () => bounded(() => ensureVerified(true)));
       res.json(snapshot());
@@ -441,6 +498,7 @@ export async function register(app: App, ctx: PluginContext, options: {
   });
   app.post("/local-profile/pause", ctx.auth(), async (req, res) => {
     try {
+      assertAdmitted();
       const controllerId = optionalController(req.body);
       if (controllerId !== undefined) controller.assertOwner(controllerId);
       if (state.phase !== "ready" && state.phase !== "paused") throw Error(`Cannot pause ${state.phase} profile`);
@@ -456,6 +514,7 @@ export async function register(app: App, ctx: PluginContext, options: {
   });
   app.post("/local-profile/resume", ctx.auth(), async (req, res) => {
     try {
+      assertAdmitted();
       const controllerId = optionalController(req.body);
       const generation = pauseGeneration;
       await runControl(controllerId, () => bounded(async () => {

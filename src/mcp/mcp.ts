@@ -8,6 +8,7 @@ import { reportStatus } from "../runtime/runtime.ts";
 import { contracts, type Tool } from "../browser/upstream.ts";
 import { allowedBrowserTools, browserToolArguments } from "./tool-policy.ts";
 import { createControlRegistry } from "./control-registry.ts";
+import { withProgress } from "./progress.ts";
 import { serviceTransport } from "./service-binding.ts";
 import { STELZ_VERSION } from "../versions.ts";
 import { LocationError } from "../browser/location.ts";
@@ -15,8 +16,7 @@ import { LocationError } from "../browser/location.ts";
 const profileProperty = { type: "string", pattern: "^[a-z][a-z0-9-]{0,63}$", description: "Profile ID from profile_list or profile_create." };
 const handleProperty = { type: "string", minLength: 1, description: "Opaque controlHandle returned by profile_acquire on this connection for this profile and browser lifetime." };
 
-// Older services can still be inspected during migration. Never expose their
-// internal controller IDs through status or list responses.
+// Never expose internal controller IDs through status or list responses.
 function publicStatus(value: Record<string, unknown>) {
   const { controlHandle: _handle, controllerId: _id, accessKey: _key, ...result } = value;
   if (result.controller && typeof result.controller === "object") {
@@ -71,7 +71,7 @@ export async function runMcp() {
   });
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }));
   server.setRequestHandler(CallToolRequestSchema, (request, extra) => {
-    const work = (async () => {
+    const work = withProgress(extra, `Stelz is still running ${request.params.name}.`, (async () => {
       const { name, arguments: args = {} } = request.params;
       try {
         if (shuttingDown) throw Error("This MCP connection is closing.");
@@ -102,7 +102,7 @@ export async function runMcp() {
         }
         return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
       } catch (error) { return { isError: true, content: [{ type: "text" as const, text: error instanceof LocationError ? JSON.stringify({ error: { code: error.location.code, message: error.message }, location: error.location }) : (error as Error).message }] }; }
-    })();
+    })());
     requests.add(work);
     return work.finally(() => { requests.delete(work); });
   });

@@ -3,8 +3,8 @@
 Run commands from the repository root unless a procedure states otherwise.
 Use the pinned Bun version in `package.json` and Node.js 24 or later.
 See [Runtime requirements](../getting-started.md#what-you-need) for installation prerequisites.
-Actual browser checks require a compatible Camoufox executable and desktop access.
-See [Locate or download Camoufox](../getting-started.md#2-locate-or-download-camoufox) for executable setup.
+Actual browser checks require desktop access. Their setup step prepares the paired Camoufox build.
+See [How setup finds the browser](../getting-started.md#how-setup-finds-the-browser).
 
 ## Standard checks
 
@@ -21,7 +21,7 @@ Build also checks Markdown links in the packaged documentation.
 | Command | Coverage |
 | --- | --- |
 | `bun run typecheck` | TypeScript checks. |
-| `bun run test` | Bun unit and integration tests, followed by Node regression tests. No browser. |
+| `bun run test` | Bun unit and integration tests in parallel workers, followed by Node regression tests. No browser. Run `bun test FILE` to check one file alone. |
 | `bun run test:regression` | Browser plugin and persistence regression tests through Node. No browser. |
 | `bun run test:ui` | UI sessions, lifecycle dispatch, catalog limits, safe configuration edits, rename, window models, and redaction. No browser. |
 | `bun run test:ui:browser` | Built UI in Chrome or Chromium with isolated service files and simulated lifecycle operations. |
@@ -38,10 +38,13 @@ Build also checks Markdown links in the packaged documentation.
 | `bun run pack` | Build a local candidate archive and checksum in `release-artifacts/`. |
 | `bun run test:install --archive FILE` | Inspect an unchanged archive, isolated npm installation with scripts disabled, CLI, HTTP UI, and staged setup. No browser. |
 | `bun run test:install --archive FILE --native` | Ordinary npm installation, SQLite queries, and Impit construction from the installation and staged runtime. No browser. |
+| `bun run test:setup --archive FILE` | Install one unchanged archive. Check setup consent, a wrong configured browser, the pinned release metadata, an upstream cache clone with a concurrent setup, an offline repeat, an interrupted and repeated location download, and an update while a profile runs. Downloads no browser and starts one headed browser. |
 | `bun run test:package --archive FILE` | Install one unchanged archive. Run integration, native persistence, transfer, concurrency, and typing acceptance. |
-| `bun run test:package --archive FILE --windows --proxy --manual` | Add window controls, two-proxy checks, and human acceptance. |
+| `bun run test:package --archive FILE --setup --windows --proxy --manual` | Add setup, window controls, proxy and location checks, and human acceptance on the same installation. |
 
-Select suites according to changed behavior. Browser checks require an explicit command.
+Select suites according to changed behavior. `bunx lefthook run browser` selects them from the files the branch changes.
+The repository root `lefthook.yml` holds the file map and the run options. Browser checks require an explicit command.
+Run the full archive suites with `test:package` once per candidate, not after each fix.
 The default tests do not establish browser persistence, proxy routing, or human takeover.
 Historical results are in [Browser acceptance, November 2026](reports/browser-acceptance-2026-11.md)
 and [Onboarding, 2026-11-05](reports/onboarding-2026-11-05.md).
@@ -122,7 +125,8 @@ bun run build
 bun run test:native
 ```
 
-The check starts two native profiles across three explicit browser lifetimes each.
+The check starts three native profiles across three explicit browser lifetimes each.
+It records three fresh-direct lifetimes and six saved-valid-direct lifetimes, with unchanged saved pins.
 Each lifetime contains two fresh documents with three sequential samples per document.
 The report records raw samples, unique values, incomplete probes, and differences within documents, within lifetimes, and across lifetimes.
 It also records the engine hash, host environment, display observations, experiment recipe, and network policy.
@@ -134,7 +138,7 @@ Missing or failed probes cannot establish stability.
 A difference across lifetimes does not establish that a restart caused it.
 Language and timezone follow current network policy. A policy change is separate from drift under unchanged conditions.
 Observed results apply only to the recorded environment and samples.
-Browser executable changes require an explicit migration.
+A changed browser executable blocks startup of existing profiles.
 
 ## Profile transfer acceptance
 
@@ -161,8 +165,12 @@ See [Profile transfer](../profile-transfer.md) for supported behavior.
 
 ## Proxy and human acceptance
 
-1. Create a private env file outside the repository.
-2. Set `PROXY_TEST_URL` and `PROXY_TEST_SECOND_URL` in that file.
+Use local fixtures and synthetic proxy inputs for routine tests.
+Live acceptance requires declared test proxies. Never copy proxies from everyday profiles.
+The runner cannot verify proxy ownership. The operator must supply the correct route.
+
+1. Create a private env file outside the repository with `PROXY_TEST_USAGE=dedicated-acceptance`.
+2. Set `PROXY_TEST_URL` in that file. Also set `PROXY_TEST_SECOND_URL` to check two different exits.
 3. Optionally set `PROXY_TEST_EXPECTED_IP` and `PROXY_TEST_SECOND_EXPECTED_IP` to require known exits.
 4. Build the service.
 5. Run the check with the file's absolute path:
@@ -171,15 +179,19 @@ See [Profile transfer](../profile-transfer.md) for supported behavior.
    PROXY_TEST_ENV=/absolute/path/to/private.env bun run test:proxy
    ```
 
-The test requires different observed exits. Two endpoints with the same exit cannot pass.
+With two routes, the test requires different observed exits. Two endpoints with the same exit cannot pass.
+With one route, both relays use it. Relay evidence identifies each route, and the report marks the distinct-exit check as unexecuted.
 Without supplied IP pins, preflight observations establish the expected addresses for that run.
 Each profile uses its own relay.
 The check collects repeated browser observations across three explicit starts and stops.
+Each relay serves a unique `.invalid` hostname. The browser must display that relay's nonce.
+This proves that the request does not require local DNS resolution. It does not prove the absence of OS or browser DNS leaks.
 
 It interrupts each relay while successful verification remains cached.
 The failed route must reject external requests. The other route must retain its expected IP.
 Explicit recheck must block only the failed profile. Recovery must preserve the original browser lifetime.
-The check also covers swapped pins, WebRTC policy, isolated storage, and unchanged saved device settings.
+The check also covers a mismatched expected IP, WebRTC policy, isolated storage, and unchanged saved device settings.
+Two routes swap their pins. One route uses a documentation address.
 
 The report is `.state/proxy-acceptance-*/report.json`.
 Cleanup stops test browsers and removes temporary credential copies.
@@ -261,10 +273,28 @@ Numeric scores, mobile signals, and fields that require location permission rema
 The suite requests no location permission and does not trigger Rebrowser's scripted probes.
 Skipped and untriggered probes do not count as passes.
 
-The suite creates one disposable native profile and four tabs in sequence.
+Public checks are occasional acceptance checks. Reserve a separate proxy for these checks.
+Do not share this proxy with lifecycle tests, which create multiple identities.
+The suite reuses one native profile and opens four tabs in sequence.
 It rejects `--profile` and ignores the operator's `STELZ_HOME`.
-To check a proxy route, set `PROXY_TEST_ENV` to a private file with `PROXY_TEST_URL`.
+Set `PROXY_TEST_ENV` to a private file with `PROXY_TEST_USAGE=dedicated-public` and `PROXY_TEST_URL`.
 Add `PROXY_TEST_EXPECTED_IP` when an exit pin is necessary.
+From the repository root, create a test home once. Save the printed absolute path:
+
+```sh
+bun --no-env-file -e 'import { createTestHome } from "./tests/helpers/test-home.ts"; console.log(createTestHome("public-profile", ".state"));'
+```
+
+Use that same path for every public check:
+
+```sh
+PUBLIC_TEST_HOME=/absolute/path/printed/above PROXY_TEST_ENV=/absolute/path/to/public.env bun run test:public
+```
+
+The home retains cookies and device settings. It is bound to the proxy protocol, host, port, and IP pin.
+A credential rotation keeps the profile. A route or IP pin change needs a new `PUBLIC_TEST_HOME`.
+Concurrent runs cannot share the home. After a crash, verify that the run has stopped before removing `.public-check.lock`.
+There is no automatic direct-connection fallback or shell proxy URL fallback.
 The suite copies those inputs to its test directory and removes that copy during cleanup.
 
 Each page receives checks every two seconds for up to 120 seconds, excluding human authentication time.
@@ -275,7 +305,7 @@ A site error does not prevent later checks when the profile remains usable.
 Authentication pauses the profile. Complete authentication in the same Camoufox window.
 Then type `done` in the terminal.
 A noninteractive terminal or cancelled authentication produces an incomplete run.
-Cleanup stops the disposable browser. Another run creates another profile.
+Cleanup stops the browser. Another run reuses the saved profile.
 
 Artifacts are in `.state/public-sites/<run>/`.
 Each run writes `report.json` and `report.md`.
@@ -296,14 +326,15 @@ Advisory warnings do not fail the run. Rebrowser's partial coverage remains expl
 
 ## Installed-package acceptance
 
-For location readiness, run the saved archive with two private proxy routes:
+`test:package --archive FILE --proxy` runs location acceptance on its own installation. For location readiness alone, run the saved archive with one or two private proxy routes:
 
 ```sh
 PROXY_TEST_ENV=/absolute/path/to/private.env CAMOUFOX_EXECUTABLE=/absolute/path/to/camoufox bun run test:location --archive /absolute/path/to/candidate.tgz
 ```
 
 This check reuses the isolated package installer and existing proxy relays.
-It checks setup reuse, preflight, browser location, permissions, native storage, and fingerprints across two lifetimes per profile.
+It checks setup reuse, preflight, browser location, permissions, native storage, fingerprints, and scrolling across three lifetimes for each of three profiles.
+The first lifetime uses a fresh profile; the next two preserve its saved pin. Each profile has its own relay. Profiles take the supplied routes in turn, so one route serves all three.
 It records proxy destinations and restored fixture requests before Ready. These observations do not establish complete traffic isolation.
 The report states whether the supplied exits cover different timezones. Same-zone exits do not establish cross-zone coverage.
 Only temporary test profiles are stopped. Private proxy credentials stay outside reports and Git.
@@ -311,9 +342,16 @@ Only temporary test profiles are stopped. Private proxy credentials stay outside
 ```sh
 bun run pack
 bun run test:install --archive /absolute/path/to/candidate.tgz
-bun run test:install --archive /absolute/path/to/candidate.tgz --native
-bun run test:package --archive /absolute/path/to/candidate.tgz
+bun run test:package --archive /absolute/path/to/candidate.tgz --setup
 ```
+
+`test:package --setup` runs `test:setup` on its own installation, so release acceptance installs the archive once with lifecycle scripts.
+Each installation uses a new prefix. The npm download cache persists in `.state/npm-cache`, and npm verifies each package's integrity hash.
+`test:setup` hides the upstream Camoufox cache for its consent case. Its other cases read the paired build from that cache and need it. Unit tests cover the browser download with a fixture release. The suite needs network access to GitHub.
+It writes `.state/package-test/setup-report.json` and removes its files after a pass.
+
+The package suite installs with lifecycle scripts and runs the native dependency checks, so it replaces `test:install --native` here.
+It also replaces separate source-tree runs of the suites it repeats against the installation. Use those for development.
 
 Use the archive path printed by `pack` in each command. Do not rebuild between acceptance checks.
 `pack --destination DIRECTORY` selects another output directory.
@@ -326,8 +364,8 @@ The `--native` mode enables ordinary npm lifecycle scripts and executes native d
 The package suite always includes native persistence and transfer acceptance.
 Its accepted `--native` flag is unnecessary for those checks.
 
-For full package acceptance, supply `PROXY_TEST_ENV` as described above.
-Run `bun run test:package --archive FILE --proxy --manual`.
+For full package acceptance, supply `PROXY_TEST_ENV` as described above and an absolute `CAMOUFOX_EXECUTABLE`. The location check requires both.
+Run `bun run test:package --archive FILE --setup --proxy --manual`.
 The human check requires an actual click in the visible browser.
 The suite checks that runtime links do not depend on the source checkout and that the archive hash remains unchanged.
 See [Releasing](releasing.md) for CI validation and publication of the same workflow archive.
@@ -335,34 +373,19 @@ See [Releasing](releasing.md) for CI validation and publication of the same work
 ## Agent onboarding acceptance
 
 Use a desktop machine with a configured coding agent. Preserve its approval protections and global client configuration.
-Use [Bootstrap](../bootstrap.md) for agent installation orchestration.
-Use [Client verification](../clients.md#verify-the-connection) for the registered-tool check.
+The first session follows [Agent setup](../bootstrap.md). The second session runs a first browser task.
 
-1. Build and pack a candidate.
+1. Build and pack a candidate. Push its branch, so that the skill link resolves to the candidate's skill.
 2. Prepare a new writable project directory, npm prefix, and temporary `STELZ_HOME`.
-3. Give a fresh agent the bootstrap document, archive, test locations, and this request:
-
-   > Follow the bootstrap document. Install the supplied archive into the test prefix.
-   > Use the temporary STELZ_HOME. Create or reuse profile work.
-   > Install the canonical skill in this test project's supported location. Preserve global client configuration and approval protections.
-   > Register one shared `stelz mcp` connection at project scope if supported.
-   > Otherwise record exact connection arguments for the operator. Preserve the same STELZ_HOME.
-   > Verify through your actual registered browser tools.
-   > Report Installed, Browser ready, Client configured, and Verified separately.
-   > State pending verification when tools are unavailable. Release control after verification. Leave the browser running.
-
-4. Record actions, errors, and intervention requests.
-5. Start a new client session if registration requires it. Resume verification with the same profile and saved connection.
-6. Require a fresh profile catalog and actual acquisition with `{profileId}`.
-7. Require the returned handle on browser calls, fresh snapshots, an observed fixture action, result verification, and release.
-8. Repeat the original onboarding request through the same registration.
-9. Check the same profile ID, port, secret references, browser lifetime, and persistent fixture marker.
-10. Stop only the test profile after release and reuse evidence is complete.
-11. Stop the fixture server separately. Retain failed test state for inspection.
-
-For migration acceptance, preserve the original service directory, profile IDs, saved data, and secret references.
-Stop old services explicitly, prepare the updated runtime, and start those same profiles explicitly.
-Check the single registration through actual tools. Do not edit global harness configuration or migrate browser data.
+3. Give a fresh agent in that project the README request with the branch's skill link.
+   Add the test conditions: install the archive instead of the registry, and use the test prefix and `STELZ_HOME`.
+4. Approve the setup downloads when the agent asks. Record each other intervention request.
+5. Require the installed package, a prepared runtime, the skill link, one shared MCP registration, an open UI, and a report with the next steps.
+   The agent must not create or start a profile.
+6. Create and start `work` in the UI. Start a new client session in the same project.
+7. Serve the packaged onboarding fixture. Ask the agent to verify Stelz on that page in profile `work`. Keep the browser window visible.
+8. Require a fresh catalog, acquisition with `{profileId}`, fresh snapshots, the fixture action and its result, and release.
+9. Stop only the test profile and the fixture server. Retain failed test state for inspection.
 
 A model must perform browser interaction through its registered MCP tools.
 An SDK script can inspect resulting state. It cannot replace real-agent evidence.
@@ -375,8 +398,8 @@ See the [2026-11-05 report](reports/onboarding-2026-11-05.md) for one assisted r
 `.github/workflows/ci.yml` runs on pull requests, manual dispatch, and reusable workflow calls.
 It runs `bun run check` on Linux and macOS.
 The shared setup action selects Bun from `packageManager`, Node.js 24, and its pinned npm version.
-It installs frozen dependencies with lifecycle scripts disabled and skips browser downloads.
-Normal CI does not pack archives or start live browsers.
+It caches Bun packages by `bun.lock`, except for publication. It installs frozen dependencies with lifecycle scripts disabled and skips browser downloads.
+A parallel job packs the archive and runs `test:install` with scripts disabled and with native installation. The Release workflow skips that job and checks its own archive. No CI job starts a live browser.
 
 The Release workflow requires those checks before version updates or packaging.
 Its installation matrix checks one saved archive on Linux and macOS with scripts disabled and with ordinary native installation.

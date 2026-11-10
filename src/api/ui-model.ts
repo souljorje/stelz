@@ -3,7 +3,7 @@ import { isIP } from "node:net";
 import { join } from "node:path";
 import { parseEnv } from "node:util";
 import {
-  CONFIG_FILE, HOME_DIR, STATE, dir, settings, typingMode, validateProxy, type Profile, type Settings,
+  CONFIG_FILE, HOME_DIR, STATE, dir, runtimeDir, settings, typingMode, validateProxy, type Profile, type Settings,
 } from "../profiles/config.ts";
 import { doctor, logs, reportStatus, status } from "../runtime/runtime.ts";
 import { isTypingMode } from "../browser/typing.ts";
@@ -216,6 +216,7 @@ function profile(config: Settings, p: Profile, raw: Data, secrets: ReturnType<ty
   const checkedAt = typeof raw.checkedAt === "string" && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,3})?Z$/.test(raw.checkedAt) && Number.isFinite(Date.parse(raw.checkedAt)) ? new Date(raw.checkedAt).toISOString() : null;
   return {
     id: p.id, name: p.name === undefined ? p.id : redact(p.name), port: p.port, storage: "native", phase: currentPhase,
+    restartToUpdate: raw.restartToUpdate === true,
     location: raw.location as UiProfile["location"],
     instanceId: typeof raw.instanceId === "string" && /^[\w.-]{1,128}$/.test(raw.instanceId) ? text(raw.instanceId, 128) : null,
     exitIp: ip(raw.exitIp) ? raw.exitIp : null,
@@ -255,7 +256,7 @@ function device(id: string, redact: Redact): UiProfileDetail["device"] {
   if (!info || info.size > 2 * 1024 * 1024) return empty;
   let pin: Data;
   try { pin = data(JSON.parse(readFileSync(file, "utf8"))); } catch { return empty; }
-  if (pin.version !== 1 && pin.version !== 2) return empty;
+  if (pin.version !== 2) return empty;
   const config = data(pin.config), properties: { name: string; value: string }[] = [];
   for (const [key, name, limit, minimum] of deviceFields) {
     const value = config[key];
@@ -296,7 +297,7 @@ export function createUiModel(): UiModel {
       const redact = redactor(config, observed.map(raw => data(raw.controller).id));
       return {
         home: redact(HOME_DIR), version: STELZ_VERSION, upstreamVersion: UPSTREAM_VERSION,
-        initialized: !!config, setup: existsSync(join(HOME_DIR, "runtime/versions.json")),
+        initialized: !!config, setup: existsSync(join(runtimeDir(), "versions.json")),
         catalogRevision: catalogRevision(config),
         profiles: config ? config.profiles.map((p, index) => profile(config, p, observed[index]!, secrets, redact)) : [],
         updatedAt: new Date().toISOString(),

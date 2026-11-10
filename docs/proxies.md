@@ -23,8 +23,7 @@ The UI shows the saved address without its username or password.
 To replace credentials, paste the replacement details or select **Edit details**.
 Saved credentials remain hidden. Enter them again when you change a saved proxy through the separate fields.
 
-For a proxy, require `phase: "ready"`, `verificationRequired: true`, and `verificationStatus: "verified"` before browser work.
-Check `exitIp` against the intended route.
+Agents check the [IP verification fields](configuration.md#ip-verification-fields) before browser work, as the [browser skill](../skills/stelz-browser/SKILL.md#do-a-browser-task) describes.
 For direct networking without an expected IP, `verificationRequired: false` is normal.
 Such a profile does not perform an IP lookup.
 
@@ -128,10 +127,17 @@ It describes proxy environment inputs, compatible reuse, and conflicts.
 ## IP check policy
 
 Each new proxied browser requires a preflight check before launch. This check has a 30-second deadline.
-It checks the proxy exit IP, any expected IP, and the managed location data.
+It answers three separate questions:
+
+1. Does the proxy work, and which exit IP does it use? This includes any expected IP.
+2. How credible is the location for that exit? The `location.evidence` field records the source, its build time, and the comparison result.
+3. Does the launched browser use the prepared settings? Stelz checks this after launch.
+
+See [Managed location data](configuration.md#managed-location-data) for the sources, data age, and `STELZ_LOCATION_POLICY`.
 **Ready to start** applies only to the checked inputs. Start repeats preflight with current inputs.
 Proxy connections also require a successful browser-side IP check.
 Before Ready, Stelz checks the browser timezone and language against the prepared settings.
+A passed browser check means that the browser applies those settings. It does not confirm the physical location.
 Geolocation coordinates are checked in the launch configuration. They are not browser-observed coordinates.
 Stelz does not grant websites location permission.
 A rotated exit is allowed only when its location settings and the expected-IP rule remain compatible.
@@ -151,7 +157,6 @@ See [IP check policy](configuration.md#ip-check-policy) for providers, cache tim
 4. Run `stelz recheck work` after the connection works again.
 5. Require `verificationStatus: "verified"`.
 6. If `phase` remains `paused`, finish manual work before running `stelz resume work`.
-7. Read a fresh snapshot before the next browser action.
 
 For changed credentials, proxy URLs, or expected IP settings, stop `work` before saving the change.
 Start it explicitly afterward. Recheck does not reload a running browser's network configuration.

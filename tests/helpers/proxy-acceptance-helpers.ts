@@ -8,25 +8,25 @@ export function assert(value: unknown, message: string): asserts value {
   if (!value) throw Error(message);
 }
 
+function proxyEndpoint(env: Record<string, string | undefined>, urlName: string, ipName: string): ProxyEndpoint {
+  let url: URL;
+  try {
+    const raw = env[urlName];
+    if (!raw || /[\s\\]/.test(raw)) throw Error();
+    url = new URL(raw);
+    if (url.protocol !== "http:" || !url.hostname || url.pathname !== "/" || url.search || url.hash) throw Error();
+    for (const field of [url.username, url.password]) {
+      if (/[\x00-\x1f\x7f]/.test(decodeURIComponent(field))) throw Error();
+    }
+  } catch { throw Error(`Set a valid HTTP proxy in ${urlName}. Private inputs are hidden.`); }
+  const expectedIP = env[ipName] || undefined;
+  assert(!expectedIP || !!isIP(expectedIP) && !expectedIP.includes("%"), `${ipName} must be an IPv4 or IPv6 address. Private inputs are hidden.`);
+  return { url, expectedIP };
+}
+
 export function proxyEndpoints(env: Record<string, string | undefined>): Pair<ProxyEndpoint> {
-  const endpoints = [
-    ["PROXY_TEST_URL", "PROXY_TEST_EXPECTED_IP"],
-    ["PROXY_TEST_SECOND_URL", "PROXY_TEST_SECOND_EXPECTED_IP"],
-  ].map(([urlName, ipName]) => {
-    let url: URL;
-    try {
-      const raw = env[urlName!];
-      if (!raw || /[\s\\]/.test(raw)) throw Error();
-      url = new URL(raw);
-      if (url.protocol !== "http:" || !url.hostname || url.pathname !== "/" || url.search || url.hash) throw Error();
-      for (const field of [url.username, url.password]) {
-        if (/[\x00-\x1f\x7f]/.test(decodeURIComponent(field))) throw Error();
-      }
-    } catch { throw Error(`Set a valid HTTP proxy in ${urlName}. Private inputs are hidden.`); }
-    const expectedIP = env[ipName!] || undefined;
-    assert(!expectedIP || !!isIP(expectedIP) && !expectedIP.includes("%"), `${ipName} must be an IPv4 or IPv6 address. Private inputs are hidden.`);
-    return { url, expectedIP };
-  }) as unknown as Pair<ProxyEndpoint>;
+  const endpoints = [proxyEndpoint(env, "PROXY_TEST_URL", "PROXY_TEST_EXPECTED_IP"),
+    proxyEndpoint(env, "PROXY_TEST_SECOND_URL", "PROXY_TEST_SECOND_EXPECTED_IP")] as const;
   const identity = ({ url }: ProxyEndpoint) => JSON.stringify([
     url.hostname, url.port || "80", decodeURIComponent(url.username), decodeURIComponent(url.password),
   ]);
@@ -34,6 +34,11 @@ export function proxyEndpoints(env: Record<string, string | undefined>): Pair<Pr
   assert(!endpoints[0].expectedIP || endpoints[0].expectedIP !== endpoints[1].expectedIP,
     "The two expected proxy exit IPs must differ.");
   return endpoints;
+}
+
+/** One supplied route, or a validated distinct pair. */
+export function suppliedProxyEndpoints(env: Record<string, string | undefined>): readonly ProxyEndpoint[] {
+  return env.PROXY_TEST_SECOND_URL ? proxyEndpoints(env) : [proxyEndpoint(env, "PROXY_TEST_URL", "PROXY_TEST_EXPECTED_IP")];
 }
 
 // Apply this to every output string, including strings inside report objects.
@@ -85,12 +90,13 @@ export function assertDistinctExits(expected: Pair<string>) {
   assert(expected[0] !== expected[1], "Both proxies returned the same exit IP; distinct routing is unproven.");
 }
 
-export function assertProxyRoute(index: number, observed: unknown, expected: Pair<string>, direct: readonly string[] = []) {
+// With one shared upstream both routes have the same exit, so only relay evidence identifies a route.
+export function assertProxyRoute(index: number, observed: unknown, expected: Pair<string>, direct: readonly string[] = [], shared = false) {
   assert(index === 0 || index === 1, "Unknown test profile.");
-  assertDistinctExits(expected);
+  if (!shared) assertDistinctExits(expected);
   const ip = exitIP(observed);
   assert(!direct.includes(ip), "A proxied browser used a direct exit IP.");
-  assert(ip !== expected[1 - index], "A browser used the other profile's proxy exit IP.");
+  assert(shared || ip !== expected[1 - index], "A browser used the other profile's proxy exit IP.");
   assert(ip === expected[index], "A browser exit IP differs from its stable expected IP pin.");
   return ip;
 }
@@ -114,8 +120,8 @@ export function assertFreshVerificationCache(before: Record<string, unknown>, af
 }
 
 export type ProxyLifetime = { instances: Pair<string>; samples: Pair<string[]> };
-export function assertRoutingCoverage(lifetimes: readonly ProxyLifetime[], expected: Pair<string>) {
-  assertDistinctExits(expected);
+export function assertRoutingCoverage(lifetimes: readonly ProxyLifetime[], expected: Pair<string>, shared = false) {
+  if (!shared) assertDistinctExits(expected);
   assert(lifetimes.length >= 3, "At least three explicit proxy start/stop lifetimes are required.");
   const instances = new Set<string>();
   for (const lifetime of lifetimes) {
@@ -125,7 +131,7 @@ export function assertRoutingCoverage(lifetimes: readonly ProxyLifetime[], expec
       instances.add(instance);
       const samples = lifetime.samples[index]!;
       assert(samples.length >= 3, "Each profile requires three independent network samples within each proxy lifetime.");
-      for (const sample of samples) assertProxyRoute(index, sample, expected);
+      for (const sample of samples) assertProxyRoute(index, sample, expected, [], shared);
     }
   }
 }

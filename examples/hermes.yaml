@@ -2,6 +2,7 @@ mcp_servers:
   stelz:
     command: "/absolute/path/to/stelz"
     args: ["mcp"]
+    timeout: 240
     env:
       STELZ_HOME: "/absolute/service/home"
       PATH: "/absolute/bun/bin:/absolute/node/bin:/usr/bin:/bin"

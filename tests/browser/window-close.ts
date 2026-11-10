@@ -1,10 +1,11 @@
 // Operator acceptance: close the single test browser window when prompted.
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createTestHome } from "../helpers/test-home.ts";
 import { join, resolve } from "node:path";
 
 const root = resolve(import.meta.dir, "../..");
 mkdirSync(join(root, ".state"), { recursive: true });
-const home = mkdtempSync(join(root, ".state/window-close-"));
+const home = createTestHome("window-close", join(root, ".state"));
 process.env.STELZ_HOME = home;
 const { initialize, dir } = await import("../../src/profiles/config.ts");
 const { assertStoppedProfile, running } = await import("../../src/runtime/runtime.ts");
@@ -23,7 +24,7 @@ let ui: ReturnType<typeof createUiServer> | undefined;
 let fixture: ReturnType<typeof Bun.serve> | undefined;
 const report: Record<string, unknown> = { home, profile: id };
 try {
-  await command("setup"); await command("start", id);
+  await command("setup", "--yes"); await command("start", id);
   const before = (await model.snapshot()).profiles[0]!;
   const pin = readFileSync(join(dir(id), "fingerprint.json"), "utf8");
   fixture = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response(

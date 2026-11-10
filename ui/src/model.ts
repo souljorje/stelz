@@ -71,8 +71,7 @@ export function actionReason(profile: UiProfile, action: UiAction, context: Acti
   switch (action) {
     case "start":
       if (profile.phase !== "stopped") return "Stop this profile before starting it.";
-      if (!context.snapshot.initialized) return "Run stelz init first.";
-      if (!context.snapshot.setup) return "Run stelz setup first.";
+      if (!context.snapshot.initialized || !context.snapshot.setup) return "Run stelz setup first.";
       if (profile.configurationError) return "Correct the configuration before starting.";
       if (profile.location?.status === "blocked") return profile.location.message;
       if (profile.location?.status === "checking") return "Wait for the location check to finish.";
@@ -94,8 +93,20 @@ export const hasProxy = (network: UiNetwork) => !!(network.proxyEnv || network.p
 export function locationLabel(profile: UiProfile) {
   const location = profile.location;
   if (!location) return hasProxy(profile.network) ? "Not checked" : "Not applicable";
-  if (location.phase === "browser_verification" && location.status === "ready") return "Verified in browser";
+  // The browser check confirms applied settings. The evidence rows describe how credible the location is.
+  if (location.phase === "browser_verification" && location.status === "ready") return "Settings applied in browser";
   return { not_applicable: "Not applicable", not_checked: "Not checked", checking: "Checking", ready: "Ready to start", blocked: "Start blocked" }[location.status];
+}
+export function locationEvidenceRows(location: UiProfile["location"]) {
+  const evidence = location?.evidence;
+  if (!evidence) return [];
+  const { comparison } = evidence;
+  const detail = [comparison.timezone, comparison.accuracyRadiusKm === undefined ? undefined : `${comparison.accuracyRadiusKm} km`].filter(Boolean).join(", ");
+  const verdict = { corroborated: "Agrees", uncorroborated: "Too broad to confirm", conflicting: "Disagrees" }[comparison.result];
+  return [
+    { label: "Location source", value: `${evidence.source}, built ${evidence.builtAt.slice(0, 10)}${evidence.stale ? " (more than 30 days old)" : ""}` },
+    { label: comparison.source, value: detail ? `${verdict} (${detail})` : verdict },
+  ];
 }
 
 export type NetworkDraft = { revision: string; proxyUrl: string; expectedIp: string };

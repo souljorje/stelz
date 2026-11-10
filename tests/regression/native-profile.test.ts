@@ -7,10 +7,16 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runInNewContext } from "node:vm";
 import { setImmediate } from "node:timers/promises";
-import { launchProfileBrowser, claimProfileContext, createProfilePage, protectProfileStartup } from "../../src/browser/native-profile.ts";
+import { launchProfileBrowser, claimProfileContext, createProfilePage, protectProfileStartup, validateStartupGeometry, verifyProfileFingerprint } from "../../src/browser/native-profile.ts";
+import { applyFingerprint } from "../../src/browser/fingerprint.ts";
+import type { StartupWindowObservation } from "../../src/browser/profile-windows.ts";
+import { mockLauncherResources } from "../helpers/launcher-resources.ts";
+
+mockLauncherResources();
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const leaseApi = await import(new URL("../../node_modules/@askjo/camofox-browser/lib/page-lease.js", import.meta.url).href);
+const ownership = await import(new URL("../../node_modules/@askjo/camofox-browser/lib/stelz-page-ownership.js", import.meta.url).href);
 
 // Exercise the pending patch without changing the shared dependency installation.
 function patchedServer() {
@@ -30,12 +36,33 @@ function patchedServer() {
 function fixture(initialUrls = ["about:blank"]) {
   const directory = mkdtempSync(join(tmpdir(), "stelz-native-"));
   let persistent = 0, ephemeral = 0, newContexts = 0, newPages = 0, launchedPath = "", launchedOptions: Record<string, unknown> = {};
+  const identity = { "navigator.userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:140.0) Gecko/20100101 Firefox/140.0",
+    "navigator.platform": "MacIntel", "navigator.hardwareConcurrency": 8, "screen.width": 1440, "screen.height": 900,
+    "screen.availWidth": 1440, "screen.availHeight": 850, "screen.colorDepth": 24, "screen.pixelDepth": 24,
+    "window.innerWidth": 1200, "window.innerHeight": 740, "window.outerWidth": 1200, "window.outerHeight": 800,
+    "window.devicePixelRatio": 2 };
+  const gl = { available: true, vendor: "GPU", renderer: "Renderer", version: "WebGL 1.0", extensions: [],
+    maxTextureSize: 8192, maxRenderbufferSize: 8192, maxVertexAttribs: 16 };
+  let observation = { identity, geometry: { visualScale: 1 as number | null, fullscreen: false }, webgl: gl, webgl2: { ...gl, version: "WebGL 2.0" } };
+  let windowObservation: StartupWindowObservation = { instanceId: "browser-a", windowId: 1, tabId: 2, state: "normal",
+    outerWidth: 1200, outerHeight: 800, viewportWidth: 1200, viewportHeight: 740, zoom: 1, sampledAt: Date.now(), receivedAt: Date.now() };
   function page(url: string) {
     let closed = false;
+    let title = "";
     const value = Object.assign(new EventEmitter(), {
       url: () => url, isClosed: () => closed,
-      navigate(next: string) { url = next; value.emit("framenavigated"); },
+      title: () => title,
+      navigate(next: string, nextTitle = "") { url = next; title = nextTitle; value.emit("framenavigated"); },
       async close() { closed = true; value.emit("close"); },
+      async evaluate<T, A>(_callback: ((argument: A) => T) | (() => T), argument?: A): Promise<T> {
+        if (typeof argument === "string") { title = argument; return undefined as T; }
+        if (argument && typeof argument === "object" && "token" in argument && "previous" in argument) {
+          const input = argument as { token: string; previous: string };
+          if (url !== "about:blank" || title !== input.token) return false as T;
+          title = input.previous; return true as T;
+        }
+        return (title.startsWith("stelz-startup:") ? structuredClone(observation) : title) as T;
+      },
     });
     return value;
   }
@@ -55,13 +82,248 @@ function fixture(initialUrls = ["about:blank"]) {
   };
   return { directory, context, browser, launcher, pages, pageCreations: () => newPages,
     counts: () => ({ persistent, ephemeral, newContexts }),
-    async start() {
-      const launched = await launchProfileBrowser(launcher, {}, {}, { directory });
-      return claimProfileContext(launched, {});
+    async start(launchOptions: Record<string, unknown> = {}, contextOptions: Record<string, unknown> = {}) {
+      const launched = await launchProfileBrowser(launcher, launchOptions, contextOptions, { directory });
+      return claimProfileContext(launched, contextOptions);
     },
+    identity, observation: () => structuredClone(observation), setObservation(value: typeof observation) { observation = value; },
+    windowObservation: () => ({ ...windowObservation, sampledAt: Date.now(), receivedAt: Date.now() }),
+    setWindowObservation(value: StartupWindowObservation) { windowObservation = value; },
     launched: () => ({ path: launchedPath, options: launchedOptions }),
     close: () => rmSync(directory, { recursive: true, force: true }) };
 }
+
+function verifyFixture(f: ReturnType<typeof fixture>, context: Parameters<typeof verifyProfileFingerprint>[0], prepared: ReturnType<typeof applyFingerprint>) {
+  return verifyProfileFingerprint(context, prepared, async token => {
+    assert.match(token, /^stelz-startup:/);
+    return f.windowObservation();
+  }, "darwin");
+}
+
+test("fingerprint verification measures the original blank page without extra pages or contexts", async () => {
+  const f = fixture();
+  try {
+    const binary = join(f.directory, "engine");
+    writeFileSync(binary, "engine");
+    writeFileSync(join(f.directory, "running.json"), JSON.stringify({ instanceId: "attempt-a", configurationHash: "a".repeat(64), serverPid: process.pid }));
+    const prepared = applyFingerprint({ env: { CAMOU_CONFIG_1: JSON.stringify(f.identity) }, firefoxUserPrefs: {} }, f.directory, binary, false,
+      { profileId: "profile-a", attemptId: "attempt-a", browserInstanceId: "browser-a", configurationHash: "a".repeat(64), serverPid: process.pid });
+    const context = await f.start({ headless: false, executablePath: binary }, { viewport: null });
+    await verifyFixture(f, context, prepared);
+    assert.equal(f.pageCreations(), 0);
+    assert.equal(f.pages[0]!.isClosed(), false);
+    assert.equal(f.pages[0]!.url(), "about:blank");
+    assert.equal(f.pages[0]!.title(), "");
+    assert.deepEqual(f.counts(), { persistent: 1, ephemeral: 0, newContexts: 0 });
+    const changed = f.observation();
+    changed.identity["navigator.userAgent"] = "Different browser";
+    f.setObservation(changed);
+    await assert.rejects(verifyFixture(f, context, prepared), /runtime\.value\.mismatch/);
+    const missing = f.observation();
+    missing.identity["navigator.userAgent"] = f.identity["navigator.userAgent"];
+    missing.webgl.available = false;
+    f.setObservation(missing);
+    await assert.rejects(verifyFixture(f, context, prepared), /WebGL availability/);
+    assert.equal(f.pageCreations(), 0);
+    assert.equal(f.pages[0]!.isClosed(), false);
+    assert.equal(f.pages[0]!.title(), "");
+  } finally { f.close(); }
+});
+
+test("startup geometry is read again while the native window changes, and a stable mismatch fails", async () => {
+  const f = fixture();
+  try {
+    const binary = join(f.directory, "engine");
+    writeFileSync(binary, "engine");
+    writeFileSync(join(f.directory, "running.json"), JSON.stringify({ instanceId: "attempt-a", configurationHash: "a".repeat(64), serverPid: process.pid }));
+    const prepared = applyFingerprint({ env: { CAMOU_CONFIG_1: JSON.stringify(f.identity) }, firefoxUserPrefs: {} }, f.directory, binary, false,
+      { profileId: "profile-a", attemptId: "attempt-a", browserInstanceId: "browser-a", configurationHash: "a".repeat(64), serverPid: process.pid });
+    const context = await f.start({ headless: false, executablePath: binary }, { viewport: null });
+    // The page always reports a 740-pixel viewport. Each list gives the native viewport per sample.
+    const verify = (heights: number[]) => {
+      const notBefore: Array<number | undefined> = [];
+      const done = verifyProfileFingerprint(context, prepared, async (_token, _timeout, after) => {
+        notBefore.push(after);
+        return { ...f.windowObservation(), viewportHeight: heights[Math.min(notBefore.length, heights.length) - 1]! };
+      }, "darwin");
+      return { notBefore, done };
+    };
+    const settling = verify([741, 740, 740]);
+    await settling.done;
+    assert.equal(settling.notBefore.length, 3);
+    assert.equal(settling.notBefore[0], undefined);
+    assert.ok(settling.notBefore.slice(1).every(time => typeof time === "number"));
+    const stable = verify([741]);
+    await assert.rejects(stable.done, /page geometry differs/);
+    assert.equal(stable.notBefore.length, 2);
+  } finally { f.close(); }
+});
+
+test("normal-window equality, unknown mode, and disagreement with privileged geometry block admission", () => {
+  const page = { innerWidth: 1200, innerHeight: 740, outerWidth: 1200, outerHeight: 800,
+    devicePixelRatio: 2, visualScale: 1, fullscreen: false };
+  const window = { instanceId: "browser-a", windowId: 1, tabId: 2, state: "normal",
+    outerWidth: 1200, outerHeight: 800, viewportWidth: 1200, viewportHeight: 740, zoom: 1, sampledAt: 1000, receivedAt: 1000 };
+  const validate = (observedPage: typeof page, observedWindow: typeof window, time = 1000) =>
+    validateStartupGeometry(observedPage, observedWindow, "darwin", time);
+  validate(page, window);
+  assert.throws(() => validate({ ...page, innerHeight: 800 }, { ...window, viewportHeight: 800 }), /frame and viewport/);
+  assert.throws(() => validate(page, { ...window, state: "unknown" }), /mode is unknown or unsupported/);
+  assert.throws(() => validate(page, { ...window, state: "fullscreen" }), /mode is unknown or unsupported/);
+  assert.throws(() => validate({ ...page, fullscreen: true }, window), /mode is unknown or unsupported/);
+  assert.throws(() => validate(page, { ...window, outerHeight: 801 }), /privileged window and tab/);
+  assert.throws(() => validate(page, { ...window, viewportWidth: 1199 }), /privileged window and tab/);
+  assert.throws(() => validate(page, { ...window, zoom: 1.25 }), /zoom or viewport scale/);
+  assert.throws(() => validate({ ...page, visualScale: 1.25 }, window), /zoom or viewport scale/);
+  assert.throws(() => validate(page, window, 7000), /stale/);
+  assert.throws(() => validateStartupGeometry(page, window, "linux", 1000), /no supported startup geometry contract/);
+});
+
+test("startup refuses unsupported and mismatched privileged window evidence", async () => {
+  const f = fixture();
+  try {
+    const binary = join(f.directory, "engine"); writeFileSync(binary, "engine");
+    writeFileSync(join(f.directory, "running.json"), JSON.stringify({ instanceId: "attempt-a", configurationHash: "a".repeat(64), serverPid: process.pid }));
+    const prepared = applyFingerprint({ env: { CAMOU_CONFIG_1: JSON.stringify(f.identity) }, firefoxUserPrefs: {} }, f.directory, binary, false,
+      { profileId: "profile-a", attemptId: "attempt-a", browserInstanceId: "browser-a", configurationHash: "a".repeat(64), serverPid: process.pid });
+    const context = await f.start({ headless: false, executablePath: binary }, { viewport: null });
+    f.setWindowObservation({ ...f.windowObservation(), instanceId: "another-browser" });
+    await assert.rejects(verifyFixture(f, context, prepared), /another browser instance/);
+    f.setWindowObservation({ ...f.windowObservation(), instanceId: "browser-a", state: "unknown" });
+    await assert.rejects(verifyFixture(f, context, prepared), /mode is unknown or unsupported/);
+    f.setWindowObservation({ ...f.windowObservation(), state: "normal", outerHeight: 801 });
+    await assert.rejects(verifyFixture(f, context, prepared), /privileged window and tab observation/);
+    const page = f.observation(); page.identity["window.innerHeight"] = 800; f.setObservation(page);
+    f.setWindowObservation({ ...f.windowObservation(), outerHeight: 800, viewportHeight: 800 });
+    await assert.rejects(verifyFixture(f, context, prepared), /frame and viewport/);
+    assert.equal(f.pages[0]!.title(), "");
+    assert.equal(f.pages[0]!.isClosed(), false);
+  } finally { f.close(); }
+});
+
+test("the temporary title never overwrites a page that navigates during association", async () => {
+  const f = fixture();
+  try {
+    const binary = join(f.directory, "engine"); writeFileSync(binary, "engine");
+    writeFileSync(join(f.directory, "running.json"), JSON.stringify({ instanceId: "attempt-a", configurationHash: "a".repeat(64), serverPid: process.pid }));
+    const prepared = applyFingerprint({ env: { CAMOU_CONFIG_1: JSON.stringify(f.identity) }, firefoxUserPrefs: {} }, f.directory, binary, false,
+      { profileId: "profile-a", attemptId: "attempt-a", browserInstanceId: "browser-a", configurationHash: "a".repeat(64), serverPid: process.pid });
+    const context = await f.start({ headless: false, executablePath: binary }, { viewport: null });
+    await assert.rejects(verifyProfileFingerprint(context, prepared, async () => {
+      f.pages[0]!.navigate("https://user.example/", "User title");
+      return f.windowObservation();
+    }, "darwin"), /title could be restored/);
+    assert.equal(f.pages[0]!.title(), "User title");
+    assert.equal(f.pages[0]!.isClosed(), false);
+  } finally { f.close(); }
+});
+
+test("verification blocks when the original bootstrap page or display mode is unknown", async () => {
+  const f = fixture();
+  try {
+    const binary = join(f.directory, "engine"); writeFileSync(binary, "engine");
+    writeFileSync(join(f.directory, "running.json"), JSON.stringify({ instanceId: "attempt-a", configurationHash: "a".repeat(64), serverPid: process.pid }));
+    const prepared = applyFingerprint({ env: { CAMOU_CONFIG_1: JSON.stringify(f.identity) }, firefoxUserPrefs: {} }, f.directory, binary, false,
+      { profileId: "profile-a", attemptId: "attempt-a", browserInstanceId: "browser-a", configurationHash: "a".repeat(64), serverPid: process.pid });
+    const context = await f.start({}, { viewport: null });
+    await assert.rejects(verifyFixture(f, context, prepared), /display mode is unknown/);
+    assert.equal(f.pageCreations(), 0);
+  } finally { f.close(); }
+});
+
+test("geometry admission rejects a changed launched engine", async () => {
+  const f = fixture();
+  try {
+    const binary = join(f.directory, "engine"); writeFileSync(binary, "engine");
+    writeFileSync(join(f.directory, "running.json"), JSON.stringify({ instanceId: "attempt-a", configurationHash: "a".repeat(64), serverPid: process.pid }));
+    const prepared = applyFingerprint({ env: { CAMOU_CONFIG_1: JSON.stringify(f.identity) }, firefoxUserPrefs: {} }, f.directory, binary, false,
+      { profileId: "profile-a", attemptId: "attempt-a", browserInstanceId: "browser-a", configurationHash: "a".repeat(64), serverPid: process.pid });
+    const context = await f.start({ headless: false, executablePath: binary }, { viewport: null });
+    writeFileSync(binary, "different engine");
+    await assert.rejects(verifyFixture(f, context, prepared), /engine does not match/);
+  } finally { f.close(); }
+});
+
+test("a restored user page is preserved when no owned blank startup page exists", async () => {
+  const f = fixture(["https://existing.example/"]);
+  try {
+    const binary = join(f.directory, "engine"); writeFileSync(binary, "engine");
+    writeFileSync(join(f.directory, "running.json"), JSON.stringify({ instanceId: "attempt-a", configurationHash: "a".repeat(64), serverPid: process.pid }));
+    const prepared = applyFingerprint({ env: { CAMOU_CONFIG_1: JSON.stringify(f.identity) }, firefoxUserPrefs: {} }, f.directory, binary, false,
+      { profileId: "profile-a", attemptId: "attempt-a", browserInstanceId: "browser-a", configurationHash: "a".repeat(64), serverPid: process.pid });
+    const context = await f.start({ headless: false, executablePath: binary }, { viewport: null });
+    await assert.rejects(verifyFixture(f, context, prepared), /owned blank startup page is unavailable/);
+    assert.equal(f.pageCreations(), 0);
+    assert.equal(f.pages[0]!.url(), "https://existing.example/");
+    assert.equal(f.pages[0]!.isClosed(), false);
+  } finally { f.close(); }
+});
+
+test("startup does not create an extra page when no owned blank page exists", async () => {
+  const f = fixture([]);
+  try {
+    const binary = join(f.directory, "engine"); writeFileSync(binary, "engine");
+    writeFileSync(join(f.directory, "running.json"), JSON.stringify({ instanceId: "attempt-a", configurationHash: "a".repeat(64), serverPid: process.pid }));
+    const prepared = applyFingerprint({ env: { CAMOU_CONFIG_1: JSON.stringify(f.identity) }, firefoxUserPrefs: {} }, f.directory, binary, false,
+      { profileId: "profile-a", attemptId: "attempt-a", browserInstanceId: "browser-a", configurationHash: "a".repeat(64), serverPid: process.pid });
+    const context = await f.start({ headless: false, executablePath: binary }, { viewport: null });
+    await assert.rejects(verifyFixture(f, context, prepared), /owned blank startup page is unavailable/);
+    assert.equal(f.pageCreations(), 0);
+  } finally { f.close(); }
+});
+
+test("headed geometry compares the measured dimensions without a fixed chrome height", async () => {
+  for (const chromeHeight of [31, 117]) {
+    const f = fixture();
+    try {
+      const binary = join(f.directory, "engine"); writeFileSync(binary, "engine");
+      writeFileSync(join(f.directory, "running.json"), JSON.stringify({ instanceId: "attempt-a", configurationHash: "a".repeat(64), serverPid: process.pid }));
+      const geometry = { ...f.identity, "window.outerHeight": f.identity["window.innerHeight"] + chromeHeight };
+      const observation = f.observation(); observation.identity = geometry; f.setObservation(observation);
+      f.setWindowObservation({ ...f.windowObservation(), outerHeight: geometry["window.outerHeight"] });
+      const prepared = applyFingerprint({ env: { CAMOU_CONFIG_1: JSON.stringify(geometry) }, firefoxUserPrefs: {} }, f.directory, binary, false,
+        { profileId: "profile-a", attemptId: "attempt-a", browserInstanceId: "browser-a", configurationHash: "a".repeat(64), serverPid: process.pid });
+      const context = await f.start({ headless: false, executablePath: binary }, { viewport: null });
+      await verifyFixture(f, context, prepared);
+      observation.identity["window.outerHeight"]++;
+      f.setObservation(observation);
+      await assert.rejects(verifyFixture(f, context, prepared), /privileged window and tab observation/);
+    } finally { f.close(); }
+  }
+});
+
+test("WebGL capability and WebGL2 availability use measured results", async () => {
+  const f = fixture();
+  try {
+    const binary = join(f.directory, "engine"); writeFileSync(binary, "engine");
+    writeFileSync(join(f.directory, "running.json"), JSON.stringify({ instanceId: "attempt-a", configurationHash: "a".repeat(64), serverPid: process.pid }));
+    const identity = { ...f.identity, "webGl:parameters": { MAX_TEXTURE_SIZE: 8192 } };
+    const prepared = applyFingerprint({ env: { CAMOU_CONFIG_1: JSON.stringify(identity) }, firefoxUserPrefs: {} }, f.directory, binary, false,
+      { profileId: "profile-a", attemptId: "attempt-a", browserInstanceId: "browser-a", configurationHash: "a".repeat(64), serverPid: process.pid });
+    const observation = f.observation(); observation.webgl2.available = false; f.setObservation(observation);
+    const context = await f.start({ headless: false, executablePath: binary }, { viewport: null });
+    await verifyFixture(f, context, prepared);
+    observation.webgl.maxTextureSize = 4096; f.setObservation(observation);
+    await assert.rejects(verifyFixture(f, context, prepared), /WebGL capability MAX_TEXTURE_SIZE/);
+    observation.webgl.maxTextureSize = 8192; observation.webgl2.available = true; f.setObservation(observation);
+    await assert.rejects(verifyFixture(f, context, prepared), /WebGL2 availability/);
+  } finally { f.close(); }
+});
+
+test("the measured WebGL renderer must match the pinned renderer", async () => {
+  const f = fixture();
+  try {
+    const binary = join(f.directory, "engine"); writeFileSync(binary, "engine");
+    writeFileSync(join(f.directory, "running.json"), JSON.stringify({ instanceId: "attempt-a", configurationHash: "a".repeat(64), serverPid: process.pid }));
+    const identity = { ...f.identity, "webGl:vendor": "GPU", "webGl:renderer": "Renderer", "webGl:version": "WebGL 1.0" };
+    const prepared = applyFingerprint({ env: { CAMOU_CONFIG_1: JSON.stringify(identity) }, firefoxUserPrefs: {} }, f.directory, binary, false,
+      { profileId: "profile-a", attemptId: "attempt-a", browserInstanceId: "browser-a", configurationHash: "a".repeat(64), serverPid: process.pid });
+    const context = await f.start({ headless: false, executablePath: binary }, { viewport: null });
+    await verifyFixture(f, context, prepared);
+    const changed = f.observation(); changed.webgl.renderer = "Another renderer"; f.setObservation(changed);
+    await assert.rejects(verifyFixture(f, context, prepared), /runtime\.value\.mismatch/);
+  } finally { f.close(); }
+});
 
 test("native mode launches the directory-backed context and claims that exact context once", async () => {
   const f = fixture();
@@ -246,7 +508,8 @@ async function startupHarness() {
       if (!session.tabGroups.has(key)) session.tabGroups.set(key, new Map());
       return session.tabGroups.get(key)!;
     },
-    fly: { makeTabId: () => String(++sequence) }, createTabState: (page: TestPage) => ({ page, visitedUrls: new Set() }),
+    fly: { makeTabId: () => String(++sequence) }, createTabState: (page: TestPage) => ({ page: ownership.ownPage(page), visitedUrls: new Set() }),
+    isOrphanPage: ownership.isOrphanPage,
     attachDownloadListener() {}, attachPopupHandler() { if (failRegistration) throw Error("registration interrupted"); },
     pluginEvents: { emit() {} },
     withTimeout(work: Promise<unknown>, ms: number, label: string) {

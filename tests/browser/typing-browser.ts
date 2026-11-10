@@ -15,7 +15,7 @@ if (args.length === 1 && ["--help", "-h"].includes(args[0]!)) {
 }
 if (args.length) throw Error("Use: bun run test:typing. Existing profiles are not supported.");
 const profileId = "typing-check", output = createTestHome("typing-acceptance", join(root, ".state")), home = output;
-const env: Record<string, string> = { STELZ_HOME: home, STELZ_TYPING_MODE: "auto" };
+const env: Record<string, string> = { STELZ_HOME: home };
 for (const name of ["PATH", "HOME", "USER", "LOGNAME", "LANG", "TMPDIR", "CAMOUFOX_EXECUTABLE"])
   if (process.env[name]) env[name] = process.env[name]!;
 type Event = { type: string; target: string; key: string; trusted: boolean; at: number };
@@ -38,11 +38,12 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
 <label>Multiline <textarea id="multiline">old value</textarea></label>
 <div id="editable" contenteditable="true" role="textbox" aria-label="Editable message">old value</div>
 <label>Number <input id="number" type="number" value="1"></label>
+<label>Password <input id="password" type="password"></label>
 <label>Date <input id="date" type="date" value="2026-01-01"></label>
 <p id="status">Ready</p><script>
 const events = []; let submits = 0, sequence = 0, timer;
 function publish() {
-  const values = Object.fromEntries(['message','multiline','editable','number','date'].map(id => {
+  const values = Object.fromEntries(['message','multiline','editable','number','date','password'].map(id => {
     const el = document.getElementById(id); return [id, el.value === undefined ? el.textContent : el.value];
   }));
   document.getElementById('status').textContent = 'Submissions: ' + submits;
@@ -96,25 +97,32 @@ async function type(tabId: string, selector: string, text: string, options: { mo
 }
 function keyboardEvents(value: Sample, text: string) {
   const events = value.events.filter(event => event.target === "message");
+  const down = events.filter(event => event.type === "keydown");
+  let entered = "";
+  for (const event of down) {
+    if (event.key === "Backspace") entered = entered.slice(0, -1);
+    else if (event.key.length === 1) entered += event.key;
+  }
+  assert(entered === text, "Keyboard events did not produce the requested ASCII text after corrections.");
+  const printable = down.filter(event => event.key.length === 1).map(event => event.key).join("");
   for (const kind of ["keydown", "keypress", "keyup"]) {
     // Clearing an existing field can also emit Delete. Check printable keys separately.
     const keys = events.filter(event => event.type === kind && event.key.length === 1);
-    assert(keys.map(event => event.key).join("") === text, `${kind} did not match the requested ASCII text.`);
+    assert(keys.map(event => event.key).join("") === printable, `${kind} did not match the typed ASCII keys.`);
   }
   assert(events.every(event => event.trusted), "Input events were not browser-generated.");
   assert(events.filter(event => event.type === "keydown" && event.key === "Enter").length === 1, "Enter was not pressed exactly once.");
 }
 try {
-  await command("init");
   writeFileSync(join(home, "profiles.json"), JSON.stringify({ profiles: [
     { id: profileId, port, storage: "native" },
-  ] }));
-  await command("setup");
+  ] }), { mode: 0o600 });
+  await command("setup", "--yes");
   started = true;
   await command("start", profileId); await connect();
   const tools = await client!.listTools();
   const schema = tools.tools.find(tool => tool.name === "camofox_type")!.inputSchema;
-  assert(JSON.stringify((schema.properties!.mode as { enum: string[] }).enum) === JSON.stringify(["auto", "keyboard", "instant"]), "The typing mode overrides are missing.");
+  assert(JSON.stringify((schema.properties!.mode as { enum: string[] }).enum) === JSON.stringify(["balanced", "keyboard", "instant"]), "The typing mode overrides are missing.");
   const tabId = String((await call("camofox_create_tab", { url: `http://127.0.0.1:${server.port}` })).tabId);
   const instanceId = (await call("profile_status")).instanceId;
   async function reset() {
@@ -144,25 +152,28 @@ try {
     ["message", "one\ntwo", "onetwo"],
     ["multiline", "one\r\ntwo\rthree", "one\ntwo\nthree"],
     ["editable", "Editable words.", "Editable words."], ["number", "12.5", "12.5"], ["date", "2026-11-03", "2026-11-03"],
+    ["password", "alpha bravo", "alpha bravo"],
     ["message", "", ""],
   ] as const) {
-    await type(tabId, `#${id}`, value, { mode: "auto" });
+    await type(tabId, `#${id}`, value, { mode: "balanced" });
     await observed(sample => sample.values[id] === expected && sample.submits === 1);
   }
   checks.push({ check: "Unicode, single-line normalization, multiline, contenteditable, number, date, and empty input" });
   await reset();
   const bulk = "Bulk text 👋\n".repeat(1500);
-  await type(tabId, "#multiline", bulk, { mode: "auto" });
+  await type(tabId, "#multiline", bulk, { mode: "balanced" });
   const automaticBulk = await observed(value => value.values.multiline === bulk);
-  assert(automaticBulk.events.filter(event => event.type === "input" && event.target === "multiline").length === 1, "Long auto input did not select bulk entry before editing.");
-  checks.push({ check: "auto enters long text with one bulk fill", characters: bulk.length });
+  assert(automaticBulk.events.filter(event => event.type === "input" && event.target === "multiline").length === 1, "Long balanced input did not select bulk entry before editing.");
+  checks.push({ check: "balanced enters long text with one bulk fill", characters: bulk.length });
 
   await reset();
-  const keys = "Keyboard events without artificial pauses. ".repeat(8);
+  const keys = "typing with variable gaps ".repeat(9);
   await setDefault("instant");
   await type(tabId, "#message", keys, { mode: "keyboard", pressEnter: true });
   const keyboard = await observed(value => value.values.message === keys && value.submits === 1);
   keyboardEvents(keyboard, keys);
+  const keyEvents = keyboard.events.filter(event => event.type === "keydown" && event.target === "message");
+  assert(keyEvents.at(-1)!.at - keyEvents[0]!.at > 10_000, "Keyboard input did not exercise typing beyond 10 seconds.");
   assert(keyboard.events.filter(event => event.type === "input" && event.target === "message").length >= keys.length, "Keyboard mode did not enter text character by character.");
   checks.push({ check: "keyboard override emits trusted keydown, keypress, keyup and input for long text, one Enter", characters: keys.length });
 
@@ -175,7 +186,7 @@ try {
   assert(instant.events.filter(event => event.type === "keydown").map(event => event.key).join("") === "Enter", "Instant entry sent character key events or duplicate Enter.");
   checks.push({ check: "instant override enters short text in bulk, one Enter", inputEvents: bulkInputs.length });
 
-  for (const mode of ["keyboard", "instant", "auto"] as const) {
+  for (const mode of ["keyboard", "instant", "balanced"] as const) {
     await setDefault(mode); await reset();
     await type(tabId, "#message", "Live default", { pressEnter: true });
     const state = await observed(value => value.values.message === "Live default" && value.submits === 1);
@@ -183,10 +194,10 @@ try {
     assert(mode === "instant" ? count === 1 : count >= "Live default".length, `${mode} profile default did not apply live.`);
   }
   await setDefault("instant"); await reset();
-  await type(tabId, "#message", "Auto override", { mode: "auto", pressEnter: true });
-  const override = await observed(value => value.values.message === "Auto override" && value.submits === 1);
-  keyboardEvents(override, "Auto override");
-  checks.push({ check: "all profile defaults apply live; explicit auto overrides instant default" });
+  await type(tabId, "#message", "Balanced override", { mode: "balanced", pressEnter: true });
+  const override = await observed(value => value.values.message === "Balanced override" && value.submits === 1);
+  keyboardEvents(override, "Balanced override");
+  checks.push({ check: "all profile defaults apply live; explicit balanced overrides instant default" });
   const final = await call("profile_status");
   assert(final.phase === "ready" && final.instanceId === instanceId, "Typing mode changes replaced or blocked the running browser.");
   checks.push({ check: "same browser, tab, MCP connection, and controller remain usable without restart" });

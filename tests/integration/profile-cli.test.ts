@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, 
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseEnv } from "node:util";
+import { initializeHome } from "../helpers/test-home.ts";
 
 const cli = resolve(import.meta.dir, "../../src/cli/cli.ts"), homes: string[] = [];
 function home() { const value = mkdtempSync(join(tmpdir(), "stelz-profile-cli-")); homes.push(value); return value; }
@@ -18,7 +19,7 @@ const create = (dir: string, args: string[] = [], env?: Record<string, string>) 
 const files = (dir: string) => [readFileSync(join(dir, "profiles.json"), "utf8"), readFileSync(join(dir, "secrets.env"), "utf8")];
 
 test("CLI creates a native profile and reuses it without rewriting configuration or saved state", async () => {
-  const dir = home(); await run(dir, ["init"]);
+  const dir = home(); initializeHome(dir);
   const first = await create(dir);
   expect(first.code).toBe(0);
   expect(first.value).toMatchObject({ ok: true, created: true, home: dir, profile: { id: "work", storage: "native", proxyConfigured: false } });
@@ -32,7 +33,7 @@ test("CLI creates a native profile and reuses it without rewriting configuration
 });
 
 test("CLI imports proxy and IP inputs once and never prints their values", async () => {
-  const dir = home(); await run(dir, ["init"]);
+  const dir = home(); initializeHome(dir);
   const env = { CLI_PROXY: "http://private-user:private-password@proxy.test:8080", CLI_IP: "203.0.113.19" };
   const flags = ["--proxy-env", "CLI_PROXY", "--expected-ip-env", "CLI_IP"];
   const first = await create(dir, flags, env), before = files(dir);
@@ -48,7 +49,7 @@ test("CLI imports proxy and IP inputs once and never prints their values", async
 });
 
 test("CLI conflicts preserve the original proxy, IP, secret references, and identity", async () => {
-  const dir = home(); await run(dir, ["init"]);
+  const dir = home(); initializeHome(dir);
   await create(dir, ["--proxy-url", "http://original.test:8080", "--expected-ip", "203.0.113.19"]);
   const before = files(dir);
   for (const flags of [["--direct"], ["--proxy-url", "http://different.test:8080"], ["--expected-ip", "203.0.113.20"], ["--expected-ip", ""]]) {
@@ -60,14 +61,14 @@ test("CLI conflicts preserve the original proxy, IP, secret references, and iden
 });
 
 test("existing direct profiles reject requested proxies instead of changing route", async () => {
-  const dir = home(); await run(dir, ["init"]); await create(dir);
+  const dir = home(); initializeHome(dir); await create(dir);
   const before = files(dir), result = await create(dir, ["--proxy-url", "http://private:password@proxy.test:8080"]);
   expect(result.code).toBe(1); expect(result.value.error.code).toBe("conflict");
   expect(result.err).not.toContain("password"); expect(files(dir)).toEqual(before);
 });
 
 test("parallel CLI creates allocate exactly one profile and one credential reference", async () => {
-  const dir = home(); await run(dir, ["init"]);
+  const dir = home(); initializeHome(dir);
   const results = await Promise.all(Array.from({ length: 6 }, () => create(dir, ["--proxy-url", "http://same.test:8080"])));
   expect(results.every(result => result.code === 0)).toBe(true);
   expect(results.filter(result => result.value.created)).toHaveLength(1);
@@ -78,7 +79,7 @@ test("parallel CLI creates allocate exactly one profile and one credential refer
 }, 15000);
 
 test("CLI resumes an interrupted creation using the existing journal", async () => {
-  const dir = home(); await run(dir, ["init"]);
+  const dir = home(); initializeHome(dir);
   const domain = resolve(import.meta.dir, "../../src/profiles/profile-configuration.ts");
   const child = Bun.spawn([process.execPath, "--no-env-file", "-e", `
 import * as fs from 'node:fs'; import { mock } from 'bun:test';
@@ -102,7 +103,7 @@ test("missing initialization, malformed inputs, and missing proxy variables fail
   const dir = home();
   expect((await create(dir)).value).toMatchObject({ ok: false, error: { code: "not_initialized" } });
   expect(existsSync(join(dir, "profiles.json"))).toBe(false);
-  await run(dir, ["init"]); const before = files(dir);
+  initializeHome(dir); const before = files(dir);
   for (const flags of [["--proxy-env", "CLI_PROXY"], ["--expected-ip-env", "CLI_IP"], ["--proxy-url", ""], ["--proxy-url", "bad-secret"],
     ["--direct", "--proxy-url", "http://proxy.test:8080"], ["--expected-ip", "bad-ip"], ["--proxy-url"], ["--unknown"], ["--direct", "--direct"]]) {
     const result = await create(dir, flags);
@@ -113,7 +114,7 @@ test("missing initialization, malformed inputs, and missing proxy variables fail
 });
 
 test("missing existing proxy credentials and unsafe service files cannot become direct profiles", async () => {
-  const dir = home(); await run(dir, ["init"]);
+  const dir = home(); initializeHome(dir);
   const first = await create(dir, ["--proxy-url", "http://proxy.test:8080"]), before = files(dir);
   expect((await create(dir, [], { [first.value.profile.proxyEnv]: "" })).value.error.code).toBe("conflict");
   expect(files(dir)).toEqual(before);

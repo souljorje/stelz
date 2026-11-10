@@ -1,5 +1,5 @@
 import { afterAll, expect, test } from "bun:test";
-import { chmodSync, cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, linkSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -20,24 +20,120 @@ function fixture() {
 import {mkdirSync,writeFileSync} from 'node:fs';
 import {join} from 'node:path';
 import { start } from "./runtime/runtime.ts";
-if (process.argv[2] === "setup") await setup({ prepareGeoip: async stage => {
+if (process.argv[2] === "setup") console.log(JSON.stringify(await setup({ yes: true, prepareModel: async stage => {
+  if(process.env.SETUP_TEST_MODEL_FAIL) {
+    mkdirSync(join(stage,'fpgen'));writeFileSync(join(stage,'fpgen/values.dat'),'incomplete model');
+    throw Error('Fingerprint model preparation failed');
+  }
+  return 'reused';
+}, prepareGeoip: async stage => {
   if(process.env.SETUP_TEST_GEOIP_FAIL) {
     mkdirSync(join(stage,'geoip'));writeFileSync(join(stage,'geoip/GeoLite2-City.mmdb'),'incomplete download');
     throw Error('Location-data integrity check failed');
   }
-} });
+  return { datasets: {}, status: {} };
+} })));
+else if (process.argv[2] === "setup-unconfirmed") await setup({ confirm: async downloads => { console.log(JSON.stringify(downloads)); return false; } });
 else await start(process.argv[3]!);
 `);
-  file(join(project, "package.json"), JSON.stringify({ type: "module", version: "0.2.0", dependencies: { "@askjo/camofox-browser": "1.18.1", "@modelcontextprotocol/sdk": "1.30.0", "better-sqlite3": "13.0.1", impit: "0.14.8" } }));
+  file(join(project, "package.json"), JSON.stringify({ type: "module", version: "0.2.0", dependencies: { "@askjo/camofox-browser": "1.18.1", "@modelcontextprotocol/sdk": "1.30.0", "better-sqlite3": "13.0.1", camoufox: "0.5.8", impit: "0.14.8" } }));
   file(join(project, "dist/plugin.js"), "export function register() {}\nexport function launchProfileBrowser() {}\nexport function claimProfileContext() {}\nexport function createProfilePage() {}\nexport function protectProfileStartup() {}\nexport function prepareProfileLaunch() {}\nexport function typeIntoLocator() {}\n");
   const upstream = join(project, "node_modules/@askjo/camofox-browser");
-  file(join(upstream, "package.json"), JSON.stringify({ name: "@askjo/camofox-browser", version: "1.18.1", type: "module", dependencies: { "camoufox-js": "0.13.0", "playwright-core": "1.62.1" } }));
-  file(join(upstream, "server.js"), `async function fillLocator(locator, text, typingMode) {
+  file(join(upstream, "package.json"), JSON.stringify({ name: "@askjo/camofox-browser", version: "1.18.1", type: "module", dependencies: { camoufox: "0.5.8", "playwright-core": "1.62.1" } }));
+  file(join(upstream, "server.js"), `import { Camoufox, launchOptions, VirtualDisplay } from 'camoufox';
+import {
+  isTimeoutError,
+} from './lib/browser-errors.js';
+import { clickReachedPage, domClickRejected, uncertainClickError } from './lib/stelz-click-guard.js';
+import { isOrphanPage, ownPage } from './lib/stelz-page-ownership.js';
+async function safePageClose(page) {
+  if (!page || page.isClosed()) return;
+  ownPage(page);
+  await page.close();
+}
+function createTabState(page) {
+  ownPage(page);
+  return { page };
+}
+function healthProbe() {
+setInterval(async () => {
+  // stelz: the probe context opens a visible window, and Stelz refuses a replacement browser.
+  return;
+}, 60_000);
+}
+function reapOrphans(session, contextPages, registered, isPageLeased) {
+  for (const page of contextPages) {
+      // stelz: a page that a person or a website opened is not an orphan.
+      if (isOrphanPage(page, registered, isPageLeased(session, page))) {
+        page.close();
+      }
+  }
+}
+async function recoverForceClickFailure(dispatchDomClick, dispatchMouseSequence, log) {
+        try {
+          await dispatchDomClick();
+        } catch (domErr) {
+          // stelz: a DOM click can reach the page before it fails. Then the mouse sequence would repeat it.
+          if (!domClickRejected(domErr)) throw uncertainClickError(domErr);
+          log('warn', 'DOM click fallback failed, trying mouse sequence', { error: domErr.message });
+          await dispatchMouseSequence();
+        }
+}
+async function clickRoute(click, log, remainingBudget, onGoogleSerp) {
+        const inputTimeout = () => Math.max(1, remainingBudget());
+        if (onGoogleSerp) {
+          try {
+            await click({ timeout: inputTimeout(), force: true });
+          } catch (forceErr) {
+            if (clickReachedPage(forceErr)) throw uncertainClickError(forceErr);
+            log('warn', 'google force click failed, trying DOM click fallback');
+          }
+          return;
+        }
+        try {
+          await click({ timeout: 3000, trial: true });
+        } catch (err) {
+          // A trial sends no input, although Playwright still logs "performing click action" for it.
+          if (isTimeoutError(err)) {
+            log('warn', 'click intercepted, retrying with force');
+            try {
+              await click({ timeout: inputTimeout(), force: true });
+            } catch (forceErr) {
+              if (clickReachedPage(forceErr)) throw uncertainClickError(forceErr);
+            }
+          } else {
+            log('warn', 'click timeout, retrying with force');
+            try {
+              await click({ timeout: inputTimeout(), force: true });
+            } catch (forceErr) {
+              if (clickReachedPage(forceErr)) throw uncertainClickError(forceErr);
+            }
+          }
+          return;
+        }
+        // stelz: a failure after input started is uncertain. Never repeat it.
+        try {
+          await click({ timeout: inputTimeout() });
+        } catch (err) {
+          if (clickReachedPage(err)) throw uncertainClickError(err);
+          throw err;
+        }
+}
+const externalCamoufox = null; // stelz: the plugin passes the executable to the official launcher.
+class DefaultVirtualDisplay extends VirtualDisplay { constructor() { super(false, DEFAULT_VIRTUAL_DISPLAY_RESOLUTION); } }
+async function fillLocator(locator, text, typingMode) {
   await (await import('./plugins/local-profile/index.js')).typeIntoLocator(locator, text, typingMode);
 }
 async function withTabLock(tabId, operation, timeoutMs) {
     // Stelz owns the deadline for typing. Keep its tab lock until input settles.
     return await (timeoutMs === null ? operation() : withTimeout(operation(), timeoutMs, 'action'));
+}
+async function scrollRoute(tabState, isVertical, delta) {
+      await tabState.page.bringToFront();
+      // stelz: wheel input targets the pointer, which can still be over a fixed header.
+      const viewport = await tabState.page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
+      await tabState.page.mouse.move(viewport.width / 2, viewport.height / 2);
+      await tabState.page.mouse.wheel(isVertical ? 0 : delta, isVertical ? delta : 0);
 }
 const options = { os: hostOS,
         window: [1200, 800],
@@ -109,8 +205,10 @@ async function typeRoute(req, locator, tabState, selector, text, mode) {
 }
 `);
   file(join(upstream, "LICENSE"), "fixture license");
+  file(join(upstream, "lib/stelz-page-ownership.js"), "const owned = new WeakSet();\nexport function ownPage(page) { owned.add(page); return page; }\nexport function isOrphanPage(page, registered, leased) {\n  return owned.has(page) && !registered.has(page) && !leased;\n}\n");
+  file(join(upstream, "lib/browser-errors.js"), "export function isTimeoutError() { return false; }\n");
+  file(join(upstream, "lib/stelz-click-guard.js"), "export function clickReachedPage(error) { return String(error?.message || '').includes('performing click action'); }\nexport function domClickRejected() { return false; }\nexport function uncertainClickError(cause) { return Object.assign(Error('uncertain'), { cause }); }\n");
   file(join(upstream, "lib/browser-identity.js"), "function contextIdentityOptions(hasProxy) { if (hasProxy) return {}; // Stelz never grants location access to arbitrary sites.\n}\n");
-  file(join(upstream, "lib/camoufox-executable.js"), "// stelz: read macOS resources without changing the installed app bundle.\n");
   file(join(upstream, "lib/new-page-recovery.js"), `async function createPageWithSessionRecovery(session) {
   try {
     const page = setLeasedPage(lease, await withTimeout((await import('../plugins/local-profile/index.js')).createProfilePage(session.context), timeoutMs, 'new page'));
@@ -124,17 +222,17 @@ async function typeRoute(req, locator, tabState, selector, text, mode) {
   file(join(upstream, "mcp/server.mjs"), "export {};\n");
   file(join(upstream, "mcp/lib/tool-contracts.mjs"), "export const TOOL_DEFS = [];\nexport function runTool() {}\nexport function adaptResponse() {}\n");
   file(join(upstream, "plugins/persistence/index.js"), "export async function register(app, ctx, pluginConfig = {}) {\n  return; // Native Firefox profile owns storage.\n}\n");
-  const camoufox = join(project, "node_modules/camoufox-js");
-  file(join(camoufox, "package.json"), JSON.stringify({ name: "camoufox-js", version: "0.13.0", dependencies: {} }));
-  file(join(camoufox, "dist/pkgman.js"), "return new Version(versionData.build ?? versionData.release, versionData.version);\n");
-  file(join(camoufox, "dist/utils.js"), 'propFile = process.platform === "darwin" && filePath.includes(".app/Contents/MacOS/") ? path.join(path.dirname(filePath), "../Resources/properties.json") : path.join(path.dirname(filePath), "properties.json");\n');
-  file(join(camoufox, "dist/locale.js"), "export async function getGeolocation(ip, options = {}) {}\n");
-  file(join(camoufox, "dist/ip.js"), "export async function publicIP(proxy, options = {}) {}\n");
-  file(join(camoufox, "dist/utils.js"), readFileSync(join(camoufox, "dist/utils.js"), "utf8") + "const locationConfig = stelzGeoip || (await getGeolocation(geoip)).asConfig();\n");
+  const camoufox = join(project, "node_modules/camoufox");
+  file(join(camoufox, "package.json"), JSON.stringify({ name: "camoufox", version: "0.5.8", type: "module" }));
+  file(join(camoufox, "dist/index.js"), "export {};\n");
+  file(join(camoufox, "dist/coherence.js"), "export function validate() { return []; }\n");
+  file(join(camoufox, "dist/fpgen/index.js"), 'export function isModelInstalled() { return false; }\nexport const MODEL_PIN = { repo: "scrapfly/fingerprint-generator", tag: "model-2/2026", size: 1564571 };\n');
+  file(join(camoufox, "dist/data-files/browser-pin.json"), JSON.stringify({ version: "156.0.1", build: "beta.36" }));
   for (const [name, version] of [["playwright-core", "1.62.1"], ["@modelcontextprotocol/sdk", "1.30.0"], ["better-sqlite3", "13.0.1"], ["impit", "0.14.8"]]) {
     file(join(project, "node_modules", name!, "package.json"), JSON.stringify({ name, version }));
   }
   file(browser, "browser executable fixture");
+  file(join(base, "application.ini"), "[App]\nVersion=156.0.1-beta.36\n");
   file(join(base, "version.json"), JSON.stringify({ version: "browser-fixture" }));
   const bin = join(base, "bin"), wrapper = join(bin, "node");
   file(wrapper, `#!${process.execPath}
@@ -181,13 +279,24 @@ function stopGate(f: Fixture) {
   releaseGate(f);
 }
 const gated = (f: Fixture) => ({ SETUP_TEST_GATE: f.gate, SETUP_TEST_RELEASE: f.release });
+const generations = (f: Fixture) => join(f.home, "runtime-generations");
+const current = (f: Fixture) => readlinkSync(join(f.home, "runtime")).replace(/^runtime-generations\//, "");
+const stages = (f: Fixture) => existsSync(generations(f)) ? readdirSync(generations(f)).filter(name => name.startsWith(".stage-")) : [];
+async function prepared(f: Fixture) {
+  const result = await finish(launch(f));
+  if (result.code) throw Error(result.stderr || result.stdout);
+  return (JSON.parse(result.stdout.trim().split("\n").at(-1)!) as { runtime: { id: string; status: "reused" | "prepared" } }).runtime;
+}
+/** A recorded service. The live PID has no start stamp, so its ownership is unverified and it counts as running. */
+function service(f: Fixture, id: string, extra: Record<string, unknown> = {}) {
+  file(join(f.home, "profiles", id, "running.json"), JSON.stringify({ version: 2, pid: process.pid, instanceId: "live", configurationHash: "fixture", ...extra }));
+}
 
-test("activates a complete runtime and manifest, replacing the installed runtime", async () => {
+test("activates a complete runtime generation, replacing the installed runtime, and reuses an unchanged one", async () => {
   const f = fixture(); installedRuntime(f);
+  const runtimes = [];
   for (let i = 0; i < 2; i++) {
-    const result = await finish(launch(f));
-    if (result.code) throw Error(result.stderr || result.stdout);
-    expect(result.code).toBe(0);
+    runtimes.push(await prepared(f));
     const manifest = JSON.parse(readFileSync(join(f.home, "runtime/versions.json"), "utf8"));
     expect(manifest.upstreamVersion).toBe("1.18.1");
     expect(manifest.browserVersion).toEqual({ version: "browser-fixture" });
@@ -202,8 +311,25 @@ test("activates a complete runtime and manifest, replacing the installed runtime
     expect(existsSync(join(f.home, "runtime/camofox-1.18.1/plugins/local-profile/index.js"))).toBe(true);
     for (const name of ["better-sqlite3", "impit"]) expect(existsSync(join(f.home, "runtime/camofox-1.18.1/node_modules", name, "package.json"))).toBe(true);
   }
-  expect(readdirSync(f.home).filter(name => name.startsWith(".runtime-setup-"))).toEqual([]);
+  expect(runtimes.map(runtime => runtime.status)).toEqual(["prepared", "reused"]);
+  expect(runtimes[1]!.id).toBe(runtimes[0]!.id);
+  expect(runtimes[0]!.id).toMatch(/^[a-f0-9]{16}$/);
+  expect(current(f)).toBe(runtimes[0]!.id);
+  expect(readdirSync(generations(f))).toEqual([runtimes[0]!.id]);
 }, 30000);
+
+test("setup without consent lists its downloads and changes nothing", async () => {
+  const f = fixture();
+  const result = await finish(launch(f, "setup-unconfirmed"));
+  expect(result.code).not.toBe(0);
+  const downloads = JSON.parse(result.stdout.trim()) as { name: string; size: string; purpose: string; source: string }[];
+  expect(downloads.map(item => item.name)).toEqual(["GeoIP AIO location data", "GeoLite2 City location data", "Fingerprint model"]);
+  expect(downloads.map(item => item.source)).toEqual(["https://github.com/daijro/geoip-all-in-one/releases/latest",
+    "https://github.com/P3TERX/GeoLite.mmdb/releases/latest", "https://github.com/scrapfly/fingerprint-generator/releases/tag/model-2/2026"]);
+  expect(downloads.every(item => item.size && item.purpose)).toBe(true);
+  expect(result.stderr).toContain("Run stelz setup --yes to allow them.");
+  expect(existsSync(join(f.home, "runtime"))).toBe(false);
+});
 
 test("validation failure preserves the previous runtime and manifest", async () => {
   const f = fixture(); installedRuntime(f);
@@ -211,7 +337,7 @@ test("validation failure preserves the previous runtime and manifest", async () 
   expect(result.code).not.toBe(0);
   expect(result.stderr).toContain("forced validation failure");
   oldRuntime(f);
-  expect(readdirSync(f.home).filter(name => name.startsWith(".runtime-setup-"))).toEqual([]);
+  expect(stages(f)).toEqual([]);
 });
 
 test("a failed location download cannot replace active data or unrelated settings", async () => {
@@ -223,7 +349,18 @@ test("a failed location download cannot replace active data or unrelated setting
   expect(result.code).not.toBe(0); expect(result.stderr).toContain("Location-data integrity");
   oldRuntime(f);
   for (const [name, value] of Object.entries(files)) expect(readFileSync(join(f.home, name), "utf8")).toBe(value);
-  expect(readdirSync(f.home).filter(name => name.startsWith(".runtime-setup-"))).toEqual([]);
+  expect(stages(f)).toEqual([]);
+});
+
+test("a failed model preparation preserves the active model and permits retry", async () => {
+  const f = fixture(); installedRuntime(f);
+  file(join(f.home, "runtime/fpgen/values.dat"), "previous prepared model");
+  const result = await finish(launch(f, "setup", { SETUP_TEST_MODEL_FAIL: "1" }));
+  expect(result.code).not.toBe(0); expect(result.stderr).toContain("Fingerprint model preparation failed");
+  oldRuntime(f);
+  expect(readFileSync(join(f.home, "runtime/fpgen/values.dat"), "utf8")).toBe("previous prepared model");
+  expect(stages(f)).toEqual([]);
+  expect((await finish(launch(f))).code).toBe(0);
 });
 
 test("setup rejects a missing, reverted, or duplicate native page patch in either creation attempt", async () => {
@@ -269,22 +406,24 @@ test("missing contract modules or required exports cannot replace the runtime", 
   }
 }, 30000);
 
-test("interruption after staging leaves the previous runtime active and permits retry", async () => {
-  const f = fixture(); installedRuntime(f);
+test("interruption after staging leaves the previous generation active and permits retry", async () => {
+  const f = fixture();
+  const previous = (await prepared(f)).id;
+  file(f.browser, "updated browser executable fixture");
   const child = launch(f, "setup", gated(f));
   try {
     await until(() => existsSync(f.gate), "staged validation");
-    const stages = readdirSync(f.home).filter(name => name.startsWith(".runtime-setup-"));
-    expect(stages).toHaveLength(1);
-    expect(JSON.parse(readFileSync(join(f.home, stages[0]!, "versions.json"), "utf8")).upstreamVersion).toBe("1.18.1");
-    oldRuntime(f);
+    expect(stages(f)).toHaveLength(1);
+    expect(JSON.parse(readFileSync(join(generations(f), stages(f)[0]!, "versions.json"), "utf8")).upstreamVersion).toBe("1.18.1");
     child.kill("SIGKILL");
     await finish(child);
     stopGate(f);
-    oldRuntime(f);
-    const retried = await finish(launch(f));
-    expect(retried.code).toBe(0);
-    expect(JSON.parse(readFileSync(join(f.home, "runtime/versions.json"), "utf8")).upstreamVersion).toBe("1.18.1");
+    expect(current(f)).toBe(previous);
+    const retried = await prepared(f);
+    expect(retried.status).toBe("prepared");
+    expect(retried.id).not.toBe(previous);
+    expect(current(f)).toBe(retried.id);
+    expect(readdirSync(generations(f))).toEqual([retried.id]);
   } finally { child.kill("SIGKILL"); stopGate(f); }
 }, 30000);
 
@@ -306,25 +445,26 @@ test("interruption during old-runtime cleanup leaves the new runtime complete", 
   } finally { child.kill("SIGKILL"); stopGate(f); }
 }, 30000);
 
-test("setup serializes with another setup and a real start operation", async () => {
+test("setup serializes with another setup but does not block a real start operation", async () => {
   const f = fixture(); installedRuntime(f);
   const first = launch(f, "setup", gated(f));
-  let second: ReturnType<typeof launch> | undefined, start: ReturnType<typeof launch> | undefined;
+  let second: ReturnType<typeof launch> | undefined;
   try {
     await until(() => existsSync(f.gate), "first setup");
-    second = launch(f); start = launch(f, "start profile-02");
-    await Bun.sleep(250);
+    second = launch(f);
+    // Staging does not hold the admission lock, so Start reaches its own checks.
+    const start = await finish(launch(f, "start profile-02"));
+    expect(start.code).not.toBe(0);
+    expect(start.stderr).toContain("Unknown profile: profile-02");
     expect(second.exitCode).toBeNull();
-    expect(start.exitCode).toBeNull();
-    expect(existsSync(join(f.home, "profiles/profile-02/running.json"))).toBe(false);
-    expect(readdirSync(f.home).filter(name => name.startsWith(".runtime-setup-"))).toHaveLength(1);
+    expect(stages(f)).toHaveLength(1);
     oldRuntime(f);
-    start.kill("SIGKILL"); await finish(start);
     releaseGate(f);
     expect((await finish(first)).code).toBe(0);
-    expect((await finish(second)).code).toBe(0);
-    expect(JSON.parse(readFileSync(join(f.home, "runtime/versions.json"), "utf8")).upstreamVersion).toBe("1.18.1");
-  } finally { first.kill("SIGKILL"); second?.kill("SIGKILL"); start?.kill("SIGKILL"); stopGate(f); }
+    const result = await finish(second);
+    expect(result.code).toBe(0);
+    expect(JSON.parse(result.stdout.trim().split("\n").at(-1)!).runtime.status).toBe("reused");
+  } finally { first.kill("SIGKILL"); second?.kill("SIGKILL"); stopGate(f); }
 }, 30000);
 
 test("simultaneous first setups initialize and activate safely", async () => {
@@ -339,46 +479,48 @@ test("simultaneous first setups initialize and activate safely", async () => {
   expect(JSON.parse(readFileSync(join(f.home, "runtime/versions.json"), "utf8")).upstreamVersion).toBe("1.18.1");
 }, 30000);
 
-test("active, orphaned, unclean, and malformed profile records block setup", async () => {
-  for (const [id, value] of [
-    ["profile-02", { pid: process.pid, instanceId: "live" }],
-    ["removed-profile", { pid: 99999999, serverPid: process.pid, instanceId: "orphan" }],
-    ["profile-01", { pid: 99999999, instanceId: "unclean" }],
-    ["profile-01", { pid: 0, instanceId: "reservation" }],
-    ["profile-01", null],
-  ] as const) {
-    const f = fixture(); installedRuntime(f);
-    file(join(f.home, "profiles", id, "running.json"), JSON.stringify(value));
-    const result = await finish(launch(f));
-    expect(result.code).not.toBe(0);
-    oldRuntime(f);
-  }
-});
+test("setup keeps the generations that running profiles use and removes the others", async () => {
+  const f = fixture();
+  const first = (await prepared(f)).id;
+  service(f, "profile-02", { runtime: first });
+  file(f.browser, "second browser executable fixture");
+  const second = await prepared(f);
+  expect(second.status).toBe("prepared");
+  expect(second.id).not.toBe(first);
+  expect(current(f)).toBe(second.id);
+  expect(readdirSync(generations(f)).sort()).toEqual([first, second.id].sort());
+  expect(readFileSync(join(generations(f), first, "camofox-1.18.1/server.js"), "utf8")).toContain("launchProfileBrowser");
+  // The service has exited, so its generation is no longer referenced.
+  service(f, "profile-02", { pid: 99999999, runtime: first });
+  file(f.browser, "third browser executable fixture");
+  const third = await prepared(f);
+  expect(readdirSync(generations(f))).toEqual([third.id]);
+  // A start reservation holds its generation before its supervisor runs.
+  service(f, "profile-03", { pid: 0, serverState: "not-started", runtime: third.id });
+  file(f.browser, "fourth browser executable fixture");
+  const fourth = await prepared(f);
+  expect(readdirSync(generations(f)).sort()).toEqual([third.id, fourth.id].sort());
+  // A malformed record can hide a running service, so setup stops before it changes the current generation.
+  file(join(f.home, "profiles", "profile-04", "running.json"), "{ malformed");
+  file(f.browser, "fifth browser executable fixture");
+  expect((await finish(launch(f))).code).not.toBe(0);
+  expect(current(f)).toBe(fourth.id);
+}, 30000);
 
-test("setup rechecks profiles after obtaining the shared admission lock", async () => {
+test("an earlier plain runtime cannot be replaced after a profile starts during staging", async () => {
   const f = fixture(); installedRuntime(f);
-  const state = join(f.home, "profiles"), held = join(f.base, "held"), release = join(f.base, "unlock");
-  mkdirSync(state, { recursive: true });
-  const code = `import { lock } from ${JSON.stringify(join(f.project, "src/runtime/runtime.ts"))};
-import { writeFileSync, existsSync, mkdirSync } from "node:fs";
-await lock(${JSON.stringify(join(state, "admission.lock"))}, async () => {
-  writeFileSync(${JSON.stringify(held)}, "held");
-  while (!existsSync(${JSON.stringify(release)})) await Bun.sleep(10);
-  mkdirSync(${JSON.stringify(join(state, "profile-02"))}, { recursive: true });
-  writeFileSync(${JSON.stringify(join(state, "profile-02/running.json"))}, JSON.stringify({ pid: ${process.pid}, instanceId: "started" }));
-});`;
-  const holder = Bun.spawn([process.execPath, "-e", code], { cwd: f.project, env: { ...process.env, STELZ_HOME: f.home }, stdout: "pipe", stderr: "pipe" });
-  let setup: ReturnType<typeof launch> | undefined;
+  const child = launch(f, "setup", gated(f));
   try {
-    await until(() => existsSync(held), "startup admission lock");
-    setup = launch(f);
-    await Bun.sleep(200);
-    expect(setup.exitCode).toBeNull();
-    file(release, "release"); await holder.exited;
-    expect((await finish(setup)).code).not.toBe(0);
+    await until(() => existsSync(f.gate), "staged validation");
+    service(f, "profile-02");
+    releaseGate(f);
+    const result = await finish(child);
+    expect(result.code).not.toBe(0);
+    expect(result.stderr).toContain("Stop running profiles from an earlier Stelz version before you run stelz setup.");
+    expect(lstatSync(join(f.home, "runtime")).isDirectory()).toBe(true);
     oldRuntime(f);
-  } finally { file(release, "release"); holder.kill("SIGKILL"); setup?.kill("SIGKILL"); }
-});
+  } finally { child.kill("SIGKILL"); stopGate(f); }
+}, 30000);
 
 test("a clean stopped record permits setup, but a matching marker cannot hide a live server", async () => {
   for (const live of [false, true]) {

@@ -11,4 +11,4 @@ Commit the generated Markdown file with the implementation.
 Tests and internal tooling alone do not require a package release.
 
 The release workflow updates one version PR from these files.
-See [Release Stelz](../docs/releasing.md) for the complete procedure and agent instructions.
+See [Release Stelz](../docs/development/releasing.md) for the complete procedure and agent instructions.

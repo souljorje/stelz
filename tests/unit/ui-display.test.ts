@@ -11,7 +11,7 @@ import { actionReason, boundedLog, hasProxy, homeCommand, mcpCommand, networkDir
 
 const network: UiNetwork = { revision: "revision-1", proxyEnv: null, expectedIPEnv: null, proxyDisplay: null, proxyConfigured: false, expectedIp: "203.0.113.1", proxyReadOnly: false, expectedIpReadOnly: false };
 function profile(phase: UiPhase, changes: Partial<UiProfile> = {}): UiProfile {
-  return { id: "profile-01", name: "profile-01", phase, port: 9340, storage: "native", typingMode: "auto", typing: { revision: "typing-revision-1", mode: null, defaultMode: "auto" }, instanceId: null, exitIp: null, checkedAt: null, fixedIpVerified: false, windowControls: { available: false, reason: null }, controller: null, supervisorPid: null, serverPid: null, ownership: null, fingerprintSha256: null, engineSha256: null, error: null, controlError: null, configurationError: null, network, ...changes };
+  return { id: "profile-01", name: "profile-01", phase, port: 9340, storage: "native", typingMode: "balanced", typing: { revision: "typing-revision-1", mode: null, defaultMode: "balanced" }, restartToUpdate: false, instanceId: null, exitIp: null, checkedAt: null, fixedIpVerified: false, windowControls: { available: false, reason: null }, controller: null, supervisorPid: null, serverPid: null, ownership: null, fingerprintSha256: null, engineSha256: null, error: null, controlError: null, configurationError: null, network, ...changes };
 }
 function context(row: UiProfile) {
   const snapshot: UiSnapshot = { home: "/tmp/stelz", version: "0.2.0", upstreamVersion: "1.18.1", initialized: true, setup: true, catalogRevision: "a".repeat(64), profiles: [row], updatedAt: new Date().toISOString() };
@@ -131,14 +131,14 @@ describe("typing preferences", () => {
   }));
   test("the three typing choices show the effective inherited or explicit mode", () => {
     const row = profile("ready");
-    expect(render(row)).toContain('value="auto" selected=""');
+    expect(render(row)).toContain('value="balanced" selected=""');
     expect(render(row).match(/<option /g)).toHaveLength(3);
     expect(render(row)).not.toContain("Service default");
     expect(render(row)).not.toContain('value="inherit"');
     const inheritedInstant = { ...row, typingMode: "instant" as const, typing: { ...row.typing, defaultMode: "instant" as const } };
     expect(render(inheritedInstant)).toContain('value="instant" selected=""');
     expect(render(inheritedInstant)).toContain("Enter the complete text at once.");
-    expect(render({ ...inheritedInstant, typingMode: "auto", typing: { ...inheritedInstant.typing, mode: "auto" } })).toContain('value="auto" selected=""');
+    expect(render({ ...inheritedInstant, typingMode: "balanced", typing: { ...inheritedInstant.typing, mode: "balanced" } })).toContain('value="balanced" selected=""');
   });
   test("offline, local pending, and another tab's pending operation disable typing", () => {
     const row = profile("ready");

@@ -1,6 +1,6 @@
 // Explicit browser acceptance in a disposable home. Existing service profiles are never selected.
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createTestHome } from "../helpers/test-home.ts";
 import { join, resolve } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -9,7 +9,7 @@ import { routeProfileTools } from "../helpers/mcp-client.ts";
 import { processStart, type Running } from "../../src/runtime/profile-process.ts";
 
 const root = resolve(import.meta.dir, "../.."), cli = process.env.STELZ_CLI || process.env.STELZ_TEST_CLI || join(root, "dist/cli.js");
-const home = mkdtempSync(join(tmpdir(), "stelz-browser-concurrency-"));
+const home = createTestHome("stelz-browser-concurrency");
 const ids = ["concurrency-01", "concurrency-02", "concurrency-03"];
 const env: Record<string, string> = { STELZ_HOME: home };
 for (const key of ["PATH", "HOME", "LANG", "TMPDIR", "CAMOUFOX_EXECUTABLE"]) if (process.env[key]) env[key] = process.env[key]!;
@@ -101,8 +101,7 @@ async function storage(capture: string, expected: string | null) {
 }
 try {
   console.log(`Three native browsers, local fixture only. Temporary home: ${home}`);
-  await command("init");
-  await command("setup"); site = await fixture(0);
+  await command("setup", "--yes"); site = await fixture(0);
   const client = await connect(), schemas = JSON.stringify((await client.listTools()).tools);
   assert(JSON.stringify((await call(client, "profile_list")).profiles) === "[]", "Catalog is not empty at connection startup");
   const handles = new Map<string, string>();
@@ -144,6 +143,18 @@ try {
   }));
   for (const result of interleaved) if (result.status === "rejected") throw result.reason;
   report.checks.push("Cookie, localStorage, and IndexedDB markers remain isolated across three profiles");
+
+  const parallelWheels = await Promise.allSettled(ids.map(async id => {
+    const foreground = await call(client, "camofox_create_tab", { profileId: id, url: site!.url });
+    const tabId = tabs.get(id)!;
+    await call(client, "camofox_snapshot", { profileId: id, tabId });
+    await call(client, "camofox_scroll", { profileId: id, tabId, direction: "down", amount: 200 });
+    const observed = await call(client, "camofox_snapshot", { profileId: id, tabId });
+    assert(String(observed.snapshot).includes(`Storage marker: ${id}`), `${id}: background-tab scroll lost profile state`);
+    await call(client, "camofox_close_tab", { profileId: id, tabId: foreground.tabId });
+  }));
+  for (const result of parallelWheels) if (result.status === "rejected") throw result.reason;
+  report.checks.push("Parallel profiles scroll their original tabs after opening another tab, with isolated page state");
 
   const first = ids[0]!, second = ids[1]!, competitor = await connect();
   const page = tabs.get(first)!;

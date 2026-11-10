@@ -1,0 +1,88 @@
+# Local checks. Install once per clone with `bunx lefthook install`. See CONTRIBUTING.md.
+# CI runs `bun run check` and remains the authority.
+no_auto_install: true
+glob_matcher: doublestar
+
+pre-commit:
+  parallel: true
+  jobs:
+    - name: typecheck
+      glob: ["**/*.{ts,tsx}", "{tsconfig,package}.json"]
+      run: bun run typecheck
+    - name: regression
+      glob: "{src,tests/regression,tests/helpers}/**"
+      run: bun run test:regression
+    # Import-graph selection. It misses code that tests reach only through a CLI
+    # subprocess, so pre-push runs the full suite.
+    - name: affected tests
+      glob: ["**/*.{ts,tsx}", "package.json"]
+      run: bun test --parallel --changed=HEAD ./tests/unit ./tests/integration
+
+pre-push:
+  jobs:
+    - name: check
+      run: bun run check
+
+# Real-browser suites for the files this branch changes, one suite at a time.
+#   bunx lefthook run browser                     changes since origin/main, including uncommitted ones
+#   BASE=HEAD~1 bunx lefthook run browser         changes since another commit
+#   bunx lefthook run browser --all-files         every suite
+#   STELZ_DRY_RUN=echo bunx lefthook run browser  list the selected suites only
+# Core paths run in every browser session, so they select every suite.
+# Startup paths fail on any start, so integration and setup cover them.
+browser:
+  files: >-
+    base=$(git merge-base "${BASE:-origin/main}" HEAD) &&
+    git diff --name-only "$base" &&
+    git ls-files --others --exclude-standard
+  jobs:
+    - name: integration
+      glob:
+        - &core "{bun.lock,patches/**,scripts/{bundle-package,bundled-dependencies}.ts,src/mcp/**,\
+          src/runtime/{operations,profile-process,runtime-plugin,runtime,supervisor}.ts,\
+          src/browser/{camofox-adapter,camoufox,native-dependencies,native-profile,plugin,upstream}.ts,\
+          tests/helpers/{fixture,fixture-browser,mcp-client,ports,startup-window,test-home}.ts}"
+        - &startup "{package.json,scripts/build.ts,src/{paths,versions}.ts,src/cli/{cli,profile,profile-fingerprint}.ts,\
+          src/browser/{browser-setup,release-asset,setup}.ts,\
+          src/profiles/{config,profile-catalog,profile-configuration,profile-configuration-types}.ts}"
+        - tests/browser/integration.ts
+      run: $STELZ_DRY_RUN bun run test:integration
+    - name: concurrency
+      glob: [*core, tests/browser/concurrency.ts]
+      run: $STELZ_DRY_RUN bun run test:concurrency
+    - name: native
+      glob: [*core, "src/browser/fingerprint*.ts", src/profiles/fingerprint-check.ts, tests/helpers/observations.ts, tests/browser/native-integration.ts]
+      run: $STELZ_DRY_RUN bun run test:native
+    - name: transfer
+      glob: [*core, "src/profiles/profile-{archive,export,import,import-transaction,transfer-types}.ts", "src/api/{profile-transfers,transfer-contracts}.ts", src/cli/profile-transfer.ts, tests/browser/profile-transfer.ts]
+      run: $STELZ_DRY_RUN bun run test:transfer
+    - name: windows
+      glob:
+        - *core
+        - &windows "{src/browser/{profile-appearance,profile-extension,profile-windows,window-activation}.ts,src/api/{contracts,window-model}.ts}"
+        - tests/browser/profile-windows-browser.ts
+      run: $STELZ_DRY_RUN bun run test:windows
+    - name: window-close
+      glob: [*core, *windows, tests/browser/window-close.ts]
+      run: $STELZ_DRY_RUN bun run test:window-close
+    - name: typing
+      glob: [*core, src/browser/typing.ts, src/profiles/typing-mode.ts, tests/helpers/upstream-typing.ts, tests/browser/typing-browser.ts]
+      run: $STELZ_DRY_RUN bun run test:typing
+    - name: proxy
+      glob:
+        - *core
+        - &location "{src/browser/{geoip-setup,ip-probe,ip-verification,location,location-launch}.ts,\
+          src/runtime/{location-preflight,public-ip}.ts,src/profiles/{network-transaction,proxy-input,proxy-url}.ts,\
+          tests/helpers/{observations,*proxy*}.ts}"
+        - tests/browser/proxy-integration.ts
+      run: $STELZ_DRY_RUN bun run test:proxy
+    - name: ui
+      glob: [*core, "ui/**", "src/api/{contracts,ui-app,ui-model,ui-server,window-model}.ts", tests/helpers/geoip-fixture.ts, tests/browser/ui-browser.ts]
+      run: $STELZ_DRY_RUN bun run test:ui:browser
+    # Package suites test the packed archive.
+    - name: setup
+      glob: [*core, *startup, src/browser/geoip-setup.ts, "scripts/{pack,package-archive}.ts", "tests/package/{install,setup}.ts", tests/helpers/native-dependencies.ts]
+      run: $STELZ_DRY_RUN bun run pack && $STELZ_DRY_RUN bun run test:setup
+    - name: location
+      glob: [*core, *location, "scripts/{pack,package-archive}.ts", "tests/package/{install,location}.ts", tests/helpers/native-dependencies.ts]
+      run: $STELZ_DRY_RUN bun run pack && $STELZ_DRY_RUN bun run test:location

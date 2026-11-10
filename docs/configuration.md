@@ -22,7 +22,7 @@ For settings that use `secrets.env`, resolution follows this order:
 They do not read assignments from `secrets.env`.
 An empty `STELZ_HOME` uses the default directory.
 An empty effective `CAMOUFOX_EXECUTABLE` uses its default path.
-Empty typing and IP interval values are invalid.
+Empty typing, IP interval, and location policy values are invalid.
 Supply an absolute executable path. Stelz does not expand a literal `~` in that setting.
 
 `secrets.env` uses dotenv-style assignments parsed with Node's `parseEnv`.
@@ -35,9 +35,10 @@ Preserve existing secret reference names when changing a value.
 | Setting | Source | Accepted value and default |
 | --- | --- | --- |
 | `STELZ_HOME` | Process only | Service directory. Default: `~/.local/share/stelz`. |
-| `CAMOUFOX_EXECUTABLE` | Process, then `secrets.env` | Existing Camoufox executable path. Default: `~/Library/Caches/camoufox/Camoufox.app/Contents/MacOS/camoufox`. |
-| `STELZ_TYPING_MODE` | Process, then `secrets.env` | `auto`, `keyboard`, or `instant`. Default: `auto`. |
+| `CAMOUFOX_EXECUTABLE` | Process, then `secrets.env` | Optional path to the paired Camoufox build. Default: the copy that setup prepares in `browsers/`. |
+| `STELZ_TYPING_MODE` | Process, then `secrets.env` | `balanced`, `keyboard`, or `instant`. Default: `keyboard`. |
 | `STELZ_IP_CHECK_INTERVAL_MS` | Process, then `secrets.env` | Decimal integer from `0` to `120000`, without leading zeros. Default: `120000`. |
+| `STELZ_LOCATION_POLICY` | Process, then `secrets.env` | `warn` or `strict`. Default: `warn`. See [Managed location data](#managed-location-data). |
 | Name in `proxyEnv` | Process, then `secrets.env` | Complete HTTP(S) or unauthenticated SOCKS5 URL. Missing or empty values block a configured proxy. |
 | Name in `expectedIPEnv` | Process, then `secrets.env` | Exact IPv4 or IPv6 address. Missing or empty values omit the expected-address constraint. |
 | `STELZ_TRANSFER_ARCHIVE_BYTES` | Process only | Positive safe integer. Default: `10737418240` bytes, or 10 GiB. |
@@ -55,14 +56,14 @@ Start refuses a changed launch configuration while its previous lifetime remains
 Profile display names and profile typing preferences can change while the browser runs.
 Set transfer limits before invoking a CLI transfer or starting the UI.
 
-The supervisor supplies internal `STELZ_PROFILE_*`, `STELZ_EXPECTED_IP`, `CAMOFOX_*`, and `PROXY_*` values.
+The supervisor supplies internal `STELZ_PROFILE_*`, `STELZ_RUNTIME`, `STELZ_EXPECTED_IP`, `CAMOFOX_*`, and `PROXY_*` values.
 These values are not user configuration inputs.
 Generic `HTTP_PROXY` or `HTTPS_PROXY` variables do not select a profile's browser route.
 
 ## Profile catalog schema
 
 `profiles.json` accepts one top-level property: `profiles`, an array.
-Init creates `{ "profiles": [] }`. Prefer the UI or `stelz profile create work` to manual creation.
+Setup creates `{ "profiles": [] }`. Prefer the UI or `stelz profile create work` to manual creation.
 
 ```json
 {
@@ -80,7 +81,7 @@ Init creates `{ "profiles": [] }`. Prefer the UI or `stelz profile create work` 
 | `storage` | String | Optional for existing entries. The only accepted value is `native`. New profiles set it explicitly. |
 | `proxyEnv` | String | Optional secret reference. Its presence selects a proxy. Its absence selects direct networking. |
 | `expectedIPEnv` | String | Optional reference for an expected exit IP. Applies to direct or proxy connections. |
-| `typingMode` | String | Optional `auto`, `keyboard`, or `instant`. Overrides the service typing default. |
+| `typingMode` | String | Optional `balanced`, `keyboard`, or `instant`. Overrides the service typing default. |
 
 The catalog rejects unknown properties at both levels.
 Reference names match `[A-Za-z_][A-Za-z0-9_]{0,127}`.
@@ -100,25 +101,33 @@ Typing selection follows this order:
 1. The `camofox_type` call's explicit `mode`.
 2. The selected profile's `typingMode`.
 3. The service's effective `STELZ_TYPING_MODE` at launch.
-4. `auto`.
+4. `keyboard`.
 
 | Mode | Behavior |
 | --- | --- |
-| `auto` | Uses variable keystroke timing and random pauses for estimated durations of at most 10 seconds. Longer input uses bulk entry. |
-| `keyboard` | Sends individual key events without artificial delays. |
+| `balanced` | Uses paced typing when the estimated duration, including corrections, is at most 10 seconds. Longer input uses bulk entry. |
+| `keyboard` | Uses variable keystroke timing and random pauses. Never selects bulk entry for long text. One call can take up to 3 minutes. |
 | `instant` | Uses Playwright `fill()` to enter the complete value. |
 
-The service selects the automatic method before changing the field.
+The service selects the balanced method before changing the field.
+Keyboard text that cannot finish within 3 minutes fails before the field changes. Use `balanced` or `instant` for it.
+Clicks, navigation, scrolls, snapshots, and screenshots have a 30-second limit.
 Typing replaces existing contents. Empty text clears the field.
 Unicode text and native newline normalization remain intact.
 Date and similar inputs retain specialized input behavior.
-The service does not deliberately insert errors.
+
+Paced typing can insert and correct occasional typos in plain text inputs and textareas.
+Each eligible word has a 3% correction probability, with at least 15 words between corrections.
+Eligible words contain at least four ASCII letters. Single-word values and repeated-character words do not receive corrections.
+Corrections change letters near word endings: an adjacent QWERTY key, a doubled letter, a dropped letter, or the wrong case.
+The service uses one or two Backspaces, then types the corrected ending. Successful entry preserves the requested text.
+Other input types and rich editors do not receive corrections. Neither do fields with a length limit, one-time-code entry, a numeric or similar input mode, or live suggestions.
+The former `auto` mode is invalid. Existing settings are not migrated.
 
 The UI saves a profile preference for future actions without a browser restart.
 A call override applies only to that call.
 Typing retains the tab lock until it completes.
 A timeout blocks further actions and requires an explicit stop and start of that profile.
-For incomplete input without a timeout, read a fresh snapshot before another action.
 The service does not replay partially entered text.
 
 ## IP verification fields
@@ -181,16 +190,33 @@ See [Camofox integration](development/camofox-integration.md) for launch and loc
 
 ## Managed location data
 
-`stelz setup` prepares one database under `runtime/geoip/` for all profiles.
-It checks the release SHA-256 and opens the database with the pinned reader before activation.
-The manifest records the release, content hash, database metadata, and acquisition time.
-Repeated setup reuses valid data without contacting its download service. Dataset age does not block startup.
-Setup stages replacements with the runtime. An interrupted download preserves the active runtime and database.
-All profiles must be safely stopped before setup. Start does not download missing data.
+`stelz setup` prepares two databases under `runtime/geoip/` for all profiles:
+
+- GeoIP AIO selects the location. Upstream Camoufox uses it by default. It records no city or accuracy.
+- GeoLite2 City is the comparison. It records a city and an accuracy radius for many addresses.
+
+Setup checks each release SHA-256 and opens each database with the pinned reader before activation.
+The manifest records each source, release, content hash, database metadata, build time, and acquisition time.
+Repeated setup reuses a build that is at most 8 days old without contacting its download service.
+For an older build, setup reads the latest release and downloads it only when it differs. Offline, setup keeps the validated older build.
+Setup stages replacements in a new runtime generation. An interrupted download preserves the active runtime and databases.
+A running profile keeps the databases of the generation that it started with. Start does not download missing data.
+
+Each preflight compares the selected location with the comparison record for the exit IP:
+
+| Result | Meaning |
+| --- | --- |
+| `corroborated` | A city-level comparison record (accuracy radius at most 100 km) has the same UTC offsets in January and July. |
+| `uncorroborated` | The comparison record is broader, has no timezone, or is missing. Missing metadata is not evidence against the selection. |
+| `conflicting` | A city-level comparison record has different UTC offsets. |
+
+A build older than 30 days is stale. With `STELZ_LOCATION_POLICY=warn`, Start reports a conflict or stale data and continues.
+With `strict`, Start blocks before launch. A rotated exit gets its own comparison, and `strict` blocks it on a conflict.
+No database proves a physical location. Providers often disagree, and a detection site can use a different provider.
 
 ## Files and private state
 
-Paths below are relative to `STELZ_HOME`, except the separately installed Camoufox executable.
+Paths below are relative to `STELZ_HOME`, except a `CAMOUFOX_EXECUTABLE` override.
 Managed private directories use mode `0700`. Managed private state and secret files use mode `0600`.
 Do not replace service state or lock files while an operation is active.
 
@@ -198,8 +224,12 @@ Do not replace service state or lock files while an operation is active.
 | --- | --- |
 | `profiles.json` | Profile catalog. |
 | `secrets.env` | Referenced proxy values and optional service settings. |
+| `browsers/VERSION-BUILD/` | Stelz's copy of the paired Camoufox build. Setup clones it from the upstream cache or downloads and verifies it. |
+| `runtime-generations/ID/` | One prepared runtime. Setup reuses an unchanged generation and removes generations that no running profile uses. |
+| `runtime` | Link to the current generation. A running profile keeps the generation that it started with. |
 | `runtime/versions.json` | Prepared runtime versions, executable path, and `executableSha256`. |
 | `runtime/camofox-VERSION/` | Prepared upstream server, contracts, dependencies, and local plugin. |
+| `runtime/geoip/`, `runtime/fpgen/` | Managed location data and the fingerprint model. |
 | `profiles/ID/browser-data/` | Native persistent Firefox profile, including saved login state. |
 | `profiles/ID/native-profile.json` | Native storage marker with `version: 1`. |
 | `profiles/ID/fingerprint.json` | Saved device pin with `version: 2`, `engineSha256`, and `config`. |
@@ -210,7 +240,7 @@ Do not replace service state or lock files while an operation is active.
 | `profiles/ID/running.json` | Supervisor/server PIDs, process birth stamps, instance ID, port, and launch configuration hash. |
 | `profiles/ID/status.json`, `profiles/ID/initialized.json`, `profiles/ID/stopped.json` | Observed state, completed initialization, and clean-stop receipt. |
 | `profiles/ID/server.log`, `profiles/ID/supervisor.log` | Current logs. Rotation can preserve a `.1` file. |
-| `profiles/admission.lock`, `profiles/ID/lifecycle.lock` | Kernel-backed operation locks. Their continued presence does not establish a live owner. |
+| `profiles/admission.lock`, `profiles/setup.lock`, `profiles/ID/lifecycle.lock` | Kernel-backed operation locks. Their continued presence does not establish a live owner. |
 | `trash/ID-TOKEN/profile.json`, `trash/ID-TOKEN/profile/` | Deleted profile configuration and archived directory. Shared secret values remain in `secrets.env`. |
 | `.profile-transfers/` | Private CLI/UI archive and extraction staging. |
 | `profiles/.profile-import-TOKEN/` | Journal-owned staging for an import batch. |

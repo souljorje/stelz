@@ -25,7 +25,7 @@ export function Profiles({ snapshot, context, onInspect, onAction, onShow, expor
       }}>
         {exportSelection && <td className="profile-select-cell"><label className="profile-export-check" data-row-control title={exportReason ?? `Export ${profile.name}`}><input type="checkbox" aria-label={`Export ${profile.name}`} aria-describedby={exportReason ? `export-reason-${profile.id}` : undefined} checked={selected.has(profile.id) && !exportUnavailable(profile)} disabled={!!exportReason} onChange={() => exportSelection.onToggle(profile.id)} />{exportReason && <span id={`export-reason-${profile.id}`} className="sr-only">{exportReason}</span>}</label></td>}
         <th scope="row"><button type="button" className="profile-name" aria-label={`Inspect ${profile.name}`} onClick={() => onInspect(profile.id)}><ProfileMark id={profile.id} /><span>{profile.name}</span></button></th>
-        <td className="browser-phase"><Phase phase={profile.phase} />{profile.controller && <span className="cell-secondary">{profile.controller.releasing ? "Releasing " : ""}{redact(profile.controller.label)}</span>}{issue && <span className="cell-secondary profile-issue inline-attention" title={issue}>{issue}</span>}</td>
+        <td className="browser-phase"><Phase phase={profile.phase} />{profile.restartToUpdate && <span className="cell-secondary" title="This profile runs an older runtime. Restart it to use the current runtime.">Restart to update</span>}{profile.controller && <span className="cell-secondary">{profile.controller.releasing ? "Releasing " : ""}{redact(profile.controller.label)}</span>}{issue && <span className="cell-secondary profile-issue inline-attention" title={issue}>{issue}</span>}</td>
         <td className="profile-connection"><span title={hasProxy(profile.network) ? proxyDisplay(profile.network.proxyDisplay) : undefined}>{hasProxy(profile.network) ? profile.network.proxyConfigured ? "Proxy" : "Proxy missing" : "Direct"}</span><span className="cell-secondary" aria-label={`Location alignment: ${locationLabel(profile)}`}>{locationLabel(profile)}</span></td>
         <td className="row-actions"><div className="button-row"><ShowWindowButton profile={profile} context={context} onShow={onShow} compact /><ActionButton profile={profile} action={action} context={context} onAction={onAction} compact /></div></td>
       </tr>;
@@ -34,7 +34,7 @@ export function Profiles({ snapshot, context, onInspect, onAction, onShow, expor
 }
 
 export function FirstRun({ snapshot }: { snapshot: UiSnapshot }) {
-  return <section className="first-run"><h2>{!snapshot.initialized ? "Initialize the service" : "Install the browser runtime"}</h2>{!snapshot.initialized && <CopyCommand command={homeCommand("init", snapshot.home)} />}<CopyCommand command={homeCommand("setup", snapshot.home)} /></section>;
+  return <section className="first-run"><h2>Set up Stelz</h2><p>Setup downloads the missing parts after you confirm.</p><CopyCommand command={homeCommand("setup", snapshot.home)} /></section>;
 }
 
 export function Diagnostics({ snapshot, mutationVersion }: { snapshot: UiSnapshot; mutationVersion: number }) {
@@ -47,7 +47,7 @@ export function Diagnostics({ snapshot, mutationVersion }: { snapshot: UiSnapsho
     {!data && diagnostics.loading && <div className="loading-block" role="status">Checking the local service…</div>}
     {data && <><KeyValues rows={[
       { label: "Service home", value: data.home, mono: true },
-      { label: "Configuration", value: <Check ok={data.initialized} yes="Initialized" no="Run stelz init" /> },
+      { label: "Configuration", value: <Check ok={data.initialized} yes="Initialized" no="Run stelz setup" /> },
       { label: "Runtime", value: <Check ok={data.setup} yes="Installed" no="Run stelz setup" /> },
       { label: "Node.js", value: <Check ok={data.node} yes="Available" no="Not available" /> },
       { label: "Browser", value: <Check ok={data.browserExecutable} yes="Available" no="Not available" /> },

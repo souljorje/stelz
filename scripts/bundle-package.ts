@@ -1,15 +1,16 @@
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, readdirSync, rmSync, lstatSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync, readdirSync, rmSync, lstatSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { checkBundledArchive } from "./bundled-dependencies.ts";
 import { inspectPackageArchive } from "./package-archive.ts";
 import { NATIVE_DEPENDENCIES } from "../src/browser/native-dependencies.ts";
 
 type PackResult = { filename: string; files: Array<{ path: string }> };
 const nativePackages = NATIVE_DEPENDENCIES;
-const preparedPackages = ["@askjo/camofox-browser", "camoufox-js"] as const;
+const preparedPackages = ["@askjo/camofox-browser", "camoufox"] as const;
 
 // Native dependencies stay explicit at the product root so npm installs their target binaries.
+// npm expects a bundled package's dependencies inside the bundle, so bundled manifests drop their native edges.
 // Only the temporary release tree changes. The prepared workspace packages remain intact.
 export function externalizeNativeDependencies(product: string) {
   const manifest = JSON.parse(readFileSync(join(product, "package.json"), "utf8"));
@@ -47,6 +48,40 @@ export function externalizeNativeDependencies(product: string) {
   visit(join(product, "node_modules"));
 }
 
+// Camofox's registry metadata still installs camoufox-js. Keep only packages that a manifest reaches.
+export function pruneUnreachableDependencies(product: string) {
+  const reached = new Set<string>();
+  function locate(from: string, name: string) {
+    for (let directory = from; ; directory = dirname(directory)) {
+      const folder = join(directory, "node_modules", name);
+      if (existsSync(join(folder, "package.json"))) return folder;
+      if (directory === product) return undefined;
+    }
+  }
+  function reach(folder: string) {
+    if (reached.has(folder)) return;
+    reached.add(folder);
+    const manifest = JSON.parse(readFileSync(join(folder, "package.json"), "utf8"));
+    for (const name of Object.keys({ ...manifest.dependencies, ...manifest.optionalDependencies, ...manifest.peerDependencies })) {
+      const target = locate(folder, name);
+      if (target) reach(target);
+    }
+  }
+  function prune(modules: string) {
+    if (!existsSync(modules)) return;
+    for (const entry of readdirSync(modules)) {
+      if (entry.startsWith(".")) continue;
+      for (const name of entry.startsWith("@") ? readdirSync(join(modules, entry)).map(name => `${entry}/${name}`) : [entry]) {
+        const folder = join(modules, name);
+        if (reached.has(folder)) prune(join(folder, "node_modules"));
+        else rmSync(folder, { recursive: true, force: true });
+      }
+    }
+  }
+  reach(product);
+  prune(join(product, "node_modules"));
+}
+
 // Bun resolves dependency links. npm packs the prepared physical release tree.
 export async function packPackage(product: string, destination: string, options: {
   env?: Record<string, string>;
@@ -69,6 +104,7 @@ export async function packPackage(product: string, destination: string, options:
     await run(["tar", "-xzf", archive, "-C", temporary], product);
     const prepared = join(temporary, "package");
     externalizeNativeDependencies(prepared);
+    pruneUnreachableDependencies(prepared);
     if (options.publishPlan) {
       mkdirSync(join(prepared, ".changeset"));
       writeFileSync(join(prepared, ".changeset/config.json"), readFileSync(join(product, ".changeset/config.json")));

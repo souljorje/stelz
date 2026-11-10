@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, statSync, symlinkSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runInNewContext } from "node:vm";
@@ -8,6 +8,7 @@ import { addProfileExtension, createProfileWindows } from "../../src/browser/pro
 import { createUiApp, createUiSessionState } from "../../src/api/ui-server.ts";
 import type { UiModel, UiSnapshot } from "../../src/api/contracts.ts";
 import { profileBrowserPid } from "../../src/browser/window-activation.ts";
+import { launcher } from "../../src/browser/camoufox.ts";
 
 const folders: string[] = [];
 afterEach(() => { for (const folder of folders.splice(0)) rmSync(folder, { recursive: true, force: true }); });
@@ -39,11 +40,20 @@ test("application activation selects only the exact browser child of this profil
 });
 
 test("runtime add-on preserves current launch configuration and never changes saved preferences", () => {
+  const directory = mkdtempSync(join(tmpdir(), "stelz-window-config-")); folders.push(directory);
+  mkdirSync(join(directory, "fontconfig/linux"), { recursive: true });
+  writeFileSync(join(directory, "fontconfig/linux/fonts.conf"), '<fontconfig><dir prefix="cwd">fonts</dir></fontconfig>');
   const config = { addons: ["/existing/addon"], "canvas:seed": 42, text: "x".repeat(40_000) };
   const serialized = JSON.stringify(config);
-  const options = { env: { CAMOU_CONFIG_1: serialized.slice(0, 32767), CAMOU_CONFIG_2: serialized.slice(32767), KEEP: "yes" },
+  const options = { executablePath: join(directory, "browser"),
+    env: { CAMOU_CONFIG_1: serialized.slice(0, 32767), CAMOU_CONFIG_2: serialized.slice(32767), KEEP: "yes" },
     firefoxUserPrefs: { "media.peerconnection.enabled": false } };
-  addProfileExtension(options, "/profile/addon"); addProfileExtension(options, "/profile/addon");
+  // Exercise Linux serialization on every host without reading or writing the user's browser cache.
+  const deps = launcher().utilsDeps, original = { osName: deps.osName, installDir: deps.installDir };
+  try {
+    deps.osName = () => "lin"; deps.installDir = () => join(directory, "cache");
+    addProfileExtension(options, "/profile/addon"); addProfileExtension(options, "/profile/addon");
+  } finally { Object.assign(deps, original); }
   const chunks = Object.entries(options.env).filter(([key]) => key.startsWith("CAMOU_CONFIG_")).sort(([a], [b]) => a.localeCompare(b));
   expect(JSON.parse(chunks.map(([, value]) => value).join(""))).toEqual({ ...config, addons: ["/existing/addon", "/profile/addon"] });
   expect(chunks.every(([, value]) => value.length <= 32767)).toBe(true);
@@ -120,6 +130,108 @@ test("stale inventory, browser loss, focus failure, and missing acknowledgements
   await expect(timedOut).rejects.toThrow("did not confirm");
   expect(f.exchange(f.inventory)).toEqual({});
   expect(() => f.exchange({ ...f.inventory, windows: [...f.inventory.windows, f.inventory.windows[0]] })).toThrow("Duplicate");
+});
+
+test("startup geometry binds one fresh blank tab to its privileged window", async () => {
+  const f = fixture(); f.phase("starting");
+  const token = "stelz-startup:11111111-1111-1111-1111-111111111111";
+  const window = { ...f.inventory.windows[1]!, width: 1200, height: 800,
+    tabs: [{ ...f.inventory.windows[1]!.tabs[0]!, title: token, url: "about:blank", width: 1200, height: 740, zoom: 1 }] };
+  f.exchange(f.inventory);
+  const waiting = f.observeStartup(token);
+  f.exchange({ instanceId: "lifetime-a", sampledAt: 10_000, windows: [window] });
+  expect(await waiting).toEqual({ instanceId: "lifetime-a", windowId: 1, tabId: 10, state: "normal", outerWidth: 1200,
+    outerHeight: 800, viewportWidth: 1200, viewportHeight: 740, zoom: 1, sampledAt: 10_000, receivedAt: 10_000 });
+  expect(f.snapshot().windows).toEqual([]);
+  f.phase("ready");
+  expect(f.snapshot().windows[0]).not.toHaveProperty("width");
+});
+
+test("startup geometry waits for complete fresh evidence without extending its deadline", async () => {
+  const f = fixture(); f.phase("starting");
+  const token = "stelz-startup:11111111-1111-1111-1111-111111111111";
+  const tab = { id: 10, title: token, url: "about:blank", active: true, width: 1200, height: 740, zoom: 1 };
+  const window = { id: 1, title: "window", focused: true, state: "normal", width: 1200, height: 800, tabs: [tab] };
+  const ambiguous = f.observeStartup(token);
+  f.exchange({ instanceId: "lifetime-a", sampledAt: 10_000, windows: [window, { ...window, id: 2, tabs: [{ ...tab, id: 11 }] }] });
+  await expect(ambiguous).rejects.toThrow("ambiguous");
+  const incomplete = f.observeStartup(token);
+  f.exchange({ instanceId: "lifetime-a", sampledAt: 10_000, windows: [{ ...window, tabs: [{ ...tab, zoom: null }] }] });
+  f.exchange({ instanceId: "lifetime-a", sampledAt: 7_000, windows: [window] });
+  f.exchange({ instanceId: "lifetime-a", sampledAt: 10_000, windows: [window] });
+  expect(await incomplete).toMatchObject({ zoom: 1, sampledAt: 10_000 });
+  // A caller that brackets a page read accepts only a sample taken after that read.
+  const later = f.observeStartup(token, 8000, 10_000);
+  f.exchange({ instanceId: "lifetime-a", sampledAt: 9_999, windows: [window] });
+  f.exchange({ instanceId: "lifetime-a", sampledAt: 10_000, windows: [window] });
+  expect(await later).toMatchObject({ sampledAt: 10_000 });
+  const stale = f.observeStartup(token);
+  f.advance(8001);
+  f.exchange({ instanceId: "lifetime-a", sampledAt: 10_000, windows: [window] });
+  await expect(stale).rejects.toThrow("incomplete or stale");
+  const missing = f.observeStartup(token, 10);
+  for (let attempt = 0; attempt < 3; attempt++)
+    f.exchange({ instanceId: "lifetime-a", sampledAt: 18_001, windows: [{ ...window, tabs: [{ ...tab, zoom: null }] }] });
+  await expect(missing).rejects.toThrow("unavailable");
+  f.exchange({ instanceId: "lifetime-a", sampledAt: 18_001, windows: [window] });
+  const absent = f.observeStartup(token, 10);
+  f.exchange(f.inventory);
+  await expect(absent).rejects.toThrow("unavailable");
+  for (const invalid of [{ ...tab, url: "https://example.test/" }, { ...tab, active: false }]) {
+    const changed = f.observeStartup(token);
+    f.exchange({ instanceId: "lifetime-a", sampledAt: 18_001, windows: [{ ...window, tabs: [{ ...invalid, zoom: null }] }] });
+    await expect(changed).rejects.toThrow("incomplete or stale");
+  }
+  const changedPhase = f.observeStartup(token); f.phase("ready");
+  f.exchange({ instanceId: "lifetime-a", sampledAt: 18_001, windows: [window] });
+  await expect(changedPhase).rejects.toThrow("incomplete or stale");
+});
+
+test("the extension reports startup window, tab, and zoom measurements", async () => {
+  const f = fixture(); f.phase("starting");
+  const token = "stelz-startup:11111111-1111-1111-1111-111111111111", zoomed: number[] = [];
+  const native = [{ id: 1, title: "Window", focused: true, state: "normal", width: 1200, height: 800,
+    tabs: [{ id: 10, title: token, url: "about:blank", active: true, width: 1200, height: 740 }] }];
+  const event = { addListener() {} };
+  const browser = { windows: { getAll: async () => native, get: async () => native[0], getLastFocused: async () => native[0],
+    update: async () => {}, onCreated: event, onFocusChanged: event },
+    tabs: { update: async () => {}, getZoom: async (id: number) => { zoomed.push(id); return 1; } },
+    theme: { update: async () => {} }, browserAction: Object.fromEntries(["setTitle", "setBadgeText", "setBadgeBackgroundColor", "setBadgeTextColor"]
+      .map(name => [name, async () => {}])) };
+  const waiting = f.observeStartup(token);
+  runInNewContext(readFileSync(join(f.extensionPath, "background.js"), "utf8"), { browser, AbortSignal, TextEncoder, Date: { now: () => 10_000 },
+    setTimeout: () => {}, fetch: async (_url: string, options: RequestInit) => {
+      f.exchange(JSON.parse(String(options.body))); return { ok: true, json: async () => ({}) };
+    } });
+  expect(await waiting).toMatchObject({ windowId: 1, tabId: 10, outerWidth: 1200, outerHeight: 800,
+    viewportWidth: 1200, viewportHeight: 740, zoom: 1 });
+  expect(zoomed).toEqual([10, 10]);
+});
+
+test("startup waits when the extension observes a window resize before its zoom confirmation", async () => {
+  const f = fixture(); f.phase("starting");
+  const token = "stelz-startup:11111111-1111-1111-1111-111111111111";
+  const window = { id: 1, title: "Window", focused: true, state: "normal", width: 1200, height: 800,
+    tabs: [{ id: 10, title: token, url: "about:blank", active: true, width: 1200, height: 740 }] };
+  let reads = 0, tick: (() => Promise<void>) | undefined, settled = false;
+  const event = { addListener() {} };
+  const browser = { windows: { getAll: async () => {
+    const value = structuredClone(window);
+    if (reads++ > 0) { value.width = 1180; value.tabs[0]!.width = 1180; }
+    return [value];
+  }, get: async () => window, getLastFocused: async () => window, update: async () => {}, onCreated: event, onFocusChanged: event },
+  tabs: { update: async () => {}, getZoom: async () => 1 }, theme: { update: async () => {} },
+  browserAction: Object.fromEntries(["setTitle", "setBadgeText", "setBadgeBackgroundColor", "setBadgeTextColor"].map(name => [name, async () => {}])) };
+  const waiting = f.observeStartup(token);
+  void waiting.then(() => { settled = true; }, () => { settled = true; });
+  runInNewContext(readFileSync(join(f.extensionPath, "background.js"), "utf8"), { browser, AbortSignal, TextEncoder, Date: { now: () => 10_000 },
+    setTimeout: (callback: () => Promise<void>) => { tick = callback; }, fetch: async (_url: string, options: RequestInit) => {
+      f.exchange(JSON.parse(String(options.body))); return { ok: true, json: async () => ({}) };
+    } });
+  for (let n = 0; n < 30 && !tick; n++) await Bun.sleep(1);
+  expect(tick).toBeDefined(); expect(settled).toBe(false);
+  await tick!();
+  expect(await waiting).toMatchObject({ outerWidth: 1180, viewportWidth: 1180, zoom: 1 });
 });
 
 test("the generated background script labels every window and restores a selected minimized page", async () => {

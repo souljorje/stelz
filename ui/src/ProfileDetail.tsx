@@ -5,7 +5,7 @@ import { profilePath } from "./api.ts";
 import { ActionButton, CopyCommand, Icon, KeyValues, Notice, Phase } from "./components";
 import { NetworkForm } from "./NetworkForm";
 import { TypingForm } from "./TypingForm";
-import { actionReason, locationLabel, homeCommand, boundedLog, dateTime, deleteReason, profileAttention, profileCommand, mcpCommand, redact } from "./model.ts";
+import { actionReason, locationLabel, locationEvidenceRows, homeCommand, boundedLog, dateTime, deleteReason, profileAttention, profileCommand, mcpCommand, redact } from "./model.ts";
 import type { ActionContext } from "./model.ts";
 import { useResource } from "./use-service.ts";
 import { ProfileWindows, type ShowWindow } from "./ProfileWindows";
@@ -48,7 +48,7 @@ export function ProfileDetail({ profile, snapshot, context, mutationVersion, onA
   const exportReason = exportDisabled || networkDirty ? "Save or discard your edits before exporting." : !context.connected ? "Refresh the connection before exporting." : context.pending ? "Wait for the current UI operation." : exportUnavailable(profile);
 
   return <div className="detail-view">
-    <div className="detail-context"><button type="button" className="text-button" onClick={onBack}><Icon name="back" />All profiles</button><span className="detail-context-right"><Phase phase={profile.phase} />{profile.phase === "stopped" && <button type="button" className="text-button profile-export-shortcut" title={exportReason ?? undefined} disabled={!!exportReason} onClick={() => onExport(profile)}>Export ZIP</button>}{canDelete && <button type="button" className="text-button delete-profile" onClick={() => onDelete(profile)}>Delete profile</button>}</span></div>
+    <div className="detail-context"><button type="button" className="text-button" onClick={onBack}><Icon name="back" />All profiles</button><span className="detail-context-right"><Phase phase={profile.phase} />{profile.restartToUpdate && <span className="cell-secondary" title="This profile runs an older runtime. Restart it to use the current runtime.">Restart to update</span>}{profile.phase === "stopped" && <button type="button" className="text-button profile-export-shortcut" title={exportReason ?? undefined} disabled={!!exportReason} onClick={() => onExport(profile)}>Export ZIP</button>}{canDelete && <button type="button" className="text-button delete-profile" onClick={() => onDelete(profile)}>Delete profile</button>}</span></div>
     <div className="tabs" role="tablist" aria-label={`Details for ${profile.name}`}>{tabs.map((name, index) => <button key={name} type="button" role="tab" id={`profile-tab-${name}`} aria-controls={`profile-panel-${name}`} aria-selected={tab === name} tabIndex={tab === name ? 0 : -1} onClick={() => selectTab(name)} onKeyDown={(event) => keyTab(event, index)}>{name}{name === "Overview" && networkDirty && <span className="dirty-dot" aria-label="Unsaved network changes" />}</button>)}</div>
     {detail.error && <Notice kind="error"><span>{detail.error} {detail.data ? "Previously loaded details remain visible." : "Profile state remains available."}</span><button type="button" className="text-button" onClick={detail.reload} disabled={detail.loading}>Retry details</button></Notice>}
     <section className="tab-panel" id="profile-panel-Overview" role="tabpanel" aria-labelledby="profile-tab-Overview" hidden={tab !== "Overview"} tabIndex={0}>
@@ -61,6 +61,7 @@ export function ProfileDetail({ profile, snapshot, context, mutationVersion, onA
         <p className="field-help">{profile.location?.message ?? "Start checks this profile before launching its browser."}</p>
         {profile.location?.checkedAt && <p className="field-help">Checked {dateTime(profile.location.checkedAt)}. {profile.location.valid ? "Applies to the current configuration." : "Check again for the current configuration."}</p>}
         {profile.location?.timezone && <KeyValues rows={[{ label: "Timezone", value: profile.location.timezone }, { label: "Language policy", value: profile.location.language }]} />}
+        {profile.location?.evidence && <KeyValues rows={locationEvidenceRows(profile.location)} />}
         {profile.phase === "stopped" && profile.network.proxyEnv && <button type="button" className="button" disabled={networkDirty || !!actionReason(profile, "recheck", context)} onClick={() => onAction(profile, "recheck")}>{profile.location?.status === "checking" ? "Checking…" : profile.location?.status === "blocked" ? "Check again" : "Check connection"}</button>}
         {profile.location?.nextAction?.kind === "run_setup" && <CopyCommand command={homeCommand("setup", snapshot.home)} />}
         {profile.location?.nextAction?.kind === "edit_proxy" && <button type="button" className="text-button" onClick={() => document.getElementById("profile-network-heading")?.scrollIntoView({ block: "center" })}>Edit proxy below</button>}

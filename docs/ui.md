@@ -31,6 +31,8 @@ Overview contains connection settings, typing preferences, and browser windows. 
 
 **Ready** describes the browser. A controller label describes the current connection, without a persistent agent identity.
 Reading status does not claim control.
+Browser windows enable Camoufox's pink cursor marker by default. The marker can stop at the page boundary.
+**Restart to update** means the browser uses an earlier runtime. Run `stelz restart ID`, or stop and start the profile, when you are ready.
 A disabled **Start** means the profile has an issue. Inspect its details or Diagnostics before retrying.
 
 ## Connect through MCP
@@ -38,12 +40,10 @@ A disabled **Start** means the profile has an issue. Inspect its details or Diag
 Overview shows a shared MCP command and the profile ID for tool arguments.
 The command is identical across profiles in the same service directory.
 Register `stelz mcp` once. Copy the stable profile ID into `profileId` when selecting a profile through tools.
-Acquire with `{profileId}` to receive status and a fresh opaque `controlHandle`.
-Use both fields for control actions and browser tools on that connection.
-The UI and status summaries never show handles.
+The UI and status summaries never show control handles.
 
 Use `profile_list({})` to discover profiles after creation or import. New profiles require no new MCP registration.
-See [Connect your agent](clients.md) for setup and migration, or [Shared MCP tools](mcp.md) for the complete contract.
+See [Connect your agent](clients.md) for setup, or [Shared MCP tools](mcp.md) for the complete contract.
 
 ## Take over manually
 
@@ -88,8 +88,8 @@ Its ID, data, proxy references, window title prefix, and MCP command remain unch
 
 Open Overview and select **Default typing mode**:
 
-- **Automatic** uses random pauses for shorter text and bulk entry for longer text.
-- **Keyboard input** sends individual keystrokes without artificial delays.
+- **Balanced** uses paced typing for shorter text and bulk entry for longer text.
+- **Keyboard input** uses variable pauses and occasional corrected typos. One input can take up to 3 minutes. This is the service default.
 - **Instant input** enters the complete text at once.
 
 Changes apply to future typing actions without restarting the browser.

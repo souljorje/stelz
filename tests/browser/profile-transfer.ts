@@ -54,7 +54,7 @@ async function requireMarker(client: Client, tabId: string) {
 }
 let passed = false;
 try {
-  await command("init"); await command("setup"); site = await fixture(0);
+  await command("setup", "--yes"); site = await fixture(0);
   await command("profile", "create", source, "--direct", "--json");
   active.add(source); await command("start", source);
   const original = await connect(source);

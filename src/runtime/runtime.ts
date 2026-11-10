@@ -10,7 +10,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { spawn } from "node:child_process";
 import { lock, observe, observeStatus, isRuntimePhase, processStart, running, type Running } from "./profile-process.ts";
 export { assertStoppedProfile, lock, processStart, running, type Running } from "./profile-process.ts";
@@ -22,6 +22,7 @@ import {
   pendingNetworkTransaction,
 } from "../profiles/network-transaction.ts";
 import { pendingProfileImport } from "../profiles/profile-import-transaction.ts";
+import { initializedFingerprint } from "../browser/fingerprint-transaction.ts";
 import {
   HOME_DIR,
   CONFIG_FILE,
@@ -36,11 +37,22 @@ import {
   configurationHash,
   entry,
   executable,
+  runtimeDir,
+  currentRuntimeId,
+  isRuntimeId,
   type Profile,
 } from "../profiles/config.ts";
 
 export function status(id: string) {
-  return observeStatus(profile(id));
+  const value = observeStatus(profile(id));
+  if (["ready", "paused", "verification_failed"].includes(value.phase) && !admitted(id, observe(id).record, value))
+    return { ...value, phase: "starting" as const };
+  return value;
+}
+function admitted(id: string, record: Running | undefined, state: Record<string, unknown>) {
+  return !!record?.serverPid && typeof state.instanceId === "string" && typeof state.pinSha256 === "string" &&
+    initializedFingerprint(dir(id), { profileId: id, attemptId: record.instanceId, browserInstanceId: state.instanceId,
+      configurationHash: record.configurationHash, serverPid: record.serverPid }, state.pinSha256);
 }
 export function assertRunning(id: string, validateConfiguration = false) {
   const p = profile(id),
@@ -54,19 +66,22 @@ export function assertRunning(id: string, validateConfiguration = false) {
 }
 
 // Lifecycle and diagnostic calls must not inherit the 120-second MCP timeout.
-async function request(id: string, method: string, action: string, timeout: number, allowOrphan = false) {
+async function request(id: string, method: string, action: string, timeout: number, allowOrphan = false, expectedInstance?: string) {
   const p = profile(id),
     o = observe(id);
   if (o.server !== "owned" || (!allowOrphan && o.supervisor !== "owned"))
     throw Error(`${id}: cannot verify process ownership. Run stelz doctor ${id}.`);
+  if (expectedInstance && o.record?.instanceId !== expectedInstance) throw Error(`${id}: the service instance changed before the request.`);
   if (!o.record?.port) throw Error(`${id}: the recorded server port is missing. Run stelz doctor ${id}.`);
-  return serviceRequest({ ...p, port: o.record.port }, method, action, timeout);
+  return serviceRequest({ ...p, port: o.record.port }, method, action, timeout,
+    expectedInstance ? { instanceId: expectedInstance } : undefined);
 }
-async function serviceRequest(p: Profile, method: string, action: string, timeout: number) {
+async function serviceRequest(p: Profile, method: string, action: string, timeout: number, body?: Record<string, unknown>) {
   const token = key(p.id);
   const response = await fetch(`${base(p)}/local-profile/${action}`, {
     method,
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    ...(body ? { body: JSON.stringify(body) } : {}),
     signal: AbortSignal.timeout(timeout),
     redirect: "error",
   });
@@ -75,7 +90,12 @@ async function serviceRequest(p: Profile, method: string, action: string, timeou
   return payload;
 }
 
+/** A running service on an older generation reports `restartToUpdate`. */
 export async function reportStatus(id: string, includeLocation = true) {
+  const record = running(id), current = currentRuntimeId();
+  return { ...(await observedStatus(id, includeLocation)), restartToUpdate: !!record?.runtime && !!current && record.runtime !== current };
+}
+async function observedStatus(id: string, includeLocation: boolean) {
   const local = { ...status(id), ...(includeLocation ? { location: await profileLocation(profile(id)) } : {}) },
     o = observe(id);
   if (o.supervisor !== "owned" || o.server !== "owned") return local;
@@ -85,7 +105,10 @@ export async function reportStatus(id: string, includeLocation = true) {
     const current = status(id);
     if (current.phase === "orphaned" || current.phase === "ownership_unknown" || current.phase === "unclean")
       return { ...current, location: local.location };
-    return { ...remote, ...current, location: local.location, phase: isRuntimePhase(remote.phase) ? remote.phase : current.phase };
+    const remotePhase = isRuntimePhase(remote.phase) ? remote.phase : current.phase;
+    const phase = ["ready", "paused", "verification_failed"].includes(remotePhase) && !admitted(id, o.record, remote)
+      ? "starting" : remotePhase;
+    return { ...remote, ...current, location: local.location, phase };
   } catch (e) {
     return { ...status(id), location: local.location, controlError: (e as Error).message };
   }
@@ -115,7 +138,7 @@ export async function start(id: string, signal?: AbortSignal) {
       const p = profile(id), o = observe(id);
       if (running(id)) return true;
       if (o.record && !o.clean) throw Error(`${id}: previous stop was not clean. Run stelz recover ${id} after inspecting its processes.`);
-      if (!existsSync(join(HOME_DIR, "runtime/versions.json"))) throw Error("Run stelz setup first.");
+      if (!existsSync(join(runtimeDir(), "versions.json"))) throw Error("Run stelz setup first.");
       assertRuntimePlugin();
       return false;
     });
@@ -130,7 +153,9 @@ async function startPrepared(id: string, prepared?: LocationRecord) {
   await prepareProfileConfiguration(async () => {
     const p = profile(id), configHash = configurationHash(p);
     initDir(id);
-    if (!existsSync(join(HOME_DIR, "runtime/versions.json"))) throw Error("Run stelz setup first.");
+    // Resolve the generation once. The supervisor and its server keep it for this service lifetime.
+    const runtime = runtimeDir();
+    if (!existsSync(join(runtime, "versions.json"))) throw Error("Run stelz setup first.");
     const o = observe(id);
     if (running(id)) {
       if (o.supervisor !== "owned" || o.server === "unverified" || o.server === "different")
@@ -166,6 +191,8 @@ async function startPrepared(id: string, prepared?: LocationRecord) {
       configurationHash: configHash,
       port: p.port,
       serverState: "not-started",
+      // An earlier plain runtime directory has no generation ID.
+      ...(isRuntimeId(basename(runtime)) ? { runtime: basename(runtime) } : {}),
     };
     save(file, reservation);
     rotateLog(join(dir(id), "supervisor.log"));
@@ -175,7 +202,7 @@ async function startPrepared(id: string, prepared?: LocationRecord) {
         cwd: HOME_DIR,
         detached: true,
         stdio: ["ignore", logFd, logFd],
-        env: { ...process.env, STELZ_HOME: HOME_DIR },
+        env: { ...process.env, STELZ_HOME: HOME_DIR, STELZ_RUNTIME: runtime },
       });
       if (!child.pid) throw Error(`${id}: could not launch supervisor.`);
       const supervisorStart = processStart(child.pid);
@@ -207,10 +234,9 @@ async function startPrepared(id: string, prepared?: LocationRecord) {
     if (o.server === "owned") {
       try {
         const s = await request(id, "GET", "status", 2000);
-        const initialized = json<{ instanceId: string }>(join(dir(id), "initialized.json"));
         if (
           ["ready", "paused", ...(attemptId ? [] : ["verification_failed"])].includes(String(s.phase)) &&
-          initialized?.instanceId === o.record.instanceId
+          admitted(id, o.record, s)
         )
           return { ...s, location: await profileLocation(profile(id)) };
         if (s.phase === "blocked") throw Error(String(s.error || "Profile is blocked."));
@@ -226,13 +252,13 @@ async function startPrepared(id: string, prepared?: LocationRecord) {
 
 export async function stop(id: string) {
   profile(id);
-  return lock(join(STATE, "admission.lock"), async () => {
+  const reservation = await lock(join(STATE, "admission.lock"), async () => {
     // A pending deletion may already have archived this directory. Never create
     // a replacement while recovering its catalog entry. Existing live profiles
     // remain stoppable even when another catalog transaction needs inspection.
     if (!existsSync(dir(id))) {
       await recoverProfileCatalog();
-      return status(id);
+      return undefined;
     }
     return lock(join(dir(id), "lifecycle.lock"), async () => {
       const o = observe(id);
@@ -240,45 +266,35 @@ export async function stop(id: string) {
         !o.record ||
         (o.clean && [o.supervisor, o.server].every((s) => s === "missing" || s === "different"))
       )
-        return status(id);
+        return undefined;
       if (o.server !== "owned" || o.supervisor === "unverified")
         throw Error(`${id}: process ownership cannot be verified. Run stelz doctor ${id}.`);
-      try {
-        await request(id, "POST", "stop", 75000, true);
-      } catch (e) {
-        const current = observe(id),
-          error = e as Error;
-        const unavailable =
-          error instanceof TypeError || error.name === "TimeoutError" || error.name === "AbortError" ||
-          (error as NodeJS.ErrnoException).code === "ConnectionRefused";
-        if (
-          unavailable &&
-          current.record?.instanceId === o.record.instanceId &&
-          ["missing", "different"].includes(current.supervisor) &&
-          current.server === "owned" &&
-          current.record.serverPid &&
-          processStart(current.record.serverPid) === current.record.serverStart
-        ) {
-          // The explicit stop request permits a graceful signal to a reverified
-          // orphan. Keep the record unclean; never escalate to SIGKILL.
-          process.kill(current.record.serverPid, "SIGTERM");
-        } else throw Error(`${id}: stop request failed or timed out; state remains intact. ${error.message}`);
-      }
-      const deadline = Date.now() + 15000;
-      while (Date.now() < deadline) {
-        const current = observe(id);
-        if (
-          current.server !== "owned" &&
-          current.supervisor !== "owned" &&
-          current.server !== "unverified" &&
-          current.supervisor !== "unverified"
-        )
-          return status(id);
-        await Bun.sleep(100);
-      }
-      throw Error(`${id}: clean stop exceeded its time limit. State remains intact.`);
+      return o.record;
     });
   });
+  if (!reservation) return status(id);
+  const deadline = Date.now() + 90000;
+  try {
+    await request(id, "POST", "stop", 75000, true, reservation.instanceId);
+  } catch (e) {
+    const current = observe(id), error = e as Error;
+    const unavailable = error instanceof TypeError || error.name === "TimeoutError" || error.name === "AbortError" ||
+      (error as NodeJS.ErrnoException).code === "ConnectionRefused";
+    if (unavailable && current.record?.instanceId === reservation.instanceId &&
+        ["missing", "different"].includes(current.supervisor) && current.server === "owned" && current.record.serverPid &&
+        processStart(current.record.serverPid) === current.record.serverStart) {
+      // The explicit stop request permits a graceful signal to a reverified orphan.
+      process.kill(current.record.serverPid, "SIGTERM");
+    } else throw Error(`${id}: stop request failed or timed out; state remains intact. ${error.message}`);
+  }
+  while (Date.now() < deadline) {
+    const current = observe(id);
+    if (current.record?.instanceId !== reservation.instanceId ||
+        current.server !== "owned" && current.supervisor !== "owned" &&
+        current.server !== "unverified" && current.supervisor !== "unverified") return status(id);
+    await Bun.sleep(100);
+  }
+  throw Error(`${id}: clean stop exceeded its time limit. State remains intact.`);
 }
 
 export async function recover(id: string) {
@@ -349,7 +365,7 @@ export async function doctor(target?: string) {
   const result: Record<string, unknown> = {
     home: HOME_DIR,
     initialized: existsSync(CONFIG_FILE),
-    setup: existsSync(join(HOME_DIR, "runtime/versions.json")),
+    setup: existsSync(join(runtimeDir(), "versions.json")),
     node: !!Bun.which("node"),
     browserExecutable: existsSync(executable()),
     ...(pending ? { networkRecovery: pending.message } : {}),

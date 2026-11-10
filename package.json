@@ -62,7 +62,7 @@
     "ui": "bun --no-env-file src/cli/cli.ts ui",
     "browser": "bun scripts/call.ts",
     "fixture": "bun tests/helpers/fixture.ts",
-    "test": "bun test ./tests/unit ./tests/integration && bun run test:regression",
+    "test": "bun test --parallel ./tests/unit ./tests/integration && bun run test:regression",
     "test:ui": "bun test tests/integration/catalog-limits.test.ts tests/unit/profile-windows.test.ts tests/unit/ui-server.test.ts tests/integration/ui-model.test.ts tests/integration/profile-configuration.test.ts tests/integration/profile-rename.test.ts tests/unit/ui-api.test.ts tests/unit/ui-display.test.ts",
     "test:ui:browser": "bun tests/browser/ui-browser.ts",
     "test:regression": "node --experimental-transform-types --test tests/regression/*.test.ts",
@@ -70,36 +70,34 @@
     "test:native": "bun tests/browser/native-integration.ts",
     "test:window-close": "bun tests/browser/window-close.ts",
     "test:windows": "bun --no-env-file tests/browser/profile-windows-browser.ts",
-    "test:proxy": "bun tests/browser/proxy-integration.ts",
+    "test:proxy": "bun --no-env-file tests/browser/proxy-integration.ts",
     "test:manual": "bun tests/qa/manual-integration.ts",
     "test:typing": "bun --no-env-file tests/browser/typing-browser.ts",
     "test:public": "bun --no-env-file tests/qa/public-sites.ts",
-    "test:package": "bun tests/qa/package.ts",
+    "test:package": "bun --no-env-file tests/qa/package.ts",
     "typecheck": "tsc --noEmit",
     "test:concurrency": "bun --no-env-file tests/browser/concurrency.ts",
     "check": "bun run build && bun run typecheck && bun run test",
     "test:transfer": "bun --no-env-file tests/browser/profile-transfer.ts",
     "test:install": "bun tests/package/install.ts",
+    "test:setup": "bun --no-env-file tests/package/setup.ts",
     "test:location": "bun --no-env-file tests/package/location.ts",
     "release": "changeset publish --from-pack-dir release-artifacts"
   },
   "dependencies": {
     "@askjo/camofox-browser": "1.18.1",
     "@modelcontextprotocol/sdk": "1.30.0",
-    "camoufox-js": "0.13.0",
+    "camoufox": "0.5.8",
     "hono": "4.13.16",
     "playwright-core": "1.62.1",
     "better-sqlite3": "13.0.1",
     "impit": "0.14.8",
     "yauzl": "3.4.0",
-    "yazl": "3.3.1"
-  },
-  "overrides": {
-    "camoufox-js": "0.13.0"
+    "yazl": "3.3.1",
+    "maxmind": "5.0.8"
   },
   "bundleDependencies": [
-    "@askjo/camofox-browser",
-    "camoufox-js"
+    "@askjo/camofox-browser"
   ],
   "devDependencies": {
     "@changesets/cli": "3.0.3",
@@ -108,15 +106,15 @@
     "@types/bun": "1.4.4",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
+    "@types/yauzl": "3.4.0",
+    "@types/yazl": "3.3.1",
+    "lefthook": "2.2.2",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "typescript": "5.9.3",
-    "vite": "8.3.6",
-    "@types/yauzl": "3.4.0",
-    "@types/yazl": "3.3.1"
+    "vite": "8.3.6"
   },
   "patchedDependencies": {
-    "@askjo/camofox-browser@1.18.1": "patches/@askjo%2Fcamofox-browser@1.18.1.patch",
-    "camoufox-js@0.13.0": "patches/camoufox-js@0.13.0.patch"
+    "@askjo/camofox-browser@1.18.1": "patches/@askjo%2Fcamofox-browser@1.18.1.patch"
   }
 }

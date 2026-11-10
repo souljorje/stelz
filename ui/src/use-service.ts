@@ -170,7 +170,7 @@ export function useService(session: Promise<void>, transferBusy = false) {
   }, [runMutation]);
 
   const changeCatalog = useCallback(async (action: "create" | "delete", input: UiProfileCreate): Promise<void> => {
-    if (!latest.current.snapshot?.initialized) throw new ApiError(409, "Run stelz init first.");
+    if (!latest.current.snapshot?.initialized) throw new ApiError(409, "Run stelz setup first.");
     if (action === "delete" && latest.current.snapshot.profiles.find(row => row.id === input.id)?.phase !== "stopped")
       throw new ApiError(409, "Stop this profile cleanly before deleting it.");
     await runMutation(input.id, action, async () => {

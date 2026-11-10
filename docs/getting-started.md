@@ -6,11 +6,11 @@ Then connect your existing agent through one shared MCP registration.
 ## What you need
 
 The tested desktop platform is local macOS on Apple Silicon, running a native ARM64 terminal.
+Browser Start requires macOS because startup must verify the native window geometry.
 Linux CI checks builds and package installation. It does not establish desktop browser acceptance.
 
 - [Node.js](https://nodejs.org/en/download) 24 or later, including npm.
 - [Bun](https://bun.sh/docs/installation) 1.4.4 or later.
-- A compatible Camoufox browser. Reuse your existing installation or download one in the browser step below.
 
 Check your environment:
 
@@ -29,75 +29,56 @@ Keep compatible existing installations.
 ## 1. Install Stelz
 
 ```sh
-CAMOFOX_SKIP_DOWNLOAD=1 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install --global stelz
+npm install --global stelz
 stelz --version
-stelz init
 ```
 
 Keep npm lifecycle scripts enabled. Native dependencies need them.
-The download flags keep browser installation explicit.
 For a supplied release archive, replace `stelz` in the install command with its absolute `.tgz` path.
 
 If the global npm directory is unwritable, use a user-owned npm prefix and add its `bin` directory to PATH.
 The `stelz` command also needs Bun and Node.js on PATH.
 
-Init creates an empty catalog under `~/.local/share/stelz`. It preserves existing profiles and credentials.
-For a different directory, set an absolute `STELZ_HOME` before initialization.
-Use that same value for the UI, lifecycle commands, and agent connection.
-
-## 2. Locate or download Camoufox
-
-Setup does not download Camoufox. It requires an existing executable.
-By default, Stelz checks this location:
-
-```text
-~/Library/Caches/camoufox/Camoufox.app/Contents/MacOS/camoufox
-```
-
-For another location, set `CAMOUFOX_EXECUTABLE` to its absolute path in the service directory's `secrets.env`.
-Preserve other assignments and keep the file private.
-An environment variable with the same name takes precedence over the file.
-The `camoufox` command on PATH is the Python management CLI. Use the browser executable inside `Camoufox.app`.
-Use `file /absolute/path/to/camoufox` to check the executable's architecture.
-Keep an existing profile's compatible browser. Changing the browser can require a migration that Stelz does not provide.
-
-If you have no compatible browser, use Stelz's bundled downloader.
-Find the installed package and choose a new, unoccupied directory outside existing browser installations:
-
-```sh
-STELZ_PACKAGE="$(npm root --global)/stelz"
-STELZ_BROWSER_DIR="/absolute/new/camoufox-directory"
-CAMOUFOX_INSTALL_DIR="$STELZ_BROWSER_DIR" \
-  node "$STELZ_PACKAGE/node_modules/camoufox-js/dist/__main__.js" fetch
-CAMOUFOX_INSTALL_DIR="$STELZ_BROWSER_DIR" \
-  node --input-type=module -e \
-  'const { launchPath } = await import(process.argv[1]); console.log(launchPath());' \
-  "$STELZ_PACKAGE/node_modules/camoufox-js/dist/pkgman.js"
-```
-
-Replace the example directory with your selected absolute path before running the command.
-The downloader uses versioned directories. Add the printed executable path to `secrets.env`:
-
-```dotenv
-CAMOUFOX_EXECUTABLE=/absolute/path/printed/by/launchPath
-```
-
-The default secret file is `~/.local/share/stelz/secrets.env`.
-With a custom `STELZ_HOME`, use that directory's secret file instead.
-
-## 3. Prepare the runtime and open the manager
+## 2. Run setup
 
 ```sh
 stelz setup
+```
+
+Setup creates missing service files under `~/.local/share/stelz`. It preserves existing profiles and credentials.
+For a different directory, set an absolute `STELZ_HOME` before setup.
+Use that same value for the UI, lifecycle commands, and agent connection.
+
+Setup prepares the browser, the fingerprint model, the location data, and the service runtime.
+It reuses valid parts. Missing, damaged, or older location data requires a download.
+Before a download, setup shows the list of downloads and asks once. Type `y` to continue.
+To allow the downloads without a question, run `stelz setup --yes`.
+The browser download is over 1 GB and unpacks to over 2 GB.
+
+### How setup finds the browser
+
+Stelz supports only the Camoufox build that its launcher pairs with, currently `156.0.1-beta.36`.
+Setup uses the first available source:
+
+1. The executable in `CAMOUFOX_EXECUTABLE`, if you set it.
+2. Stelz's own copy in `STELZ_HOME/browsers/<version>-<build>/`.
+3. The paired build in the upstream Camoufox cache. Setup copies it into `STELZ_HOME/browsers/`. It does not change the cache.
+4. A download of the paired release. Setup verifies the published SHA-256 digest.
+
+You do not need to set `CAMOUFOX_EXECUTABLE`. To use another installation of the paired build, set it to the absolute executable path.
+Use the process environment or `STELZ_HOME/secrets.env`. The process environment takes precedence.
+Use the executable inside `Camoufox.app/Contents/MacOS/`, not the `camoufox` command on PATH.
+Then run `stelz setup`. If that file is not the paired build, setup fails. It does not try another source.
+Start also rejects other builds. A profile pinned to another build cannot start. Stelz does not upgrade a profile's browser.
+
+## 3. Open the manager
+
+```sh
 stelz ui --open
 ```
 
-Setup checks the browser and prepares the service runtime and location data. It leaves the installed Camoufox app unchanged.
-Setup reuses valid location data. A missing or damaged database requires a download.
 For a proxy, **Location alignment** shows known problems before Start. **Check connection** checks the route without launching a browser.
 Start always checks the current route again. **Ready to start** does not mean that a browser is running.
-An existing installation must have all profiles safely stopped before setup can replace its runtime.
-Do not stop unrelated work to repeat this guide. Reuse a working runtime instead.
 
 The UI opens a private session at `127.0.0.1:9380`.
 Keep the terminal command running while you use it.
@@ -122,10 +103,23 @@ Follow [Connect your agent](clients.md) for registration and a local first task.
 The shared `stelz mcp` registration serves every profile through explicit tool arguments.
 Agents can also create direct profiles and start browsers through MCP. New profiles require no new registration.
 That check confirms your agent can act through its real browser tools and release control without closing the browser.
-For an existing profile-bound registration, follow the [one-time migration](clients.md#migrate-an-existing-registration).
 
 Your first-use result is a ready browser, a connected agent, and a successful local interaction.
 [Troubleshooting](troubleshooting.md) explains failures at each stage.
 
 Closing the UI leaves browsers open. **Stop** or closing a profile's browser window stops that profile.
 See [Manage profiles](ui.md) for everyday controls and [Configure a proxy](proxies.md) for optional networking.
+
+## Update Stelz
+
+```sh
+npm install --global stelz@latest
+stelz setup --yes
+stelz restart all   # When you are ready.
+```
+
+Setup does not stop running profiles. A running profile keeps the runtime that it started with.
+Its dependencies still load from the installed package. If a running profile or `stelz mcp` fails after an update, restart it.
+If setup prepared a new runtime, the profile shows **Restart to update**.
+Restart stops the browser and closes its pages, then starts the browser again.
+To restart one profile, run `stelz restart ID`. See the [CLI reference](cli.md#browser-lifecycle-and-diagnostics).

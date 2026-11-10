@@ -1,36 +1,47 @@
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
+import { createHash, randomUUID } from "node:crypto";
+import { validateFingerprint, validateRuntimeObservation } from "./fingerprint-validation.ts";
+import type { applyFingerprint } from "./fingerprint.ts";
+import type { StartupWindowObservation } from "./profile-windows.ts";
+import { launcher } from "./camoufox.ts";
 
 type Options = Record<string, unknown>;
 type Browser = object;
 type NavigationRequest = { isNavigationRequest(): boolean };
-type Page = {
+export type ProfilePage = {
   url(): string;
   isClosed(): boolean;
   on(event: "close" | "framenavigated", listener: () => void): unknown;
   on(event: "request", listener: (request: NavigationRequest) => void): unknown;
   off(event: "close" | "framenavigated", listener: () => void): unknown;
   off(event: "request", listener: (request: NavigationRequest) => void): unknown;
+  evaluate<T>(callback: () => T): Promise<T>;
+  evaluate<T, A>(callback: (argument: A) => T, argument: A): Promise<T>;
 };
-type Context = {
+export type ProfileBrowserContext = {
   browser(): Browser | null;
   close(): Promise<void>;
   on(event: "close", listener: () => void): unknown;
-  pages(): Page[];
-  newPage(): Promise<Page>;
+  on(event: "page", listener: (page: ProfilePage) => void): unknown;
+  pages(): ProfilePage[];
+  newPage(): Promise<ProfilePage>;
 };
+type Page = ProfilePage;
+type Context = ProfileBrowserContext;
 type Launcher = {
   launchPersistentContext(directory: string, options: Options): Promise<Context>;
 };
 type Storage = { directory: string };
 type ProfileContext = {
   context: Context; options: Options; claimed: boolean; closed: boolean; takeInitialPage(): Page | undefined;
+  initialPage(): Page | undefined;
   startupProtected: boolean; releaseStartup?: () => void;
 };
 const contexts = new WeakMap<Browser, ProfileContext>();
 
-function trackInitialPage(context: Context): () => Page | undefined {
+function trackInitialPage(context: Context): { take(): Page | undefined; peek(): Page | undefined } {
   const pages = context.pages();
   // Capture only the sole launch page. Never select a later user tab.
   const first = pages.length === 1 ? pages[0] : undefined;
@@ -47,7 +58,7 @@ function trackInitialPage(context: Context): () => Page | undefined {
   initial?.on("framenavigated", take);
   initial?.on("close", take);
   initial?.on("request", navigating);
-  return take;
+  return { take, peek: () => initial };
 }
 
 function runtimeStorage(): Storage {
@@ -65,13 +76,15 @@ export async function launchProfileBrowser(
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   // Context options (permissions, locale, timezone, viewport) must apply at launch,
   // not to a new incognito context after the native profile has already opened.
-  const effective = { ...options, ...contextOptions };
+  // Like the official launcher, use the host media features instead of Playwright's emulation.
+  const effective = launcher().withStockMediaDefaults({ ...options, ...contextOptions });
   const context = await firefox.launchPersistentContext(directory, effective);
   try {
     const browser = context.browser();
     if (!browser) throw Error("Persistent context has no browser; refusing an ephemeral substitute");
+    const initial = trackInitialPage(context);
     const record: ProfileContext = { context, options: effective, claimed: false, closed: false,
-      takeInitialPage: trackInitialPage(context), startupProtected: false };
+      takeInitialPage: initial.take, initialPage: initial.peek, startupProtected: false };
     context.on("close", () => { record.closed = true; record.takeInitialPage(); record.releaseStartup?.(); });
     contexts.set(browser, record);
     if (!existsSync(marker)) writeFileSync(marker, JSON.stringify({ version: 1 }), { flag: "wx", mode: 0o600 });
@@ -133,4 +146,158 @@ export async function createProfilePage(context: Context): Promise<Page> {
   const initial = record.takeInitialPage();
   if (initial && !initial.isClosed() && initial.url() === "about:blank" && context.pages().includes(initial)) return initial;
   return context.newPage();
+}
+
+export type StartupPageGeometry = { innerWidth: number; innerHeight: number; outerWidth: number; outerHeight: number;
+  devicePixelRatio: number; visualScale: number | null; fullscreen: boolean };
+
+// The page must report the real macOS window in a normal headed window at zoom 1 and visual scale 1.
+// Window sizes are runtime values, so the check needs no engine-specific calibration.
+// Privileged APIs are not spoof-proof.
+export function validateStartupGeometry(page: StartupPageGeometry, window: StartupWindowObservation,
+  platform: NodeJS.Platform, now = Date.now()) {
+  if (platform !== "darwin") throw Error("The display platform has no supported startup geometry contract.");
+  if (window.state !== "normal" || page.fullscreen !== false) throw Error("The startup window mode is unknown or unsupported.");
+  if (window.zoom !== 1 || page.visualScale !== 1) throw Error("The startup window zoom or viewport scale is unsupported.");
+  if (!Number.isFinite(window.sampledAt) || !Number.isFinite(window.receivedAt) || window.sampledAt > window.receivedAt ||
+      now < window.receivedAt || now - window.sampledAt > 5000)
+    throw Error("The startup window observation is stale.");
+  for (const value of [page.innerWidth, page.innerHeight, page.outerWidth, page.outerHeight, page.devicePixelRatio])
+    if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) throw Error("Startup window geometry is incomplete.");
+  if (window.outerHeight <= window.viewportHeight || window.outerWidth < window.viewportWidth)
+    throw Error("The normal window frame and viewport geometry are inconsistent.");
+  if (page.outerWidth !== window.outerWidth || page.outerHeight !== window.outerHeight ||
+      page.innerWidth !== window.viewportWidth || page.innerHeight !== window.viewportHeight)
+    throw Error(`The page geometry differs from the privileged window and tab observation. Page outer: ${page.outerWidth}x${page.outerHeight}, viewport: ${page.innerWidth}x${page.innerHeight}. Native outer: ${window.outerWidth}x${window.outerHeight}, viewport: ${window.viewportWidth}x${window.viewportHeight}.`);
+}
+
+async function restoreStartupTitle(page: Page, token: string, previous: string) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const restored = await Promise.race([page.evaluate(({ token, previous }) => {
+      if (location.href !== "about:blank" || document.title !== token) return false;
+      document.title = previous;
+      return document.title === previous;
+    }, { token, previous }), new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => reject(Error("Startup page title restoration timed out.")), 2000);
+    })]);
+    if (!restored) throw Error("The startup page changed before its title could be restored.");
+  } finally { if (timer) clearTimeout(timer); }
+}
+
+const sameWindow = (a: StartupWindowObservation, b: StartupWindowObservation) =>
+  (["instanceId", "windowId", "tabId", "state", "outerWidth", "outerHeight", "viewportWidth", "viewportHeight", "zoom"] as const)
+    .every(key => a[key] === b[key]);
+
+// Observe the borrowed startup page without navigating it or creating a window.
+export async function verifyProfileFingerprint(context: Context, prepared: ReturnType<typeof applyFingerprint>,
+  observeWindow: (token: string, timeoutMs?: number, notBefore?: number) => Promise<StartupWindowObservation>,
+  platform: NodeJS.Platform = process.platform) {
+  const record = originalContext(context);
+  if (record.options.headless !== false || record.options.viewport !== null)
+    throw Error("The browser display mode is unknown; fingerprint admission is blocked.");
+  const executable = record.options.executablePath;
+  if (typeof executable !== "string" || !isAbsolute(executable) ||
+      createHash("sha256").update(readFileSync(executable)).digest("hex") !== prepared.engineSha256)
+    throw Error("The launched browser engine does not match the fingerprint pin.");
+  const page = record.initialPage();
+  if (!page || page.isClosed() || page.url() !== "about:blank" || !context.pages().includes(page))
+    throw Error("An owned blank startup page is unavailable; existing pages were preserved.");
+  const previousTitle = await page.evaluate(() => document.title);
+  if (typeof previousTitle !== "string") throw Error("The startup page title is unavailable.");
+  const token = `stelz-startup:${randomUUID()}`;
+  try {
+    await page.evaluate((value: string) => {
+      if (location.href !== "about:blank") throw Error("Startup page navigated.");
+      document.title = value;
+    }, token);
+    // The extension and the page read geometry at different times, and a startup window can still change.
+    // Bracket each page read with native samples. While they differ, read only the geometry again.
+    // A stable mismatch fails the exact check. The whole exchange keeps one deadline.
+    const deadline = Date.now() + 8000;
+    const observe = (notBefore?: number) => {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) throw Error("The startup window did not settle before the deadline.");
+      return observeWindow(token, remaining, notBefore);
+    };
+    const readGeometry = () => page.evaluate(() => ({ identity: {
+      "window.innerWidth": window.innerWidth, "window.innerHeight": window.innerHeight,
+      "window.outerWidth": window.outerWidth, "window.outerHeight": window.outerHeight, "window.devicePixelRatio": window.devicePixelRatio,
+    }, geometry: { visualScale: window.visualViewport?.scale ?? null, fullscreen: document.fullscreenElement !== null } }));
+    let before = await observe();
+    if (before.instanceId !== prepared.owner.browserInstanceId) throw Error("Startup window evidence belongs to another browser instance.");
+    let pageGeometry = await readGeometry(), nativeWindow = await observe(Date.now());
+    while (!sameWindow(before, nativeWindow)) {
+      before = nativeWindow;
+      pageGeometry = await readGeometry(); nativeWindow = await observe(Date.now());
+    }
+    const geometryIdentity = pageGeometry.identity;
+    validateStartupGeometry({ innerWidth: geometryIdentity["window.innerWidth"], innerHeight: geometryIdentity["window.innerHeight"],
+      outerWidth: geometryIdentity["window.outerWidth"], outerHeight: geometryIdentity["window.outerHeight"],
+      devicePixelRatio: geometryIdentity["window.devicePixelRatio"], ...pageGeometry.geometry }, nativeWindow, platform);
+    const observed = await page.evaluate(() => {
+      const gl = (kind: "webgl" | "webgl2") => {
+        const canvas = document.createElement("canvas");
+        const context = kind === "webgl" ? canvas.getContext("webgl") : canvas.getContext("webgl2");
+        if (!context) return { available: false };
+        try {
+          const debug = context.getExtension("WEBGL_debug_renderer_info");
+          return { available: true, vendor: debug ? context.getParameter(debug.UNMASKED_VENDOR_WEBGL) : undefined,
+            renderer: debug ? context.getParameter(debug.UNMASKED_RENDERER_WEBGL) : undefined,
+            version: context.getParameter(context.VERSION), extensions: context.getSupportedExtensions(),
+            maxTextureSize: context.getParameter(context.MAX_TEXTURE_SIZE),
+            maxRenderbufferSize: context.getParameter(context.MAX_RENDERBUFFER_SIZE),
+            maxVertexAttribs: context.getParameter(context.MAX_VERTEX_ATTRIBS) };
+        } finally { context.getExtension("WEBGL_lose_context")?.loseContext(); }
+      };
+      return { identity: {
+        "navigator.userAgent": navigator.userAgent, "navigator.platform": navigator.platform,
+        "navigator.oscpu": (navigator as Navigator & { oscpu?: string }).oscpu,
+        "navigator.hardwareConcurrency": navigator.hardwareConcurrency,
+        "navigator.deviceMemory": (navigator as Navigator & { deviceMemory?: number }).deviceMemory,
+        "screen.width": screen.width, "screen.height": screen.height, "screen.availWidth": screen.availWidth,
+        "screen.availHeight": screen.availHeight, "screen.colorDepth": screen.colorDepth, "screen.pixelDepth": screen.pixelDepth,
+      }, webgl: gl("webgl"), webgl2: gl("webgl2") };
+    });
+    if (record.closed || record.context !== context || page.isClosed() || page.url() !== "about:blank")
+      throw Error("The startup page changed during fingerprint verification.");
+    const identity: Record<string, unknown> = { ...observed.identity, ...geometryIdentity };
+    for (const key of ["navigator.userAgent", "navigator.platform"])
+      if (typeof identity[key] !== "string" || !identity[key]) throw Error(`Runtime identity evidence is missing: ${key}.`);
+    for (const key of ["navigator.hardwareConcurrency", "screen.width", "screen.height", "screen.availWidth", "screen.availHeight",
+      "screen.colorDepth", "screen.pixelDepth"]) {
+      const value = identity[key];
+      if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) throw Error(`Runtime geometry evidence is missing: ${key}.`);
+    }
+    if ((identity["screen.availWidth"] as number) > (identity["screen.width"] as number) ||
+        (identity["screen.availHeight"] as number) > (identity["screen.height"] as number) ||
+        identity["screen.colorDepth"] !== identity["screen.pixelDepth"]) throw Error("Runtime screen or window geometry is inconsistent.");
+    for (const [prefix, gl] of [["webGl:", observed.webgl], ["webGl2:", observed.webgl2]] as const) {
+      if (!gl.available) continue;
+      for (const key of ["vendor", "renderer", "version"] as const) if (gl[key] !== undefined) identity[prefix + key] = gl[key];
+      for (const key of ["maxTextureSize", "maxRenderbufferSize", "maxVertexAttribs"] as const)
+        if (typeof gl[key] !== "number" || !Number.isFinite(gl[key]) || gl[key] <= 0) throw Error("WebGL capability evidence is unavailable.");
+      const parameters = prepared.effective[prefix + "parameters"];
+      if (parameters && typeof parameters === "object" && !Array.isArray(parameters)) {
+        for (const [name, number, key] of [["MAX_TEXTURE_SIZE", "3379", "maxTextureSize"],
+          ["MAX_RENDERBUFFER_SIZE", "34024", "maxRenderbufferSize"], ["MAX_VERTEX_ATTRIBS", "34921", "maxVertexAttribs"]] as const) {
+          const expected = (parameters as Record<string, unknown>)[name] ?? (parameters as Record<string, unknown>)[number];
+          if (expected !== undefined && !isDeepStrictEqual(expected, gl[key])) throw Error(`WebGL capability ${name} differs from the pin.`);
+        }
+      }
+      const extensions = prepared.effective[prefix + "supportedExtensions"];
+      if (Array.isArray(extensions) && (!Array.isArray(gl.extensions) ||
+          !isDeepStrictEqual([...extensions].sort(), [...gl.extensions].sort()))) throw Error("WebGL extensions differ from the pin.");
+    }
+    const webglExpected = prepared.preferences["webgl.disabled"] !== true;
+    if (observed.webgl.available !== webglExpected) throw Error("WebGL availability differs from the launch preferences.");
+    const webgl2Expected = prepared.preferences["webgl.enable-webgl2"];
+    if (typeof webgl2Expected === "boolean" && observed.webgl2.available !== webgl2Expected)
+      throw Error("WebGL2 availability differs from the launch preferences.");
+    const runtime = validateRuntimeObservation({ expectedIdentity: prepared.effective, observedIdentity: identity });
+    const admission = validateFingerprint({ pin: prepared.pin, effectiveIdentity: prepared.effective,
+      effectivePreferences: prepared.preferences }, { expectedEngineSha256: prepared.engineSha256, admissionRequired: true, runtime });
+    if (admission.admissionBlocked) throw Error(`Runtime fingerprint validation failed: ${admission.diagnostics.filter(d => d.severity === "error").map(d => d.code).join(", ")}`);
+    return page;
+  } finally { await restoreStartupTitle(page, token, previousTitle); }
 }

@@ -4,11 +4,13 @@ import { randomUUID } from "node:crypto";
 import { profileAppearance, type ProfileWindow, type ProfileWindows, type ShowProfileWindow } from "./profile-appearance.ts";
 import { profileExtensionMain, type ProfileExtensionConfig } from "./profile-extension.ts";
 import { profileIpProbeMain } from "./ip-probe.ts";
-import type { LaunchOptions } from "./fingerprint.ts";
+import { readLaunchConfig, writeLaunchConfig, type LaunchOptions } from "./fingerprint.ts";
 
 const integer = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) >= 0;
 const record = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
 const phases = new Set(["ready", "paused", "verification_failed"]);
+export type StartupWindowObservation = { instanceId: string; windowId: number; tabId: number; state: string;
+  outerWidth: number; outerHeight: number; viewportWidth: number; viewportHeight: number; zoom: number; sampledAt: number; receivedAt: number };
 
 export function prepareProfileExtension(directory: string, config: ProfileExtensionConfig) {
   mkdirSync(directory, { recursive: true, mode: 0o700 });
@@ -37,16 +39,11 @@ export function prepareProfileExtension(directory: string, config: ProfileExtens
 }
 
 export function addProfileExtension(options: LaunchOptions, directory: string) {
-  const env = options.env ?? {};
-  const keys = Object.keys(env).filter(key => /^CAMOU_CONFIG_[1-9]\d*$/.test(key)).sort((a, b) => Number(a.split("_").at(-1)) - Number(b.split("_").at(-1)));
-  if (!keys.length || keys.some((key, index) => key !== "CAMOU_CONFIG_" + (index + 1))) throw Error("Missing browser launch configuration.");
-  const config = JSON.parse(keys.map(key => env[key]).join("")) as Record<string, unknown>;
+  const config = readLaunchConfig(options);
+  if (!config) throw Error("Missing browser launch configuration.");
   if (config.addons !== undefined && (!Array.isArray(config.addons) || config.addons.some(path => typeof path !== "string"))) throw Error("Invalid browser add-on configuration.");
   config.addons = [...new Set([...(config.addons as string[] | undefined ?? []), directory])];
-  const serialized = JSON.stringify(config);
-  for (const key of keys) delete env[key];
-  for (let offset = 0; offset < serialized.length; offset += 32767) env["CAMOU_CONFIG_" + (offset / 32767 + 1)] = serialized.slice(offset, offset + 32767);
-  options.env = env;
+  writeLaunchConfig(options, config);
 }
 
 export function createProfileWindows(options: {
@@ -70,8 +67,21 @@ export function createProfileWindows(options: {
   }
   prepare();
   let windows: ProfileWindow[] = [], updatedAt: number | undefined, error: string | null = null;
+  let startup: { token: string; startedAt: number; deadline: number; notBefore: number;
+    resolve(value: StartupWindowObservation): void; reject(error: Error): void } | undefined;
   let selecting = false;
   let pending: { id: string; windowId: number; tabId?: number; delivered: boolean; resolve(): void; reject(error: Error): void } | undefined;
+  // A caller that brackets a page read passes notBefore, so the sample follows that read.
+  function observeStartup(token: string, timeoutMs = 8000, notBefore = -Infinity): Promise<StartupWindowObservation> {
+    if (options.phase() !== "starting" || startup || !/^stelz-startup:[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/.test(token))
+      throw Error("Startup window observation is unavailable.");
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => { startup = undefined; reject(Error("Fresh startup window evidence is unavailable.")); }, timeoutMs);
+      const startedAt = now();
+      startup = { token, startedAt, deadline: startedAt + timeoutMs, notBefore, resolve: value => { clearTimeout(timer); startup = undefined; resolve(value); },
+        reject: error => { clearTimeout(timer); startup = undefined; reject(error); } };
+    });
+  }
   function snapshot(): ProfileWindows {
     const running = phases.has(options.phase());
     const recent = updatedAt !== undefined && now() - updatedAt < 5_000;
@@ -92,12 +102,36 @@ export function createProfileWindows(options: {
       const tabs = window.tabs.map(tab => {
         if (++count > 100 || !record(tab) || !integer(tab.id) || typeof tab.title !== "string" || tab.title.length > 16_384
           || typeof tab.url !== "string" || tab.url.length > 16_384 || typeof tab.active !== "boolean") throw Error("Invalid browser page.");
-        return { id: tab.id, title: tab.title, url: tab.url, active: tab.active };
+        return { id: tab.id, title: options.phase() === "starting" && tab.title === startup?.token ? "" : tab.title,
+          url: tab.url, active: tab.active };
       });
-      return { id: window.id, title: window.title, focused: window.focused, state: window.state, tabs };
+      return { id: window.id, title: options.phase() === "starting" && startup && window.title.includes(startup.token) ? "" : window.title,
+        focused: window.focused, state: window.state, tabs };
     });
     if (new Set(fresh.map(window => window.id)).size !== fresh.length || new Set(fresh.flatMap(window => window.tabs.map(tab => tab.id))).size !== count) throw Error("Duplicate browser window or page.");
-    windows = fresh; updatedAt = now();
+    const receivedAt = now();
+    windows = fresh; updatedAt = receivedAt;
+    if (startup) {
+      const pendingStartup = startup, matches: Array<{ window: Record<string, unknown>; tab: Record<string, unknown> }> = [];
+      for (const window of value.windows) if (record(window) && Array.isArray(window.tabs))
+        for (const tab of window.tabs) if (record(tab) && tab.title === pendingStartup.token) matches.push({ window, tab });
+      if (matches.length > 1) pendingStartup.reject(Error("Startup page association is ambiguous."));
+      else if (matches.length === 1) {
+        const { window, tab } = matches[0]!;
+        const positive = (number: unknown): number is number => typeof number === "number" && Number.isFinite(number) && number > 0;
+        if (options.phase() !== "starting" || receivedAt < pendingStartup.startedAt || receivedAt > pendingStartup.deadline ||
+            tab.url !== "about:blank" || tab.active !== true || !integer(window.id) || !integer(tab.id) || typeof window.state !== "string")
+          pendingStartup.reject(Error("Startup window geometry evidence is incomplete or stale."));
+        // The extension omits zoom when the window changes between its two reads.
+        // Wait for complete evidence within the original deadline; never admit a partial or stale sample.
+        else if (typeof value.sampledAt === "number" && Number.isFinite(value.sampledAt) && value.sampledAt <= receivedAt &&
+            receivedAt - value.sampledAt <= 2000 && value.sampledAt >= pendingStartup.startedAt - 2000 && value.sampledAt >= pendingStartup.notBefore &&
+            positive(window.width) && positive(window.height) && positive(tab.width) && positive(tab.height) && positive(tab.zoom))
+          pendingStartup.resolve({ instanceId, windowId: window.id, tabId: tab.id, state: window.state,
+          outerWidth: window.width, outerHeight: window.height, viewportWidth: tab.width, viewportHeight: tab.height,
+          zoom: tab.zoom, sampledAt: value.sampledAt, receivedAt });
+      }
+    }
     error = typeof value.error === "string" ? value.error.slice(0, 300) : null;
     if (record(value.acknowledgement) && pending?.delivered && value.acknowledgement.id === pending.id) {
       if (value.acknowledgement.error) pending.reject(Error(typeof value.acknowledgement.error === "string"
@@ -128,5 +162,5 @@ export function createProfileWindows(options: {
       });
     } finally { selecting = false; }
   }
-  return { extensionPath, prepare, snapshot, exchange, show };
+  return { extensionPath, prepare, snapshot, exchange, show, observeStartup };
 }

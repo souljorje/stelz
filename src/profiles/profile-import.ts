@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
-  closeSync, constants, createReadStream, fstatSync, fsyncSync, lstatSync, mkdirSync,
+  closeSync, constants, fstatSync, fsyncSync, lstatSync, mkdirSync,
   openSync, readdirSync, readSync, writeSync,
 } from "node:fs";
 import { createServer, isIP, type Server } from "node:net";
@@ -13,9 +13,10 @@ import { isTypingMode } from "../browser/typing.ts";
 import { catalogRevision, prepareProfileConfiguration } from "./profile-configuration.ts";
 import { readCatalogFile, readCatalogFiles } from "./profile-catalog.ts";
 import { commitProfileImportTransaction, pendingProfileImport, type ImportPath } from "./profile-import-transaction.ts";
+import { checkSavedFingerprint, engineFileSha256, readSavedFingerprint } from "./fingerprint-check.ts";
 import {
   ProfileTransferError, type ArchiveFile, type ImportSelection, type PortableProfile,
-  type ProfileArchiveManifest, type ProfileImportPreview, type ProfileImportResult, type TransferOptions,
+  type ProfileArchiveManifest, type ProfileImportPreview, type ProfileImportResult, type TransferFingerprint, type TransferOptions,
 } from "./profile-transfer-types.ts";
 
 const validId = (id: unknown): id is string => typeof id === "string" && id !== "all" && /^[a-z][a-z\d-]{0,63}$/.test(id);
@@ -89,7 +90,7 @@ function directory(path: string, optional = false) {
   if (!info?.isDirectory()) changed();
   return true;
 }
-type SourceProfile = { profile: PortableProfile; directory: string; files: { file: ArchiveFile; relative: string }[]; directories: string[]; issues: string[] };
+type SourceProfile = { profile: PortableProfile; directory: string; files: { file: ArchiveFile; relative: string }[]; directories: string[]; issues: string[]; fingerprint: TransferFingerprint };
 async function sources(manifest: ProfileArchiveManifest, stagingDirectory: string, validateContents = true, signal?: AbortSignal): Promise<SourceProfile[]> {
   if (typeof stagingDirectory !== "string" || !isAbsolute(stagingDirectory)) invalid();
   directory(stagingDirectory);
@@ -160,13 +161,17 @@ async function sources(manifest: ProfileArchiveManifest, stagingDirectory: strin
       } catch { return; }
     };
     if (validateContents && marker) { const value = json("native-profile.json", 64 * 1024); if (!object(value) || value.version !== 1) issues.push("The native marker is invalid or exceeds 64 KiB."); }
+    let fingerprint: TransferFingerprint = { status: "uninitialized" };
     if (validateContents && names.has("fingerprint.json")) {
-      const pin = json("fingerprint.json", 16 * 1024 * 1024);
-      if (!object(pin) || pin.version !== 2 || pin.engineSha256 !== manifest.source.engineSha256 ||
-          !object(pin.config) || typeof pin.config["navigator.userAgent"] !== "string" || !pin.config["navigator.userAgent"])
-        issues.push("The fingerprint pin is invalid, exceeds 16 MiB, or uses a different browser executable.");
+      const read = await readSavedFingerprint(join(path, "fingerprint.json"));
+      if (read.status === "missing") changed();
+      if (read.status === "present" && read.sha256 !== listed.get("fingerprint.json")!.sha256) changed();
+      const validation = checkSavedFingerprint(read, { expectedEngineSha256: manifest.source.engineSha256, admissionRequired: true });
+      fingerprint = { status: "checked", validation };
+      if (validation.engineSha256 !== "PASS")
+        issues.push("The fingerprint pin is unreadable, exceeds 16 MiB, or uses a different or unknown browser executable.");
     } else if (!names.has("fingerprint.json") && (native || marker)) issues.push("Saved browser data requires a fingerprint pin.");
-    result.push({ profile, directory: path, files, directories, issues });
+    result.push({ profile, directory: path, files, directories, issues, fingerprint });
   }
   return result;
 }
@@ -175,9 +180,8 @@ async function compatibility(manifest: ProfileArchiveManifest, signal?: AbortSig
   if (manifest.source.platform !== process.platform) issues.push("The archive requires the same operating system.");
   if (manifest.source.arch !== process.arch) issues.push("The archive requires the same CPU architecture.");
   try {
-    const hash = createHash("sha256");
-    for await (const chunk of createReadStream(executable(), { signal })) hash.update(chunk);
-    if (hash.digest("hex") !== manifest.source.engineSha256) issues.push("The archive requires the exact browser executable. Engine migration is unavailable.");
+    if (await engineFileSha256(executable(), signal) !== manifest.source.engineSha256)
+      issues.push("The archive requires the exact browser executable. Engine migration is unavailable.");
   } catch { cancelled(signal); issues.push("The local browser executable is unavailable. Configure it before importing profiles."); }
   return issues;
 }
@@ -219,7 +223,8 @@ export async function inspectProfileImport(manifest: ProfileArchiveManifest, sta
   return {
     revision: catalogRevision(config), source: { ...manifest.source }, compatible: !issues.length, issues,
     profiles: saved.map((item, index) => ({ ...proposed[index]!, storage: item.profile.storage,
-      proxyDisplay: proxyDisplay(item.profile), proxyUnavailable: !!item.profile.proxy && !item.profile.proxy.url, issues: item.issues })),
+      proxyDisplay: proxyDisplay(item.profile), proxyUnavailable: !!item.profile.proxy && !item.profile.proxy.url,
+      issues: item.issues, fingerprint: item.fingerprint })),
   };
 }
 
@@ -308,7 +313,10 @@ export async function commitProfileImport(input: {
       ...Object.keys(oldSecrets), ...Object.keys(process.env), ...config.profiles.flatMap(p => [p.proxyEnv, p.expectedIPEnv]).filter((name): name is string => !!name),
     ]);
     let nextSecrets = before.secrets, port = 9377;
-    const imported: Profile[] = [], result: ProfileImportResult = { profiles: [] };
+    const imported: Profile[] = [], result: ProfileImportResult = {
+      profiles: [], fingerprintDiagnostics: saved.filter(p => sourceIds.has(p.profile.id))
+        .map(p => ({ sourceId: p.profile.id, fingerprint: p.fingerprint })),
+    };
     const addSecret = (p: Profile, field: "proxyEnv" | "expectedIPEnv", value?: string) => {
       let name: string;
       do { name = `STELZ_${randomUUID().replaceAll("-", "").toUpperCase()}_${field === "proxyEnv" ? "PROXY_URL" : "EXPECTED_IP"}`; } while (used.has(name));
@@ -358,6 +366,18 @@ export async function commitProfileImport(input: {
             for (const { file, relative } of source.files) {
               let destination = join(target, relative);
               await copyFile(source, relative, destination, file, input, progress);
+            }
+            const pinFile = source.files.find(({ relative }) => relative === "fingerprint.json");
+            if (pinFile) {
+              // The engine check must describe the integrity-verified bytes that will be published.
+              const read = await readSavedFingerprint(join(target, "fingerprint.json"));
+              if (read.status === "missing") changed();
+              if (read.status === "present" && read.sha256 !== pinFile.file.sha256) changed();
+              const validation = checkSavedFingerprint(read, { expectedEngineSha256: manifest.source.engineSha256, admissionRequired: true });
+              if (validation.engineSha256 !== "PASS")
+                throw new ProfileTransferError(409, "The imported fingerprint uses a different or unknown browser executable.");
+              const diagnostic = result.fingerprintDiagnostics?.find(item => item.sourceId === selection.sourceId);
+              if (diagnostic) diagnostic.fingerprint = { status: "checked", validation };
             }
           }
           await sources(manifest, input.stagingDirectory, false, input.signal); cancelled(input.signal);

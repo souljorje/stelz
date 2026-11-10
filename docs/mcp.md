@@ -5,7 +5,7 @@ One connection can control multiple profiles. Each profile permits one browser i
 Stelz has no agent identities or agent count limits.
 Each profile has its own action queue. Separate profiles can execute actions concurrently.
 
-See [Connect your agent](clients.md) for registration, verification, and migration from the removed MCP `--profile` option.
+See [Connect your agent](clients.md) for registration and verification.
 
 ## Fixed tool catalog
 
@@ -30,7 +30,7 @@ All nine browser tools require `profileId` and `controlHandle` alongside their e
 | Browser tool | Purpose |
 | --- | --- |
 | `camofox_create_tab` | Open a page. |
-| `camofox_list_tabs` | Read open tabs. |
+| `camofox_list_tabs` | Read the tabs that Stelz manages. Tabs that a person opens stay open but are not listed. |
 | `camofox_snapshot` | Read a fresh accessibility snapshot. |
 | `camofox_click` | Click an observed element. |
 | `camofox_type` | Enter text. |
@@ -41,8 +41,11 @@ All nine browser tools require `profileId` and `controlHandle` alongside their e
 
 Read the full argument schemas through `tools/list`.
 Stelz preserves canonical Camofox browser arguments and adds the required profile and control fields.
-`camofox_type` also accepts `mode`: `auto`, `keyboard`, or `instant`.
-See the [browser skill](../skills/stelz-browser/SKILL.md) for typing behavior.
+`camofox_type` also accepts `mode`: `balanced`, `keyboard`, or `instant`.
+See [Typing](configuration.md#typing) for typing behavior.
+
+If a tool call includes a `progressToken`, Stelz sends a progress notification every 10 seconds until the call ends.
+Set your client to reset its request timeout on progress, because some calls, such as `camofox_type`, can take minutes.
 
 `camofox_evaluate` and `camofox_import_cookies` remain excluded.
 Previously planned browser controls remain [deferred](development/architecture.md#planned-browser-controls).
@@ -60,31 +63,14 @@ Release its current handle before another acquisition.
 Release, disconnect, browser restart, and forced operator handoff invalidate the affected control.
 Acquire again before further control calls. Use the new handle and read fresh browser state.
 Never reuse a handle from another connection, profile, or browser lifetime.
-Do not publish handles in reports, configuration, or handoff notes.
 
-## Runtime workflow
+## Runtime rules
 
-1. Call `profile_list({})`.
-2. Select the intended stable profile ID.
-3. Call `profile_create({profileId})` if the profile is missing.
-4. Call `profile_status({profileId})`.
-5. Call `profile_start({profileId})` if the browser is stopped.
-6. Call `profile_acquire({profileId})`.
-7. Retain the returned `controlHandle` with that profile ID.
-8. Call `camofox_list_tabs` with both fields.
-9. Read a fresh snapshot before selecting an action.
-10. Check each action with a fresh observation.
-11. Call `profile_release` with both fields when finished or before handoff.
+Agents follow the [browser skill](../skills/stelz-browser/SKILL.md#do-a-browser-task) for the call order, readiness, and human authentication.
 
 Creation never reconfigures an existing profile. It preserves its route, expected IP, port, data, and secret references.
+Acquisition never starts a stopped browser.
 Use the CLI or UI for configuration, proxies, deletion, import, stop, recovery, and forced handoff.
-Acquisition never starts a stopped browser. New profiles need an explicit start.
-
-For human authentication, pause with the profile's current handle.
-Wait for the human in the same browser window. Resume with that handle after the human finishes.
-Read a fresh snapshot after resume. Do not bypass authentication challenges.
-
-Release and disconnect preserve running browsers and open pages.
-Release explicitly before a planned handoff. The next connection acquires its own handle for the existing browser.
+Release and disconnect preserve running browsers and open pages. The next connection acquires its own handle for the existing browser.
 Conversation history stays with the previous client.
 See [Troubleshooting](troubleshooting.md) for conflicts, stale handles, and uncertain process ownership.
