@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { hash, readLocationFile, managedGeoip, validateLocationConfig, locationsMatch, resolveLocation,
+import { hash, readLocationFile, managedGeoip, validateLocationConfig, locationsMatch, resolveLocation, locationEvidence, assertCredibleLocation,
   locationFailure, LocationError, checkBrowserLocation, writeLocationRecord, type LocationRecord, type LocationResult } from "./location.ts";
 import { readLaunchConfig, type LaunchOptions, type Fingerprint } from "./fingerprint.ts";
 import { isPreparedModel, pairedBrowser } from "./camoufox.ts";
@@ -69,13 +69,17 @@ export function checkLaunchLocation(options: LaunchOptions, record: LocationReco
 export type LocationPage = { evaluate<T>(callback: () => T): Promise<T>; url(): string };
 export async function verifyLaunchLocation(record: LocationRecord, ip: string, page: LocationPage) {
   const prepared = record.prepared!;
+  let evidence = record.result.evidence;
   if (ip !== prepared.ip) {
     const data = await managedGeoip(join(process.env.STELZ_HOME!, "runtime"));
     if (data.sha256 !== prepared.dataId || !locationsMatch(prepared.config, resolveLocation(data.reader, ip)))
       throw locationFailure("BROWSER_LOCATION_MISMATCH");
+    // A rotated exit needs its own evidence. Staleness is a setup matter, so only a conflict blocks here.
+    evidence = locationEvidence(data, ip, prepared.config);
+    assertCredibleLocation({ ...evidence, stale: false }, prepared.policy ?? "warn", record.result);
   }
   const observed = await page.evaluate(() => ({ timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     locale: Intl.DateTimeFormat().resolvedOptions().locale, language: navigator.language, languages: [...navigator.languages] }));
   checkBrowserLocation(prepared.config, observed);
-  return observed;
+  return { observed, evidence };
 }

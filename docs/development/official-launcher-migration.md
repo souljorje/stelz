@@ -72,7 +72,7 @@ Done. The official candidate passed the corpus, exact replay, and native admissi
 
 Phase 3 merges runtime provisioning and the production cutover into one atomic delivery on a branch.
 
-Scope: the browser stays user-provided or explicit, and setup and launch reject an unpaired build. Setup provisions the fingerprint model and location data. Stelz keeps its own exit-IP check and location resolver. The official helpers memoize per proxy, cannot be cancelled, have no error codes, and download into the shared cache.
+Scope: the browser stays user-provided or explicit, and setup and launch reject an unpaired build. Setup provisions the fingerprint model and location data. Stelz keeps its own exit-IP check and location resolver. The official helpers memoize per proxy, cannot be cancelled, have no error codes, and download into the shared cache. Stelz uses the official default location source, GeoIP AIO, with the same freshness limits, and downloads it during setup.
 
 Provision the model, location, and other explicit runtime assets under `STELZ_HOME`. Setup must be atomic and idempotent. Do not assume npm contains the browser or model. Start, MCP calls, and repair must not download or write global caches. A missing asset fails with setup guidance. Keep explicit external executables read-only and resolve their resources from the bundle.
 

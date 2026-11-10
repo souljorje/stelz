@@ -166,6 +166,8 @@ A failed check remains visible after its startup attempt closes.
 | Problem | Action |
 | --- | --- |
 | Location data is missing, damaged, or incompatible | Safely stop profiles, run `stelz setup`, then select **Check again**. |
+| Location data is stale (`GEOIP_DATA_STALE`, strict policy) | Safely stop profiles, run `stelz setup` with network access, then check again. |
+| Location databases disagree (`LOCATION_CONFLICT`, strict policy) | Use another proxy exit. To start anyway, set `STELZ_LOCATION_POLICY=warn`. |
 | Proxy credentials are missing or rejected | Edit the proxy credentials, then check again. |
 | Proxy connection fails or times out | Check the provider connection, then check again. |
 | IP detection fails | Check again after the IP services respond. |

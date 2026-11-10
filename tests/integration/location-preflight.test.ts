@@ -50,7 +50,7 @@ function fixture(ipCode?: string) {
 for (const condition of ["missing", "corrupt", "incompatible", "incomplete"] as const) test(`${condition} data blocks UI, CLI and MCP before a process reservation`, async () => {
   const f = fixture('throw Error("No network call is allowed");');
   if (condition === "missing") rmSync(join(f.home, "runtime/geoip"), { recursive: true });
-  else managedFixture(join(f.home, "runtime"), condition === "corrupt" ? Buffer.from("bad") : condition === "incompatible" ? geoipFixture(undefined, "GeoLite2-Country") : geoipFixture({ latitude: 0, longitude: 0 }));
+  else managedFixture(join(f.home, "runtime"), condition === "corrupt" ? Buffer.from("bad") : condition === "incompatible" ? geoipFixture(undefined, "GeoLite2-Country") : geoipFixture({ latitude: 0, longitude: 0 }, "GeoIP2-City"));
   const code = condition === "missing" ? "GEOIP_DATA_MISSING" : condition === "incompatible" ? "GEOIP_DATA_INCOMPATIBLE" : "GEOIP_DATA_INVALID";
   const result = await f.cli("start"); expect(result.code).toBe(1);
   expect(JSON.parse(result.error)).toMatchObject({ location: { code, browserStarted: false, nextAction: { command: "stelz setup" } } });
@@ -87,6 +87,22 @@ test("preflight persists useful results, refresh stays local, and resolved secre
   expect(await f.script(`return (await runtime.reportStatus('test')).location;`)).toMatchObject({ status: "ready", browserStarted: false, timezone: "Europe/London", language: "en-GB", network: "passed", geoip: "passed", browser: "not_checked" });
   expect(readFileSync(join(f.home, "calls"), "utf8")).toBe("x");
   expect(await f.script(`process.env.TEST_PROXY='http://changed:secret@proxy.test:8080'; return (await runtime.reportStatus('test')).location;`)).toMatchObject({ status: "not_checked" });
+  expect(existsSync(join(f.directory, "running.json"))).toBe(false);
+});
+test("the default policy reports a location conflict; the strict policy blocks conflicting or stale data before launch", async () => {
+  const f = fixture();
+  // The comparison database places the exit in another offset at city precision.
+  managedFixture(join(f.home, "runtime"), undefined, geoipFixture({ latitude: 0, longitude: 0, time_zone: "Asia/Tokyo", accuracy_radius: 20 },
+    "GeoLite2-City", { city: { geoname_id: 1 } }), new Date().toISOString());
+  expect((await f.cli("recheck")).code).toBe(0);
+  expect(await f.script(`return (await runtime.reportStatus('test')).location;`)).toMatchObject({ status: "ready", evidence: { source: "GeoIP AIO", stale: false,
+    comparison: { source: "GeoLite2 City", result: "conflicting", timezone: "Asia/Tokyo", accuracyRadiusKm: 20, city: true } } });
+  writeFileSync(join(f.home, "secrets.env"), readFileSync(join(f.home, "secrets.env"), "utf8") + "STELZ_LOCATION_POLICY=strict\n");
+  const conflict = await f.cli("start"); expect(conflict.code).toBe(1);
+  expect(JSON.parse(conflict.error)).toMatchObject({ location: { code: "LOCATION_CONFLICT", browserStarted: false, evidence: { comparison: { result: "conflicting" } } } });
+  managedFixture(join(f.home, "runtime"));
+  const stale = await f.cli("recheck"); expect(stale.code).toBe(1);
+  expect(JSON.parse(stale.error)).toMatchObject({ location: { code: "GEOIP_DATA_STALE", nextAction: { command: "stelz setup" }, evidence: { stale: true } } });
   expect(existsSync(join(f.directory, "running.json"))).toBe(false);
 });
 for (const code of ["PROXY_AUTHENTICATION", "PROXY_UNREACHABLE", "IP_DETECTION_FAILED"] as const) test(`${code} remains specific and sanitized after a failed check`, async () => {
@@ -140,7 +156,7 @@ test("changed engine, integration, dataset and expected IP invalidate old green 
     expect(await f.script(`return (await runtime.reportStatus('test')).location;`)).toMatchObject({ status: "not_checked", valid: false });
   }
   expect((await f.cli("recheck")).code).toBe(0);
-  managedFixture(join(f.home, "runtime"), geoipFixture({ latitude: 1, longitude: 0, time_zone: "Europe/London" }));
+  managedFixture(join(f.home, "runtime"), geoipFixture({ latitude: 1, longitude: 0, time_zone: "Europe/London" }, "GeoIP2-City"));
   expect(await f.script(`return (await runtime.reportStatus('test')).location;`)).toMatchObject({ status: "not_checked" });
   const config = JSON.parse(readFileSync(join(f.home, "profiles.json"), "utf8")); config.profiles[0].expectedIPEnv = "EXPECTED_TEST";
   writeFileSync(join(f.home, "profiles.json"), JSON.stringify(config));

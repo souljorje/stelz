@@ -92,7 +92,7 @@ stelz ui --open
 ```
 
 Setup checks the browser and prepares the service runtime, location data, and fingerprint model. It leaves the installed Camoufox app unchanged.
-Setup reuses valid location data and a valid fingerprint model. Missing or damaged data requires a download.
+Setup reuses recent valid location data and a valid fingerprint model. Missing, damaged, or older location data requires a download.
 For a proxy, **Location alignment** shows known problems before Start. **Check connection** checks the route without launching a browser.
 Start always checks the current route again. **Ready to start** does not mean that a browser is running.
 An existing installation must have all profiles safely stopped before setup can replace its runtime.

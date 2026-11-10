@@ -16,7 +16,7 @@ import { activateProfileBrowser } from "./window-activation.ts";
 import { profileTypingMode } from "../profiles/typing-mode.ts";
 import { parseTypingMode } from "./typing.ts";
 import { launchLocation, checkLaunchLocation, verifyLaunchLocation, saveLaunchLocation, type LocationPage } from "./location-launch.ts";
-import { LocationError, locationFailure } from "./location.ts";
+import { LocationError, locationFailure, evidenceMessage } from "./location.ts";
 export { prepareProfileLaunch } from "./location-launch.ts";
 export { typeIntoLocator } from "./typing.ts";
 export { initializedFingerprint } from "./fingerprint-transaction.ts";
@@ -222,10 +222,12 @@ export async function register(app: App, ctx: PluginContext, options: {
       if (location) {
         const page = (startupPage ?? original.pages()[0]) as unknown as LocationPage | undefined;
         if (!page || state.phase === "starting" && page.url() !== "about:blank") throw locationFailure("BROWSER_LOCATION_MISMATCH");
-        const observed = await verifyLaunchLocation(location, ip, page);
+        const { observed, evidence } = await verifyLaunchLocation(location, ip, page);
         if (invalidated || stopping || context !== original) throw Error("Original browser context was lost during verification");
+        // This verifies applied settings, not the physical location. The evidence states how credible the location is.
         saveLaunchLocation(location, { ...location.result, phase: "browser_verification", status: "ready", browserStarted: true,
-          browser: "passed", observed, geolocation: "configured", checkedAt: new Date().toISOString(), message: "Browser IP and location checks passed." });
+          browser: "passed", observed, evidence, geolocation: "configured", checkedAt: new Date().toISOString(),
+          message: `The browser uses the checked exit and the prepared timezone and language.${evidence ? ` ${evidenceMessage(evidence)}` : ""}` });
       }
       if (invalidated || stopping || context !== original) throw Error("Original browser context was lost during verification");
       const phase = state.phase === "verification_failed" && explicit ? restorePhase : state.phase;
@@ -237,7 +239,9 @@ export async function register(app: App, ctx: PluginContext, options: {
       if (location) {
         const failure = locationFailure(error instanceof LocationError ? error.location.code as Parameters<typeof locationFailure>[0] : "BROWSER_IP_FAILED",
           { ...location.result, phase: "browser_verification", browserStarted: true, browser: "failed", geolocation: "configured" });
+        // Keep what the failed check measured, including a rotated exit's own evidence.
         if (error instanceof LocationError && error.location.observed) failure.location.observed = error.location.observed;
+        if (error instanceof LocationError && error.location.evidence) failure.location.evidence = error.location.evidence;
         saveLaunchLocation(location, failure.location);
         if (state.phase === "starting") {
           invalidated = true;

@@ -5,7 +5,7 @@ import { profilePath } from "./api.ts";
 import { ActionButton, CopyCommand, Icon, KeyValues, Notice, Phase } from "./components";
 import { NetworkForm } from "./NetworkForm";
 import { TypingForm } from "./TypingForm";
-import { actionReason, locationLabel, homeCommand, boundedLog, dateTime, deleteReason, profileAttention, profileCommand, mcpCommand, redact } from "./model.ts";
+import { actionReason, locationLabel, locationEvidenceRows, homeCommand, boundedLog, dateTime, deleteReason, profileAttention, profileCommand, mcpCommand, redact } from "./model.ts";
 import type { ActionContext } from "./model.ts";
 import { useResource } from "./use-service.ts";
 import { ProfileWindows, type ShowWindow } from "./ProfileWindows";
@@ -61,6 +61,7 @@ export function ProfileDetail({ profile, snapshot, context, mutationVersion, onA
         <p className="field-help">{profile.location?.message ?? "Start checks this profile before launching its browser."}</p>
         {profile.location?.checkedAt && <p className="field-help">Checked {dateTime(profile.location.checkedAt)}. {profile.location.valid ? "Applies to the current configuration." : "Check again for the current configuration."}</p>}
         {profile.location?.timezone && <KeyValues rows={[{ label: "Timezone", value: profile.location.timezone }, { label: "Language policy", value: profile.location.language }]} />}
+        {profile.location?.evidence && <KeyValues rows={locationEvidenceRows(profile.location)} />}
         {profile.phase === "stopped" && profile.network.proxyEnv && <button type="button" className="button" disabled={networkDirty || !!actionReason(profile, "recheck", context)} onClick={() => onAction(profile, "recheck")}>{profile.location?.status === "checking" ? "Checking…" : profile.location?.status === "blocked" ? "Check again" : "Check connection"}</button>}
         {profile.location?.nextAction?.kind === "run_setup" && <CopyCommand command={homeCommand("setup", snapshot.home)} />}
         {profile.location?.nextAction?.kind === "edit_proxy" && <button type="button" className="text-button" onClick={() => document.getElementById("profile-network-heading")?.scrollIntoView({ block: "center" })}>Edit proxy below</button>}

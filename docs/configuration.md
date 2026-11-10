@@ -22,7 +22,7 @@ For settings that use `secrets.env`, resolution follows this order:
 They do not read assignments from `secrets.env`.
 An empty `STELZ_HOME` uses the default directory.
 An empty effective `CAMOUFOX_EXECUTABLE` uses its default path.
-Empty typing and IP interval values are invalid.
+Empty typing, IP interval, and location policy values are invalid.
 Supply an absolute executable path. Stelz does not expand a literal `~` in that setting.
 
 `secrets.env` uses dotenv-style assignments parsed with Node's `parseEnv`.
@@ -38,6 +38,7 @@ Preserve existing secret reference names when changing a value.
 | `CAMOUFOX_EXECUTABLE` | Process, then `secrets.env` | Existing Camoufox executable path. Default: `~/Library/Caches/camoufox/Camoufox.app/Contents/MacOS/camoufox`. |
 | `STELZ_TYPING_MODE` | Process, then `secrets.env` | `auto`, `keyboard`, or `instant`. Default: `auto`. |
 | `STELZ_IP_CHECK_INTERVAL_MS` | Process, then `secrets.env` | Decimal integer from `0` to `120000`, without leading zeros. Default: `120000`. |
+| `STELZ_LOCATION_POLICY` | Process, then `secrets.env` | `warn` or `strict`. Default: `warn`. See [Managed location data](#managed-location-data). |
 | Name in `proxyEnv` | Process, then `secrets.env` | Complete HTTP(S) or unauthenticated SOCKS5 URL. Missing or empty values block a configured proxy. |
 | Name in `expectedIPEnv` | Process, then `secrets.env` | Exact IPv4 or IPv6 address. Missing or empty values omit the expected-address constraint. |
 | `STELZ_TRANSFER_ARCHIVE_BYTES` | Process only | Positive safe integer. Default: `10737418240` bytes, or 10 GiB. |
@@ -181,12 +182,29 @@ See [Camofox integration](development/camofox-integration.md) for launch and loc
 
 ## Managed location data
 
-`stelz setup` prepares one database under `runtime/geoip/` for all profiles.
-It checks the release SHA-256 and opens the database with the pinned reader before activation.
-The manifest records the release, content hash, database metadata, and acquisition time.
-Repeated setup reuses valid data without contacting its download service. Dataset age does not block startup.
-Setup stages replacements with the runtime. An interrupted download preserves the active runtime and database.
+`stelz setup` prepares two databases under `runtime/geoip/` for all profiles:
+
+- GeoIP AIO selects the location. Upstream Camoufox uses it by default. It records no city or accuracy.
+- GeoLite2 City is the comparison. It records a city and an accuracy radius for many addresses.
+
+Setup checks each release SHA-256 and opens each database with the pinned reader before activation.
+The manifest records each source, release, content hash, database metadata, build time, and acquisition time.
+Repeated setup reuses a build that is at most 8 days old without contacting its download service.
+It downloads a newer release for an older build. Offline, it keeps the validated older build.
+Setup stages replacements with the runtime. An interrupted download preserves the active runtime and databases.
 All profiles must be safely stopped before setup. Start does not download missing data.
+
+Each preflight compares the selected location with the comparison record for the exit IP:
+
+| Result | Meaning |
+| --- | --- |
+| `corroborated` | A city-level comparison record (accuracy radius at most 100 km) has the same UTC offsets in January and July. |
+| `uncorroborated` | The comparison record is broader, has no timezone, or is missing. Missing metadata is not evidence against the selection. |
+| `conflicting` | A city-level comparison record has different UTC offsets. |
+
+A build older than 30 days is stale. With `STELZ_LOCATION_POLICY=warn`, Start reports a conflict or stale data and continues.
+With `strict`, Start blocks before launch. A rotated exit gets its own comparison, and `strict` blocks it on a conflict.
+No database proves a physical location. Providers often disagree, and a detection site can use a different provider.
 
 ## Files and private state
 

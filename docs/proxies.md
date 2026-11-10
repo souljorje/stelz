@@ -128,10 +128,17 @@ It describes proxy environment inputs, compatible reuse, and conflicts.
 ## IP check policy
 
 Each new proxied browser requires a preflight check before launch. This check has a 30-second deadline.
-It checks the proxy exit IP, any expected IP, and the managed location data.
+It answers three separate questions:
+
+1. Does the proxy work, and which exit IP does it use? This includes any expected IP.
+2. How credible is the location for that exit? The `location.evidence` field records the source, its build time, and the comparison result.
+3. Does the launched browser use the prepared settings? Stelz checks this after launch.
+
+See [Managed location data](configuration.md#managed-location-data) for the sources, data age, and `STELZ_LOCATION_POLICY`.
 **Ready to start** applies only to the checked inputs. Start repeats preflight with current inputs.
 Proxy connections also require a successful browser-side IP check.
 Before Ready, Stelz checks the browser timezone and language against the prepared settings.
+A passed browser check means that the browser applies those settings. It does not confirm the physical location.
 Geolocation coordinates are checked in the launch configuration. They are not browser-observed coordinates.
 Stelz does not grant websites location permission.
 A rotated exit is allowed only when its location settings and the expected-IP rule remain compatible.
