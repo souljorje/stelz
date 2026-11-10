@@ -21,6 +21,7 @@ import {
 import { key, lock, processStart, rotateLog, type Running } from "./runtime.ts";
 import { assertRuntimePlugin } from "./runtime-plugin.ts";
 import { assertLocationCurrent } from "./location-preflight.ts";
+import { ACTION_LIMIT_MS } from "../browser/deadlines.ts";
 import { locationFailure, readLocationRecord, writeLocationRecord } from "../browser/location.ts";
 import { commitFingerprint, writeInitialized, type FingerprintOwner } from "../browser/fingerprint-transaction.ts";
 
@@ -67,6 +68,8 @@ const env = {
   CAMOFOX_CRASH_REPORT_ENABLED: "false",
   SESSION_TIMEOUT_MS: "0",
   BROWSER_IDLE_TIMEOUT_MS: "0",
+  // Upstream route limit for clicks, navigation, and other short actions.
+  HANDLER_TIMEOUT_MS: String(ACTION_LIMIT_MS),
   MAX_SESSIONS: "1",
   TAB_INACTIVITY_MS: "31536000000",
   STELZ_TYPING_MODE: typingMode(),

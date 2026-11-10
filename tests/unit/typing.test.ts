@@ -3,12 +3,13 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { parseTypingMode, typeIntoLocator } from "../../src/browser/typing.ts";
+import { TYPING_LIMIT_MS } from "../../src/browser/deadlines.ts";
 
-function field(tag = "input", type = "text") {
+function field(tag = "input", type = "text", attributes: Record<string, unknown> = {}) {
   let value = "old value", now = 0, call = 0;
   const events: Array<{ action: string; text?: string; ms?: number }> = [];
   const target = {
-    evaluate: async () => ({ tag, type }),
+    evaluate: async () => ({ tag, type, ...attributes }),
     fill: async (text: string) => { events.push({ action: "fill", text }); value = text; },
     press: async (key: string, options: { delay: number }) => {
       expect(key).toBe("Backspace");
@@ -189,6 +190,22 @@ test("corrections exclude sensitive field types, short text, repeated characters
   }
 });
 
+test("corrections skip limited, code, suggestion, search, and rich-editor fields", async () => {
+  const typos = async (tag: string, type: string, attributes: Record<string, unknown> = {}) => {
+    const f = field(tag, type, attributes); f.clock.random = () => 0;
+    await typeIntoLocator(f.target, "alpha bravo", "keyboard", f.clock);
+    expect(f.value()).toBe("alpha bravo");
+    return f.events.some(event => event.action === "backspace");
+  };
+  expect(await typos("input", "text", { maxLength: -1 })).toBe(true);
+  expect(await typos("textarea", "text", { maxLength: -1 })).toBe(true);
+  for (const [tag, type, attributes] of [
+    ["input", "text", { maxLength: 11 }], ["textarea", "text", { maxLength: 200 }],
+    ["input", "text", { autocomplete: "one-time-code" }], ["input", "text", { inputMode: "numeric" }],
+    ["input", "text", { suggestions: true }], ["input", "search", {}], ["div", "text", {}],
+  ] as const) expect(await typos(tag, type, attributes)).toBe(false);
+});
+
 test("balanced includes corrections when selecting bulk entry before editing", async () => {
   const text = "x".repeat(190) + " alpha bravo";
   for (const type of ["text", "password"]) {
@@ -199,12 +216,19 @@ test("balanced includes corrections when selecting bulk entry before editing", a
   }
 });
 
-test("keyboard stops at its deadline without replay or content fills", async () => {
+test("keyboard types long text that fits its limit", async () => {
+  const f = field(); f.clock.random = () => 0; // 15 ms hold + 33 ms pause per character.
+  await typeIntoLocator(f.target, "x".repeat(1000), "keyboard", f.clock);
+  expect(f.value()).toBe("x".repeat(1000));
+  expect(f.clock.now()).toBeGreaterThan(45_000);
+});
+
+test("keyboard refuses text that cannot finish within its limit, before the field changes", async () => {
   const f = field(); f.clock.random = () => 0;
-  await expect(typeIntoLocator(f.target, "x".repeat(1000), "keyboard", f.clock)).rejects.toMatchObject({ code: "typing_timeout" });
-  expect(f.value().length).toBeGreaterThan(208);
-  expect(f.value().length).toBeLessThan(1000);
-  expect(f.events.filter(event => event.action === "fill")).toEqual([{ action: "fill", text: "" }]);
+  await expect(typeIntoLocator(f.target, "x".repeat(4000), "keyboard", f.clock))
+    .rejects.toMatchObject({ code: "typing_too_long", message: expect.stringContaining("The field is unchanged. Use mode balanced or instant") });
+  expect(f.value()).toBe("old value");
+  expect(f.events).toEqual([]);
 });
 
 test("a failed correction leaves partial input and never replays", async () => {
@@ -228,7 +252,7 @@ test("partial typing failures never retry or fall back to bulk fill", async () =
 
 test("a typing deadline prevents further characters", async () => {
   const f = field(), type = f.raw.pressSequentially;
-  f.raw.pressSequentially = async (text, options) => { await type(text, options); f.advance(45_000); };
+  f.raw.pressSequentially = async (text, options) => { await type(text, options); f.advance(TYPING_LIMIT_MS); };
   await expect(typeIntoLocator(f.target, "abcd", "balanced", f.clock)).rejects.toMatchObject({ code: "typing_timeout" });
   expect(f.value()).toBe("a");
   expect(f.events.some(event => event.action === "sleep")).toBe(false);

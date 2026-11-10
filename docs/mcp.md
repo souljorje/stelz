@@ -44,6 +44,9 @@ Stelz preserves canonical Camofox browser arguments and adds the required profil
 `camofox_type` also accepts `mode`: `balanced`, `keyboard`, or `instant`.
 See [Typing](configuration.md#typing) for typing behavior.
 
+If a tool call includes a `progressToken`, Stelz sends a progress notification every 10 seconds until the call ends.
+Set your client to reset its request timeout on progress, because some calls, such as `camofox_type`, can take minutes.
+
 `camofox_evaluate` and `camofox_import_cookies` remain excluded.
 Previously planned browser controls remain [deferred](development/architecture.md#planned-browser-controls).
 

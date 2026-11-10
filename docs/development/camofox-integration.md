@@ -16,7 +16,7 @@ The patches cover thirteen compatibility areas:
 
 | Area | Purpose | Removal criterion |
 | --- | --- | --- |
-| Locator fill and type route | Forward each call's typing mode. Support automatic pacing, keyboard events, and bulk entry. | Upstream provides equivalent configurable typing behavior and timeout handling. |
+| Locator fill and type route | Forward each call's typing mode. Support balanced pacing, keyboard events, and bulk entry. | Upstream provides equivalent configurable typing behavior and timeout handling. |
 | Scroll tab activation | Activate the selected native tab before Playwright waits for a frame and sends wheel input. Keep the existing tab lock and deadline. | Upstream activates the target before wheel preparation and passes background-tab and parallel-profile acceptance. |
 | Click retry guard | Check the target with a trial click that sends no input. Fall back to a forced, DOM, or mouse click only when that check fails. Input gets the remaining action budget, because Camoufox confirms each mouse event. A failure after input returns a non-retryable conflict that asks for a fresh snapshot. | Upstream no longer repeats a click that may have reached the page. |
 | Official launcher import | Import `Camoufox`, `launchOptions`, and `VirtualDisplay` from `camoufox`. | Upstream depends on the official launcher. |
@@ -31,6 +31,8 @@ The patches cover thirteen compatibility areas:
 | Native persistence guard | Keep Firefox in charge of persistent browser data. | The replacement leaves upstream storage snapshots disabled for native profiles. |
 
 Typing retains the tab lock until input finishes.
+`src/browser/deadlines.ts` sets every action limit. Upstream routes for short actions get 30 seconds, and typing gets 3 minutes.
+Each outer layer waits longer than the layer that it calls, so the innermost limit reports first.
 The service deadline blocks subsequent actions after a timeout.
 Typing timeouts return a terminal error without a retry instruction.
 The caller must inspect fresh state after recovery. The service does not replay incomplete input.

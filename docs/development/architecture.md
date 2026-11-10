@@ -209,7 +209,7 @@ JavaScript evaluation and cookie import remain excluded from this plan.
 
 ## Failures and network policy
 
-The service limits browser operations and IP checks to 60 seconds.
+The service limits IP checks and short browser operations to 60 seconds, and typing to 3.5 minutes. `src/browser/deadlines.ts` sets these limits.
 A timeout blocks subsequent actions because the original operation may remain active.
 An MCP client timeout does not cancel the service operation.
 Stelz requires explicit stop and start after a blocked browser operation. It does not replay interrupted actions.

@@ -1,5 +1,6 @@
 import type { Tool } from "../browser/upstream.ts";
 import { isTypingMode, TYPING_MODES } from "../browser/typing.ts";
+import { TYPING_LIMIT_MS } from "../browser/deadlines.ts";
 
 const excludedTools = new Set(["camofox_evaluate", "camofox_import_cookies"]);
 const tabIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -11,7 +12,9 @@ export function allowedBrowserTools<T extends { name: string }>(tools: readonly 
     return { ...definition, inputSchema: { ...definition.inputSchema, properties: {
       ...definition.inputSchema.properties,
       mode: { type: "string", enum: [...TYPING_MODES],
-        description: "Typing mode for this call. Omit to use the profile default. Balanced uses paced input if its estimated duration is at most 10 seconds. Longer text uses bulk entry. Keyboard uses paced input without bulk fallback, with a 45-second deadline. Paced input can include corrected typos in ordinary text fields. Instant uses bulk entry." },
+        description: "Typing mode for this call. Omit to use the profile default. Balanced uses paced input if its estimated duration is at most 10 seconds. " +
+          `Longer text uses bulk entry. Keyboard uses paced input without bulk fallback, for up to ${TYPING_LIMIT_MS / 60_000} minutes. ` +
+          "Text that needs longer fails before the field changes. Paced input can include corrected typos in plain text fields. Instant uses bulk entry." },
     } } };
   });
 }

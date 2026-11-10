@@ -219,7 +219,7 @@ A scroll in a tab that is not selected can exceed the deadline, especially when 
 6. Reacquire control from the intended client.
 7. Read a fresh snapshot before deciding the next action.
 
-The service bounds each browser action or IP check to 60 seconds.
+The service bounds an IP check and each short browser action to 60 seconds, and typing to 3.5 minutes.
 A timed-out operation can remain active. The service blocks further browser actions for that lifetime.
 Recheck, release, or resume cannot clear this terminal block.
 An MCP client timeout does not cancel the service operation.

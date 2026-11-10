@@ -106,20 +106,22 @@ Typing selection follows this order:
 | Mode | Behavior |
 | --- | --- |
 | `balanced` | Uses paced typing when the estimated duration, including corrections, is at most 10 seconds. Longer input uses bulk entry. |
-| `keyboard` | Uses variable keystroke timing and random pauses. Never selects bulk entry for long text. The action deadline is 45 seconds. |
+| `keyboard` | Uses variable keystroke timing and random pauses. Never selects bulk entry for long text. One call can take up to 3 minutes. |
 | `instant` | Uses Playwright `fill()` to enter the complete value. |
 
 The service selects the balanced method before changing the field.
+Keyboard text that cannot finish within 3 minutes fails before the field changes. Use `balanced` or `instant` for it.
+Clicks, navigation, scrolls, snapshots, and screenshots have a 30-second limit.
 Typing replaces existing contents. Empty text clears the field.
 Unicode text and native newline normalization remain intact.
 Date and similar inputs retain specialized input behavior.
 
-Paced typing can insert and correct occasional typos in ordinary text fields, textareas, and editable page text.
+Paced typing can insert and correct occasional typos in plain text inputs and textareas.
 Each eligible word has a 3% correction probability, with at least 15 words between corrections.
 Eligible words contain at least four ASCII letters. Single-word values and repeated-character words do not receive corrections.
 Corrections change letters near word endings: an adjacent QWERTY key, a doubled letter, a dropped letter, or the wrong case.
 The service uses one or two Backspaces, then types the corrected ending. Successful entry preserves the requested text.
-Password, email, URL, telephone, and number inputs do not receive corrections.
+Other input types and rich editors do not receive corrections. Neither do fields with a length limit, one-time-code entry, a numeric or similar input mode, or live suggestions.
 The former `auto` mode is invalid. Existing settings are not migrated.
 
 The UI saves a profile preference for future actions without a browser restart.

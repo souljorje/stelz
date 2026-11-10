@@ -15,6 +15,7 @@ import { addProfileExtension, createProfileWindows } from "./profile-windows.ts"
 import { activateProfileBrowser } from "./window-activation.ts";
 import { profileTypingMode } from "../profiles/typing-mode.ts";
 import { parseTypingMode } from "./typing.ts";
+import { SERVICE_DEADLINE_MS, serviceDeadline } from "./deadlines.ts";
 import { launchLocation, checkLaunchLocation, verifyLaunchLocation, saveLaunchLocation, type LocationPage } from "./location-launch.ts";
 import { LocationError, locationFailure, evidenceMessage } from "./location.ts";
 export { prepareProfileLaunch } from "./location-launch.ts";
@@ -60,7 +61,6 @@ type ProfileState = {
   checkFailure?: string | null;
 };
 
-const ACTION_TIMEOUT_MS = 60_000;
 
 function isBrowserNetworkFailure(value: unknown) {
   let diagnostic: unknown;
@@ -103,7 +103,6 @@ export async function register(app: App, ctx: PluginContext, options: {
   const upstream = await import(pathToFileURL(join(process.env.STELZ_UPSTREAM!, "mcp/lib/tool-contracts.mjs")).href) as Contracts;
   const browserTools = new Map(allowedBrowserTools(upstream.TOOL_DEFS).map(tool => [tool.name, tool]));
   const ipVerification = createIpVerification(state.instanceId, expected);
-  const timeout = options.actionTimeoutMs ?? ACTION_TIMEOUT_MS;
   let context: Context | undefined;
   let stopping = false;
   let launchAdmitted = false;
@@ -183,7 +182,7 @@ export async function register(app: App, ctx: PluginContext, options: {
   function runControl<T>(controllerId: string | undefined, action: () => Promise<T>) {
     return controllerId === undefined ? controller.runExclusive(action) : controller.run(controllerId, action);
   }
-  async function bounded<T>(action: () => Promise<T>): Promise<T> {
+  async function bounded<T>(action: () => Promise<T>, limit = SERVICE_DEADLINE_MS): Promise<T> {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const work = action();
     const deadline = new Promise<never>((_resolve, reject) => {
@@ -191,7 +190,7 @@ export async function register(app: App, ctx: PluginContext, options: {
         controller.retain(work);
         invalidate("A service operation exceeded its time limit. Stop the profile before another browser action.");
         reject(Error("A service operation exceeded its time limit. Stop the profile before another browser action."));
-      }, timeout);
+      }, options.actionTimeoutMs ?? limit);
     });
     try {
       return await Promise.race([work, deadline]);
@@ -467,7 +466,7 @@ export async function register(app: App, ctx: PluginContext, options: {
           }
           throw error;
         }
-      }));
+      }, serviceDeadline(name)));
       res.json(result);
     } catch (error) {
       res.status(409).json({ error: (error as Error).message });

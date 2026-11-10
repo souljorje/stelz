@@ -32,7 +32,7 @@ Do not copy the skill alone or replace another installation.
 ## Codex
 
 Merge [the TOML example](../examples/codex.toml) into the project's `.codex/config.toml` as the shared `stelz` entry.
-Set its command, `STELZ_HOME`, and PATH to the values above.
+Set its command, `STELZ_HOME`, and PATH to the values above. Keep `tool_timeout_sec` at 240 or more, so a 3-minute `camofox_type` call can finish.
 Preserve other entries and complete normal project-trust prompts.
 Inspect the resulting registration with:
 
@@ -77,7 +77,7 @@ Sources: [Claude Code MCP](https://code.claude.com/docs/en/mcp) and [skills](htt
 
 The operator can merge [the YAML example](../examples/hermes.yaml) into the active Hermes profile's configuration, normally `~/.hermes/config.yaml`.
 Agents must preserve global harness configuration. If no project scope is available, provide this entry to the operator.
-Replace its absolute command, service directory, and PATH examples with your selected values.
+Replace its absolute command, service directory, and PATH examples with your selected values. Keep `timeout` at 240 seconds or more for long typing.
 Keep other mappings. Reuse `stelz` only when its command, arguments, home, and environment match.
 
 Install the skill in the active Hermes profile's skill directory, normally:

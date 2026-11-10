@@ -1,5 +1,6 @@
 import { setTimeout as delay } from "node:timers/promises";
 import type { Locator } from "playwright-core";
+import { TYPING_LIMIT_MS } from "./deadlines.ts";
 
 export const TYPING_MODES = ["balanced", "keyboard", "instant"] as const;
 export type TypingMode = typeof TYPING_MODES[number];
@@ -9,7 +10,8 @@ const timing: Timing = { random: Math.random, now: () => performance.now(), slee
 const textInputs = new Set(["text", "search", "email", "url", "tel", "password", "number"]);
 const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 const words = new Intl.Segmenter("en", { granularity: "word" });
-const actionBudget = 45_000;
+// Playwright's work for each key step, beyond the planned hold and gap.
+const STEP_OVERHEAD_MS = 20;
 export const BALANCED_TYPING_BUDGET_MS = 10_000;
 
 // Adjacent letter keys on a US QWERTY keyboard. Preserve the requested case.
@@ -64,7 +66,7 @@ export async function typeIntoLocator(target: Target, text: string,
   mode: TypingMode = parseTypingMode(process.env.STELZ_TYPING_MODE), clock: Timing = timing) {
   if (!isTypingMode(mode)) throw Error("Typing mode must be balanced, keyboard, or instant.");
   if (mode === "instant") return target.fill(text, { timeout: 10_000 });
-  const deadline = clock.now() + actionBudget;
+  const deadline = clock.now() + TYPING_LIMIT_MS;
   const remaining = () => {
     const ms = deadline - clock.now();
     if (ms <= 0) throw typingError("Typing timeout. Stop and start the profile before another browser action.", "typing_timeout");
@@ -73,13 +75,22 @@ export async function typeIntoLocator(target: Target, text: string,
   const field = await target.evaluate(el => ({
     tag: el.tagName.toLowerCase(),
     type: (el.getAttribute("type") || "text").toLowerCase(),
+    maxLength: (el as HTMLInputElement).maxLength ?? -1,
+    autocomplete: (el.getAttribute("autocomplete") || "").toLowerCase(),
+    inputMode: (el.getAttribute("inputmode") || "").toLowerCase(),
+    // Live suggestions can react to each key, so a typo could select another value.
+    suggestions: el.getAttribute("role") === "combobox" || el.hasAttribute("list") ||
+      ["list", "both", "inline"].includes((el.getAttribute("aria-autocomplete") || "").toLowerCase()),
   }), undefined, { timeout: remaining() });
   // Date and similar controls require Playwright's specialized fill behavior.
   if (field.tag === "input" && !textInputs.has(field.type)) return target.fill(text, { timeout: remaining() });
   // Match the native newline normalization performed by fill().
   const value = field.tag === "input" ? text.replace(/[\r\n]/g, "") : text.replace(/\r\n?/g, "\n");
   const base = 55 + clock.random() * 35;
-  const editableText = field.tag !== "input" || ["text", "search"].includes(field.type);
+  // A typo needs plain text in a field without a length limit, code entry, or suggestions. Rich editors are excluded.
+  const editableText = (field.tag === "textarea" || (field.tag === "input" && field.type === "text")) &&
+    !((field.maxLength ?? -1) >= 0) && !field.autocomplete?.includes("one-time-code") && !field.suggestions &&
+    !["numeric", "decimal", "tel", "email", "url", "search"].includes(field.inputMode ?? "");
   const mistakes = editableText ? corrections(value, clock) : new Map<number, Correction>();
   const plan: Step[] = [];
   let duration = 0;
@@ -110,6 +121,12 @@ export async function typeIntoLocator(target: Target, text: string,
     }
     // Select bulk entry before clearing the field. Never fall back after typing.
     if (mode === "balanced" && duration > BALANCED_TYPING_BUDGET_MS) return target.fill(text, { timeout: remaining() });
+  }
+  // Refuse text that cannot finish within the limit before the field changes.
+  const estimate = duration + plan.length * STEP_OVERHEAD_MS;
+  if (estimate > TYPING_LIMIT_MS - 10_000) {
+    throw typingError(`This text needs about ${Math.ceil(estimate / 1000)} seconds of keyboard typing, more than the ` +
+      `${TYPING_LIMIT_MS / 1000}-second limit. The field is unchanged. Use mode balanced or instant, or type shorter text.`, "typing_too_long");
   }
   remaining();
   try {

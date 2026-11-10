@@ -8,6 +8,7 @@ import { reportStatus } from "../runtime/runtime.ts";
 import { contracts, type Tool } from "../browser/upstream.ts";
 import { allowedBrowserTools, browserToolArguments } from "./tool-policy.ts";
 import { createControlRegistry } from "./control-registry.ts";
+import { withProgress } from "./progress.ts";
 import { serviceTransport } from "./service-binding.ts";
 import { STELZ_VERSION } from "../versions.ts";
 import { LocationError } from "../browser/location.ts";
@@ -70,7 +71,7 @@ export async function runMcp() {
   });
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }));
   server.setRequestHandler(CallToolRequestSchema, (request, extra) => {
-    const work = (async () => {
+    const work = withProgress(extra, `Stelz is still running ${request.params.name}.`, (async () => {
       const { name, arguments: args = {} } = request.params;
       try {
         if (shuttingDown) throw Error("This MCP connection is closing.");
@@ -101,7 +102,7 @@ export async function runMcp() {
         }
         return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
       } catch (error) { return { isError: true, content: [{ type: "text" as const, text: error instanceof LocationError ? JSON.stringify({ error: { code: error.location.code, message: error.message }, location: error.location }) : (error as Error).message }] }; }
-    })();
+    })());
     requests.add(work);
     return work.finally(() => { requests.delete(work); });
   });
