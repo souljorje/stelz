@@ -400,7 +400,7 @@ test("UI waits for fingerprint commit and initialization before reporting a live
   }
 }, 10000);
 
-test("typing inherits the active service fallback and permits explicit auto and clearing the override", async () => {
+test("typing inherits the active service fallback and permits explicit balanced and clearing the override", async () => {
   const f = fixture();
   const result = await run(f, `
     ${withLifetime}
@@ -420,7 +420,7 @@ test("typing inherits the active service fallback and permits explicit auto and 
       fs.writeFileSync(join(state, 'status.json'), JSON.stringify(live));
       const lifetime = fs.readFileSync(running, 'utf8'), savedState = fs.readFileSync(join(state, 'status.json'), 'utf8');
       const inherited = (await model.snapshot()).profiles[0], detail = (await model.detail('test')).profile;
-      const explicit = await model.updateTyping('test', { revision: inherited.typing.revision, mode: 'auto' });
+      const explicit = await model.updateTyping('test', { revision: inherited.typing.revision, mode: 'balanced' });
       const cleared = await model.updateTyping('test', { revision: explicit.typing.revision, mode: null });
       const persisted = JSON.parse(fs.readFileSync(join(home, 'profiles.json'), 'utf8')).profiles[0];
       const unchanged = lifetime === fs.readFileSync(running, 'utf8') && savedState === fs.readFileSync(join(state, 'status.json'), 'utf8');
@@ -436,13 +436,13 @@ test("typing inherits the active service fallback and permits explicit auto and 
       const stopped = (await model.snapshot()).profiles[0];
       return { inherited, detail, explicit, cleared, older, invalid, stopped, persisted, unchanged, calls };
     } finally { service.stop(true); }
-  `, { STELZ_TYPING_MODE: "auto" });
+  `, { STELZ_TYPING_MODE: "balanced" });
   expect(result.ok).toBe(true);
   const { inherited, detail, explicit, cleared, older, invalid, stopped } = result.value;
   for (const row of [inherited, detail, cleared]) expect(row).toMatchObject({ phase: "ready", typingMode: "instant", typing: { mode: null, defaultMode: "instant" } });
-  expect(explicit).toMatchObject({ typingMode: "auto", typing: { mode: "auto", defaultMode: "instant" } });
+  expect(explicit).toMatchObject({ typingMode: "balanced", typing: { mode: "balanced", defaultMode: "instant" } });
   expect(explicit.typing.revision).not.toBe(inherited.typing.revision);
-  for (const row of [older, invalid, stopped]) expect(row).toMatchObject({ typingMode: "auto", typing: { mode: null, defaultMode: "auto" } });
+  for (const row of [older, invalid, stopped]) expect(row).toMatchObject({ typingMode: "balanced", typing: { mode: null, defaultMode: "balanced" } });
   expect(stopped.phase).toBe("stopped");
   expect(result.value.persisted).not.toHaveProperty("typingMode");
   expect(result.value.unchanged).toBe(true);

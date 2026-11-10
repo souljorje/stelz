@@ -8,6 +8,7 @@ import { finished, pipeline } from "node:stream/promises";
 import { createInflateRaw } from "node:zlib";
 import * as yauzl from "yauzl";
 import { ZipFile } from "yazl";
+import { isTypingMode } from "../browser/typing.ts";
 import {
   ProfileTransferError, transferLimits,
   type ArchiveFile, type ArchiveMetadata, type PortableProfile, type ProfileArchiveManifest,
@@ -88,7 +89,7 @@ function validateMetadata(value: unknown, limits: TransferLimits): asserts value
     if (Object.hasOwn(profile, "name") && (typeof profile.name !== "string" || profile.name !== profile.name.trim() ||
         !profile.name || profile.name.length > 80 || /[\p{Cc}\p{Bidi_Control}\u2028\u2029\u206a-\u206f]/u.test(profile.name)))
       invalid("An archive profile display name is invalid.");
-    if (Object.hasOwn(profile, "typingMode") && !["auto", "keyboard", "instant"].includes(profile.typingMode as string))
+    if (Object.hasOwn(profile, "typingMode") && !isTypingMode(profile.typingMode))
       invalid("An archive profile typing mode is invalid.");
     if (Object.hasOwn(profile, "expectedIp") && (typeof profile.expectedIp !== "string" ||
         profile.expectedIp !== "" && (!isIP(profile.expectedIp) || profile.expectedIp.includes("%"))))

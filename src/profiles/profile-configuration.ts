@@ -366,7 +366,7 @@ export async function updateTyping(id: string, input: TypingUpdate) {
   const value = data(input);
   if (!validId(id) || !input || Object.keys(value).some(key => !["revision", "mode"].includes(key)) ||
       typeof value.revision !== "string" || !/^[a-f\d]{64}$/.test(value.revision) || value.mode !== null && !isTypingMode(value.mode))
-    throw new ProfileConfigurationError(400, "Supply the current typing revision and auto, keyboard, instant, or null for the service default.");
+    throw new ProfileConfigurationError(400, "Supply the current typing revision and balanced, keyboard, instant, or null for the service default.");
   return prepareProfileConfiguration(async () => {
     const config = readSettings()!, p = findProfile(config, id), secrets = readSecrets();
     if (input.revision !== typingRevision(p))

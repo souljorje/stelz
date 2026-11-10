@@ -68,7 +68,7 @@ export function validateSettings(input: unknown): Settings {
     if (Object.keys(p).some(key => !["id", "name", "port", "proxyEnv", "expectedIPEnv", "storage", "typingMode"].includes(key))) throw Error("Profile configuration contains an unknown field.");
     if (p.storage !== undefined && p.storage !== "native") throw Error("Storage must be native.");
     if (p.name !== undefined && parseProfileName(p.name) !== p.name) throw Error("Profile display names must have no leading or trailing whitespace.");
-    if (p.typingMode !== undefined && !isTypingMode(p.typingMode)) throw Error("Typing mode must be auto, keyboard, or instant.");
+    if (p.typingMode !== undefined && !isTypingMode(p.typingMode)) throw Error("Typing mode must be balanced, keyboard, or instant.");
     for (const name of [p.proxyEnv, p.expectedIPEnv]) {
       if (name !== undefined && (typeof name !== "string" || !/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(name))) throw Error("Environment variable names must be valid.");
     }

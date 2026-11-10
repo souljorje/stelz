@@ -10,6 +10,10 @@ function field(tag = "input", type = "text") {
   const target = {
     evaluate: async () => ({ tag, type }),
     fill: async (text: string) => { events.push({ action: "fill", text }); value = text; },
+    press: async (key: string, options: { delay: number }) => {
+      expect(key).toBe("Backspace");
+      events.push({ action: "backspace", ms: options.delay }); value = value.slice(0, -1); now += options.delay;
+    },
     pressSequentially: async (text: string, options: { delay: number }) => {
       events.push({ action: "type", text, ms: options.delay }); value += text;
       now += options.delay * Array.from(text).length;
@@ -24,17 +28,17 @@ function field(tag = "input", type = "text") {
     events, value: () => value, advance: (ms: number) => { now += ms; } };
 }
 
-test("typing defaults to auto and rejects invalid settings", () => {
-  expect(parseTypingMode()).toBe("auto");
-  expect(parseTypingMode("auto")).toBe("auto");
+test("typing defaults to keyboard and rejects invalid settings", () => {
+  expect(parseTypingMode()).toBe("keyboard");
+  expect(parseTypingMode("balanced")).toBe("balanced");
   expect(parseTypingMode("keyboard")).toBe("keyboard");
   expect(parseTypingMode("instant")).toBe("instant");
-  for (const value of ["", "fast", "paced", "PACED"]) expect(() => parseTypingMode(value)).toThrow("STELZ_TYPING_MODE");
+  for (const value of ["auto", "", "fast", "paced", "PACED"]) expect(() => parseTypingMode(value)).toThrow("STELZ_TYPING_MODE must be balanced, keyboard, or instant.");
 });
 
 test("paced input replaces existing text and preserves Unicode graphemes", async () => {
   const f = field(), text = "Cafe\u0301 👨‍👩‍👧‍👦 ქართული";
-  await typeIntoLocator(f.target, text, "auto", f.clock);
+  await typeIntoLocator(f.target, text, "balanced", f.clock);
   expect(f.value()).toBe(text);
   expect(f.events[0]).toEqual({ action: "fill", text: "" });
   const typed = f.events.filter(event => event.action === "type").map(event => event.text);
@@ -45,7 +49,7 @@ test("paced input replaces existing text and preserves Unicode graphemes", async
 
 test("typing varies key timing and pauses after punctuation", async () => {
   const f = field();
-  await typeIntoLocator(f.target, "One. Two, three!", "auto", f.clock);
+  await typeIntoLocator(f.target, "One. Two, three!", "balanced", f.clock);
   const pauses = f.events.filter(event => event.action === "sleep").map(event => event.ms!);
   expect(new Set(pauses).size).toBeGreaterThan(3);
   expect(new Set(f.events.filter(event => event.action === "type").map(event => event.ms)).size).toBeGreaterThan(1);
@@ -56,7 +60,7 @@ test("typing varies key timing and pauses after punctuation", async () => {
 
 test("empty text clears the field without typing or pauses", async () => {
   const f = field();
-  await typeIntoLocator(f.target, "", "auto", f.clock);
+  await typeIntoLocator(f.target, "", "balanced", f.clock);
   expect(f.value()).toBe("");
   expect(f.events).toEqual([{ action: "fill", text: "" }]);
 });
@@ -64,7 +68,7 @@ test("empty text clears the field without typing or pauses", async () => {
 test("multiline and single-line fields retain native newline normalization", async () => {
   for (const [tag, expected] of [["textarea", "one\ntwo\nthree"], ["input", "onetwothree"]]) {
     const f = field(tag);
-    await typeIntoLocator(f.target, "one\r\ntwo\rthree", "auto", f.clock);
+    await typeIntoLocator(f.target, "one\r\ntwo\rthree", "balanced", f.clock);
     expect(f.value()).toBe(expected!);
   }
 });
@@ -72,7 +76,7 @@ test("multiline and single-line fields retain native newline normalization", asy
 test("contenteditable and numeric fields use paced typing", async () => {
   for (const [tag, type, text] of [["div", "text", "two words"], ["input", "number", "12.5"]]) {
     const f = field(tag, type);
-    await typeIntoLocator(f.target, text!, "auto", f.clock);
+    await typeIntoLocator(f.target, text!, "balanced", f.clock);
     expect(f.value()).toBe(text!);
     expect(f.events.some(event => event.action === "type")).toBe(true);
   }
@@ -81,7 +85,7 @@ test("contenteditable and numeric fields use paced typing", async () => {
 test("specialized form controls and instant mode retain bulk fill", async () => {
   for (const type of ["date", "datetime-local", "month", "time", "week"]) {
     const f = field("input", type);
-    await typeIntoLocator(f.target, "2026-11-03", "auto", f.clock);
+    await typeIntoLocator(f.target, "2026-11-03", "balanced", f.clock);
     expect(f.events).toEqual([{ action: "fill", text: "2026-11-03" }]);
   }
   const f = field(), text = "x".repeat(10_000);
@@ -91,28 +95,30 @@ test("specialized form controls and instant mode retain bulk fill", async () => 
   expect(f.events).toEqual([{ action: "fill", text }]);
 });
 
-test("long auto input selects bulk entry before clearing existing contents", async () => {
+test("long balanced input selects bulk entry before clearing existing contents", async () => {
   const f = field();
   const text = "x".repeat(10_000);
-  await typeIntoLocator(f.target, text, "auto", f.clock);
+  await typeIntoLocator(f.target, text, "balanced", f.clock);
   expect(f.events).toEqual([{ action: "fill", text }]);
   expect(f.value()).toBe(text);
 });
 
-test("auto changes methods at the 10-second estimated threshold", async () => {
+test("balanced changes methods at the 10-second estimated threshold", async () => {
   for (const [length, paced] of [[208, true], [209, false]] as const) {
     const f = field(); f.clock.random = () => 0; // 15 ms hold + 33 ms pause per character.
-    await typeIntoLocator(f.target, "x".repeat(length), "auto", f.clock);
+    await typeIntoLocator(f.target, "x".repeat(length), "balanced", f.clock);
     expect(f.events.filter(event => event.action === "type").length).toBe(paced ? length : 0);
     expect(f.value()).toBe("x".repeat(length));
   }
 });
 
-test("keyboard mode replaces long Unicode text with key events and no pacing", async () => {
-  const f = field("textarea"), text = "Hello 👋 ქართული\n".repeat(500);
-  f.clock.random = () => { throw Error("Keyboard mode must not generate pacing"); };
+test("keyboard keeps paced graphemes beyond the balanced budget without content fills", async () => {
+  const f = field("textarea"), text = "👋 ქართული ".repeat(15);
   await typeIntoLocator(f.target, text, "keyboard", f.clock);
-  expect(f.events).toEqual([{ action: "fill", text: "" }, { action: "type", text, ms: 0 }]);
+  expect(f.events.filter(event => event.action === "fill")).toEqual([{ action: "fill", text: "" }]);
+  expect(f.events.filter(event => event.action === "type").map(event => event.text).join("")).toBe(text);
+  expect(f.clock.now()).toBeGreaterThan(10_000);
+  expect(f.events.some(event => event.action === "sleep")).toBe(true);
   expect(f.value()).toBe(text);
 });
 
@@ -126,8 +132,87 @@ test("keyboard failures retain partial input without replay or bulk fallback", a
   };
   await expect(typeIntoLocator(f.target, "hello", "keyboard", f.clock)).rejects.toMatchObject({ code: "typing_incomplete" });
   expect(attempts).toBe(1);
-  expect(f.value()).toBe("he");
-  expect(f.events).toEqual([{ action: "fill", text: "" }, { action: "type", text: "he", ms: 0 }]);
+  expect(f.value()).toBe("h");
+  expect(f.events.filter(event => event.action === "fill")).toEqual([{ action: "fill", text: "" }]);
+});
+
+test("each correction class uses timed Backspaces and restores the requested text", async () => {
+  for (const [kind, typo, backspaces] of [[0, "q", 1], [1, "aa", 2], [2, "a", 1], [3, "A", 1]] as const) {
+    const f = field(), random = [0, 0, kind / 4];
+    f.clock.random = () => random.shift() ?? 0;
+    await typeIntoLocator(f.target, "alpha bravo", "keyboard", f.clock);
+    expect(f.value()).toBe("alpha bravo");
+    const firstBackspace = f.events.findIndex(event => event.action === "backspace");
+    expect(f.events.slice(0, firstBackspace).filter(event => event.action === "type").map(event => event.text).join(""))
+      .toBe((kind === 2 ? "alp" : "alph") + typo);
+    expect(f.events.filter(event => event.action === "backspace")).toHaveLength(backspaces);
+    expect(f.events[firstBackspace - 1]).toEqual({ action: "sleep", ms: 150 });
+    expect(f.events.some(event => event.action === "sleep" && event.ms === 80)).toBe(true);
+    expect(f.events.filter(event => event.action === "fill")).toEqual([{ action: "fill", text: "" }]);
+  }
+});
+
+test("correction planning is seeded and leaves at least 15 words between mistakes", async () => {
+  const text = Array.from({ length: 65 }, () => "word").join(" ");
+  const run = async (seeded: boolean) => {
+    const f = field(); let seed = 12;
+    f.clock.random = seeded ? () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 2 ** 32) : () => 0;
+    await typeIntoLocator(f.target, text, "keyboard", f.clock);
+    expect(f.value()).toBe(text);
+    let word = 0; const corrected: number[] = [];
+    for (const event of f.events) {
+      if (event.action === "type" && event.text === " ") word++;
+      if (event.action === "backspace" && corrected.at(-1) !== word) corrected.push(word);
+    }
+    expect(corrected.length).toBeGreaterThan(0);
+    for (let i = 1; i < corrected.length; i++) expect(corrected[i]! - corrected[i - 1]!).toBeGreaterThanOrEqual(16);
+    if (!seeded) expect(corrected).toEqual([0, 16, 32, 48, 64]);
+    return f.events;
+  };
+  expect(await run(true)).toEqual(await run(true));
+  await run(false);
+});
+
+test("corrections exclude sensitive field types, short text, repeated characters, and non-ASCII words", async () => {
+  for (const type of ["password", "email", "url", "tel", "number"]) {
+    const f = field("input", type); f.clock.random = () => 0;
+    await typeIntoLocator(f.target, "alpha bravo", "keyboard", f.clock);
+    expect(f.value()).toBe("alpha bravo");
+    expect(f.events.some(event => event.action === "backspace")).toBe(false);
+    expect(f.events.filter(event => event.action === "fill")).toEqual([{ action: "fill", text: "" }]);
+  }
+  for (const text of ["alpha", "aaaa bbbb", "a b c d", "cafe\u0301 ქართული 👨‍👩‍👧‍👦"]) {
+    const f = field(); f.clock.random = () => 0;
+    await typeIntoLocator(f.target, text, "keyboard", f.clock);
+    expect(f.value()).toBe(text);
+    expect(f.events.some(event => event.action === "backspace")).toBe(false);
+  }
+});
+
+test("balanced includes corrections when selecting bulk entry before editing", async () => {
+  const text = "x".repeat(190) + " alpha bravo";
+  for (const type of ["text", "password"]) {
+    const f = field("input", type); f.clock.random = () => 0;
+    await typeIntoLocator(f.target, text, "balanced", f.clock);
+    expect(f.value()).toBe(text);
+    expect(f.events.filter(event => event.action === "fill")).toEqual([{ action: "fill", text: type === "text" ? text : "" }]);
+  }
+});
+
+test("keyboard stops at its deadline without replay or content fills", async () => {
+  const f = field(); f.clock.random = () => 0;
+  await expect(typeIntoLocator(f.target, "x".repeat(1000), "keyboard", f.clock)).rejects.toMatchObject({ code: "typing_timeout" });
+  expect(f.value().length).toBeGreaterThan(208);
+  expect(f.value().length).toBeLessThan(1000);
+  expect(f.events.filter(event => event.action === "fill")).toEqual([{ action: "fill", text: "" }]);
+});
+
+test("a failed correction leaves partial input and never replays", async () => {
+  const f = field(); f.clock.random = () => 0;
+  f.raw.press = async () => { throw Error("Do not disclose input"); };
+  await expect(typeIntoLocator(f.target, "alpha bravo", "keyboard", f.clock)).rejects.toMatchObject({ code: "typing_incomplete" });
+  expect(f.value()).toBe("alphq");
+  expect(f.events.filter(event => event.action === "fill")).toEqual([{ action: "fill", text: "" }]);
 });
 
 test("partial typing failures never retry or fall back to bulk fill", async () => {
@@ -136,7 +221,7 @@ test("partial typing failures never retry or fall back to bulk fill", async () =
     if (text === "c") throw Error("Sensitive caller text must not appear in the error");
     await type(text, options);
   };
-  await expect(typeIntoLocator(f.target, "abcd", "auto", f.clock)).rejects.toMatchObject({ code: "typing_incomplete", statusCode: 409 });
+  await expect(typeIntoLocator(f.target, "abcd", "balanced", f.clock)).rejects.toMatchObject({ code: "typing_incomplete", statusCode: 409 });
   expect(f.value()).toBe("ab");
   expect(f.events.filter(event => event.action === "fill")).toEqual([{ action: "fill", text: "" }]);
 });
@@ -144,7 +229,7 @@ test("partial typing failures never retry or fall back to bulk fill", async () =
 test("a typing deadline prevents further characters", async () => {
   const f = field(), type = f.raw.pressSequentially;
   f.raw.pressSequentially = async (text, options) => { await type(text, options); f.advance(45_000); };
-  await expect(typeIntoLocator(f.target, "abcd", "auto", f.clock)).rejects.toMatchObject({ code: "typing_timeout" });
+  await expect(typeIntoLocator(f.target, "abcd", "balanced", f.clock)).rejects.toMatchObject({ code: "typing_timeout" });
   expect(f.value()).toBe("a");
   expect(f.events.some(event => event.action === "sleep")).toBe(false);
 });
@@ -169,7 +254,10 @@ console.log(JSON.stringify({mode:typingMode(),hash:configurationHash({id:"typing
     const instant = await read();
     expect(instant.mode).toBe("instant");
     expect(instant.hash).not.toBe(initial.hash);
-    expect(await read("auto")).toEqual(initial);
+    expect(initial.mode).toBe("keyboard");
+    expect(await read("keyboard")).toEqual(initial);
+    expect((await read("balanced")).mode).toBe("balanced");
+    await expect(read("auto")).rejects.toThrow("STELZ_TYPING_MODE");
     await expect(read("typo")).rejects.toThrow("STELZ_TYPING_MODE");
   } finally { rmSync(home, { recursive: true, force: true }); }
 });

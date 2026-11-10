@@ -5,8 +5,8 @@ import type { UiAction, UiProfile, UiModel, UiSnapshot } from "../../src/api/con
 
 function profile(id = "profile-02"): UiProfile {
   return {
-    id, name: id, port: 9378, storage: "native", typingMode: "auto", phase: "stopped", restartToUpdate: false, instanceId: null,
-    typing: { revision: "typing-revision-1", mode: null, defaultMode: "auto" },
+    id, name: id, port: 9378, storage: "native", typingMode: "balanced", phase: "stopped", restartToUpdate: false, instanceId: null,
+    typing: { revision: "typing-revision-1", mode: null, defaultMode: "balanced" },
     exitIp: null, checkedAt: null, fixedIpVerified: false, controller: null,
     windowControls: { available: false, reason: null },
     supervisorPid: null, serverPid: null, ownership: null, fingerprintSha256: null,
@@ -37,7 +37,7 @@ function fixture(lifecycle?: (action: UiAction, id: string) => Promise<unknown>,
       return profile(id);
     },
     async updateTyping(id, update) {
-      if (update.revision !== "typing-revision-1" || update.mode !== null && !["auto", "keyboard", "instant"].includes(update.mode))
+      if (update.revision !== "typing-revision-1" || update.mode !== null && !["balanced", "keyboard", "instant"].includes(update.mode))
         throw Object.assign(Error("Typing input is invalid."), { status: 400 });
       calls.push(`typing:${id}`);
       const row = profile(id);
@@ -116,7 +116,7 @@ test("typing preferences use an authenticated same-origin PUT and expose the sav
   expect(await response.json()).toMatchObject({ profile: { typingMode: "keyboard" } });
   const inherited = await f.request(path, { method: "PUT", headers: auth, body: JSON.stringify({ revision: "typing-revision-1", mode: null }) });
   expect(inherited.status).toBe(200);
-  expect(await inherited.json()).toMatchObject({ profile: { typingMode: "auto", typing: { mode: null } } });
+  expect(await inherited.json()).toMatchObject({ profile: { typingMode: "balanced", typing: { mode: null } } });
   expect(f.calls).toEqual(["typing:profile-02", "typing:profile-02"]);
 });
 

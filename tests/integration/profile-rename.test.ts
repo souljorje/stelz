@@ -30,7 +30,7 @@ try { console.log(JSON.stringify({ ok: true, value: await (async () => { ${body}
 catch (error) { console.log(JSON.stringify({ ok: false, status: error.status, message: error.message })); }`;
   const child = Bun.spawn([process.execPath, "--no-env-file", "-e", script], {
     cwd: root, env: { ...process.env, STELZ_HOME: f.home, CAMOUFOX_EXECUTABLE: join(f.home, "no-browser"),
-      RENAME_PROXY: undefined, RENAME_IP: undefined, STELZ_TYPING_MODE: "auto", STELZ_IP_CHECK_INTERVAL_MS: "120000" },
+      RENAME_PROXY: undefined, RENAME_IP: undefined, STELZ_TYPING_MODE: "balanced", STELZ_IP_CHECK_INTERVAL_MS: "120000" },
     stdout: "pipe", stderr: "pipe",
   });
   const [code, out, err] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
