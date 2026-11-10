@@ -5,7 +5,7 @@ One connection can control multiple profiles. Each profile permits one browser i
 Stelz has no agent identities or agent count limits.
 Each profile has its own action queue. Separate profiles can execute actions concurrently.
 
-See [Connect your agent](clients.md) for registration, verification, and migration from the removed MCP `--profile` option.
+See [Connect your agent](clients.md) for registration and verification.
 
 ## Fixed tool catalog
 

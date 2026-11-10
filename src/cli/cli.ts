@@ -42,8 +42,6 @@ try {
     if (args.length !== 1 || args[0] === "all") throw Error("Select one profile: stelz recover ID");
     console.log(JSON.stringify(await recover(args[0]!), null, 2));
   } else if (command === "mcp") {
-    if (args.some(arg => arg === "--profile" || arg.startsWith("--profile=")))
-      throw Error("The MCP --profile option was removed. Register stelz mcp once, then supply profileId to its tools and use the controlHandle from profile_acquire. Keep the same STELZ_HOME.");
     if (args.length) throw Error("Use: stelz mcp. Select profiles through tool arguments.");
     await runMcp();
   } else if (["start", "status", "stop", "pause", "resume", "release", "recheck"].includes(command)) {

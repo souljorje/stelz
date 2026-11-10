@@ -16,7 +16,6 @@ import { join } from "node:path";
 import { configurationHash, type Profile } from "../../src/profiles/config.ts";
 import { lock, processStart } from "../../src/runtime/runtime.ts";
 import { createControllerLease, type Controller } from "../../src/mcp/controller.ts";
-import { CONTROL_PROTOCOL_VERSION } from "../../src/mcp/control-protocol.ts";
 import { commitFingerprint, stageFingerprint, writeInitialized } from "../../src/browser/fingerprint-transaction.ts";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -204,7 +203,7 @@ test("a changed configuration port cannot redirect control to another service", 
     async fetch(req) {
       intendedCalls++;
       const action = new URL(req.url).pathname.split("/").at(-1);
-      const status = () => ({ ...identity, controlProtocolVersion: CONTROL_PROTOCOL_VERSION, phase: "ready", controller: controller.status() });
+      const status = () => ({ ...identity, phase: "ready", controller: controller.status() });
       if (action === "status") return Response.json(status());
       const text = await req.text();
       if (!text && action === "check") return Response.json({ ...status(), checked: true });
@@ -265,10 +264,6 @@ test("a changed configuration port cannot redirect control to another service", 
     expect((await client.callTool({ name: "profile_release", arguments: owned })).isError).not.toBe(true);
     expect(intendedCalls).toBe(5);
     expect(unrelatedCalls).toBe(0);
-    const removed = await run(f, "mcp", "--profile", "test");
-    expect(removed.code).toBe(1);
-    expect(removed.stderr).toContain("MCP --profile option was removed");
-    expect(removed.stderr).toContain("Keep the same STELZ_HOME");
     expect((await run(f, "mcp", "--identity", "test")).code).toBe(1);
     expect(intendedCalls).toBe(5);
     expect(unrelatedCalls).toBe(0);

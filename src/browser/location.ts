@@ -172,7 +172,7 @@ export async function managedGeoip(runtime: string): Promise<GeoipData> {
     let manifest: GeoipManifest;
     try {
       manifest = JSON.parse(readLocationFile(manifestPath).toString());
-      // Version 1 held GeoLite2 alone. Setup replaces it.
+      // Setup replaces any other manifest version.
       if (manifest.version !== 2) throw locationFailure("GEOIP_DATA_INCOMPATIBLE");
       for (const role of ["selection", "comparison"] as const) {
         const entry = manifest.datasets?.[role];

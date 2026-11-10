@@ -43,7 +43,7 @@ Use both fields for control actions and browser tools on that connection.
 The UI and status summaries never show handles.
 
 Use `profile_list({})` to discover profiles after creation or import. New profiles require no new MCP registration.
-See [Connect your agent](clients.md) for setup and migration, or [Shared MCP tools](mcp.md) for the complete contract.
+See [Connect your agent](clients.md) for setup, or [Shared MCP tools](mcp.md) for the complete contract.
 
 ## Take over manually
 

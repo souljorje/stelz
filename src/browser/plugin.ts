@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { createControllerLease } from "../mcp/controller.ts";
-import { CONTROL_PROTOCOL_VERSION, type ControlIdentity, type OwnedControlRequest, type AcquireControlRequest } from "../mcp/control-protocol.ts";
+import { type ControlIdentity, type OwnedControlRequest, type AcquireControlRequest } from "../mcp/control-protocol.ts";
 import { applyFingerprint, validateFinalLaunch, type LaunchOptions } from "./fingerprint.ts";
 import { initializedFingerprint, type FingerprintOwner } from "./fingerprint-transaction.ts";
 import { verifyProfileFingerprint, type ProfileBrowserContext, type ProfilePage } from "./native-profile.ts";
@@ -163,7 +163,7 @@ export async function register(app: App, ctx: PluginContext, options: {
     return elapsed >= 0 && elapsed < interval;
   }
   function snapshot() {
-    return { ...state, controlProtocolVersion: CONTROL_PROTOCOL_VERSION,
+    return { ...state,
       verificationFresh: verificationIsFresh(), typingModeDefault: parseTypingMode(process.env.STELZ_TYPING_MODE) };
   }
   function assertIdentity(body: Record<string, unknown> | undefined): asserts body is Record<string, unknown> & ControlIdentity {

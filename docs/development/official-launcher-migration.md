@@ -18,7 +18,7 @@ Replace `camoufox-js` with the official published TypeScript `camoufox` package.
 - proxy isolation, WebRTC restrictions, location preflight, and fail-closed network behavior;
 - no replay after any uncertain browser action, including direct or proxied actions, timeouts, disconnects, or unexpected exits.
 
-Preserve profile IDs, data paths, secret references, and saved valid pins. Do not change global harness configuration. Do not introduce Python runtime, a general framework, extra MCP controls, canvas fixes, or implicit engine migration. Stelz supports only the paired engine in the launcher's `browser-pin.json`. The user approved dropping Camoufox 152. A profile pinned to another engine fails Start on the engine hash until an explicit [repair](#phase-5-explicit-repair) upgrades it. Startup never upgrades a profile.
+Preserve profile IDs, data paths, secret references, and saved valid pins. Do not change global harness configuration. Do not introduce Python runtime, a general framework, extra MCP controls, canvas fixes, or implicit engine migration. Stelz supports only the paired engine in the launcher's `browser-pin.json`. The owner dropped Camoufox 152 and backward compatibility with earlier Stelz versions. A profile pinned to another engine fails Start on the engine hash. Create a new profile instead. Startup never upgrades a profile.
 
 ## Execution protocol
 
@@ -46,7 +46,7 @@ The Phase 2 corpus has at least 500 candidates. Reconcile accepted, rejected, an
 | 2 | Isolated candidate evidence for macOS | PASS (rescoped). Corpus 500/500 and exact replay. Native admission observed. See the [closeout](reports/official-launcher-phase2-2026-11-09.md). |
 | 3 | Prepared runtime, production cutover, and service contracts | PASS. Final archive from `e57bd81`. See the [result](#phase-3-result). |
 | 4 | Merged into Phase 3 | — |
-| 5 | Explicit previewed fingerprint repair | Pending |
+| 5 | Explicit previewed fingerprint repair | Dropped. See [Phase 5](#phase-5-dropped). |
 | 6 | Installed-archive and real-world acceptance | Pending |
 
 ## Phase 1: validation and readiness
@@ -74,7 +74,7 @@ Phase 3 merges runtime provisioning and the production cutover into one atomic d
 
 Scope: the browser stays user-provided or explicit, and setup and launch reject an unpaired build. Setup provisions the fingerprint model and location data. Stelz keeps its own exit-IP check and location resolver. The official helpers memoize per proxy, cannot be cancelled, have no error codes, and download into the shared cache. Stelz uses the official default location source, GeoIP AIO, with the same freshness limits, and downloads it during setup.
 
-Provision the model, location, and other explicit runtime assets under `STELZ_HOME`. Setup must be atomic and idempotent. Do not assume npm contains the browser or model. Start, MCP calls, and repair must not download or write global caches. A missing asset fails with setup guidance. Keep explicit external executables read-only and resolve their resources from the bundle.
+Provision the model, location, and other explicit runtime assets under `STELZ_HOME`. Setup must be atomic and idempotent. Do not assume npm contains the browser or model. Start and MCP calls must not download or write global caches. A missing asset fails with setup guidance. Keep explicit external executables read-only and resolve their resources from the bundle.
 
 Use this pipeline: candidate, saved device replay, runtime policy and location, preferences, effective and serialized validation, launch, observable and network verification, new pin commit, Ready. Upstream warnings do not count as validation. Runtime fields do not become device pins. Coordinates must not grant the website geolocation permission. `firefoxUserPrefs` and `CAMOU_PREFS_*` must agree. Keep the Playwright `BrowserContext`/`Browser` contract with one original context and no `launchServer` workaround.
 
@@ -107,21 +107,16 @@ The issue predates this migration. Stelz does not replay the uncertain action. I
 These checks did not reproduce it: a hidden window, 15 background-tab rounds, the location suite, and 11 runs with protocol tracing.
 Investigate it separately. Add timestamps around the bring-to-front and wheel calls of the scroll route, then repeat the integration suite until it fails.
 
-Next, implement [Phase 5 repair](#phase-5-explicit-repair), then run [Phase 6 acceptance](#phase-6-acceptance-and-delivery). Phase 4 remains merged into Phase 3. This result does not approve a release.
+Next, run [Phase 6 acceptance](#phase-6-acceptance-and-delivery). Phase 4 remains merged into Phase 3. This result does not approve a release.
 
-## Phase 5: explicit repair
+## Phase 5: dropped
 
-Provide `profile fingerprint check --json`, `repair --preview --json`, and `repair --apply REPAIR_ID --accept-identity-change --json`. Require an exclusively stopped profile.
-
-The immutable preview shows exact changed bytes and profile, source, candidate, engine, runtime, generator, configuration, and policy hashes. Run a required disposable real-browser preflight before approval and bind the observed results and validity conditions. Apply rejects stale or missing evidence. The opaque ID cannot be replaced with an arbitrary path.
-
-A user approves the exact preview for a real profile. `setup --yes`, a generic CLI flag, or orchestrator sign-off is not identity approval. Back up atomically, journal, and replace only the exact candidate. Support idempotence and crash recovery. An engine upgrade, such as from a 152 pin, is a repair: it pins the new engine hash and re-validates the identity on that engine. REPLACE coupled GPU, WebGL, and dependent preference fields atomically when the approved identity change requires them. Preserve cookies, storage, IDB, proxy settings, and unrelated configuration.
-
-Reuse upstream parts. `coherence.validate` finds the contradictions. `gpu-matches-os` has no upstream repair, so the seeded `sampleWebglForScreen` replaces only the coupled WebGL group. Store the seed in the preview. For an engine upgrade, check each saved field against the new engine's `properties.json` with `validateType`. `validateConfig` stops at the first error.
+The owner removed backward compatibility with earlier Stelz versions. No saved pin needs repair or an engine upgrade, so Phase 5 is not built.
+An invalid pin blocks Start. Create a new profile instead.
 
 ## Phase 6: acceptance and delivery
 
-The validator runs `bun run check`, then one unchanged installed candidate archive in a clean consumer. A changed archive requires renewed acceptance. Check invalid pins, repair, and hash faults. Check two headed profiles through shared MCP, all 18 schemas, all nine tools, typing, ownership races, handoff, cookies/storage/IDB/preferences across three lifetimes, and duplicate starts and windows. Use a real agent in a fresh workspace with two TodoMVC profiles, creating the second in the same chat.
+The validator runs `bun run check`, then one unchanged installed candidate archive in a clean consumer. A changed archive requires renewed acceptance. Check invalid pins and hash faults. Check two headed profiles through shared MCP, all 18 schemas, all nine tools, typing, ownership races, handoff, cookies/storage/IDB/preferences across three lifetimes, and duplicate starts and windows. Use a real agent in a fresh workspace with two TodoMVC profiles, creating the second in the same chat.
 
 Run `tests/qa/public-sites.ts` and its verdict reader in final acceptance only. Visit Fingerprint Playground first, then web scraping, Pixelscan, and Rebrowser. Reorder the existing runner before execution. Do not add site-specific task automation or detector-evasion patches.
 
@@ -143,10 +138,9 @@ Check startup, window close, shutdown, and probe cleanup. Check prepared offline
 | 1 | `bun run check`, existing regression/integration entry points, PLANNED fingerprint validator replay | `.state/official-launcher-migration/phase1/` | Validator matrix, JSON diagnostics, lock and readiness tests pass |
 | 2 | Private candidate corpus, replay, and service prototype | `.state/official-launcher-migration/phase2/evidence/` | [Closeout](reports/official-launcher-phase2-2026-11-09.md) |
 | 3 | `bun run check` and the existing real-browser suites in [Phase 3](#phase-3-production-cutover) | `.state/official-launcher-migration/phase3/` | Atomic idempotent setup, no start downloads, and full contracts pass with no `camoufox-js` edge |
-| 5 | PLANNED repair preview, stale-preview, apply, and crash-recovery entries | `.state/official-launcher-migration/phase5/` | Exact approved bytes apply atomically, including an approved engine upgrade |
 | 6 | `bun run check`, existing regression/integration entries, PLANNED installed-archive acceptance entries | `.state/official-launcher-migration/phase6/` | The unchanged candidate archive passes every required check |
 
 Each evidence directory records source commit, diff identity, relevant archive hashes, environment, commands, and pass/fail/unexecuted results. Exact commands that depend on an API may freeze before first execution. Mark those commands conditional. Do not pretend a later command was preregistered or already exists.
 
-Use logical commits per accepted phase, a minor Changeset for pre-1.0 behavior, and the version PR for the changelog. Keep public documentation focused on setup, operation, repair, and limits. Do not publish automatically or edit global harness configuration.
+Use logical commits per accepted phase, a minor Changeset for pre-1.0 behavior, and the version PR for the changelog. Keep public documentation focused on setup, operation, and limits. Do not publish automatically or edit global harness configuration.
 

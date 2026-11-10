@@ -28,8 +28,7 @@ Only an explicit lifecycle command stops a browser.
 
 Runtime creation makes direct profiles or safely reuses existing profiles unchanged. Start remains explicit.
 Keep configuration, proxies, deletion, import, stop, recovery, and forced handoff in the CLI or UI.
-Reject the removed MCP `--profile` option with migration guidance. Preserve profile-import `--profile` selectors.
-Migration requires the same `STELZ_HOME`, updated runtime setup, and explicit restarts of old browser services.
+Preserve profile-import `--profile` selectors. Stelz has no backward compatibility with earlier versions or their data.
 Do not migrate browser data or edit global harness configuration. Previously planned browser controls remain deferred.
 
 Keep profile state under `STELZ_HOME`. Never derive a profile from a client PID, conversation ID, or harness directory.

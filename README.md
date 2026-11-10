@@ -47,8 +47,6 @@ Create a profile named `work` in the UI. Leave the proxy blank for a direct conn
 Agents can also create direct profiles and start browsers through the shared MCP tools.
 Each profile permits one browser and one controller.
 
-For an existing profile-bound registration, follow the [one-time migration](docs/clients.md#migrate-an-existing-registration).
-
 ## Let your agent set it up
 
 Give a local coding agent this request:

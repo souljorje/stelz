@@ -90,8 +90,7 @@ Playwright starts its persistent context. Camofox claims that same context for b
 On restart, Stelz reuses those properties while retaining current language, location, and security policy.
 Saved device data cannot replace current add-on paths, session history, or Firefox security preferences.
 WebGL2 capability follows the saved GPU properties.
-A changed executable or invalid fingerprint record blocks startup. Browser changes require an explicit migration.
-There is no browser-version migration command.
+A changed executable or invalid fingerprint record blocks startup. Create a new profile for another browser.
 
 Saved settings do not guarantee identical observable output.
 The [historical browser report](reports/browser-acceptance-2026-11.md) records varying canvas hashes and the measurement limits.
@@ -287,10 +286,7 @@ After a source change that affects the runtime:
 4. Start the required profiles explicitly.
 
 Setup requires stopped profiles and known process ownership.
-The shared MCP protocol requires this update and explicit restarts of old browser services.
 Keep the same `STELZ_HOME`, profile IDs, data paths, and secret references.
-No browser data migration or global harness configuration edits are necessary.
-See [Registration migration](../clients.md#migrate-an-existing-registration) for the one-time procedure.
 It checks the complete staged runtime before atomic activation.
 Dependencies linked from that runtime still refer to the source checkout or installed package that supplied setup.
 The generated window add-on belongs under `profiles/ID/window-addon/`.

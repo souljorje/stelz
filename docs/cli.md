@@ -182,8 +182,6 @@ Configuration, proxies, deletion, import, stop, recovery, and forced handoff rem
 Release and disconnect preserve the browser and its open pages.
 Release explicitly before handoff.
 
-The removed MCP `--profile` option returns a migration error.
-Follow [Migration](clients.md#migrate-an-existing-registration) with the same `STELZ_HOME`, updated runtime setup, and explicit browser restarts.
 Profile-import `--profile` selectors remain supported.
 See [Shared MCP tools](mcp.md) for the complete contract.
 See [Client verification](clients.md#verify-the-connection) and [agent setup](bootstrap.md).

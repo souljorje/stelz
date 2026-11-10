@@ -38,7 +38,7 @@ export function createWindowModel(): WindowModel {
       if (!["ready", "paused", "verification_failed"].includes(String(status.phase))) return unavailable("Window controls are unavailable while this browser needs attention.");
       const redact = createUiRedactor();
       const url = (value: string) => {
-        // Older extensions can send a truncated URL. Never display malformed credentials.
+        // Never display a malformed URL, which can contain partial credentials.
         try { new URL(value); } catch { return ""; }
         return redact(value, 512);
       };

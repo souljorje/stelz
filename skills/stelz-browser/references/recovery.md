@@ -13,8 +13,4 @@ After release, disconnect, restart, or forced handoff, call `profile_acquire({pr
 Never copy another connection's handle or infer one from a controller summary.
 CLI diagnostics, stop, and recovery belong to the operator. Never signal unverified PIDs or bypass uncertain ownership.
 
-For the removed MCP `--profile` option or an old control protocol, follow [Migration](../../../docs/clients.md#migrate-an-existing-registration).
-Keep the same `STELZ_HOME`. Prepare the updated runtime and explicitly restart old browser services.
-Do not migrate profile data or edit global harness configuration.
-
 Never replay an interrupted action automatically. Read a fresh snapshot before continuing.

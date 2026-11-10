@@ -93,8 +93,6 @@ The next controller acquires a new handle for the existing browser state.
 Conversation and reasoning history stay with the previous client.
 An explicit lifecycle command or closing the browser window stops the profile. Restart remains explicit.
 
-For the removed MCP `--profile` option, follow [Migration](../../docs/clients.md#migrate-an-existing-registration).
-Keep the same `STELZ_HOME`. Prepare the updated runtime and explicitly restart old browser services.
 Preserve profile IDs, saved data, and secret references. Do not edit global harness configuration.
 Profile-import `--profile` selectors remain supported.
 

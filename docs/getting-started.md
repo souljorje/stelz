@@ -121,7 +121,6 @@ Follow [Connect your agent](clients.md) for registration and a local first task.
 The shared `stelz mcp` registration serves every profile through explicit tool arguments.
 Agents can also create direct profiles and start browsers through MCP. New profiles require no new registration.
 That check confirms your agent can act through its real browser tools and release control without closing the browser.
-For an existing profile-bound registration, follow the [one-time migration](clients.md#migrate-an-existing-registration).
 
 Your first-use result is a ready browser, a connected agent, and a successful local interaction.
 [Troubleshooting](troubleshooting.md) explains failures at each stage.

@@ -11,7 +11,6 @@ Installation lives in [Getting started](getting-started.md). Client registration
 3. Select the existing absolute `STELZ_HOME`, or use `~/.local/share/stelz`.
 4. For an existing installation, run `stelz --help`, `stelz doctor`, and `stelz status`.
 5. Inspect the requested profile and any existing client entry before creating or changing either.
-6. Follow [Migration](clients.md#migrate-an-existing-registration) if the entry uses the removed MCP `--profile` option.
 
 Preserve profile IDs, saved data, secret references, browser installations, and client configuration.
 Keep approvals, sandboxing, workspace trust, and authentication checks enabled. Do not edit global harness configuration.
@@ -28,8 +27,6 @@ Resolve the selected CLI's symlink to find its package directory.
 Reuse compatible dependencies and a working runtime.
 Run `stelz init` when needed. It preserves existing configuration.
 Run `stelz setup` only when runtime preparation is necessary and all profiles are safely stopped.
-Shared registration requires the updated runtime and explicit restarts of old browser services.
-Use the same `STELZ_HOME`. Preserve saved browser data without migration.
 Report an update blocked by unrelated running browsers as pending.
 
 The human first-use guide creates profiles through the UI.

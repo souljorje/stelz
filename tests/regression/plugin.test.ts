@@ -12,7 +12,6 @@ import { freezeDevice, replayFingerprint, launchPreferences, applyProxyLocale } 
 import { locationResult } from "../../src/browser/location.ts";
 import { register } from "../../src/browser/plugin.ts";
 import { allowedBrowserTools } from "../../src/mcp/tool-policy.ts";
-import { CONTROL_PROTOCOL_VERSION } from "../../src/mcp/control-protocol.ts";
 import { commitFingerprint, readFingerprintJournal, stageFingerprint, writeInitialized } from "../../src/browser/fingerprint-transaction.ts";
 import type { Tool } from "../../src/browser/upstream.ts";
 import { upstreamTyping } from "../helpers/upstream-typing.ts";
@@ -575,7 +574,6 @@ test("control status pins protocol and service identity without disclosing contr
     const summary = { pid: controller.pid, label: controller.label, activeActions: 0, releasing: false };
     for (const response of [acquired, await h.request("status")]) {
       const value = response.payload as Record<string, unknown>;
-      assert.equal(value.controlProtocolVersion, CONTROL_PROTOCOL_VERSION);
       assert.equal(value.profileId, h.id);
       assert.equal(value.instanceId, h.identity.instanceId);
       assert.deepEqual(value.controller, summary);

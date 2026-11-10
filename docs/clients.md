@@ -29,32 +29,6 @@ Install the canonical browser skill through a directory symlink. Keep the packag
 Reuse a matching existing link. Preserve conflicting files, directories, and dangling links for review.
 Do not copy the skill alone or replace another installation.
 
-## Migrate an existing registration
-
-The old `stelz mcp --profile ID` command now fails with migration guidance.
-Replace per-profile registrations with one shared entry named `stelz` in the intended client scope.
-This is a one-time control protocol update. It requires no browser data migration.
-
-1. Record the existing CLI path, runtime PATH, and absolute `STELZ_HOME`.
-2. Arrange a maintenance window for browsers that use that service directory.
-3. Have active clients explicitly release their profiles before disconnecting.
-4. Run `stelz status` to identify old browser services.
-5. Stop each active profile explicitly with `stelz stop ID`.
-6. Update the installed package through [Getting started](getting-started.md#1-install-stelz).
-7. Run `stelz setup` with the same `STELZ_HOME` after all profiles stop safely.
-8. Replace the old MCP arguments with `["mcp"]` in one project or operator-managed registration.
-9. Remove only superseded Stelz entries from that same scope.
-10. Restart or reconnect the client to load the new tools.
-11. Explicitly restart each required browser with `stelz start ID` or `profile_start({profileId})`.
-12. Complete [verification](#verify-the-connection) with new acquisitions and handles.
-
-Do not reuse old running services with the new control protocol. A client reconnect alone does not update them.
-Preserve profile IDs, data paths, secret references, and browser installations.
-Do not migrate saved browser data, create replacement profiles, or edit global harness configuration.
-Preserve approval protections and unrelated client entries.
-If migration requires a global client change, give the exact entry to the operator for that change.
-The profile-import `--profile` selector remains supported.
-
 ## Codex
 
 Merge [the TOML example](../examples/codex.toml) into the project's `.codex/config.toml` as the shared `stelz` entry.

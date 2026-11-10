@@ -135,7 +135,7 @@ Missing or failed probes cannot establish stability.
 A difference across lifetimes does not establish that a restart caused it.
 Language and timezone follow current network policy. A policy change is separate from drift under unchanged conditions.
 Observed results apply only to the recorded environment and samples.
-Browser executable changes require an explicit migration.
+A changed browser executable blocks startup of existing profiles.
 
 ## Profile transfer acceptance
 
@@ -367,10 +367,6 @@ Use [Client verification](../clients.md#verify-the-connection) for the registere
 9. Check the same profile ID, port, secret references, browser lifetime, and persistent fixture marker.
 10. Stop only the test profile after release and reuse evidence is complete.
 11. Stop the fixture server separately. Retain failed test state for inspection.
-
-For migration acceptance, preserve the original service directory, profile IDs, saved data, and secret references.
-Stop old services explicitly, prepare the updated runtime, and start those same profiles explicitly.
-Check the single registration through actual tools. Do not edit global harness configuration or migrate browser data.
 
 A model must perform browser interaction through its registered MCP tools.
 An SDK script can inspect resulting state. It cannot replace real-agent evidence.

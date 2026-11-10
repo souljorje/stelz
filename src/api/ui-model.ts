@@ -255,7 +255,7 @@ function device(id: string, redact: Redact): UiProfileDetail["device"] {
   if (!info || info.size > 2 * 1024 * 1024) return empty;
   let pin: Data;
   try { pin = data(JSON.parse(readFileSync(file, "utf8"))); } catch { return empty; }
-  if (pin.version !== 1 && pin.version !== 2) return empty;
+  if (pin.version !== 2) return empty;
   const config = data(pin.config), properties: { name: string; value: string }[] = [];
   for (const [key, name, limit, minimum] of deviceFields) {
     const value = config[key];

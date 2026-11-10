@@ -105,15 +105,6 @@ A saved MCP entry or a separate probe does not establish that the target session
 Complete the fixture interaction and release check through the target client's actual tools.
 Use [Bootstrap](bootstrap.md) for agent orchestration.
 
-## Old MCP registration or control protocol
-
-The removed `stelz mcp --profile ID` command returns migration guidance.
-Follow [Migration](clients.md#migrate-an-existing-registration) to replace per-profile registrations with one shared entry.
-Keep the same `STELZ_HOME`. Stop old browser services explicitly before updating their runtime with `stelz setup`.
-Start each required profile explicitly afterward. Reconnecting the client alone does not update an old browser service.
-Preserve profile IDs, saved browser data, and secret references. Do not edit global harness configuration.
-Profile-import `--profile` selectors remain supported.
-
 ## Missing or stale control handle
 
 1. Call `profile_status({profileId})` for the affected profile.

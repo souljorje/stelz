@@ -3,7 +3,6 @@ import { join } from "node:path";
 import { dir } from "../profiles/config.ts";
 import { assertRunning, running, type Running } from "../runtime/runtime.ts";
 import { ownership } from "../runtime/profile-process.ts";
-import { CONTROL_PROTOCOL_VERSION } from "./control-protocol.ts";
 import type { ControlTransport } from "./control-registry.ts";
 
 type ServiceBinding = {
@@ -53,8 +52,6 @@ export const serviceTransport: ControlTransport<ServiceBinding> = {
     const binding = { profileId, instanceId: "", record: Object.freeze({ ...record }),
       address: `http://127.0.0.1:${record.port}`, accessKey: readFileSync(join(dir(profileId), "access-key"), "utf8").trim() };
     const status = await request(binding, "status");
-    if (status.controlProtocolVersion !== CONTROL_PROTOCOL_VERSION)
-      throw Error(`${profileId}: incompatible control protocol. Explicitly stop running profiles before stelz setup. Then run stelz start ${profileId} before acquiring control.`);
     if (status.profileId !== profileId || typeof status.instanceId !== "string" || !status.instanceId)
       throw Error("The service identity does not match this profile. Inspect it with stelz doctor.");
     assertCurrent(binding);
