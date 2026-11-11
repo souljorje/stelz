@@ -1,18 +1,8 @@
-<h1>
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/brand/stelz-logo-full-dark.svg">
-    <source media="(prefers-color-scheme: light)" srcset="assets/brand/stelz-logo-full.svg">
-    <img src="assets/brand/stelz-logo-full.svg" alt="stelz" width="280">
-  </picture>
-</h1>
+# <picture><source media="(prefers-color-scheme: dark)" srcset="assets/brand/stelz-logo-full-dark.svg"><source media="(prefers-color-scheme: light)" srcset="assets/brand/stelz-logo-full.svg"><img src="assets/brand/stelz-logo-full.svg" alt="stelz" height="30"></picture> [![npm version](https://img.shields.io/npm/v/stelz)](https://www.npmjs.com/package/stelz) [![CI](https://github.com/souljorje/stelz/actions/workflows/ci.yml/badge.svg)](https://github.com/souljorje/stelz/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-[![npm version](https://img.shields.io/npm/v/stelz)](https://www.npmjs.com/package/stelz)
-[![CI](https://github.com/souljorje/stelz/actions/workflows/ci.yml/badge.svg)](https://github.com/souljorje/stelz/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+**Stealth browser for AI agents**
 
-**Stealth browser for AI agents.**
-
-Give your agents a real antidetect browser with a persistent profile.
+Give your agents a real antidetect browser with a persistent profile.  
 Runs on MCP. Powered by Camoufox.
 
 - **Real browser** with human-like behavior: typing, scrolling, etc
