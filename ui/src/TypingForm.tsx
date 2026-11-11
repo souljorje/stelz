@@ -5,7 +5,7 @@ import { Notice, Select } from "./components";
 
 const help: Record<TypingMode, string> = {
   balanced: "Paced typing for up to 10 seconds. Longer text is entered instantly.",
-  keyboard: "Type with variable pauses and occasional corrected typos. Stops after 45 seconds.",
+  keyboard: "Type with variable pauses and occasional corrected typos. One input can take up to 3 minutes.",
   instant: "Enter the complete text at once.",
 };
 

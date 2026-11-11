@@ -56,7 +56,7 @@ See [Agent setup](docs/bootstrap.md) for the steps.
 
 ## Documentation
 
-- [Getting started](docs/getting-started.md) · [Agent setup](docs/bootstrap.md) · [Documentation index](docs/README.md)
+- [Getting started](docs/getting-started.md) · [Agent setup](docs/bootstrap.md) · [Documentation index](docs/index.md)
 - [Manage profiles and take over](docs/ui.md) · [Configure a proxy](docs/proxies.md)
 - [Move profiles](docs/profile-transfer.md) · [Troubleshoot](docs/troubleshooting.md)
 - [CLI reference](docs/cli.md) · [Configuration reference](docs/configuration.md)

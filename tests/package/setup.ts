@@ -1,4 +1,4 @@
-// Acceptance for setup and updates on one unchanged archive. See docs/development/smooth-setup.md, section 6.
+// Acceptance for setup and updates on one unchanged archive.
 // It downloads no browser. It reads the paired build from the upstream cache and checks the release metadata.
 import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

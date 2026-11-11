@@ -30,7 +30,7 @@ Use TypeScript and Bun for new code. Preserve other contributors' edits and exis
 
    This command builds the package, checks TypeScript, and runs the tests that require no browser.
 
-3. Select additional tests from [Testing](docs/development/testing.md).
+3. Select additional tests from [Testing](docs/development/testing.md) and [Acceptance](docs/development/acceptance.md).
    `bunx lefthook run browser` runs the browser suites for the files that your branch changes.
    Browser, proxy, UI, transfer, and package changes need the relevant acceptance checks.
    Record results and limits. Keep credentials and private browser data outside Git.
@@ -48,7 +48,7 @@ Use TypeScript and Bun for new code. Preserve other contributors' edits and exis
    Use conventional commit messages. Separate large changes into logical commits.
 
 For dependency patches, follow [Camofox integration](docs/development/camofox-integration.md).
-Use plain English in documentation. Keep dated acceptance results in `docs/development/reports/`.
+Record acceptance results and their limits in the pull request description.
 
 ## Run Stelz from a checkout
 
@@ -63,7 +63,7 @@ stelz setup
 `bun link` adds `stelz` to `~/.bun/bin`. Bun's installer puts that folder on `PATH`. The command runs the checkout's `dist/` files.
 After a change, run `bun run build` and `stelz setup`. Then run `stelz restart all` to move running profiles to the new runtime.
 Running profiles load dependencies from the checkout's `node_modules`. Restart them after `bun install` or after a switch to a branch with other dependencies.
-Run `bun unlink` to remove the command. For release acceptance, install the packed archive instead. See [Installed-package acceptance](docs/development/testing.md#installed-package-acceptance).
+Run `bun unlink` to remove the command. For release acceptance, install the packed archive instead. See [Installed-package acceptance](docs/development/acceptance.md#installed-package-acceptance).
 
 ## Service rules
 
@@ -76,18 +76,5 @@ Run `bun unlink` to remove the command. For release acceptance, install the pack
 
 ## Documentation
 
-| Reader or task | Page |
-| --- | --- |
-| User documentation index | [Documentation](docs/README.md) |
-| Installation and first UI task | [Getting started](docs/getting-started.md) |
-| Agent installation orchestration | [Bootstrap](docs/bootstrap.md) |
-| Client registration and verification | [Clients](docs/clients.md) |
-| Local profile controls | [UI](docs/ui.md) |
-| Network configuration | [Proxies](docs/proxies.md) |
-| Profile archives | [Profile transfer](docs/profile-transfer.md) |
-| Failures and recovery | [Troubleshooting](docs/troubleshooting.md) |
-| Command reference | [CLI](docs/cli.md) |
-| Files and settings | [Configuration](docs/configuration.md) |
-
-Contributor documents cover implementation details and reproducible checks.
-Historical reports describe only the recorded environments and runs.
+Start at the [documentation index](docs/index.md). Contributor documents are in [Development](docs/development/index.md).
+Apply the ASD-STE100 writing rules to documentation. Keep each fact in one document, and link to it from other documents.

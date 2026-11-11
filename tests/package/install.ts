@@ -38,11 +38,11 @@ const uiFiles = candidate.files.filter(file => file.path.startsWith("dist/ui/"))
 if (!uiFiles.some(file => file.path === "dist/ui/index.html") || !uiFiles.some(file => file.path.endsWith(".js")) || !uiFiles.some(file => file.path.endsWith(".woff2"))) throw Error("The archive is missing built UI assets.");
 const paths = candidate.files.map(file => file.path).sort();
 for (const path of ["CONTRIBUTING.md", "assets/screenshots/stelz-overview.png", "examples/onboarding-fixture.html",
-  ...["README", "bootstrap", "getting-started", "clients", "ui", "proxies", "profile-transfer", "troubleshooting", "cli", "configuration",
-    "development/architecture", "development/testing", "development/releasing", "development/camofox-integration",
-    "development/reports/browser-acceptance-2026-11", "development/reports/onboarding-2026-11-05"].map(name => `docs/${name}.md`)])
+  ...["index", "bootstrap", "getting-started", "clients", "ui", "proxies", "profile-transfer", "troubleshooting", "cli", "configuration", "mcp",
+    "development/index", "development/architecture", "development/testing", "development/acceptance", "development/releasing",
+    "development/camofox-integration"].map(name => `docs/${name}.md`)])
   if (!paths.includes(path)) throw Error("Archive is missing " + path);
-for (const name of ["agents", "tests", "distribution", "releasing", "architecture", "camofox-patches", "onboarding-acceptance"])
+for (const name of ["README", "agents", "tests", "distribution", "releasing", "architecture", "camofox-patches", "onboarding-acceptance"])
   if (paths.includes(`docs/${name}.md`)) throw Error(`Archive contains obsolete documentation: docs/${name}.md`);
 for (const path of ["dist/cli.js", "dist/supervisor.js", "dist/plugin.js", "dist/ui/index.html", "README.md", "LICENSE", "examples/profiles.json", "skills/stelz-browser/SKILL.md", ...["README.md", "stelz-logo.svg", "stelz-logo-full.svg", "stelz-logo-full-dark.svg", "favicon.svg"].map(name => "assets/brand/" + name), ...["react", "react-dom", "scheduler", "ibm-plex-mono", "ibm-plex-sans"].map(name => "dist/ui/licenses/" + name + ".txt")]) {
   if (!paths.includes(path)) throw Error("Archive is missing " + path);

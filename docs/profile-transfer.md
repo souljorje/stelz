@@ -1,18 +1,23 @@
+---
+title: "Transfer profiles"
+description: "Export saved profiles to a ZIP archive and import them on a matching installation, in the UI or the CLI. Read it before you move profiles."
+tags: [profile, transfer]
+sources: []
+created: 2026-11-05T20:23:02Z
+modified: 2026-11-11T14:13:54Z
+---
+
 # Transfer profiles
 
-Use a `.stelz-profiles.zip` archive to move saved profiles between matching installations.
-Use [the local UI](ui.md) for selection and an import preview.
-The examples move the `work` profile.
+Use a `.stelz-profiles.zip` archive to move saved profiles between matching installations. The examples move `work`.
 
 ## Before transfer
 
-- Keep the same `STELZ_HOME` for each installation's CLI and UI.
-- Prepare the destination through [Getting started](getting-started.md).
-- Require the same operating system and CPU architecture on both installations.
-- Require the exact same Camoufox executable SHA-256, not only the same browser version label.
+- Prepare the destination through [Getting started](getting-started.md). Keep the same `STELZ_HOME` for each installation's CLI and UI.
+- Require the same operating system, CPU architecture, and exact Camoufox executable SHA-256 on both installations. The import preview refuses a mismatch.
 - Allow disk space for the ZIP, expanded data, and the staged snapshot or import batch.
 
-Compare these results on both machines. Replace the executable path with each installation's configured Camoufox path:
+Compare these results on both machines. Use each installation's configured Camoufox path:
 
 ```sh
 uname -s
@@ -20,110 +25,63 @@ uname -m
 shasum -a 256 /absolute/path/to/camoufox
 ```
 
-The archive contains saved logins, device settings, typing preferences, cookie inputs, uploads, and available proxy credentials.
-It does not contain Camoufox, global service settings, or client registrations.
-Import does not migrate browser versions or storage modes.
-See [Archive schema and limits](configuration.md#archive-schema-and-limits) for format details and configurable limits.
+The archive holds saved logins, device settings, typing preferences, cookie inputs, uploads, and available proxy credentials.
+It does not hold Camoufox, global service settings, or client registrations. See [Archive schema and limits](configuration.md#archive-schema-and-limits).
 
-## Export from the UI
+**Warning:** The ZIP has no encryption. It includes saved login sessions and available proxy secrets. Store and transfer it privately.
 
-1. Select `work` in **Profiles**.
-2. Select **Stop**. Wait for **Stopped**.
-3. Run `stelz doctor work` if clean shutdown or process ownership is uncertain.
-4. Resolve an unclean lifetime through [Recovery](troubleshooting.md#inspect-an-unclean-lifetime) before export.
+Export never stops a browser. Stop every exported profile cleanly first. If shutdown or ownership is uncertain, run `stelz doctor work` and see [Inspect an unclean lifetime](troubleshooting.md#inspect-an-unclean-lifetime).
 
-**Warning:** The ZIP is unencrypted. It includes saved login sessions and available proxy secrets. Store and transfer it privately.
+## Export
 
-5. Return to **Profiles**. Select **Export** in its heading.
-6. Select `work`, then select **Export 1**.
-7. Wait for **ZIP ready**. Select **Download ZIP** and save the file.
-8. Close the transfer dialog after the download.
+In the UI:
 
-For a batch, select the required stopped profiles before selecting **Export N**.
-**Select all stopped** selects eligible profiles only.
-**Export ZIP** in a stopped profile's details exports that profile directly.
-Export never stops browsers automatically.
+1. Select `work` in **Profiles**, then **Stop**. Wait for **Stopped**.
+2. Select **Export** in the **Profiles** heading. Select `work`, then **Export 1**.
+3. Wait for **ZIP ready**. Select **Download ZIP**.
 
-## Import into the destination UI
+For a batch, select several stopped profiles, or use **Select all stopped**. **Export ZIP** in a stopped profile's details exports that profile.
 
-Before import, require the same OS, CPU architecture, and exact Camoufox executable SHA-256 as the source.
-Configure that matching executable on the destination before continuing.
-The import preview checks compatibility and refuses a mismatch.
-
-1. Run `stelz ui --open` with the destination's service directory.
-2. Select **Import** in **Profiles**.
-3. Choose the saved ZIP archive.
-4. Review the compatibility result, proposed profile IDs, display names, and proxy warnings.
-5. Select the profiles to import. Adjust destination IDs or display names if necessary.
-6. Select **Import N** and wait for completion.
-7. Check the reported source-to-destination mappings.
-8. Start the imported profile explicitly with its reported destination ID when ready.
-
-If an ID exists, import proposes `ID-copy`, then `ID-copy-2`, and later available names.
-Existing profiles stay unchanged. The destination assigns available loopback ports and new private secret references.
-Use the reported destination ID for later CLI commands and MCP `profileId` arguments.
-Call `profile_list({})` through the existing shared registration to discover imported profiles.
-Import requires no new MCP registration.
-
-Imported profiles remain stopped.
-If the source proxy credentials were unavailable, configure the imported profile's proxy before starting it.
-It retains proxy intent and never changes to direct networking automatically.
-Check the started profile with `stelz doctor ID`, then follow [Client verification](clients.md#verify-the-connection).
-
-## Export from the CLI
-
-Stop only the profiles selected for export. Check `stelz doctor work` if ownership or shutdown is uncertain.
-Choose a new output filename because export refuses an existing file.
-
-**Warning:** The ZIP is unencrypted. It includes saved login sessions and available proxy secrets. Store and transfer it privately.
+In the CLI, choose a new output filename. Export refuses an existing file.
 
 ```sh
 stelz profile export work --output ./work.stelz-profiles.zip
 ```
 
-For an advanced batch, add a second stopped profile such as `research` after `work`. Choose a separate output filename.
+Add more stopped profile IDs for a batch. See [CLI transfer options](cli.md#profile-transfer) for `--all` and structured output.
 
-`--all` selects the complete catalog. Every selected profile must be cleanly stopped.
-See [CLI transfer options](cli.md#profile-transfer) for `--all` and structured output.
+## Import
 
-## Import from the CLI
+In the UI, with the destination's service directory:
 
-Before import, require the same OS, CPU architecture, and exact Camoufox executable SHA-256 as the source.
-Run `stelz setup` on the destination before continuing.
+1. Run `stelz ui --open`. Select **Import** in **Profiles**, then choose the ZIP.
+2. Review the compatibility result, proposed profile IDs, display names, and proxy warnings.
+3. Select the profiles. Adjust destination IDs or display names if necessary.
+4. Select **Import N**, wait for completion, and check the reported source-to-destination mappings.
+
+In the CLI, run `stelz setup` on the destination first.
 
 ```sh
 stelz profile import ./work.stelz-profiles.zip
-```
-
-The result reports the destination ID. Import creates a copy when the original ID is occupied.
-To select a source profile and require an unused destination ID:
-
-```sh
 stelz profile import ./work.stelz-profiles.zip --profile work --rename work=work-laptop
 ```
 
 Repeat `--profile` to select a subset. Omit it to select the complete archive.
 Repeat `--rename` for selected source IDs. Each destination ID must be unused.
-Add `--json` for structured mappings and errors. Results do not contain credentials.
-Start the reported destination profile explicitly after import.
+Add `--json` for structured mappings and errors. Results omit credentials.
 
-## Interrupted transfers and failures
+After import:
 
-Select **Cancel** before import to remove that transfer's temporary files.
-During import, wait for completion. Turning off the UI is unavailable during an active transfer.
-Reloading restores an active transfer in the same UI session.
+- If an ID exists, import proposes `ID-copy`, then `ID-copy-2`, and later names. Existing profiles stay unchanged.
+- Use the reported destination ID for CLI commands and MCP `profileId` arguments. `profile_list({})` lists imported profiles. Import needs no new MCP registration.
+- Imported profiles stay stopped. Start the profile explicitly, then run `stelz doctor ID` and [Verify the connection](clients.md#verify-the-connection).
+- If the source proxy credentials were unavailable, configure the proxy before you start. The profile never changes to direct networking automatically.
+
+## Interrupted transfers
+
+Select **Cancel** before import to remove the transfer's temporary files. During import, wait for completion.
+Reloading restores an active transfer in the same UI session. A new UI server starts a new session.
 If the upload needs the file again, choose the ZIP again or cancel the transfer.
-A new UI server starts a new transfer session.
 
-| Failure | Next action |
-| --- | --- |
-| Profile is active or unclean | Stop selected profiles cleanly. Inspect uncertain ownership before recovery. |
-| Compatibility mismatch | Use a destination with the same OS, architecture, and exact executable hash. |
-| Output file exists | Choose another filename. |
-| Size limit or insufficient disk | Select fewer profiles or free disk space. Read [transfer limits](configuration.md#archive-schema-and-limits) before changing overrides. |
-| Catalog changed during preview | Reload the import preview. Review the proposed mappings again. |
-| Import journal is pending | Preserve its journal and staging data. Follow [transaction recovery](troubleshooting.md#configuration-save-or-import-is-pending). |
-
-Read-only diagnostics do not complete a pending import.
-Check the catalog after recovery before importing again. The original batch may already be present.
-For implementation details, see [Architecture](development/architecture.md) and [Testing](development/testing.md).
+For an active profile, a compatibility mismatch, or a size limit, see [UI session, window, or transfer fails](troubleshooting.md#ui-session-window-or-transfer-fails).
+For a pending import journal, see [Configuration save or import is pending](troubleshooting.md#configuration-save-or-import-is-pending).
