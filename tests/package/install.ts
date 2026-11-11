@@ -38,7 +38,7 @@ const uiFiles = candidate.files.filter(file => file.path.startsWith("dist/ui/"))
 if (!uiFiles.some(file => file.path === "dist/ui/index.html") || !uiFiles.some(file => file.path.endsWith(".js")) || !uiFiles.some(file => file.path.endsWith(".woff2"))) throw Error("The archive is missing built UI assets.");
 const paths = candidate.files.map(file => file.path).sort();
 for (const path of ["CONTRIBUTING.md", "assets/screenshots/stelz-overview.png", "examples/onboarding-fixture.html",
-  ...["index", "bootstrap", "getting-started", "clients", "ui", "proxies", "profile-transfer", "troubleshooting", "cli", "configuration", "mcp",
+  ...["index", "product", "bootstrap", "getting-started", "clients", "ui", "proxies", "profile-transfer", "troubleshooting", "cli", "configuration", "mcp",
     "development/index", "development/architecture", "development/testing", "development/acceptance", "development/releasing",
     "development/camofox-integration"].map(name => `docs/${name}.md`)])
   if (!paths.includes(path)) throw Error("Archive is missing " + path);

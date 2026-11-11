@@ -1,19 +1,19 @@
 ---
 title: "Stelz documentation"
-description: "Entrypoint to the Stelz documentation. Read it to find the guide, reference page, or contributor document for your task."
+description: "Entrypoint that lists every Stelz guide, reference page, and contributor document by task."
 tags: [documentation]
 sources: []
 created: 2026-11-02T15:09:08Z
-modified: 2026-11-11T14:13:54Z
+modified: 2026-11-11T14:27:18Z
 ---
 
 # Stelz documentation
 
 Stelz runs persistent browser profiles that a coding agent controls through MCP.
-Select the first document that matches your task.
 
 ## Start
 
+- [Stelz as a product](product.md) — what Stelz is, its rules, and its limits.
 - [Getting started](getting-started.md) — install Stelz, run setup, and start your first profile.
 - [Agent setup](bootstrap.md) — let a coding agent install Stelz and connect its tools.
 

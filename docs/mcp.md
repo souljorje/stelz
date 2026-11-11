@@ -1,21 +1,23 @@
 ---
 title: "Shared MCP tools"
-description: "The 18 fixed MCP tools of stelz mcp, their arguments, and the control-handle contract. Read it to call or integrate the tools."
+description: "The 18 fixed MCP tools of stelz mcp, their arguments, and the control-handle contract, to read when you call or integrate the tools."
 tags: [mcp, agent, reference]
 sources: []
 created: 2026-11-06T16:47:49Z
-modified: 2026-11-11T14:13:54Z
+modified: 2026-11-11T14:27:18Z
 ---
 
 # Shared MCP tools
 
-`stelz mcp` gives one MCP connection 18 fixed tools that control many profiles.
-Register it once per client configuration with the same `STELZ_HOME` as the CLI and UI. See [Connect your agent](clients.md).
-Each profile permits one browser instance, one controller, and one action queue. Separate profiles can run actions concurrently. Stelz has no agent identities or agent count limits.
+- One connection to `stelz mcp` gets 18 fixed tools that control many profiles.
+- Register it once per client configuration, with the same `STELZ_HOME` as the CLI and UI. See [Connect your agent](clients.md).
+- Each profile: one browser instance, one controller, one action queue. Separate profiles can run actions concurrently.
+- No agent identities. No agent count limits.
 
 ## Tools
 
-`tools/list` returns the same 18 tools, including when the profile catalog is empty. Profile creation adds no tools. Call `profile_list({})` for the current catalog.
+- `tools/list` returns the same 18 tools, including when the profile catalog is empty. Profile creation adds no tools.
+- `profile_list({})` returns the current catalog.
 
 | Profile tool | Arguments | Effect |
 | --- | --- | --- |
@@ -29,7 +31,7 @@ Each profile permits one browser instance, one controller, and one action queue.
 | `profile_resume` | `{profileId, controlHandle}` | Resumes after human work and any required IP check. Retains control. |
 | `profile_recheck` | `{profileId, controlHandle}` | Repeats the browser IP check. Preserves a pause. |
 
-All nine browser tools require `profileId` and `controlHandle` with their Camofox arguments. Read the full schemas through `tools/list`.
+All nine browser tools require `profileId` and `controlHandle` with their Camofox arguments. Full schemas: `tools/list`.
 
 | Browser tool | Purpose |
 | --- | --- |
@@ -40,9 +42,9 @@ All nine browser tools require `profileId` and `controlHandle` with their Camofo
 | `camofox_type` | Enter text. Also accepts `mode`: `balanced`, `keyboard`, or `instant`. See [Typing](configuration.md#typing). |
 | `camofox_screenshot` | Capture a tab image. |
 
-`camofox_evaluate` and `camofox_import_cookies` stay excluded. Previously planned browser controls remain [deferred](development/architecture.md#planned-browser-controls).
-If a call includes a `progressToken`, Stelz sends a progress notification every 10 seconds until the call ends.
-Set your client to reset its request timeout on progress, because some calls, such as `camofox_type`, can take minutes.
+- `camofox_evaluate` and `camofox_import_cookies` stay excluded. Other upstream controls stay excluded.
+- A call with a `progressToken` gets a progress notification every 10 seconds until it ends.
+- Set your client to reset its request timeout on progress. Some calls, such as `camofox_type`, can take minutes.
 
 ## Control handles
 
@@ -57,4 +59,5 @@ Set your client to reset its request timeout on progress, because some calls, su
 
 - Creation never reconfigures an existing profile. It keeps its route, expected IP, port, data, and secret references.
 - Use the CLI or UI for configuration, proxies, deletion, import, stop, recovery, and forced handoff.
-- For call order, readiness, and human authentication, follow the [browser skill](../skills/stelz-browser/SKILL.md#do-a-browser-task). For conflicts and stale handles, see [Troubleshooting](troubleshooting.md).
+- Call order, readiness, and human authentication: [browser skill](../skills/stelz-browser/SKILL.md#do-a-browser-task).
+- Conflicts and stale handles: [Troubleshooting](troubleshooting.md).
