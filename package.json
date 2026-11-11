@@ -70,7 +70,7 @@
     "typecheck": "tsc --noEmit",
     "test:concurrency": "bun --no-env-file tests/browser/concurrency.ts",
     "check": "bun run build && bun run typecheck && bun run check:docs && bun run test",
-    "check:docs": "remark README.md CONTRIBUTING.md AGENTS.md docs skills --use remark-validate-links --frail --quiet --no-stdout",
+    "check:docs": "remark README.md CONTRIBUTING.md AGENTS.md docs skills --frail --quiet --no-stdout",
     "test:transfer": "bun --no-env-file tests/browser/profile-transfer.ts",
     "test:install": "bun tests/package/install.ts",
     "test:setup": "bun --no-env-file tests/package/setup.ts",
@@ -111,5 +111,10 @@
   },
   "patchedDependencies": {
     "@askjo/camofox-browser@1.18.1": "patches/@askjo%2Fcamofox-browser@1.18.1.patch"
+  },
+  "remarkConfig": {
+    "plugins": [
+      ["remark-validate-links", { "repository": "souljorje/stelz", "root": "." }]
+    ]
   }
 }
