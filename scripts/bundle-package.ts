@@ -1,7 +1,7 @@
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync, readdirSync, rmSync, lstatSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { checkBundledArchive } from "./bundled-dependencies.ts";
+import { checkBundledArchive, inspectBundledDependencies } from "./bundled-dependencies.ts";
 import { inspectPackageArchive } from "./package-archive.ts";
 import { NATIVE_DEPENDENCIES } from "../src/browser/native-dependencies.ts";
 
@@ -87,6 +87,7 @@ export async function packPackage(product: string, destination: string, options:
   env?: Record<string, string>;
   publishPlan?: string;
 } = {}): Promise<PackResult> {
+  inspectBundledDependencies(product);
   const temporary = mkdtempSync(join(tmpdir(), "stelz-release-tree-"));
   const env = { ...(options.env ?? process.env), npm_config_cache: join(temporary, "npm-cache"), npm_config_ignore_scripts: "true" };
   async function run(command: string[], cwd: string) {

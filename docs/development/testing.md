@@ -24,7 +24,7 @@ modified: 2026-11-11T14:55:54Z
 | Behavior that needs a browser | `bunx lefthook run browser` |
 | Release candidate | [Installed-package acceptance](acceptance.md#installed-package-acceptance) |
 
-- `check` builds the package, checks TypeScript, runs all tests that need no browser, and checks Markdown links in the packaged documentation.
+- `check`: build, typecheck, `check:docs` (Markdown links and anchors), and all tests that need no browser.
 - After a fix, run only the browser suites that `bunx lefthook run browser` selects. `lefthook.yml` holds the file map.
 - Run the full archive suites once per candidate, not after each fix.
 

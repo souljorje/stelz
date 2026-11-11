@@ -56,7 +56,6 @@ if (JSON.stringify(installedDependencies) !== JSON.stringify(preparedDependencie
   throw Error("The installed archive changed the patched dependency files.");
 const manifest = JSON.parse(readFileSync(join(installed, "package.json"), "utf8"));
 if (manifest.name !== "stelz" || manifest.version !== STELZ_VERSION || manifest.private || manifest.license !== "MIT") throw Error("Invalid release manifest.");
-checkMarkdownLinks(["README.md", "CONTRIBUTING.md", "AGENTS.md", "docs", "examples", "skills"].map(path => join(root, path)));
 checkMarkdownLinks(["README.md", "CONTRIBUTING.md", "docs", "examples", "skills"].map(path => join(installed, path)));
 for (const file of ["cli.js", "supervisor.js", "plugin.js"]) if (readFileSync(join(installed, "dist", file), "utf8").includes(root)) throw Error("Bundle contains a checkout path: " + file);
 const cleanEnv: Record<string, string> = { PATH: `${join(prefix, "bin")}:${bin}:/usr/bin:/bin`, HOME: env.HOME!, STELZ_HOME: home };

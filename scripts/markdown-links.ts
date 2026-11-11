@@ -86,3 +86,11 @@ export function checkMarkdownLinks(paths: string[]) {
   for (const path of paths) visit(path);
   return checked;
 }
+
+/** The repository documentation that `bun run check:docs` checks. */
+export const DOCUMENTATION = ["README.md", "CONTRIBUTING.md", "AGENTS.md", "docs", "examples", "skills"];
+
+if (import.meta.main) {
+  const root = resolve(import.meta.dir, "..");
+  console.log(`Checked ${checkMarkdownLinks(DOCUMENTATION.map(path => resolve(root, path)))} Markdown links.`);
+}
