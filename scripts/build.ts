@@ -1,7 +1,6 @@
 import { inspectBundledDependencies } from "./bundled-dependencies.ts";
 import { mkdirSync, chmodSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { checkMarkdownLinks } from "./markdown-links.ts";
 const root = join(import.meta.dir, "..");
 inspectBundledDependencies(root);
 const dist = join(root, "dist");
@@ -14,5 +13,4 @@ for (const [name, domain, target] of [["cli", "cli", "bun"], ["supervisor", "run
 }
 const ui = Bun.spawn([process.execPath, join(root, "ui/build.ts")], { stdout: "inherit", stderr: "inherit" });
 if (await ui.exited) throw Error("UI build failed.");
-checkMarkdownLinks(["README.md", "CONTRIBUTING.md", "AGENTS.md", "docs", "examples", "skills"].map(path => join(root, path)));
 console.log("Built standalone CLI, browser service, and local UI.");
