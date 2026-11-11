@@ -40,8 +40,8 @@ Blockers:
 
 ## Connect
 
-1. Resolve the selected CLI's symlink to find its package directory. This is `$STELZ_PACKAGE` in [Connect your agent](clients.md).
-2. Install the skill. Register `stelz mcp` once for the selected client.
+1. Install the skill and register `stelz mcp` once for the selected client. See [Connect your agent](clients.md).
+2. Already installed skill: replace it only with the user's approval.
 3. Use project scope when available. Give required global registration changes to the operator.
 4. Use the same CLI path, service directory, and runtime PATH throughout.
 5. Reuse a matching entry. Report conflicts before you replace one.

@@ -22,19 +22,17 @@ Register `stelz mcp` once per client. See [Shared MCP tools](mcp.md).
 - Use the UI's service directory. See [Service directory and precedence](configuration/environment.md#service-directory-and-precedence).
 - Client tool timeout: at least 240 seconds, so a long `camofox_type` call can finish. A client timeout does not cancel the service operation. See [Typing](configuration/typing.md).
 
-Default global npm installation:
+Shell variables for the steps below:
 
 ```sh
 export STELZ_HOME="${STELZ_HOME:-$HOME/.local/share/stelz}"
 STELZ_CLI="$(command -v stelz)"
-STELZ_PACKAGE="$(npm root --global)/stelz"
+STELZ_SKILL="https://raw.githubusercontent.com/souljorje/stelz/main/skills/stelz-browser/SKILL.md"
 ```
 
-- Custom npm prefix: use its `lib/node_modules/stelz` directory. Symlinked CLI: resolve it to find the package directory.
 - The MCP process needs Bun and Node.js on PATH, even when a desktop application starts your agent. The examples pass the current PATH.
 - Custom Camoufox executable: see [Browser executable](configuration/environment.md#browser-executable).
-- Install the skill as a directory symlink, as the client sections show. Keep the package's `docs/` and `skills/` together.
-- Reuse a matching link. Preserve conflicting files, directories, and dangling links. Do not replace another installation.
+- The skill is one file. Install it only when its destination is absent. Preserve an existing file.
 
 ## Codex
 
@@ -48,11 +46,11 @@ STELZ_PACKAGE="$(npm root --global)/stelz"
    codex mcp get stelz --json
    ```
 
-2. Install the skill at project scope, only when that destination is absent:
+2. Install the skill at project scope:
 
    ```sh
-   mkdir -p .agents/skills
-   ln -s "$STELZ_PACKAGE/skills/stelz-browser" .agents/skills/stelz-browser
+   mkdir -p .agents/skills/stelz-browser
+   curl -fsSL "$STELZ_SKILL" -o .agents/skills/stelz-browser/SKILL.md
    ```
 
 3. Start a new session if the current one lacks the tools. Codex loads a project's configuration only after you trust the project.
@@ -68,11 +66,11 @@ STELZ_PACKAGE="$(npm root --global)/stelz"
 
    Equivalent server fields: [JSON example](../examples/claude.json).
 
-2. Install the skill only when its destination is absent:
+2. Install the skill:
 
    ```sh
-   mkdir -p .claude/skills
-   ln -s "$STELZ_PACKAGE/skills/stelz-browser" .claude/skills/stelz-browser
+   mkdir -p .claude/skills/stelz-browser
+   curl -fsSL "$STELZ_SKILL" -o .claude/skills/stelz-browser/SKILL.md
    ```
 
 3. Check `/mcp` in the target session. Reconnect or start a new session if needed.
@@ -88,22 +86,21 @@ STELZ_PACKAGE="$(npm root --global)/stelz"
 2. Install the skill in the active Hermes profile's skill directory, normally:
 
    ```sh
-   mkdir -p "$HOME/.hermes/skills"
-   ln -s "$STELZ_PACKAGE/skills/stelz-browser" "$HOME/.hermes/skills/stelz-browser"
+   mkdir -p "$HOME/.hermes/skills/stelz-browser"
+   curl -fsSL "$STELZ_SKILL" -o "$HOME/.hermes/skills/stelz-browser/SKILL.md"
    ```
-
-   Preserve an existing destination.
 
 3. After a configuration change, use `/reload-mcp` or start a new session.
 4. [Verify the connection](#verify-the-connection).
 
 ## Verify the connection
 
-Use the agent session that owns the new connection. In another terminal, serve the packaged local demonstration page:
+Use the agent session that owns the new connection. In another terminal, download and serve the local demonstration page:
 
 ```sh
-STELZ_PACKAGE="$(npm root --global)/stelz"
-STELZ_FIXTURE="$STELZ_PACKAGE/examples/onboarding-fixture.html" bun -e '
+STELZ_FIXTURE="${TMPDIR:-/tmp}/stelz-onboarding-fixture.html"
+curl -fsSL "https://raw.githubusercontent.com/souljorje/stelz/main/examples/onboarding-fixture.html" -o "$STELZ_FIXTURE"
+STELZ_FIXTURE="$STELZ_FIXTURE" bun -e '
 const server = Bun.serve({
   hostname: "127.0.0.1", port: 0,
   fetch: () => new Response(Bun.file(process.env.STELZ_FIXTURE))

@@ -6,15 +6,16 @@ description: Do browser tasks in persistent Stelz profiles through the Stelz MCP
 # Stelz browser
 
 Stelz runs persistent browser profiles. You control them through the tools of one `stelz mcp` connection.
-[Shared MCP tools](../../docs/mcp.md) is the tool contract, including the control-handle rules.
-Resolve relative links against this file's URL, or against the real path of an installed skill directory.
+[Shared MCP tools](https://github.com/souljorje/stelz/blob/main/docs/mcp.md) is the tool contract, including the control-handle rules.
+Requires Stelz 0.5.0 or later. Check with `stelz --version`.
 
 ## Install
 
-When a user sends a link to this file and asks you to install it, install Stelz and connect its MCP tools. Do not copy this file.
-Follow [Agent setup](../../docs/bootstrap.md). After installation, use the installed copy of this skill. It matches the installed version.
+When a user sends a link to this file and asks you to install it:
 
-Also use Agent setup when the `stelz` command or the MCP tools are missing.
+1. Save this file as `stelz-browser/SKILL.md` in your client's skill folder. See [Connect your agent](https://github.com/souljorje/stelz/blob/main/docs/clients.md).
+2. If `stelz` is missing or older than 0.5.0, or the Stelz MCP tools are missing, follow [Agent setup](https://github.com/souljorje/stelz/blob/main/docs/bootstrap.md).
+
 Run `stelz setup` only in a terminal. MCP tools do not download prerequisites.
 
 ## Do a browser task
@@ -39,14 +40,14 @@ Run `stelz setup` only in a terminal. MCP tools do not download prerequisites.
 - Never repeat an action that may have reached the page or that stopped before it finished. Read a fresh snapshot first.
 - If another controller holds the profile, do not start another browser or create another profile. Ask the operator to release it.
 - For changes that the tools cannot make, ask the operator to use the CLI or UI.
-- Before you type long text, read [Typing](../../docs/configuration/typing.md) to select a `camofox_type` mode.
-- Tell the operator about location warnings in `location.evidence`. Never claim a physical location from status, and never bypass a location blocker. See [Managed location data](../../docs/configuration/network.md#managed-location-data).
-- If status shows `restartToUpdate: true`, tell the user. Restart only when the user asks. Release before the restart, and acquire again after it. See [Restart to update](../../docs/troubleshooting/setup.md#restart-to-update).
+- Before you type long text, read [Typing](https://github.com/souljorje/stelz/blob/main/docs/configuration/typing.md) to select a `camofox_type` mode.
+- Tell the operator about location warnings in `location.evidence`. Never claim a physical location from status, and never bypass a location blocker. See [Managed location data](https://github.com/souljorje/stelz/blob/main/docs/configuration/network.md#managed-location-data).
+- If status shows `restartToUpdate: true`, tell the user. Restart only when the user asks. Release before the restart, and acquire again after it. See [Restart to update](https://github.com/souljorje/stelz/blob/main/docs/troubleshooting/setup.md#restart-to-update).
 
 ## Human authentication
 
 1. When a page needs a person, for example to sign in, call `profile_pause({profileId, controlHandle})`.
-2. Tell the operator what to do in that browser window. [Find a profile's windows](../../docs/ui.md#find-a-profiles-windows) tells them how to find it.
+2. Tell the operator what to do in that browser window. [Find a profile's windows](https://github.com/souljorje/stelz/blob/main/docs/ui.md#find-a-profiles-windows) tells them how to find it.
 3. Wait for the operator. Then call `profile_resume({profileId, controlHandle})`.
 4. Read a fresh snapshot before the next action.
 
@@ -56,9 +57,9 @@ Do not try to bypass an authentication challenge.
 
 After an error, call `profile_status({profileId})` before another browser action. Then use the procedure for the problem:
 
-- [IP verification failed](../../docs/troubleshooting/network.md#ip-verification-failed). After the operator repairs the route, call `profile_recheck({profileId, controlHandle})`.
-- [Missing or stale control handle](../../docs/troubleshooting/control.md#missing-or-stale-control-handle).
-- [Browser action or IP check timed out](../../docs/troubleshooting/lifetime-and-state.md#browser-action-or-ip-check-timed-out).
-- Other problems: [Troubleshooting](../../docs/troubleshooting/index.md).
+- [IP verification failed](https://github.com/souljorje/stelz/blob/main/docs/troubleshooting/network.md#ip-verification-failed). After the operator repairs the route, call `profile_recheck({profileId, controlHandle})`.
+- [Missing or stale control handle](https://github.com/souljorje/stelz/blob/main/docs/troubleshooting/control.md#missing-or-stale-control-handle).
+- [Browser action or IP check timed out](https://github.com/souljorje/stelz/blob/main/docs/troubleshooting/lifetime-and-state.md#browser-action-or-ip-check-timed-out).
+- Other problems: [Troubleshooting](https://github.com/souljorje/stelz/blob/main/docs/troubleshooting/index.md).
 
 Diagnostics, stop, and recovery are operator actions. Never send signals to processes or work around uncertain process ownership.
