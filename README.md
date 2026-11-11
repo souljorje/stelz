@@ -25,14 +25,15 @@ Runs on MCP. Powered by Camoufox.
 
 ## Quickstart
 
-The tested desktop platform is macOS on Apple Silicon.
-You need Bun ≥1.4.4 and Node.js ≥24.
+Bun ≥1.4.4 and Node.js ≥24 required.
 
 ```sh
 npm install --global stelz
 stelz setup
 stelz ui --open
 ```
+
+The tested desktop platform is macOS on Apple Silicon.
 
 ## Agent setup
 
