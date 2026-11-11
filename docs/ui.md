@@ -1,123 +1,86 @@
+---
+title: "Manage profiles"
+description: "Operations in the local Stelz UI, for when you open it, create or start a profile, work in a browser manually, or change a profile."
+tags: [ui, profile, browser]
+sources: []
+created: 2026-11-03T12:47:22Z
+modified: 2026-11-11T15:01:55Z
+---
+
 # Manage profiles
 
-Create, start, and manage visible browsers from the local UI.
-If Stelz is not ready yet, follow [Getting started](getting-started.md).
+Local UI for visible browsers. Setup first: [Getting started](getting-started.md).
 
 ## Open or close the manager
 
-Run `stelz ui --open`. The default address is `127.0.0.1:9380`.
-Use `--port 9381` for another port. Without `--open`, the command prints a private session URL.
-Keep that URL private and keep the command running while you use the UI.
-Reload the same browser session to continue. If its session has expired, start the UI again for a new URL.
+1. Run `stelz ui --open`. Address, port, and options: [Installation and UI](cli.md#installation-and-ui).
+2. Without `--open`, open the printed private session URL yourself. Keep it private.
+3. Keep the command running while you use the UI.
 
-Select **Turn off UI** or press Ctrl-C in its terminal to stop the manager.
-Running browsers and their pages remain open.
-Finish active operations first. The UI asks before discarding unsaved edits.
-
-The UI follows your system theme. Choose **System**, **Light**, or **Dark** in Settings to change it.
-Your browser saves the choice locally.
+- Reload the same browser session to continue. Expired session: start the UI again for a new URL.
+- Stop the manager with **Turn off UI** or Ctrl-C. Running browsers and their pages stay open.
 
 ## Create and start a profile
 
 1. Open **Profiles** and select **New profile**.
-2. Enter `work`, or another unused name with lowercase letters, digits, and hyphens.
-3. Leave **Proxy** blank for a direct connection, or paste details from your provider. See [Configure a proxy](proxies.md).
-4. Select **Create profile**.
-5. Select **Start** when you want its browser to open.
+2. Enter `work`, or another unused name. Name rule: [Profile catalog schema](configuration/profiles.md#profile-catalog-schema).
+3. Leave **Proxy** blank for a direct connection, or paste provider details. See [Configure a proxy](proxies.md).
+4. Select **Create profile**. This saves the profile and starts no browser.
+5. Select **Start** to open its browser.
 
-Creation saves the profile without starting a browser.
-Select the whole profile row to open its details. Its Start and Stop buttons act independently.
-Overview contains connection settings, typing preferences, and browser windows. Device and Logs contain technical information.
+- Select a profile row for its details.
+- **Ready**: the browser runs. The controller label shows the current connection.
+- **Restart to update**: the browser uses an earlier runtime. See [Update Stelz](getting-started.md#update-stelz).
+- Disabled **Start**: the profile has an issue. Read its details or Diagnostics.
+- **Location alignment** shows known problems before Start. **Check connection** checks the route without starting a browser. See [Location alignment blocks Start](troubleshooting/network.md#location-alignment-blocks-start) and [IP check policy](configuration/network.md#ip-check-policy).
+- Browser windows show Camoufox's pink cursor marker. The marker can stop at the page boundary.
+- Overview shows the shared MCP command and the `profileId`. See [Connect your agent](clients.md).
 
-**Ready** describes the browser. A controller label describes the current connection, without a persistent agent identity.
-Reading status does not claim control.
-Browser windows enable Camoufox's pink cursor marker by default. The marker can stop at the page boundary.
-**Restart to update** means the browser uses an earlier runtime. Run `stelz restart ID`, or stop and start the profile, when you are ready.
-A disabled **Start** means the profile has an issue. Inspect its details or Diagnostics before retrying.
+## Manual work
 
-## Connect through MCP
+1. Select **Pause**.
+2. [Find the profile's window](#find-a-profiles-windows). Do your work there.
+3. Select **Resume**. The UI does not resume by itself. Resume can need an IP check.
 
-Overview shows a shared MCP command and the profile ID for tool arguments.
-The command is identical across profiles in the same service directory.
-Register `stelz mcp` once. Copy the stable profile ID into `profileId` when selecting a profile through tools.
-The UI and status summaries never show control handles.
+Buttons: **Stop**, **Pause**, **Resume**, **Release**, **Recheck IP**. See [Choose the lifecycle action](troubleshooting/index.md#choose-the-lifecycle-action).
 
-Use `profile_list({})` to discover profiles after creation or import. New profiles require no new MCP registration.
-See [Connect your agent](clients.md) for setup, or [Shared MCP tools](mcp.md) for the complete contract.
-
-## Take over manually
-
-Use **Pause** before manual authentication or other manual work.
-Find the profile's window, complete your work in that same window, then select **Resume**.
-The UI does not resume automatically. Resume can require an IP check.
-
-| Control | Result |
-| --- | --- |
-| Start | Open the selected stopped profile's browser. |
-| Stop | Close that browser after current actions finish and retain saved profile data. |
-| Pause | Block new agent actions while keeping the browser and controller. |
-| Resume | Permit agent actions after manual work and any required IP check. |
-| Release controller | Let another agent acquire the profile while keeping the browser open. |
-| Recheck IP | Repeat a failed browser-side network check. |
-
-Closing a profile's browser window also stops that profile. Start it explicitly to open it again.
-See [Troubleshooting](troubleshooting.md) for failed checks, timeouts, or uncertain process ownership.
+- Closing a profile's browser window stops that profile. Start it again explicitly.
 
 ## Find a profile's windows
 
-Each window has a title prefix such as `[work]`, plus a profile color and toolbar badge.
-Select the badge to read the full profile name. Short badges and colors can repeat, so check the full ID.
-
-Select the window icon beside **Stop** to show the profile's most recent window.
-Open its Overview tab for the **Browser windows** list. Select a page to show that page and its window.
-Select **Refresh browser windows** if the list changed.
-The control is disabled when the window connection is unavailable.
-
-Showing a window preserves its controller. Pause before manual work.
-If macOS refuses foreground activation, select the browser manually, then try **Show window** again.
-Refresh an old selection after a browser restart or page closure.
+- Each window has a title prefix such as `[work]`, a profile color, and a toolbar badge.
+- Badges and colors can repeat. Select the badge to read the full profile ID.
+- Window icon beside **Stop**: shows the profile's focused window, or its first window if none has focus.
+- Overview, **Browser windows**: select a page to show it and its window. **Refresh browser windows** updates the list.
+- Showing a window keeps its controller. Pause before manual work.
+- macOS refuses foreground activation: select the browser manually, then select **Show window** again.
 
 ## Rename a profile
 
-Select the pencil beside its name. Enter the new display name and select **Save name**.
-Escape or **Cancel rename** discards the edit.
-You can rename a running profile.
-Its ID, data, proxy references, window title prefix, and MCP command remain unchanged.
+- Select the pencil beside the name, enter the new name, select **Save name**. A running profile can be renamed.
+- ID, data, proxy references, window title prefix, and MCP command stay the same.
 
 ## Change typing behavior
 
-Open Overview and select **Default typing mode**:
-
-- **Balanced** uses paced typing for shorter text and bulk entry for longer text.
-- **Keyboard input** uses variable pauses and occasional corrected typos. One input can take up to 3 minutes. This is the service default.
-- **Instant input** enters the complete text at once.
-
-Changes apply to future typing actions without restarting the browser.
-An agent can override the choice for one call.
-See [typing configuration](configuration.md#typing) for timing, inheritance, and exact behavior.
+Overview, **Default typing mode**: **Balanced**, **Keyboard input**, or **Instant input**.
+Changes apply to later typing actions without a restart. See [Typing](configuration/typing.md).
 
 ## Change a proxy or move profiles
 
-Stop the profile before changing its connection settings.
-Follow [Configure a proxy](proxies.md) to set or remove a route and optional expected IP.
-
-Use **Import** and **Export** to move saved profiles.
-Read the [transfer warnings and compatibility requirements](profile-transfer.md) before downloading or importing an archive.
+- Proxy changes: see [Configure a proxy](proxies.md).
+- **Import** and **Export**: see [Transfer profiles](profile-transfer.md).
 
 ## Delete a profile
 
-Stop it cleanly. Open its details and select **Delete profile**.
-Type the exact profile ID shown in the confirmation to continue.
-Stelz removes it from the list and archives its data under `STELZ_HOME/trash/`.
-Shared secret values remain available to other profiles.
-Running profiles and profiles with uncertain ownership or an unclean shutdown cannot be deleted.
-Follow [safe recovery](troubleshooting.md) before retrying those profiles.
+1. Stop the profile cleanly.
+2. Open its details and select **Delete profile**.
+3. Type the exact profile ID.
+
+- Deletion rules: [Files and private state](configuration/profiles.md#files-and-private-state).
+- Running profiles, profiles with uncertain ownership, and profiles with an unclean shutdown cannot be deleted. See [Troubleshooting](troubleshooting/index.md).
 
 ## Inspect a problem
 
-Diagnostics checks installation, browser location, configuration, and process ownership.
-Profile details contain bounded server and supervisor logs.
-Settings shows the service directory, runtime versions, and the shared MCP command for existing profiles.
-The UI does not change your agent's configuration.
-
-For technical session and transaction behavior, see [Architecture](development/architecture.md).
+- Diagnostics: installation, browser location, configuration, process ownership.
+- Profile details: bounded server and supervisor logs.
+- Settings: service directory, runtime versions, shared MCP command.

@@ -399,7 +399,7 @@ export function parsePublicArgs(args: string[]): { help: boolean } {
 if (import.meta.main) {
   try {
     const args = parsePublicArgs(process.argv.slice(2));
-    if (args.help) console.log("Use: bun run test:public\nRequires PROXY_TEST_ENV with PROXY_TEST_USAGE=dedicated-public and a persistent PUBLIC_TEST_HOME. See docs/development/testing.md.");
+    if (args.help) console.log("Use: bun run test:public\nRequires PROXY_TEST_ENV with PROXY_TEST_USAGE=dedicated-public and a persistent PUBLIC_TEST_HOME. See docs/development/acceptance.md.");
     else {
       const input = dedicatedProxyInputs(process.env.PROXY_TEST_ENV, "public");
       const proxy = input.PROXY_TEST_URL!, expected = input.PROXY_TEST_EXPECTED_IP || undefined;

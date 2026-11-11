@@ -1,15 +1,28 @@
+---
+title: "Connect your agent"
+description: "Register Codex, Claude Code, or Hermes with Stelz, install the browser skill, check the connection, and hand a profile between agents."
+tags: [agent, mcp, skill]
+sources:
+  - "https://learn.chatgpt.com/docs/extend/mcp?surface=cli"
+  - "https://learn.chatgpt.com/docs/build-skills"
+  - "https://code.claude.com/docs/en/mcp"
+  - "https://code.claude.com/docs/en/skills"
+  - "https://hermes-agent.nousresearch.com/docs/user-guide/features/mcp"
+  - "https://hermes-agent.nousresearch.com/docs/user-guide/features/skills"
+created: 2026-11-02T15:09:08Z
+modified: 2026-11-11T15:01:55Z
+---
+
 # Connect your agent
 
-Connect Codex, Claude Code, or Hermes to Stelz with one `stelz mcp` registration.
-Each connection can control multiple profiles through explicit profile IDs and control handles.
-The same 18 tools remain available as profiles change. No per-profile registration is necessary.
+Register `stelz mcp` once per client. See [Shared MCP tools](mcp.md).
 
 ## Before registration
 
-Registration works with an empty catalog. A browser must be running before an agent can acquire it.
-Use `profile_create({profileId})` and `profile_start({profileId})` when runtime creation and startup are necessary.
-Use the same service directory as the UI.
-For a default global npm installation, prepare these shell variables:
+- Use the UI's service directory. See [Service directory and precedence](configuration/environment.md#service-directory-and-precedence).
+- Client tool timeout: at least 240 seconds, so a long `camofox_type` call can finish. A client timeout does not cancel the service operation. See [Typing](configuration/typing.md).
+
+Default global npm installation:
 
 ```sh
 export STELZ_HOME="${STELZ_HOME:-$HOME/.local/share/stelz}"
@@ -17,85 +30,76 @@ STELZ_CLI="$(command -v stelz)"
 STELZ_PACKAGE="$(npm root --global)/stelz"
 ```
 
-For a custom npm prefix, select its installed `lib/node_modules/stelz` directory instead.
-Resolve a symlinked CLI to confirm the package directory if installations differ.
-The MCP process needs Bun and Node.js on PATH, even when your agent starts from a desktop application.
-The examples pass the current PATH explicitly.
-
-Keep proxy credentials in Stelz's private configuration, outside client configuration and reports.
-For a custom Camoufox executable, see [How setup finds the browser](getting-started.md#how-setup-finds-the-browser).
-
-Install the canonical browser skill through a directory symlink. Keep the package's `docs/` and `skills/` together.
-Reuse a matching existing link. Preserve conflicting files, directories, and dangling links for review.
-Do not replace another installation.
+- Custom npm prefix: use its `lib/node_modules/stelz` directory. Symlinked CLI: resolve it to find the package directory.
+- The MCP process needs Bun and Node.js on PATH, even when a desktop application starts your agent. The examples pass the current PATH.
+- Custom Camoufox executable: see [Browser executable](configuration/environment.md#browser-executable).
+- Install the skill as a directory symlink, as the client sections show. Keep the package's `docs/` and `skills/` together.
+- Reuse a matching link. Preserve conflicting files, directories, and dangling links. Do not replace another installation.
 
 ## Codex
 
-Merge [the TOML example](../examples/codex.toml) into the project's `.codex/config.toml` as the shared `stelz` entry.
-Set its command, `STELZ_HOME`, and PATH to the values above. Keep `tool_timeout_sec` at 240 or more, so a 3-minute `camofox_type` call can finish.
-Preserve other entries and complete normal project-trust prompts.
-Inspect the resulting registration with:
+1. Register. Merge [the TOML example](../examples/codex.toml) into the project's `.codex/config.toml` as the `stelz` entry.
+   - Set its command, `STELZ_HOME`, and PATH to the values above.
+   - Set `tool_timeout_sec` to the client timeout above.
+   - Preserve other entries.
+   - Inspect the registration:
 
-```sh
-codex mcp get stelz --json
-```
+   ```sh
+   codex mcp get stelz --json
+   ```
 
-Install the skill at project scope, only when that destination is absent:
+2. Install the skill at project scope, only when that destination is absent:
 
-```sh
-mkdir -p .agents/skills
-ln -s "$STELZ_PACKAGE/skills/stelz-browser" .agents/skills/stelz-browser
-```
+   ```sh
+   mkdir -p .agents/skills
+   ln -s "$STELZ_PACKAGE/skills/stelz-browser" .agents/skills/stelz-browser
+   ```
 
-Start a new Codex session if the current session does not expose the new tools.
-Then complete [verification](#verify-the-connection).
-
-Sources: [OpenAI MCP documentation](https://learn.chatgpt.com/docs/extend/mcp?surface=cli) and [skills](https://learn.chatgpt.com/docs/build-skills).
+3. Start a new session if the current one lacks the tools. Codex loads a project's configuration only after you trust the project.
+4. [Verify the connection](#verify-the-connection).
 
 ## Claude Code
 
-Inspect `claude mcp get stelz`. For an absent project entry, run:
+1. Register. Inspect `claude mcp get stelz`. Absent project entry:
 
-```sh
-claude mcp add --env "STELZ_HOME=$STELZ_HOME" --env "PATH=$PATH" --transport stdio --scope project stelz -- "$STELZ_CLI" mcp
-```
+   ```sh
+   claude mcp add --env "STELZ_HOME=$STELZ_HOME" --env "PATH=$PATH" --transport stdio --scope project stelz -- "$STELZ_CLI" mcp
+   ```
 
-Install the skill only when its destination is absent:
+   Equivalent server fields: [JSON example](../examples/claude.json).
 
-```sh
-mkdir -p .claude/skills
-ln -s "$STELZ_PACKAGE/skills/stelz-browser" .claude/skills/stelz-browser
-```
+2. Install the skill only when its destination is absent:
 
-[The JSON example](../examples/claude.json) shows the equivalent server fields.
-Check `/mcp` in the target session. Complete normal trust prompts and reconnect or start a new session if needed.
-Then complete [verification](#verify-the-connection).
+   ```sh
+   mkdir -p .claude/skills
+   ln -s "$STELZ_PACKAGE/skills/stelz-browser" .claude/skills/stelz-browser
+   ```
 
-Sources: [Claude Code MCP](https://code.claude.com/docs/en/mcp) and [skills](https://code.claude.com/docs/en/skills).
+3. Check `/mcp` in the target session. Reconnect or start a new session if needed.
+4. [Verify the connection](#verify-the-connection).
 
 ## Hermes
 
-The operator can merge [the YAML example](../examples/hermes.yaml) into the active Hermes profile's configuration, normally `~/.hermes/config.yaml`.
-Agents must preserve global harness configuration. If no project scope is available, provide this entry to the operator.
-Replace its absolute command, service directory, and PATH examples with your selected values. Keep `timeout` at 240 seconds or more for long typing.
-Keep other mappings. Reuse `stelz` only when its command, arguments, home, and environment match.
+1. Register. The operator merges [the YAML example](../examples/hermes.yaml) into the active Hermes profile's configuration, normally `~/.hermes/config.yaml`.
+   - Give the entry to the operator.
+   - Replace its command, service directory, and PATH with your values.
+   - Set `timeout` to the client timeout above.
+   - Reuse `stelz` only when its command, arguments, home, and environment match.
+2. Install the skill in the active Hermes profile's skill directory, normally:
 
-Install the skill in the active Hermes profile's skill directory, normally:
+   ```sh
+   mkdir -p "$HOME/.hermes/skills"
+   ln -s "$STELZ_PACKAGE/skills/stelz-browser" "$HOME/.hermes/skills/stelz-browser"
+   ```
 
-```sh
-mkdir -p "$HOME/.hermes/skills"
-ln -s "$STELZ_PACKAGE/skills/stelz-browser" "$HOME/.hermes/skills/stelz-browser"
-```
+   Preserve an existing destination.
 
-Preserve an existing destination. Use `/reload-mcp` after changing MCP configuration, or start a new session.
-Then complete [verification](#verify-the-connection).
-
-Sources: [Hermes MCP](https://hermes-agent.nousresearch.com/docs/user-guide/features/mcp) and [skills](https://hermes-agent.nousresearch.com/docs/user-guide/features/skills).
+3. After a configuration change, use `/reload-mcp` or start a new session.
+4. [Verify the connection](#verify-the-connection).
 
 ## Verify the connection
 
-Use the agent session that owns the new connection. Configuration alone does not establish that tools work.
-Serve the packaged local demonstration page in another terminal:
+Use the agent session that owns the new connection. In another terminal, serve the packaged local demonstration page:
 
 ```sh
 STELZ_PACKAGE="$(npm root --global)/stelz"
@@ -108,7 +112,6 @@ console.log(server.url.href);
 '
 ```
 
-For a custom installation, use its actual package directory.
 Copy the printed loopback URL. Ask your agent:
 
 > Use the shared Stelz tools. List profiles and select `work`. Create it if missing and start it if stopped.
@@ -119,22 +122,21 @@ Copy the printed loopback URL. Ask your agent:
 > Release control and leave the browser open. Acquire again with a fresh handle.
 > Check the same page and result, then release again.
 
-The agent must use its actual `profile_*` and `camofox_*` tools, as the [browser skill](../skills/stelz-browser/SKILL.md#do-a-browser-task) describes.
-See [Shared MCP tools](mcp.md) for the complete contract.
-Do not substitute a separate SDK script for the agent's interaction.
-Successful verification leaves the same browser **Ready**, without a controller, and the demonstration page still open.
-Stop the demonstration server with Ctrl-C after the check. This keeps the browser open.
-For missing tools, conflicts, or failures, follow [Troubleshooting](troubleshooting.md).
+- The agent must use its actual `profile_*` and `camofox_*` tools. See the [browser skill](../skills/stelz-browser/SKILL.md#do-a-browser-task).
+- Do not substitute a separate SDK script.
+- Success: the browser is **Ready**, has no controller, and keeps the demonstration page open.
+- Stop the demonstration server with Ctrl-C. The browser stays open.
+- Failures: [Troubleshooting](troubleshooting/index.md).
 
 ## Multiple profiles and handoff
 
-Call `profile_list({})` to discover profiles created after registration.
-Create `research` through `profile_create({profileId: "research"})`, the CLI, or the UI.
-Start it explicitly with `profile_start({profileId: "research"})`, the CLI, or the UI.
-Reuse the same registration. One connection can acquire both `work` and `research` and retain a separate handle for each.
-Different agents can control separate profiles concurrently. Each profile permits one controller and has its own action queue.
-There are no agent identities or agent count limits.
+- `profile_list({})` finds profiles created after registration.
+- Create and start `research` with `profile_create({profileId: "research"})` and `profile_start({profileId: "research"})`, the CLI, or the UI.
+- One connection can acquire `work` and `research`.
 
-The first agent releases `work` before another agent takes over, as the [browser skill](../skills/stelz-browser/SKILL.md#do-a-browser-task) requires.
-The second agent acquires `work` through its existing shared connection and receives a new handle.
-Keep the browser running throughout. Stopping it would test saved-state restoration instead of a live handoff.
+Handoff:
+
+1. The first agent releases `work`. See the [browser skill](../skills/stelz-browser/SKILL.md#do-a-browser-task).
+2. The second agent acquires `work` through its own shared connection and receives a new handle.
+
+Keep the browser running.

@@ -39,9 +39,9 @@ Run `stelz setup` only in a terminal. MCP tools do not download prerequisites.
 - Never repeat an action that may have reached the page or that stopped before it finished. Read a fresh snapshot first.
 - If another controller holds the profile, do not start another browser or create another profile. Ask the operator to release it.
 - For changes that the tools cannot make, ask the operator to use the CLI or UI.
-- Before you type long text, read [Typing](../../docs/configuration.md#typing) to select a `camofox_type` mode.
-- Tell the operator about location warnings in `location.evidence`. Never claim a physical location from status, and never bypass a location blocker. See [Managed location data](../../docs/configuration.md#managed-location-data).
-- If status shows `restartToUpdate: true`, tell the user. Restart only when the user asks. Release before the restart, and acquire again after it. See [Restart to update](../../docs/troubleshooting.md#restart-to-update).
+- Before you type long text, read [Typing](../../docs/configuration/typing.md) to select a `camofox_type` mode.
+- Tell the operator about location warnings in `location.evidence`. Never claim a physical location from status, and never bypass a location blocker. See [Managed location data](../../docs/configuration/network.md#managed-location-data).
+- If status shows `restartToUpdate: true`, tell the user. Restart only when the user asks. Release before the restart, and acquire again after it. See [Restart to update](../../docs/troubleshooting/setup.md#restart-to-update).
 
 ## Human authentication
 
@@ -56,9 +56,9 @@ Do not try to bypass an authentication challenge.
 
 After an error, call `profile_status({profileId})` before another browser action. Then use the procedure for the problem:
 
-- [IP verification failed](../../docs/troubleshooting.md#ip-verification-failed). After the operator repairs the route, call `profile_recheck({profileId, controlHandle})`.
-- [Missing or stale control handle](../../docs/troubleshooting.md#missing-or-stale-control-handle).
-- [Browser action or IP check timed out](../../docs/troubleshooting.md#browser-action-or-ip-check-timed-out).
-- Other problems: [Troubleshooting](../../docs/troubleshooting.md).
+- [IP verification failed](../../docs/troubleshooting/network.md#ip-verification-failed). After the operator repairs the route, call `profile_recheck({profileId, controlHandle})`.
+- [Missing or stale control handle](../../docs/troubleshooting/control.md#missing-or-stale-control-handle).
+- [Browser action or IP check timed out](../../docs/troubleshooting/lifetime-and-state.md#browser-action-or-ip-check-timed-out).
+- Other problems: [Troubleshooting](../../docs/troubleshooting/index.md).
 
 Diagnostics, stop, and recovery are operator actions. Never send signals to processes or work around uncertain process ownership.

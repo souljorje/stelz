@@ -1,19 +1,23 @@
+---
+title: "Release Stelz"
+description: "Changesets, the Release workflow, archive contents, and publication checks, to read before you version, pack, or publish the stelz package."
+tags: [development, release]
+sources: []
+created: 2026-11-06T13:49:16Z
+modified: 2026-11-11T15:05:26Z
+---
+
 # Release Stelz
 
-Changesets manages package versions, changelogs, Git tags, npm publication, and GitHub releases.
-The repository contains one package, `stelz`, with the MIT license.
-Read the current version from the root `package.json`.
-The Release workflow in `.github/workflows/publish.yml` is the publication path.
-It runs on pushes to `main` and manual dispatch, restricted to `souljorje/stelz` on `main`.
-It uses npm trusted publishing. Do not add an npm token secret or a parallel manual publication procedure.
+- Changesets manages versions, changelogs, Git tags, npm publication, and GitHub releases for `stelz`.
+- The Release workflow in `.github/workflows/publish.yml` is the only publication path.
+- Do not add an npm token secret or a manual publication procedure.
 
 ## Add a Changeset
 
 1. Run `bun run changeset` for a change that needs a package release.
-2. Select `stelz`.
-3. Choose the version increment.
-4. Describe the effect on users.
-5. Include the generated `.changeset/*.md` file with the change.
+2. Select `stelz`, choose the increment, and describe the effect on users.
+3. Include the generated `.changeset/*.md` file with the change.
 
 | Increment | Use |
 | --- | --- |
@@ -21,129 +25,44 @@ It uses npm trusted publishing. Do not add an npm token secret or a parallel man
 | `minor` | A feature, or a breaking change while the version starts with `0`. |
 | `major` | A breaking change after `1.0.0`. |
 
-Changesets combines pending entries and uses the largest increment.
-Run `bun run changeset status` to inspect the plan.
-Tests and internal tooling alone do not require a Changeset.
-Changes to shipped package behavior or content require a release entry when they need publication.
+- Changesets uses the largest pending increment. `bun run changeset status` shows the plan.
+- Tests, internal tooling, and documentation alone need no Changeset.
 
-## Workflow and version review
+## Workflow
 
-The `plan` job uses Changesets to select a version, publish, or inactive mode.
-It suppresses publication when the current version's `vVERSION` tag already exists.
-The `checks` job calls `.github/workflows/ci.yml` with `skip-package: true`.
-That workflow builds, checks TypeScript, and runs automated tests on Linux and macOS. The `installation` job checks the release archive.
+- Runs on pushes to `main` and manual dispatch. Restricted to `souljorje/stelz` on `main`. Publishes through npm trusted publishing.
+- Release installation checks run on the same platforms as [Continuous integration](testing.md#continuous-integration).
+- The `plan` job selects version, publish, or none mode. It changes publish mode to none when the tag `vVERSION` already exists.
+- The `checks` job calls `.github/workflows/ci.yml` with `skip-package: true`.
+- Version mode runs `bun run version:packages`. It creates or updates the version PR on `changeset-release/main`, updates `package.json`, `bun.lock`, and `CHANGELOG.md`, and consumes the pending Changesets.
+- Review the version, changelog, and CI results before you merge the version PR.
+- The workflow dispatches CI for that branch, because the bot token does not trigger PR workflows. It never approves or merges a PR.
 
-| Selected mode | Result after required checks |
-| --- | --- |
-| Version | Create or update the version PR on `changeset-release/main`. |
-| Publish | Pack and validate the planned unpublished version before publication. |
-| None | Run checks without versioning or publication. |
+Publish mode starts after the merged version PR:
 
-The version job runs `bun run version:packages` through Changesets.
-It updates `package.json`, `bun.lock`, and `CHANGELOG.md` and consumes the pending Changesets.
-Review the version, changelog, and CI results before merging that PR.
-The workflow explicitly dispatches CI for the bot-created branch because its token does not trigger ordinary PR workflows.
-The workflow never approves or merges a PR.
-
-Temporary exception: CI and release installation checks run on Ubuntu only because GitHub macOS runners lack capacity.
-The macOS matrix entries remain commented in both workflows. Restore them to resume the two-platform checks described below.
-
-The shared setup action installs Node.js 24, Bun from the `packageManager` pin, and its pinned npm version.
-It installs frozen dependencies with lifecycle scripts disabled and skips browser downloads.
-Checks and packaging have read-only repository access.
-The version job has permissions to update the PR and dispatch its checks.
-Only publication has `id-token: write` for npm OIDC.
-
-## One validated publication archive
-
-After the merged version PR selects publish mode, the workflow follows this sequence:
-
-1. Require successful CI on Linux and macOS.
+1. Make sure that CI passed.
 2. Download the Changesets publish plan.
 3. Run `bun run pack --publish-plan FILE` once in the `pack` job.
 4. Upload `release-artifacts/` as the `stelz-package` artifact.
-5. Download that artifact in the Linux and macOS installation jobs.
-6. Run `bun run test:install --archive release-artifacts/packages/*.tgz` on both platforms.
-7. Repeat installation with `--native` on both platforms.
-8. Download the same artifact in the publication job after all installation checks succeed.
-9. Check the archive's SHA-256 file.
-10. Run Changesets publication through `bun run release`.
-11. Create the Git tag and GitHub release through the Changesets action.
-12. Attach the tarball and checksum to the GitHub release.
+5. In the `installation` job, download the artifact and run `bun run test:install --archive release-artifacts/packages/*.tgz`. Repeat with `--native`.
+6. In the `publish` job, download the same artifact after the installation job succeeds. Check its SHA-256 file.
+7. Run `bun run release`: `changeset publish --from-pack-dir release-artifacts` with npm provenance and OIDC.
+8. Create the Git tag and GitHub release through the Changesets action.
+9. Attach the tarball and checksum to the GitHub release.
 
-`pack` builds the package and prepares one final publication tarball through the Changesets plan.
-The plan records tarball integrity. The package directory also contains its SHA-256 file.
-Installation checks and publication use the same saved tarball bytes.
-The publication job does not rebuild or repack them.
-`release` uses `changeset publish --from-pack-dir release-artifacts`.
-The workflow enables npm provenance and uses OIDC through the configured trusted publisher.
+- Installation and publication use the same tarball bytes. The publication job does not rebuild or repack.
+- Only the publication job has `id-token: write`.
+- Before you release browser changes, run the relevant checks from [Installed-package acceptance](acceptance.md#installed-package-acceptance).
+- npm can report **Validating** after an upload. Wait for the registry version before you check installation and integrity. Do not repeat publication while npm reviews the upload.
 
-The installation checks cover package contents, prepared dependencies, CLI, bundled UI, and staged runtime setup.
-The first mode disables npm lifecycle scripts.
-The native mode uses ordinary npm installation, executes SQLite queries, and constructs Impit clients.
-Neither mode starts Camoufox. CI does not establish browser, proxy, or human acceptance.
-See [Testing](testing.md#installed-package-acceptance) for local candidate checks.
+## Archive contents
 
-## Archive contents and dependency preparation
-
-The root manifest defines package contents.
-The archive includes compiled CLI, supervisor, plugin, UI, fonts, licenses, logos, screenshots, documentation, examples, and the optional browser skill.
-It uses canonical documentation directly, without generated copies.
-It excludes Stelz source, tests, browser state, credentials, and compiled native binaries in bundled dependencies.
-Profile ZIP archives are a separate format. See [Profile transfer](../profile-transfer.md).
-
-The package bundles only prepared Camofox, including transitive JavaScript sources and licenses.
-Packing removes packages that no manifest reaches, such as `camoufox-js` from Camofox registry metadata. Archive checks reject any `camoufox-js` file.
-Bun applies committed patches during workspace installation.
-Packing resolves dependency links into a temporary physical tree.
-It removes bundled native packages and their platform binaries before creating the final archive.
-Only that temporary tree changes. Prepared workspace source remains unchanged.
-
-`better-sqlite3` and `impit` remain pinned direct dependencies of Stelz.
-Ordinary npm installation supplies their target-machine packages.
-`yazl` and `yauzl` also install as ordinary runtime dependencies.
-Setup links installed dependencies into its staged runtime and checks prepared source without rewriting it.
-See [Camofox integration](camofox-integration.md) for compatibility patches and setup activation.
-
-## Browser changes and local candidates
-
-Before releasing browser changes, run the relevant visible-browser checks against a local package archive.
-Run `bun run pack` to prepare that candidate.
-Use its printed archive path for every acceptance command. Do not repack between checks.
-`--destination DIRECTORY` selects another local output directory.
-Local candidate preparation does not publish a package or replace the Release workflow.
-
-For full package acceptance, run `bun run test:package --archive FILE --setup --proxy --manual`.
-The package suite includes native persistence, profile transfers, shared-connection concurrency, and typing. `--proxy` adds proxy and location acceptance on the same installation.
-Add `--windows` to check visible window controls.
-Supply one or two private proxy routes as described in [Proxy and human acceptance](testing.md#proxy-and-human-acceptance).
-Complete human authentication and takeover in the same visible browser when prompted.
-Keep credentials and private reports outside Git. Tests use disposable profiles.
-Run the relevant package acceptance on each supported browser target.
-Record any target or check that remains untested.
-
-The workflow still validates its own final archive before publication.
-Local browser results supplement those checks. They do not establish that another archive passed browser acceptance.
-Keep the source commit, archive hash, environment, checks, and limits with acceptance evidence.
-Historical reports under `reports/` do not approve a new release.
-
-## Publication status
-
-npm can report **Validating** after an upload.
-Wait for the registry version before checking installation and integrity from npm.
-Do not repeat publication solely because npm is still reviewing the upload.
-Inspect the signed-in npm version history for pending validation.
-
-Report the version, source commit, workflow result, tag, GitHub release, and npm availability.
-State incomplete checks explicitly. An upload alone does not establish registry availability.
+- The root manifest defines package contents. It excludes Stelz source, tests, browser state, and credentials.
+- Only prepared Camofox is bundled. Packing removes packages that no manifest reaches (such as `camoufox-js`), and bundled native packages and platform binaries.
+- `test:install` checks the archive. See [Native dependencies](camofox-integration.md#native-dependencies).
 
 ## Repository configuration
 
-GitHub must permit Actions-created PRs through **Allow GitHub Actions to create and approve pull requests**.
-An owner must approve a change to that setting.
-The workflows do not approve PRs or change branch protections.
-Preserve repository protections and client approval policies.
-
-The npm trusted publisher must select `souljorje/stelz` and workflow `publish.yml`.
-Keep the repository and package public for automatic provenance.
-See [npm trusted publishing](https://docs.npmjs.com/trusted-publishers/) for provider configuration.
+- GitHub must permit Actions-created PRs through **Allow GitHub Actions to create and approve pull requests**. An owner must approve a change to that setting.
+- The npm trusted publisher must select `souljorje/stelz` and workflow `publish.yml`.
+- Keep the repository and package public for automatic provenance. See [npm trusted publishing](https://docs.npmjs.com/trusted-publishers/).

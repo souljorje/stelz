@@ -3,8 +3,8 @@
 - Be brief. Use TypeScript and Bun for custom code.
 - Keep all documentation concise. Reference existing details instead of repeating them.
 - Review code for DRY and YAGNI. Fix only concrete findings.
-- After a fix, run only the browser suites that `bunx lefthook run browser` selects. Run the full archive suites once per candidate. See `docs/development/testing.md`.
-- Read `docs/README.md` for service operations.
+- After a fix, run only the browser suites that `bunx lefthook run browser` selects. Run the full archive suites once per candidate. See `docs/development/acceptance.md`.
+- Read `docs/index.md` for service operations.
 - Read `skills/stelz-browser/SKILL.md` for the MCP control protocol.
 - Use the installed ASD-STE100 skill for documentation.
 - For versioning or publication, read [Release Stelz](docs/development/releasing.md). Add Changesets for package changes and publish only the archive checked in CI.
@@ -44,4 +44,4 @@ Do not bypass authentication challenges or write website-specific task scripts.
 
 Use local fixtures and synthetic proxy inputs for routine tests. Never copy everyday profile proxies into test inputs.
 Live checks require a declared test proxy, which the operator must keep separate from everyday profiles. Reserve a separate proxy and persistent test profile for occasional public-site checks.
-See `docs/development/testing.md` for the dedicated-input declarations and test-home setup.
+See `docs/development/acceptance.md` for the dedicated-input declarations and test-home setup.

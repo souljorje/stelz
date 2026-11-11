@@ -1,58 +1,37 @@
+---
+title: "Configure a proxy or expected exit IP"
+description: "Proxy URL formats and the steps to set, change, or remove a proxy or expected exit IP."
+tags: [proxy, network, location]
+sources: []
+created: 2026-11-06T13:49:16Z
+modified: 2026-11-11T14:55:54Z
+---
+
 # Configure a proxy or expected exit IP
 
-A proxy is optional. Leave **Proxy** blank for a direct connection.
-A missing, empty, or invalid configured proxy blocks startup. It never permits direct fallback.
+- A proxy is optional. Blank **Proxy**: direct connection.
+- A missing, empty, or invalid configured proxy blocks startup. It never permits direct fallback.
+- Settings affect the profile's browser traffic, not the client's LLM traffic.
+- CLI: `stelz profile create` sets a proxy or expected IP only when it creates a profile. See [Create or reuse a profile](cli.md#create-or-reuse-a-profile). It cannot change an existing profile. Use the UI.
 
-Use [Getting started](getting-started.md) to prepare the `work` profile first.
-These settings affect that profile's browser traffic. They do not change the client's LLM traffic.
+## Change or remove a proxy in the UI
 
-## Change the work profile in the UI
+1. Run `stelz ui --open` with the usual `STELZ_HOME`. Open **Profiles** and select `work`.
+2. Select **Stop** if the profile is running. Wait for **Stopped**.
+3. Open **Overview** and find **Connection**.
+4. Paste the provider's proxy details in **Proxy**. To use a direct connection, clear **Proxy**, or select **Remove proxy** for a managed proxy.
+5. Enter an optional **Expected exit IP**. Clear it to remove the fixed-address requirement.
+6. Select **Save network**. Make sure that the UI shows `Network settings saved.`
+7. Select **Check connection**. Resolve any blocker in **Location alignment**: [Location alignment blocks Start](troubleshooting/network.md#location-alignment-blocks-start).
+8. Select **Start**. Run `stelz status work` to check the [IP verification fields](configuration/network.md#ip-verification-fields).
 
-1. Run `stelz ui --open` with the usual `STELZ_HOME`.
-2. Open **Profiles** and select `work`.
-3. Select **Stop** if the profile is running. Wait for **Stopped**.
-4. Open **Overview** and find **Connection**.
-5. Paste the provider's proxy details in **Proxy**, or leave it empty for direct networking.
-6. Enter an optional **Expected exit IP**. Leave it empty if no fixed address is required.
-7. Select **Save network**. Require `Network settings saved.`.
-8. Select **Check connection**. Read **Location alignment** and resolve any blocker.
-9. Select **Start**. Run `stelz status work` to check the result.
-
-An unchanged proxy address preserves its saved authentication when you change only the expected IP.
-The UI shows the saved address without its username or password.
-To replace credentials, paste the replacement details or select **Edit details**.
-Saved credentials remain hidden. Enter them again when you change a saved proxy through the separate fields.
-
-Agents check the [IP verification fields](configuration.md#ip-verification-fields) before browser work, as the [browser skill](../skills/stelz-browser/SKILL.md#do-a-browser-task) describes.
-For direct networking without an expected IP, `verificationRequired: false` is normal.
-Such a profile does not perform an IP lookup.
-
-## Remove a proxy or expected IP
-
-1. Stop `work` cleanly.
-2. Clear **Proxy**, or select **Remove proxy** for a managed proxy.
-3. Clear **Expected exit IP** if you also want to remove the fixed-address requirement.
-4. Select **Save network**.
-5. Start `work` explicitly.
-6. Run `stelz status work` to check its phase and verification requirements.
-
-Removing the proxy detaches this profile's reference. Shared secret values remain available to other profiles.
-Removing only the expected IP still requires successful checks for a proxy connection.
-Keeping an expected IP after proxy removal still requires checks for the direct connection.
-
-## Managed values and save conflicts
-
-**Managed externally** means a process environment override or shared secret reference controls the value.
-The UI cannot replace that secret. Stop the affected profile before changing its external value.
-Preserve the configured reference name.
-For a process override, correct the launching environment before starting the profile again.
-An empty override still takes precedence over `secrets.env`.
-See [Setting precedence](configuration.md#service-directory-and-precedence).
-
-If the UI reports a conflict, select **Discard edits and load latest**.
-Review the new configuration before entering the change again.
-Do not force a stale save or delete a transaction journal.
-See [Pending configuration recovery](troubleshooting.md#configuration-save-or-import-is-pending).
+- Changing only the expected IP keeps the saved proxy authentication. The UI hides saved credentials.
+- Replace credentials: paste the replacement details, or select **Edit details** and enter the credentials again.
+- Removing a proxy detaches this profile's reference. Other profiles keep the shared secret value.
+- **Managed externally**: a process environment override or shared secret reference controls the value. The UI cannot replace it. Stop the profile, change the external value, and keep the reference name.
+- Precedence: [Service directory and precedence](configuration/environment.md#service-directory-and-precedence).
+- UI conflict: select **Discard edits and load latest**. Review the new configuration before you enter the change again.
+- Do not force a stale save or remove a transaction journal. See [Configuration save or import is pending](troubleshooting/lifetime-and-state.md#configuration-save-or-import-is-pending).
 
 ## Paste provider details
 
@@ -65,36 +44,30 @@ proxy.example:8080:user:password
 proxy.example:8080
 ```
 
-An omitted protocol uses HTTP. The UI shows **HTTP assumed** before saving.
-Explicit HTTPS and SOCKS5 protocols remain unchanged.
-Bracket IPv6 addresses, for example `[2001:db8::1]:8080`.
+- No protocol: HTTP. The UI shows **HTTP assumed** before saving.
+- Bracket IPv6 addresses: `[2001:db8::1]:8080`.
+- Ambiguous input opens separate fields. **Enter manually** enters each part directly.
+- Shorthand passwords and separate credential fields are literal. Stelz encodes their reserved characters.
+- URL-style credentials can contain percent escapes. Stelz decodes them once.
 
-You can also paste a cURL example with `--proxy` (`-x`) and optional `--proxy-user` (`-U`):
+### cURL form
+
+`--proxy` (`-x`) and optional `--proxy-user` (`-U`) also work:
 
 ```sh
 curl https://example.com -x proxy.example:8080 -U 'user:password'
 ```
 
-Stelz reads the proxy options locally. It does not execute the command or contact the example website.
-Shell substitutions, variables, conflicting credentials, and multiple proxy endpoints require manual entry.
+- Stelz reads the proxy options locally. It does not run the command.
+- Shell substitutions, variables, conflicting credentials, and multiple proxy endpoints need manual entry.
 
-The preview shows the address without credentials. Ambiguous input opens separate fields for confirmation.
-Select **Enter manually** to enter the protocol, host, port, username, and password directly.
-Shorthand passwords and separate credential fields are literal. Stelz encodes their reserved characters automatically.
-URL-style credentials can contain existing percent escapes. Stelz decodes them once before saving the canonical URL.
-
-### Import a proxy list
+### Import a list
 
 1. Select **Import list** beside the proxy field.
-2. Choose a text file or paste a list with one proxy per line.
-3. Select one detected proxy.
-4. Select **Use proxy**. Then save the network settings or create the profile.
+2. Choose a text file, or paste one proxy per line. For a download link, select **Download the list** and choose the downloaded file. Stelz does not fetch the link.
+3. Select one detected proxy, then **Use proxy**.
 
-For a download link, select **Import list**, then **Download the list**. Choose the downloaded file.
-Stelz does not automatically fetch the link or save it as a proxy endpoint.
-List parsing stays in the UI. Only the selected proxy reaches the local service when you save.
-Duplicate entries are combined. Invalid lines are reported without their credentials.
-Files can contain up to 1 MB and 10,000 lines. This limit does not restrict the saved profile count.
+Only the selected proxy reaches the local service. Limits: 1 MB, 10,000 lines.
 
 ## Supported proxy URLs
 
@@ -102,62 +75,18 @@ Files can contain up to 1 MB and 10,000 lines. This limit does not restrict the 
 | --- | --- |
 | `http://proxy.example:8080` | HTTP proxy without authentication. |
 | `http://user:password@proxy.example:8080` | HTTP proxy with authentication. |
-| `https://user:password@proxy.example:8443` | HTTPS proxy with authentication. Authentication is also optional. |
-| `socks5://proxy.example:1080` | SOCKS5 without authentication. |
+| `https://user:password@proxy.example:8443` | HTTPS proxy. Authentication is optional. |
+| `socks5://proxy.example:1080` | SOCKS5 without authentication. Stelz does not support authenticated SOCKS5. |
 
-An omitted port uses `80` for HTTP, `443` for HTTPS, or `1080` for SOCKS5.
-For secrets edited directly in `secrets.env`, use a complete URL with percent-encoded credentials.
-Provider-format detection runs during profile creation and UI network edits, not at browser startup.
-Authenticated SOCKS5 is unsupported. Use an HTTP(S) endpoint when authentication is required.
+- With a protocol, an omitted port uses `80` (HTTP), `443` (HTTPS), or `1080` (SOCKS5). Input without a protocol needs a port.
+- A secret that you edit in `secrets.env`: use a complete URL with percent-encoded credentials. Format detection runs only at profile creation and UI network edits.
+- Unsupported: paths other than `/`, query strings, and fragments.
+- Rejected: control characters, and normalized URLs longer than 8192 characters.
+- Expected IP: one literal IPv4 or IPv6 address, compared exactly with the returned address. Use the provider's IPv6 representation. No CIDR, hostname, port, or zone suffix.
 
-Paths other than `/`, query strings, and fragments are unsupported.
-Inputs reject control characters and normalized URLs longer than 8192 characters.
-Whitespace and backslashes in separate credentials are encoded. They are not permitted in proxy hosts.
+## Location checks
 
-Expected IP accepts one literal IPv4 or IPv6 address.
-The check compares the returned address with the configured string exactly.
-Use the provider's returned representation for IPv6. There is no CIDR, hostname, port, or zone-suffix support.
-
-## Create a profile from the CLI
-
-Use the UI to change an existing profile's network settings.
-For agent-led creation, use the [profile command reference](cli.md#profile-commands).
-It describes proxy environment inputs, compatible reuse, and conflicts.
-
-## IP check policy
-
-Each new proxied browser requires a preflight check before launch. This check has a 30-second deadline.
-It answers three separate questions:
-
-1. Does the proxy work, and which exit IP does it use? This includes any expected IP.
-2. How credible is the location for that exit? The `location.evidence` field records the source, its build time, and the comparison result.
-3. Does the launched browser use the prepared settings? Stelz checks this after launch.
-
-See [Managed location data](configuration.md#managed-location-data) for the sources, data age, and `STELZ_LOCATION_POLICY`.
-**Ready to start** applies only to the checked inputs. Start repeats preflight with current inputs.
-Proxy connections also require a successful browser-side IP check.
-Before Ready, Stelz checks the browser timezone and language against the prepared settings.
-A passed browser check means that the browser applies those settings. It does not confirm the physical location.
-Geolocation coordinates are checked in the launch configuration. They are not browser-observed coordinates.
-Stelz does not grant websites location permission.
-A rotated exit is allowed only when its location settings and the expected-IP rule remain compatible.
-A failed initial check closes that startup attempt. It preserves native data and the failure reason.
-Direct connections require one only when you set an expected IP.
-A failed check blocks agent actions. Repair the connection, then use the recovery steps below.
-The profile's private browser add-on performs checks in the background. No IP-check tab is required.
-
-Checks can reuse recent successful results. They do not guarantee continuous IP stability.
-See [IP check policy](configuration.md#ip-check-policy) for providers, cache timing, and routing limits.
-
-## Recover from a failed check
-
-1. Run `stelz doctor work` and `stelz status work`.
-2. Read `location`, `configuration`, `error`, and `checkFailure`.
-3. Correct the provider connection without changing the running configuration, if possible.
-4. Run `stelz recheck work` after the connection works again.
-5. Require `verificationStatus: "verified"`.
-6. If `phase` remains `paused`, finish manual work before running `stelz resume work`.
-
-For changed credentials, proxy URLs, or expected IP settings, stop `work` before saving the change.
-Start it explicitly afterward. Recheck does not reload a running browser's network configuration.
-For `blocked` after an operation timeout, use [the timeout procedure](troubleshooting.md#browser-action-or-ip-check-timed-out).
+- A rotated exit is allowed only when its location settings and the expected-IP rule stay compatible. `strict` blocks it on a conflict.
+- Failed check: [IP verification failed](troubleshooting/network.md#ip-verification-failed).
+- Providers, cache timing, and routing limits: [IP check policy](configuration/network.md#ip-check-policy).
+- Data age and `STELZ_LOCATION_POLICY`: [Managed location data](configuration/network.md#managed-location-data).
