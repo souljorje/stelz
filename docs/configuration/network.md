@@ -4,7 +4,7 @@ description: "IP verification fields, the IP check policy, and the managed locat
 tags: [configuration, reference, network, location]
 sources: []
 created: 2026-11-06T13:49:16Z
-modified: 2026-11-11T14:44:20Z
+modified: 2026-11-11T15:01:55Z
 ---
 
 # IP checks and location data
@@ -26,14 +26,19 @@ A stopped profile can keep old fields. Check `phase` first.
 
 ## IP check policy
 
-- Preflight: every new proxied lifetime first checks its route and managed location data. See [Location checks](../proxies.md#location-checks). It never authorizes a later start from cached evidence.
+- Preflight: every new proxied lifetime first checks its route and managed location data. See [Managed location data](#managed-location-data). It never authorizes a later start from cached evidence.
 - Browser-side check: each browser then needs a successful check. It runs in the browser background through the configured route and opens no visible page.
 - A configured proxy always requires verification. A direct profile requires it only with an expected IP. An expected IP adds an exact address requirement.
-- Providers: ipify, then Cloudflare trace as fallback for a failed request or invalid response. After a fallback succeeds, later checks try it first. A valid unexpected IP fails at once, with no other provider tried.
-- Startup, resume, and explicit recheck need a fresh check. Other actions reuse a success for at most `STELZ_IP_CHECK_INTERVAL_MS`. `0`: fresh check before each action. Idle browsers do not poll providers.
+- Providers: ipify, then Cloudflare trace.
+  - Fallback to Cloudflare trace: a failed request or invalid response.
+  - After a fallback succeeds, later checks try it first.
+  - A valid unexpected IP fails at once. No other provider runs.
+- Startup, resume, and explicit recheck need a fresh check.
+- Other actions reuse a success for at most `STELZ_IP_CHECK_INTERVAL_MS`. `0`: fresh check before each action.
+- Idle browsers do not poll providers.
 - A recognized proxy, DNS, or connection failure invalidates the cache. The same action queue runs a fresh check. It does not replay the failed action.
 - A failed check in an existing session blocks browser actions and records `verification_failed`. A failed initial location check closes only that startup attempt. Its `location` diagnostic stays.
-- Proxy policy: no direct failover, no WebRTC, DNS through SOCKS proxies. Only `127.0.0.1` and `localhost` bypass the proxy.
+- Proxy policy: no WebRTC, DNS through SOCKS proxies. Only `127.0.0.1` and `localhost` bypass the proxy.
 - Proxy route down: external requests fail. Local snapshots and tab lists can still succeed. Stelz installs no host firewall or kill switch.
 
 ## Managed location data
@@ -43,7 +48,7 @@ A stopped profile can keep old fields. Check `phase` first.
 - GeoIP AIO selects the location. No city or accuracy.
 - GeoLite2 City is the comparison. City and accuracy radius for many addresses.
 - Build at most 8 days old: setup reuses it without contacting its download service. Older build: setup downloads the latest release only when it differs. Offline, setup keeps the validated older build.
-- An interrupted download preserves the active databases. Start does not download missing data.
+- An interrupted download preserves the active databases.
 
 Each preflight compares the selected location with the comparison record for the exit IP:
 
@@ -55,6 +60,5 @@ Each preflight compares the selected location with the comparison record for the
 
 - A build older than 30 days is stale.
 - `STELZ_LOCATION_POLICY=warn`: Start reports a conflict or stale data and continues. `strict`: Start blocks it before launch.
-- A rotated exit gets its own comparison. `strict` blocks it on a conflict.
 - Before Ready, Stelz checks that the browser applies the prepared timezone and language. A passed check does not confirm a physical location.
 - Stelz does not grant websites location permission.

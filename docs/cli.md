@@ -4,30 +4,42 @@ description: "Commands, options, outputs, and exit status of the installed stelz
 tags: [cli, reference]
 sources: []
 created: 2026-11-06T13:49:16Z
-modified: 2026-11-11T14:27:18Z
+modified: 2026-11-11T15:01:55Z
 ---
 
 # CLI reference
 
 - `ID`: stable profile ID, such as `work`. A display name does not select a profile.
-- Use the same [`STELZ_HOME`](configuration/environment.md#service-directory-and-precedence) for the CLI, UI, and each MCP connection.
 - `--json` works only on commands that list it.
 
 ## Installation and UI
 
-| Command | Options | Output |
-| --- | --- | --- |
-| `stelz --version`, `stelz version` | None | Package version. |
-| `stelz --help`, `stelz help`, `stelz` | None | Command syntax and the selected service directory. |
-| `stelz setup` | `--yes`, `--json` | Creates missing service files. Prepares the browser, fingerprint model, location data, and runtime. Prints a summary and the next step. |
-| `stelz ui` | `--port PORT` (`1024`-`65535`, default `9380`), `--open` | Private session URL. Serves the UI on `127.0.0.1` until shutdown. `--open` opens the URL in the system browser. |
-| `stelz mcp` | None | Serves MCP over stdio. See [Shared MCP tools](mcp.md). |
+| Command | Output |
+| --- | --- |
+| `stelz --version`, `stelz version` | Package version. |
+| `stelz --help`, `stelz help`, `stelz` | Command syntax and the selected service directory. |
+| `stelz setup` | Setup summary. See below. |
+| `stelz ui` | Serves the UI. See [Open or close the manager](ui.md#open-or-close-the-manager). |
+| `stelz mcp` | Serves MCP over stdio. See [Shared MCP tools](mcp.md). |
 
-- Setup asks once in a terminal before it downloads. `--yes` skips the question.
-- No terminal and no `--yes`: a setup that needs downloads fails with `confirmation_required` and a `downloads` list. Each entry has `name`, `size`, `purpose`, and `source`.
-- `setup --json` never prompts. Stdout: one JSON report (`browser` with `source`, `locationData` for each dataset, `fingerprintModel`, `runtime` with `id` and `status`: `prepared` or `reused`). Stderr: progress and a JSON error.
+- Options: `setup` takes `--yes` and `--json`. `ui` takes `--port PORT` and `--open`. Other commands take none.
+- `ui --port`: `1024`-`65535`. Default: `9380`.
+- `ui --open`: opens the UI URL in the system browser.
+- `ui` serves on `127.0.0.1` until shutdown.
+
+Setup:
+
+- Creates missing service files.
+- Prepares the browser, fingerprint model, location data, and runtime.
+- Prints a summary and the next step.
+- Asks once in a terminal before it downloads. `--yes` skips the question.
+- No terminal and no `--yes`: a setup that needs downloads fails with `confirmation_required` and a `downloads` list.
+- Each `downloads` entry has `name`, `size`, `purpose`, and `source`.
+- `setup --json` never prompts.
+- `setup --json` stdout: one JSON report with `browser` (with `source`), `locationData` for each dataset, `fingerprintModel`, and `runtime`.
+- `runtime` has `id` and `status`: `prepared` or `reused`.
+- `setup --json` stderr: progress and a JSON error.
 - Setup does not stop running profiles. See [Update Stelz](getting-started.md#update-stelz) and [Setup fails](troubleshooting/setup.md#setup-fails).
-- Keep the UI URL private. Its fragment holds a temporary session token. Ctrl-C stops the UI server. Profile browsers keep running.
 
 ## Profile commands
 
@@ -52,7 +64,9 @@ stelz profile create work --json
 - At most one proxy input and one expected-IP input. No repeated options.
 - Environment input names match `[A-Za-z_][A-Za-z0-9_]{0,127}`. A missing or empty variable fails. The command does not read these inputs from `secrets.env`.
 - Supplied values go to private secret references. Later clients do not need the input variables.
-- Without `--json`: `Created profile work.` or `Reused profile work.`. With `--json`: this shape. Configured profiles also report `proxyEnv` and `expectedIPEnv` reference names. No secret values.
+- Without `--json`: `Created profile work.` or `Reused profile work.`.
+- With `--json`: the shape below.
+- Configured profiles also report `proxyEnv` and `expectedIPEnv` reference names. No secret values.
 
 ```json
 {
@@ -79,7 +93,7 @@ stelz profile create work --json
 | `stelz start ID` | One or `all` | Service state. Does not acquire control. |
 | `stelz status [ID]` | One, or all profiles when omitted or `all` | Observed state and live service details. |
 | `stelz doctor [ID]` | One, or all profiles when omitted or `all` | Installation checks and profile diagnostics in one object. |
-| `stelz logs ID` | One | `profileId`, `server`, and `supervisor` log strings. `--lines N`: `1` to `500`, default `100`. At most the last 64 KiB of each file. |
+| `stelz logs ID` | One | `profileId`, `server`, and `supervisor` log strings. |
 | `stelz pause ID` | One | Blocks new actions, waits for current work. Keeps browser and controller. |
 | `stelz resume ID` | One paused | Runs any required fresh IP check, then permits actions. Keeps the controller. |
 | `stelz release ID` | One | Releases the controller after its actions finish. Prints `released` and `profileId`. Keeps browser and phase. |
@@ -88,6 +102,7 @@ stelz profile create work --json
 | `stelz restart ID` | One or `all` (running profiles) | Refuses a stopped profile. A failed start leaves the profile stopped. See [Update Stelz](getting-started.md#update-stelz). |
 | `stelz recover ID` | One | Archives an eligible process record. Prints state, `recovered: true`, and `archived`. Does not stop processes or start a browser. |
 
+- `logs --lines N`: `1` to `500`. Default: `100`. At most the last 64 KiB of each file.
 - `pause`, `resume`, and `release` also accept `all`. Use an explicit ID for authentication and controller handoff.
 - `all` runs in sequence. Each success prints a separate JSON object, not an array. A failure goes to stderr and the rest continue. `doctor` prints one object with a `profiles` array.
 - `recover` refuses recorded live processes and unknown ownership. Inspect browser descendants first. See [Recovery procedures](troubleshooting/lifetime-and-state.md#inspect-an-unclean-lifetime).
@@ -105,10 +120,13 @@ stelz profile create work --json
 
 | Command | Options | Output |
 | --- | --- | --- |
-| `stelz profile export ID...` or `--all`, with `--output FILE` | `--json` | Export count and absolute archive path. JSON: `ok`, `archive`, profile `id`/`name` summaries, `fingerprintDiagnostics`. |
-| `stelz profile import FILE` | Repeated `--profile SOURCE_ID`, repeated `--rename SOURCE_ID=NEW_ID`, `--json` | Source-to-destination mappings. JSON: `ok`, `profiles`, `fingerprintDiagnostics`. |
+| `stelz profile export ID...` or `--all`, with `--output FILE` | `--json` | Export count and absolute archive path. |
+| `stelz profile import FILE` | Repeated `--profile SOURCE_ID`, repeated `--rename SOURCE_ID=NEW_ID`, `--json` | Source-to-destination mappings. |
 
-- Export refuses an existing output file. All selected profiles must be cleanly stopped.
+- Export refuses an existing output file.
+- Export JSON: `ok`, `archive`, profile `id`/`name` summaries, `fingerprintDiagnostics`.
+- Import JSON: `ok`, `profiles`, `fingerprintDiagnostics`.
+- Results omit credentials.
 - Import selects the whole archive unless `--profile` selects a subset. Each rename names a selected source profile and an unused destination ID.
 - Without `--json`, notices go to stderr and do not alone indicate failure.
 - Procedures: see [Transfer profiles](profile-transfer.md).

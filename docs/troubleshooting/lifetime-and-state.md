@@ -4,7 +4,7 @@ description: "Recovery after a timed-out action, an unclean lifetime, unavailabl
 tags: [troubleshooting, recovery, profile]
 sources: []
 created: 2026-11-06T13:49:16Z
-modified: 2026-11-11T14:44:20Z
+modified: 2026-11-11T14:55:54Z
 ---
 
 # Browser lifetime and saved state problems
@@ -16,7 +16,7 @@ Known issue: a click or scroll can time out when the browser window is not in fr
 A timeout blocks further browser actions for that lifetime. The operation can still run. Recheck, release, and resume cannot clear the block. Limits: [Typing](../configuration/typing.md).
 
 1. Run `stelz status work` and `stelz logs work --lines 200`. Look for `blocked`, a time-limit error, or refusal of a replacement browser or context.
-2. Run `stelz stop work`. Require `phase: "stopped"`. If stopping fails, see [Inspect an unclean lifetime](#inspect-an-unclean-lifetime).
+2. Run `stelz stop work`. Make sure that `phase` is `"stopped"`. If stopping fails, see [Inspect an unclean lifetime](#inspect-an-unclean-lifetime).
 3. Run `stelz start work`.
 4. Acquire control again from the intended client.
 
@@ -25,7 +25,7 @@ A timeout blocks further browser actions for that lifetime. The operation can st
 1. Run `stelz doctor work` and `stelz logs work --lines 200`. Read `phase`, `supervisorPid`, `serverPid`, and both `ownership` verdicts.
 2. `orphaned` with an owned server: run `stelz stop work`, then `stelz doctor work` again.
 3. Inspect browser processes for this profile that outlived the recorded service.
-4. After they exit and recorded ownership is resolved, run `stelz recover work`. Require `recovered: true`.
+4. After they exit and recorded ownership is resolved, run `stelz recover work`. Make sure that `recovered` is `true`.
 5. Run `stelz start work`.
 
 - `different`: another process holds the PID. Do not signal it.

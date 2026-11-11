@@ -1,20 +1,20 @@
 ---
-title: "Set up Stelz from an agent"
-description: "Procedure for an agent to install Stelz, register its MCP tools, open the UI, and hand over to the user."
+title: "Agent setup"
+description: "Procedure for an agent to install Stelz, register its MCP tools, open the UI, and report to the user."
 tags: [agent, install, setup, mcp]
 sources: []
 created: 2026-11-05T17:29:14Z
-modified: 2026-11-11T14:27:18Z
+modified: 2026-11-11T15:01:55Z
 ---
 
-# Set up Stelz from an agent
+# Agent setup
 
-Install Stelz, register its tools, open the UI, and hand over. Do not create or start profiles.
+Install Stelz, register its tools, open the UI, and report to the user. Do not create or start profiles.
 
 ## Discover
 
 1. Find `stelz`, `bun`, `node`, and `npm` on PATH. Check their versions against the [prerequisites](getting-started.md#what-you-need).
-2. Select the existing absolute `STELZ_HOME`, or use `~/.local/share/stelz`.
+2. Select the existing absolute `STELZ_HOME`, or use the default directory. See [Service directory and precedence](configuration/environment.md#service-directory-and-precedence).
 3. Existing installation: run `stelz doctor` and `stelz status`.
 4. Inspect any existing client entry before you change it.
 
@@ -28,14 +28,14 @@ Rules:
 
 ## Install and prepare
 
-1. Install the package. See [Getting started](getting-started.md). Supplied archive: use its absolute path.
+1. Install the package. See [Getting started](getting-started.md).
 2. No usable release or archive: report that blocker. Do not install a staging placeholder.
 3. Run `stelz setup --json`.
 4. Setup needs downloads: show them to the user and ask. See [Installation and UI](cli.md#installation-and-ui). After approval, run `stelz setup --yes --json`.
 
 Blockers:
 
-- A runtime from an earlier Stelz version blocks setup while profiles run. Report it as pending. Do not stop unrelated profiles.
+- A runtime from an earlier Stelz version blocks setup while profiles run. See [Source layout and runtime updates](development/source-layout.md#source-layout-and-runtime-updates). Report it as pending. Do not stop unrelated profiles.
 - A profile with `restartToUpdate: true`: follow the skill's [rules](../skills/stelz-browser/SKILL.md#rules).
 
 ## Connect
@@ -46,7 +46,7 @@ Blockers:
 4. Use the same CLI path, service directory, and runtime PATH throughout.
 5. Reuse a matching entry. Report conflicts before you replace one.
 
-## Open the UI and hand over
+## Open the UI and report
 
 1. Start `stelz ui --open` as a background process. Give the user the private URL that it prints.
 2. Report what you installed and registered, with absolute paths and no credentials. Mark incomplete steps as pending.

@@ -4,7 +4,7 @@ description: "Recovery when installation, the runtime, or setup fails, and how t
 tags: [troubleshooting, setup]
 sources: []
 created: 2026-11-06T13:49:16Z
-modified: 2026-11-11T14:44:20Z
+modified: 2026-11-11T15:01:55Z
 ---
 
 # Installation and setup problems
@@ -19,7 +19,7 @@ modified: 2026-11-11T14:44:20Z
 
 - Setup does not recover profiles in another service directory.
 - Do not remove profiles or reinstall Camoufox to repair a missing Bun command.
-- Unsupported Camoufox build: check `CAMOUFOX_EXECUTABLE` in the process environment and in `STELZ_HOME/secrets.env`. The process environment takes precedence. Remove it or point it to the paired build, then run `stelz setup`. See [Browser executable](../configuration/environment.md#browser-executable).
+- Unsupported Camoufox build: check `CAMOUFOX_EXECUTABLE` in the process environment and in `STELZ_HOME/secrets.env`. Remove it or point it to the paired build, then run `stelz setup`. See [Browser executable](../configuration/environment.md#browser-executable).
 
 ## Setup fails
 
@@ -27,10 +27,9 @@ modified: 2026-11-11T14:44:20Z
 | --- | --- |
 | `confirmation_required` | See [Installation and UI](../cli.md#installation-and-ui). |
 | Another stelz setup is running | Let it finish (a second setup waits up to one hour). Run `stelz setup` again. |
-| Stop running profiles from an earlier Stelz version | Run `stelz status`, stop those profiles, run `stelz setup` again. |
+| Stop running profiles from an earlier Stelz version | Run `stelz status`, stop those profiles, run `stelz setup` again. See [Source layout and runtime updates](../development/source-layout.md#source-layout-and-runtime-updates). |
 | A release or integrity check failed | Check the network connection. Run `stelz setup` again. An interrupted setup keeps the active runtime. |
 
 ## Restart to update
 
-Run `stelz restart work`, or `stelz restart all`. Restart closes the browser and pages and ends control. If the start fails, the profile stays stopped: run `stelz start work`.
-See [Update Stelz](../getting-started.md#update-stelz).
+Run `stelz restart work` or `stelz restart all`. If the start fails: `stelz start work`. See [Update Stelz](../getting-started.md#update-stelz).

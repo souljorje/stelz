@@ -4,18 +4,17 @@ description: "Export profiles to a ZIP archive and import them on a matching ins
 tags: [profile, transfer]
 sources: []
 created: 2026-11-05T20:23:02Z
-modified: 2026-11-11T14:27:18Z
+modified: 2026-11-11T15:01:55Z
 ---
 
 # Transfer profiles
 
-Archive: `.stelz-profiles.zip`. Examples move `work`. Contents and compatibility rules: [Archive schema and limits](configuration/archive.md).
+Archive: `.stelz-profiles.zip`. Examples move `work`. Compatibility rules: [Profile archive format](configuration/archive.md).
 
 ## Before transfer
 
 - Prepare the destination: [Getting started](getting-started.md).
-- Keep the same `STELZ_HOME` for each installation's CLI and UI.
-- Operating system, CPU architecture, and exact Camoufox executable SHA-256 must match on both installations. The import preview refuses a mismatch.
+- Compatibility: [Profile archive format](configuration/archive.md).
 - Disk space: the ZIP, expanded data, and the staged snapshot or import batch.
 - Stop every exported profile cleanly. Export never stops a browser. Uncertain shutdown or ownership: run `stelz doctor work`, then see [Inspect an unclean lifetime](troubleshooting/lifetime-and-state.md#inspect-an-unclean-lifetime).
 
@@ -40,7 +39,7 @@ In the UI:
 - Batch: select several stopped profiles, or **Select all stopped**.
 - **Export ZIP** in a stopped profile's details exports that profile.
 
-In the CLI, use a new output filename. Export refuses an existing file.
+In the CLI, use a new output filename.
 
 ```sh
 stelz profile export work --output ./work.stelz-profiles.zip
@@ -64,16 +63,14 @@ stelz profile import ./work.stelz-profiles.zip
 stelz profile import ./work.stelz-profiles.zip --profile work --rename work=work-laptop
 ```
 
-- `--profile`: repeat to select a subset. Omitted: the complete archive.
-- `--rename`: repeat for selected source IDs. Each destination ID must be unused.
-- `--json`: structured mappings and errors. Results omit credentials.
+Options: [CLI transfer options](cli.md#profile-transfer).
 
 After import:
 
 - An existing ID: import proposes `ID-copy`, then `ID-copy-2`, and later names. Existing profiles stay unchanged.
-- Use the reported destination ID in CLI commands and MCP `profileId` arguments. `profile_list({})` lists imported profiles. No new MCP registration.
+- Use the reported destination ID in CLI commands and MCP `profileId` arguments.
 - Imported profiles stay stopped. Start explicitly, then run `stelz doctor ID` and [Verify the connection](clients.md#verify-the-connection).
-- Source proxy credentials unavailable: configure the proxy before you start. The profile never changes to direct networking automatically.
+- Source proxy credentials unavailable: configure the proxy before you start.
 
 ## Interrupted transfers
 

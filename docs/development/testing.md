@@ -4,14 +4,14 @@ description: "Commands for routine checks, fixtures, CI, and diagnostics, to rea
 tags: [development, testing]
 sources: []
 created: 2026-11-06T13:49:16Z
-modified: 2026-11-11T14:27:18Z
+modified: 2026-11-11T14:55:54Z
 ---
 
 # Testing
 
 - No browser needed. Browser, archive, proxy, human, and agent suites: see [Acceptance](acceptance.md).
 - Run commands from the repository root.
-- Use the pinned Bun version in `package.json` and Node.js 24 or later. See [Runtime requirements](../getting-started.md#what-you-need).
+- Use the pinned Bun version in `package.json`. Other requirements: [What you need](../getting-started.md#what-you-need).
 
 ## Choose a check
 
@@ -37,7 +37,7 @@ Bun runs `tests/unit/` and `tests/integration/`. Node runs `tests/regression/`.
 - Build before any browser suite.
 - Suites use independent MCP SDK clients and synthetic local pages. No model credentials.
 - Live checks use disposable profiles in separate service directories. They never select a saved profile. They stop their own browsers.
-- Proxy and public checks need declared test proxies. See [Proxy and human acceptance](acceptance.md#proxy-and-human-acceptance) and [Public fingerprint checks](acceptance.md#public-fingerprint-checks).
+- Proxy and public checks need declared test proxies. See [Proxy and human acceptance](acceptance.md#proxy-and-human-acceptance) and [Public fingerprint checks](public-site-checks.md).
 - Failed test state stays for inspection. Keep reports, snapshots, and proxy credentials outside Git. They can contain private data.
 
 | Suite | Report |
@@ -56,6 +56,7 @@ Bun runs `tests/unit/` and `tests/integration/`. Node runs `tests/regression/`.
 - `.github/workflows/ci.yml` runs `bun run check` on Linux for pull requests, manual dispatch, and reusable workflow calls.
 - A parallel job packs the archive. It runs `test:install` with scripts disabled and with native installation.
 - No CI job starts a live browser.
+- CI runs on Ubuntu only while GitHub macOS runners are paused. The macOS matrix entries stay commented in both workflows.
 - Release workflow: see [Releasing](releasing.md).
 
 ## Diagnostics

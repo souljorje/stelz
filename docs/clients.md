@@ -10,17 +10,17 @@ sources:
   - "https://hermes-agent.nousresearch.com/docs/user-guide/features/mcp"
   - "https://hermes-agent.nousresearch.com/docs/user-guide/features/skills"
 created: 2026-11-02T15:09:08Z
-modified: 2026-11-11T14:27:18Z
+modified: 2026-11-11T15:01:55Z
 ---
 
 # Connect your agent
 
-Register `stelz mcp` once per client. The 18 tools serve all profiles. See [Shared MCP tools](mcp.md).
+Register `stelz mcp` once per client. See [Shared MCP tools](mcp.md).
 
 ## Before registration
 
-- Registration works with an empty catalog. An agent can acquire only a running browser.
-- Use the same service directory as the UI.
+- Use the UI's service directory. See [Service directory and precedence](configuration/environment.md#service-directory-and-precedence).
+- Client tool timeout: at least 240 seconds, so a long `camofox_type` call can finish. A client timeout does not cancel the service operation. See [Typing](configuration/typing.md).
 
 Default global npm installation:
 
@@ -38,64 +38,64 @@ STELZ_PACKAGE="$(npm root --global)/stelz"
 
 ## Codex
 
-Merge [the TOML example](../examples/codex.toml) into the project's `.codex/config.toml` as the `stelz` entry.
+1. Register. Merge [the TOML example](../examples/codex.toml) into the project's `.codex/config.toml` as the `stelz` entry.
+   - Set its command, `STELZ_HOME`, and PATH to the values above.
+   - Set `tool_timeout_sec` to the client timeout above.
+   - Preserve other entries.
+   - Inspect the registration:
 
-- Set its command, `STELZ_HOME`, and PATH to the values above.
-- Keep `tool_timeout_sec` at 240 or more, so a 3-minute `camofox_type` call can finish.
-- Preserve other entries.
+   ```sh
+   codex mcp get stelz --json
+   ```
 
-Inspect the registration:
+2. Install the skill at project scope, only when that destination is absent:
 
-```sh
-codex mcp get stelz --json
-```
+   ```sh
+   mkdir -p .agents/skills
+   ln -s "$STELZ_PACKAGE/skills/stelz-browser" .agents/skills/stelz-browser
+   ```
 
-Install the skill at project scope, only when that destination is absent:
-
-```sh
-mkdir -p .agents/skills
-ln -s "$STELZ_PACKAGE/skills/stelz-browser" .agents/skills/stelz-browser
-```
-
-Codex loads a project's configuration only after you trust the project. Start a new session if the current one lacks the tools. Then [verify the connection](#verify-the-connection).
+3. Start a new session if the current one lacks the tools. Codex loads a project's configuration only after you trust the project.
+4. [Verify the connection](#verify-the-connection).
 
 ## Claude Code
 
-Inspect `claude mcp get stelz`. Absent project entry:
+1. Register. Inspect `claude mcp get stelz`. Absent project entry:
 
-```sh
-claude mcp add --env "STELZ_HOME=$STELZ_HOME" --env "PATH=$PATH" --transport stdio --scope project stelz -- "$STELZ_CLI" mcp
-```
+   ```sh
+   claude mcp add --env "STELZ_HOME=$STELZ_HOME" --env "PATH=$PATH" --transport stdio --scope project stelz -- "$STELZ_CLI" mcp
+   ```
 
-Install the skill only when its destination is absent:
+   Equivalent server fields: [JSON example](../examples/claude.json).
 
-```sh
-mkdir -p .claude/skills
-ln -s "$STELZ_PACKAGE/skills/stelz-browser" .claude/skills/stelz-browser
-```
+2. Install the skill only when its destination is absent:
 
-- Equivalent server fields: [JSON example](../examples/claude.json).
-- Check `/mcp` in the target session. Reconnect or start a new session if needed.
-- Then [verify the connection](#verify-the-connection).
+   ```sh
+   mkdir -p .claude/skills
+   ln -s "$STELZ_PACKAGE/skills/stelz-browser" .claude/skills/stelz-browser
+   ```
+
+3. Check `/mcp` in the target session. Reconnect or start a new session if needed.
+4. [Verify the connection](#verify-the-connection).
 
 ## Hermes
 
-The operator merges [the YAML example](../examples/hermes.yaml) into the active Hermes profile's configuration, normally `~/.hermes/config.yaml`.
+1. Register. The operator merges [the YAML example](../examples/hermes.yaml) into the active Hermes profile's configuration, normally `~/.hermes/config.yaml`.
+   - Give the entry to the operator.
+   - Replace its command, service directory, and PATH with your values.
+   - Set `timeout` to the client timeout above.
+   - Reuse `stelz` only when its command, arguments, home, and environment match.
+2. Install the skill in the active Hermes profile's skill directory, normally:
 
-- Agents must not edit global harness configuration. Give the entry to the operator.
-- Replace its command, service directory, and PATH with your values.
-- Keep `timeout` at 240 seconds or more.
-- Reuse `stelz` only when its command, arguments, home, and environment match.
+   ```sh
+   mkdir -p "$HOME/.hermes/skills"
+   ln -s "$STELZ_PACKAGE/skills/stelz-browser" "$HOME/.hermes/skills/stelz-browser"
+   ```
 
-Install the skill in the active Hermes profile's skill directory, normally:
+   Preserve an existing destination.
 
-```sh
-mkdir -p "$HOME/.hermes/skills"
-ln -s "$STELZ_PACKAGE/skills/stelz-browser" "$HOME/.hermes/skills/stelz-browser"
-```
-
-- Preserve an existing destination.
-- After a configuration change, use `/reload-mcp` or start a new session. Then [verify the connection](#verify-the-connection).
+3. After a configuration change, use `/reload-mcp` or start a new session.
+4. [Verify the connection](#verify-the-connection).
 
 ## Verify the connection
 
@@ -132,11 +132,11 @@ Copy the printed loopback URL. Ask your agent:
 
 - `profile_list({})` finds profiles created after registration.
 - Create and start `research` with `profile_create({profileId: "research"})` and `profile_start({profileId: "research"})`, the CLI, or the UI.
-- One connection can acquire `work` and `research`. It keeps a separate handle for each.
+- One connection can acquire `work` and `research`.
 
 Handoff:
 
 1. The first agent releases `work`. See the [browser skill](../skills/stelz-browser/SKILL.md#do-a-browser-task).
 2. The second agent acquires `work` through its own shared connection and receives a new handle.
 
-Keep the browser running. The second agent sees the same pages and session.
+Keep the browser running.

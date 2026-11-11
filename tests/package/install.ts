@@ -39,8 +39,9 @@ if (!uiFiles.some(file => file.path === "dist/ui/index.html") || !uiFiles.some(f
 const paths = candidate.files.map(file => file.path).sort();
 for (const path of ["CONTRIBUTING.md", "assets/screenshots/stelz-overview.png", "examples/onboarding-fixture.html",
   ...["index", "product", "bootstrap", "getting-started", "clients", "ui", "proxies", "profile-transfer", "troubleshooting/index", "cli", "configuration/index", "mcp",
-    "development/index", "development/architecture", "development/testing", "development/acceptance", "development/releasing",
-    "development/camofox-integration"].map(name => `docs/${name}.md`)])
+    "development/index", "development/architecture", "development/ui-session", "development/transactions",
+    "development/source-layout", "development/testing", "development/acceptance", "development/public-site-checks",
+    "development/agent-onboarding", "development/releasing", "development/camofox-integration"].map(name => `docs/${name}.md`)])
   if (!paths.includes(path)) throw Error("Archive is missing " + path);
 for (const name of ["README", "configuration", "troubleshooting", "agents", "tests", "distribution", "releasing", "architecture", "camofox-patches", "onboarding-acceptance"])
   if (paths.includes(`docs/${name}.md`)) throw Error(`Archive contains obsolete documentation: docs/${name}.md`);

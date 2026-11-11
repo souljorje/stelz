@@ -4,7 +4,7 @@ description: "Changesets, the Release workflow, archive contents, and publicatio
 tags: [development, release]
 sources: []
 created: 2026-11-06T13:49:16Z
-modified: 2026-11-11T14:27:18Z
+modified: 2026-11-11T14:55:54Z
 ---
 
 # Release Stelz
@@ -31,7 +31,7 @@ modified: 2026-11-11T14:27:18Z
 ## Workflow
 
 - Runs on pushes to `main` and manual dispatch. Restricted to `souljorje/stelz` on `main`. Publishes through npm trusted publishing.
-- CI and the release installation checks run on Ubuntu only while GitHub macOS runners are paused. The macOS matrix entries stay commented in both workflows. Restore them to resume two-platform checks.
+- Release installation checks run on the same platforms as [Continuous integration](testing.md#continuous-integration).
 - The `plan` job selects version, publish, or none mode. It changes publish mode to none when the tag `vVERSION` already exists.
 - The `checks` job calls `.github/workflows/ci.yml` with `skip-package: true`.
 - Version mode runs `bun run version:packages`. It creates or updates the version PR on `changeset-release/main`, updates `package.json`, `bun.lock`, and `CHANGELOG.md`, and consumes the pending Changesets.
@@ -40,7 +40,7 @@ modified: 2026-11-11T14:27:18Z
 
 Publish mode starts after the merged version PR:
 
-1. Require successful CI.
+1. Make sure that CI passed.
 2. Download the Changesets publish plan.
 3. Run `bun run pack --publish-plan FILE` once in the `pack` job.
 4. Upload `release-artifacts/` as the `stelz-package` artifact.
@@ -52,20 +52,14 @@ Publish mode starts after the merged version PR:
 
 - Installation and publication use the same tarball bytes. The publication job does not rebuild or repack.
 - Only the publication job has `id-token: write`.
+- Before you release browser changes, run the relevant checks from [Installed-package acceptance](acceptance.md#installed-package-acceptance).
+- npm can report **Validating** after an upload. Wait for the registry version before you check installation and integrity. Do not repeat publication while npm reviews the upload.
 
 ## Archive contents
 
 - The root manifest defines package contents. It excludes Stelz source, tests, browser state, and credentials.
 - Only prepared Camofox is bundled. Packing removes packages that no manifest reaches (such as `camoufox-js`), and bundled native packages and platform binaries.
 - `test:install` checks the archive. See [Native dependencies](camofox-integration.md#native-dependencies).
-
-## Local candidates for browser changes
-
-Run the relevant checks from [Installed-package acceptance](acceptance.md#installed-package-acceptance) before you release browser changes.
-
-## Publication status
-
-- npm can report **Validating** after an upload. Wait for the registry version before you check installation and integrity. Do not repeat publication while npm reviews the upload.
 
 ## Repository configuration
 

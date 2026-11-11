@@ -4,7 +4,7 @@ description: "Recovery when location alignment blocks Start or the browser IP ch
 tags: [troubleshooting, network, proxy]
 sources: []
 created: 2026-11-06T13:49:16Z
-modified: 2026-11-11T14:44:20Z
+modified: 2026-11-11T15:01:55Z
 ---
 
 # Network problems
@@ -31,9 +31,9 @@ Read **Location alignment** in the profile details, or run `stelz status work --
 
 1. Run `stelz doctor work` and `stelz status work`. Read `configuration`, `error`, and `checkFailure`.
 2. Correct the proxy or provider connection when the configured route is still correct.
-3. Run `stelz recheck work`. Require `verificationStatus: "verified"` and the intended `exitIp`.
+3. Run `stelz recheck work`. Make sure that `verificationStatus` is `"verified"` and `exitIp` is the intended address.
 4. `phase` is `paused`: complete manual work, then run `stelz resume work`.
 
-- Missing secret, invalid URL, changed credentials, or incorrect expected IP: stop `work`, save the corrected settings (see [Configure a proxy](../proxies.md)), then start `work`. Recheck does not load changed network settings into a running browser.
-- `verificationFresh: false` with `verificationStatus: "verified"`: the cached result expired. The next browser action checks again. `stelz recheck work` checks now.
-- See [IP verification fields](../configuration/network.md#ip-verification-fields) and [IP check policy](../configuration/network.md#ip-check-policy).
+- Missing secret, invalid URL, changed credentials, or incorrect expected IP: stop `work`, save the corrected settings (see [Configure a proxy](../proxies.md)), then start `work`.
+- `verificationFresh: false` with `verificationStatus: "verified"`: Run `stelz recheck work`. See [IP check policy](../configuration/network.md#ip-check-policy).
+- See [IP verification fields](../configuration/network.md#ip-verification-fields).

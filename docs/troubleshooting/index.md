@@ -4,7 +4,7 @@ description: "Entrypoint for failures: the symptom table, the lifecycle actions,
 tags: [troubleshooting, recovery]
 sources: []
 created: 2026-11-06T13:49:16Z
-modified: 2026-11-11T14:44:20Z
+modified: 2026-11-11T14:55:54Z
 ---
 
 # Troubleshooting
@@ -26,14 +26,17 @@ stelz status work
 stelz logs work --lines 100
 ```
 
-Exit status `0` does not show browser readiness. Read the returned fields. See [CLI output and exit status](../cli.md#errors-and-exit-status).
+Exit status: [CLI output and exit status](../cli.md#errors-and-exit-status).
 
 | Symptom | Check | Go to |
 | --- | --- | --- |
-| No profiles, `Unknown profile`, missing `stelz` or `bun`, `setup: false`, or a missing executable or plugin | `stelz doctor`: wrong `home`, `initialized: false`, or no entry for `work` | [Installation or runtime fails](setup.md#installation-or-runtime-fails) |
+| No profiles, or `Unknown profile` | `stelz doctor`: wrong `home`, or no entry for `work` | [Installation or runtime fails](setup.md#installation-or-runtime-fails) |
+| Missing `stelz` or `bun` | `command -v stelz bun node` | [Installation or runtime fails](setup.md#installation-or-runtime-fails) |
+| `setup: false` | `stelz doctor`: `initialized: false` | [Installation or runtime fails](setup.md#installation-or-runtime-fails) |
+| Missing executable or plugin | `stelz doctor`: `browserExecutable` | [Installation or runtime fails](setup.md#installation-or-runtime-fails) |
 | Setup fails | The setup error | [Setup fails](setup.md#setup-fails) |
 | **Restart to update** | `restartToUpdate: true` in status | [Restart to update](setup.md#restart-to-update) |
-| Agent tools are absent | Status shows a ready browser. The client needs one `stelz mcp` entry with the correct service home. | [Verify the connection](../clients.md#verify-the-connection) |
+| Agent tools are absent | Status shows a ready browser | [Verify the connection](../clients.md#verify-the-connection) |
 | Tool call rejects the handle, or `controller` names another client | Status | [Missing or stale control handle](control.md#missing-or-stale-control-handle) |
 | Actions stop during authentication | `phase: "paused"` | [Profile is paused](control.md#profile-is-paused) |
 | Start is blocked by location | `stelz status work --json`: `location` reports a failed check | [Location alignment blocks Start](network.md#location-alignment-blocks-start) |
@@ -46,14 +49,15 @@ Exit status `0` does not show browser readiness. Read the returned fields. See [
 
 ## Choose the lifecycle action
 
-| Action | Use it for | Result |
-| --- | --- | --- |
-| Pause, then resume | Human authentication or manual work in the same window. | Browser and controller stay. Resume performs any required fresh IP check. |
-| Release | Deliberate controller handoff. | Browser and pages stay open. A pause remains a pause. |
-| Recheck | Failed or expired IP evidence after network repair. | Same browser and controller. A successful recheck preserves a pause. |
-| Stop | Explicitly end the browser lifetime. | Current actions drain. Saved data remains. Start remains explicit. |
-| Recover | Archive an unclean record after process inspection. | Does not stop processes. Refuses live recorded processes and unknown ownership. |
+| Action | Use it for |
+| --- | --- |
+| Pause, then resume | Human authentication or manual work in the same window. |
+| Release | Deliberate controller handoff. |
+| Recheck | Failed or expired IP evidence after network repair. |
+| Stop | Explicitly end the browser lifetime. |
+| Recover | Archive an unclean record after process inspection. |
+
+Command effects: [CLI](../cli.md#browser-lifecycle-and-diagnostics).
 
 - Never create another profile to avoid a controller conflict or to hide broken saved state.
 - Start reports a changed configuration: stop the profile, correct the settings with the same IDs and references, then start it.
-- Display names and typing preferences need no restart.

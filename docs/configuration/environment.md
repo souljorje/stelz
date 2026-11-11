@@ -4,7 +4,7 @@ description: "Service directory, environment variables, their precedence, and ho
 tags: [configuration, reference, setup]
 sources: []
 created: 2026-11-06T13:49:16Z
-modified: 2026-11-11T14:44:20Z
+modified: 2026-11-11T14:55:54Z
 ---
 
 # Environment and service directory
@@ -13,7 +13,11 @@ modified: 2026-11-11T14:44:20Z
 
 - `STELZ_HOME` selects the service directory. Default: `~/.local/share/stelz`.
 - Use an absolute path, so that each CLI, UI, and MCP connection uses the same service. The current project and client PID do not select profile storage.
-- Order for settings that use `secrets.env`: process environment value (an empty string counts), then `STELZ_HOME/secrets.env`, then the default. `STELZ_HOME` and transfer limits use only the process environment.
+- Order for settings that use `secrets.env`:
+  1. Process environment value (an empty string counts).
+  2. `STELZ_HOME/secrets.env`.
+  3. The default.
+- `STELZ_HOME` and transfer limits use only the process environment.
 - Empty `STELZ_HOME` or `CAMOUFOX_EXECUTABLE`: uses its default. Empty typing, IP interval, or location policy value: invalid.
 - `secrets.env` is a dotenv-style data file, not a shell script. Keep credentials out of client configuration and reports.
 
@@ -23,12 +27,12 @@ modified: 2026-11-11T14:44:20Z
 | --- | --- | --- |
 | `STELZ_HOME` | Process only | Service directory. Default: `~/.local/share/stelz`. |
 | `CAMOUFOX_EXECUTABLE` | Process, then `secrets.env` | Absolute path to the paired Camoufox build. Stelz does not expand `~`. See [Browser executable](#browser-executable). |
-| `STELZ_TYPING_MODE` | Process, then `secrets.env` | `balanced`, `keyboard`, or `instant`. Default: `keyboard`. |
+| `STELZ_TYPING_MODE` | Process, then `secrets.env` | Typing mode. Default: `keyboard`. See [Typing](typing.md). |
 | `STELZ_IP_CHECK_INTERVAL_MS` | Process, then `secrets.env` | Decimal integer from `0` to `120000`, without leading zeros. Default: `120000`. |
 | `STELZ_LOCATION_POLICY` | Process, then `secrets.env` | `warn` or `strict`. Default: `warn`. See [Managed location data](network.md#managed-location-data). |
-| Name in `proxyEnv` | Process, then `secrets.env` | Proxy URL. Missing or empty: blocks the proxy. See [Supported proxy URLs](../proxies.md#supported-proxy-urls). |
+| Name in `proxyEnv` | Process, then `secrets.env` | Proxy URL. See [Supported proxy URLs](../proxies.md#supported-proxy-urls). |
 | Name in `expectedIPEnv` | Process, then `secrets.env` | Expected IP. Missing or empty: no constraint. See [Supported proxy URLs](../proxies.md#supported-proxy-urls). |
-| `STELZ_TRANSFER_*` | Process only | Transfer limits. See [Archive schema and limits](archive.md). |
+| `STELZ_TRANSFER_*` | Process only | Transfer limits. See [Profile archive format](archive.md). |
 
 - A running browser gets the executable, network, service typing, and IP interval settings at launch. A change needs stop and start of the profile. Start refuses a changed launch configuration while the previous lifetime is active.
 - `HTTP_PROXY` and `HTTPS_PROXY` do not select a profile's route.

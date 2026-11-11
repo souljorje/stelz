@@ -4,7 +4,7 @@ description: "Prerequisites, installation, setup, first profile, and update step
 tags: [install, setup, profile]
 sources: []
 created: 2026-11-06T13:49:16Z
-modified: 2026-11-11T14:27:18Z
+modified: 2026-11-11T14:55:54Z
 ---
 
 # Start your first browser
@@ -37,10 +37,10 @@ stelz --version
 stelz setup
 ```
 
-- Creates missing service files under `~/.local/share/stelz`. Preserves existing profiles and credentials.
-- Other directory: set an absolute `STELZ_HOME` before setup. Use the same value for the UI, lifecycle commands, and agent connection. See [Service directory and precedence](configuration/environment.md#service-directory-and-precedence).
-- Prepares the browser, fingerprint model, location data, and service runtime. Reuses valid parts.
-- Missing, damaged, or older location data needs a download. Setup lists the downloads and asks once. Type `y` to continue. `stelz setup --yes` skips the question.
+- Creates missing service files. Preserves existing profiles and credentials.
+- Default directory and `STELZ_HOME`: [Service directory and precedence](configuration/environment.md#service-directory-and-precedence).
+- Contents, downloads, and `--yes`: [Installation and UI](cli.md#installation-and-ui).
+- Setup asks before a download. Type `y` to continue.
 - The browser download is over 1 GB and unpacks to over 2 GB.
 - Existing Camoufox build: see [Browser executable](configuration/environment.md#browser-executable).
 

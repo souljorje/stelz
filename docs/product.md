@@ -4,12 +4,12 @@ description: "What Stelz is, who it serves, what it does, and what it deliberate
 tags: [product, overview]
 sources: []
 created: 2026-11-11T14:27:18Z
-modified: 2026-11-11T14:27:18Z
+modified: 2026-11-11T15:01:55Z
 ---
 
 # Stelz as a product
 
-Persistent browser profiles that a coding agent controls and a person can take over.
+Persistent browser profiles that a coding agent controls and a person can work in manually.
 
 ## For whom
 
@@ -20,8 +20,8 @@ Persistent browser profiles that a coding agent controls and a person can take o
 
 - **Profile:** one persistent browser identity. Logins, storage, saved device settings, optional proxy.
 - **One browser per profile:** a visible window on the desktop.
-- **Agent control:** one `stelz mcp` registration. 18 fixed tools. One connection controls many profiles.
-- **Exclusive control:** one controller per profile. Handoff by release. The browser and its pages stay open.
+- **Agent control:** one `stelz mcp` registration. A fixed tool set. One connection controls many profiles.
+- **Exclusive control:** one controller per profile. Handoff by release. See [Control handles](mcp.md#control-handles).
 - **Human takeover:** the agent pauses. A person works in the same window. The agent resumes.
 - **Network:** optional proxy or expected exit IP. Location settings follow the exit. Checked before the agent gets control. No direct fallback.
 - **People's tools:** a local UI and a CLI to create, start, stop, configure, transfer, and recover profiles.
@@ -32,9 +32,9 @@ Persistent browser profiles that a coding agent controls and a person can take o
 - Standalone: runs without an agent harness or model credentials. Reasoning and conversation history stay in the client.
 - No agent framework, reasoning loop, plugin framework, or fleet platform.
 - No global limits on browsers, saved profiles, or agents.
-- Explicit lifecycle. Only Start opens a browser. Only Stop, a restart, or closing the window ends it. Release and disconnect keep it running.
+- Explicit lifecycle. Only Start opens a browser. Only Stop, a restart, or closing the window ends it.
 - Agents cannot change configuration or proxies, delete, import, stop, recover, or force a handoff. People do that in the UI or CLI.
-- Agents act on fresh observations and never repeat an uncertain action.
+- Agent behavior: see the [browser skill](../skills/stelz-browser/SKILL.md).
 - People complete authentication in the same window. Stelz does not bypass challenges.
 - No website-specific task scripts.
 - Downloads happen only in `stelz setup`, never during Start or an MCP call.

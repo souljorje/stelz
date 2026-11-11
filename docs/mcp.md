@@ -4,15 +4,15 @@ description: "The 18 fixed MCP tools of stelz mcp, their arguments, and the cont
 tags: [mcp, agent, reference]
 sources: []
 created: 2026-11-06T16:47:49Z
-modified: 2026-11-11T14:27:18Z
+modified: 2026-11-11T14:55:54Z
 ---
 
 # Shared MCP tools
 
 - One connection to `stelz mcp` gets 18 fixed tools that control many profiles.
-- Register it once per client configuration, with the same `STELZ_HOME` as the CLI and UI. See [Connect your agent](clients.md).
-- Each profile: one browser instance, one controller, one action queue. Separate profiles can run actions concurrently.
-- No agent identities. No agent count limits.
+- See [Connect your agent](clients.md).
+- Each profile: one controller, one action queue. Separate profiles can run actions concurrently.
+- No agent identities.
 
 ## Tools
 
@@ -39,7 +39,7 @@ All nine browser tools require `profileId` and `controlHandle` with their Camofo
 | `camofox_list_tabs` | Read the tabs that Stelz manages. Tabs that a person opens stay open but are not listed. |
 | `camofox_snapshot` | Read a fresh accessibility snapshot. |
 | `camofox_click`, `camofox_scroll`, `camofox_navigate` | Click an observed element, scroll, or navigate a tab. |
-| `camofox_type` | Enter text. Also accepts `mode`: `balanced`, `keyboard`, or `instant`. See [Typing](configuration/typing.md). |
+| `camofox_type` | Enter text. Also accepts `mode`. See [Typing](configuration/typing.md). |
 | `camofox_screenshot` | Capture a tab image. |
 
 - `camofox_evaluate` and `camofox_import_cookies` stay excluded. Other upstream controls stay excluded.
@@ -58,6 +58,6 @@ All nine browser tools require `profileId` and `controlHandle` with their Camofo
 ## Limits of the tools
 
 - Creation never reconfigures an existing profile. It keeps its route, expected IP, port, data, and secret references.
-- Use the CLI or UI for configuration, proxies, deletion, import, stop, recovery, and forced handoff.
+- Configuration and lifecycle changes stay with people. See [Stelz as a product](product.md#rules).
 - Call order, readiness, and human authentication: [browser skill](../skills/stelz-browser/SKILL.md#do-a-browser-task).
 - Conflicts and stale handles: [Troubleshooting](troubleshooting/index.md).
