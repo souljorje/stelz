@@ -14,7 +14,7 @@ const home = createTestHome("profile-windows", join(root, ".state"));
 process.env.STELZ_HOME = home;
 const { createWindowModel } = await import("../../src/api/window-model.ts");
 const windows = createWindowModel();
-const cli = process.env.STELZ_TEST_CLI || join(root, "dist/cli.js"), bun = Bun.which("bun")!;
+const cli = process.env.STELZ_TEST_CLI || join(root, "src/cli/cli.ts"), bun = Bun.which("bun")!;
 const env: Record<string, string> = { STELZ_HOME: home };
 for (const key of ["PATH", "HOME", "LANG", "TMPDIR", "CAMOUFOX_EXECUTABLE"]) if (process.env[key]) env[key] = process.env[key]!;
 const ids = ["window-check-01", "window-check-02"];

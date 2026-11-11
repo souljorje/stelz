@@ -17,7 +17,7 @@ import { routeProfileTools } from "../helpers/mcp-client.ts";
 import { assertSingleStartupWindow } from "../helpers/startup-window.ts";
 import { createTestHome } from "../helpers/test-home.ts";
 
-const root = resolve(import.meta.dir, "../.."), cli = process.env.STELZ_TEST_CLI || join(root, "dist/cli.js");
+const root = resolve(import.meta.dir, "../.."), cli = process.env.STELZ_TEST_CLI || join(root, "src/cli/cli.ts");
 const CACHE_MS = 120_000;
 const clients: Client[] = [], owned = new Set<string>(), report: unknown[] = [];
 const relays: ReturnType<typeof proxyRelay>[] = [];

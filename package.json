@@ -16,11 +16,10 @@
     "persistent-profiles"
   ],
   "bin": {
-    "stelz": "dist/cli.js"
+    "stelz": "src/cli/cli.ts"
   },
   "files": [
-    "dist/cli.js",
-    "dist/supervisor.js",
+    "src/",
     "dist/plugin.js",
     "dist/ui/",
     "README.md",

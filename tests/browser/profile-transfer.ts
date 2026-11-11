@@ -9,7 +9,7 @@ import { unusedPorts } from "../helpers/ports.ts";
 import { routeProfileTools } from "../helpers/mcp-client.ts";
 
 const root = resolve(import.meta.dir, "../.."), home = createTestHome("transfer-native", join(root, ".state"));
-const cli = process.env.STELZ_TEST_CLI || join(root, "dist/cli.js");
+const cli = process.env.STELZ_TEST_CLI || join(root, "src/cli/cli.ts");
 const env: Record<string, string> = { STELZ_HOME: home };
 for (const key of ["PATH", "HOME", "LANG", "TMPDIR", "CAMOUFOX_EXECUTABLE"]) if (process.env[key]) env[key] = process.env[key]!;
 const clients = new Set<Client>(), active = new Set<string>();

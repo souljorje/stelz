@@ -11,7 +11,7 @@ const { initialize, dir } = await import("../../src/profiles/config.ts");
 const { assertStoppedProfile, running } = await import("../../src/runtime/runtime.ts");
 const { createUiModel } = await import("../../src/api/ui-model.ts");
 const { createUiServer } = await import("../../src/api/ui-server.ts");
-const cli = join(root, "dist/cli.js"), id = "window-close-check";
+const cli = join(root, "src/cli/cli.ts"), id = "window-close-check";
 async function command(...args: string[]) {
   const child = Bun.spawn([process.execPath, "--no-env-file", cli, ...args], { env: process.env, stdout: "pipe", stderr: "pipe" });
   const [code, out, err] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);

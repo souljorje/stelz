@@ -28,7 +28,7 @@ Dependency patches: [Camofox integration](docs/development/camofox-integration.m
 
 ```sh
 bun run build
-bun link       # adds `stelz` to ~/.bun/bin, which runs this checkout's dist/
+bun link       # adds `stelz` to ~/.bun/bin, which runs this checkout's src/
 stelz setup
 ```
 
