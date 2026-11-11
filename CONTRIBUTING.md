@@ -11,7 +11,6 @@ New code: TypeScript and Bun. Preserve other contributors' edits and client appr
    bunx lefthook install   # once per clone
    ```
 
-   Hooks apply to every worktree of the clone. New BB worktrees install them through `.bb-env-setup.sh`.
    - Pre-commit: typecheck, regression tests, and the Bun tests that import changed files. Misses tests that reach a change only through a CLI subprocess.
    - Pre-push: `bun run check`.
 2. Make the change. Run `bun run check`. See [Choose a check](docs/development/testing.md#choose-a-check).
