@@ -39,7 +39,7 @@ All nine browser tools require `profileId` and `controlHandle` with their Camofo
 | `camofox_list_tabs` | Read the tabs that Stelz manages. Tabs that a person opens stay open but are not listed. |
 | `camofox_snapshot` | Read a fresh accessibility snapshot. |
 | `camofox_click`, `camofox_scroll`, `camofox_navigate` | Click an observed element, scroll, or navigate a tab. |
-| `camofox_type` | Enter text. Also accepts `mode`: `balanced`, `keyboard`, or `instant`. See [Typing](configuration.md#typing). |
+| `camofox_type` | Enter text. Also accepts `mode`: `balanced`, `keyboard`, or `instant`. See [Typing](configuration/typing.md). |
 | `camofox_screenshot` | Capture a tab image. |
 
 - `camofox_evaluate` and `camofox_import_cookies` stay excluded. Other upstream controls stay excluded.
@@ -60,4 +60,4 @@ All nine browser tools require `profileId` and `controlHandle` with their Camofo
 - Creation never reconfigures an existing profile. It keeps its route, expected IP, port, data, and secret references.
 - Use the CLI or UI for configuration, proxies, deletion, import, stop, recovery, and forced handoff.
 - Call order, readiness, and human authentication: [browser skill](../skills/stelz-browser/SKILL.md#do-a-browser-task).
-- Conflicts and stale handles: [Troubleshooting](troubleshooting.md).
+- Conflicts and stale handles: [Troubleshooting](troubleshooting/index.md).

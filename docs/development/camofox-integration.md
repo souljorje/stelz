@@ -67,7 +67,7 @@ Camofox and Camoufox: see [Technology](architecture.md#technology). Request path
 - A per-profile lock serializes checks. Network requests do not hold the global admission lock.
 - Configuration changes invalidate old results.
 - The plugin verifies IP, timezone, and languages before Ready. It checks geolocation as configured, not observed.
-- See [Managed location data](../configuration.md#managed-location-data) and [IP check policy](../configuration.md#ip-check-policy).
+- See [Managed location data](../configuration/network.md#managed-location-data) and [IP check policy](../configuration/network.md#ip-check-policy).
 
 ## Runtime setup
 

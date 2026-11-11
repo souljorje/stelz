@@ -38,11 +38,11 @@ stelz setup
 ```
 
 - Creates missing service files under `~/.local/share/stelz`. Preserves existing profiles and credentials.
-- Other directory: set an absolute `STELZ_HOME` before setup. Use the same value for the UI, lifecycle commands, and agent connection. See [Service directory and precedence](configuration.md#service-directory-and-precedence).
+- Other directory: set an absolute `STELZ_HOME` before setup. Use the same value for the UI, lifecycle commands, and agent connection. See [Service directory and precedence](configuration/environment.md#service-directory-and-precedence).
 - Prepares the browser, fingerprint model, location data, and service runtime. Reuses valid parts.
 - Missing, damaged, or older location data needs a download. Setup lists the downloads and asks once. Type `y` to continue. `stelz setup --yes` skips the question.
 - The browser download is over 1 GB and unpacks to over 2 GB.
-- Existing Camoufox build: see [Browser executable](configuration.md#browser-executable).
+- Existing Camoufox build: see [Browser executable](configuration/environment.md#browser-executable).
 
 ## 3. Open the manager
 
@@ -59,7 +59,7 @@ If `work` exists, reuse it.
 
 ## 5. Connect your agent
 
-See [Connect your agent](clients.md). For failures, see [Troubleshooting](troubleshooting.md).
+See [Connect your agent](clients.md). For failures, see [Troubleshooting](troubleshooting/index.md).
 
 ## Update Stelz
 

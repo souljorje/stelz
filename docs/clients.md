@@ -32,7 +32,7 @@ STELZ_PACKAGE="$(npm root --global)/stelz"
 
 - Custom npm prefix: use its `lib/node_modules/stelz` directory. Symlinked CLI: resolve it to find the package directory.
 - The MCP process needs Bun and Node.js on PATH, even when a desktop application starts your agent. The examples pass the current PATH.
-- Custom Camoufox executable: see [Browser executable](configuration.md#browser-executable).
+- Custom Camoufox executable: see [Browser executable](configuration/environment.md#browser-executable).
 - Install the skill as a directory symlink, as the client sections show. Keep the package's `docs/` and `skills/` together.
 - Reuse a matching link. Preserve conflicting files, directories, and dangling links. Do not replace another installation.
 
@@ -126,7 +126,7 @@ Copy the printed loopback URL. Ask your agent:
 - Do not substitute a separate SDK script.
 - Success: the browser is **Ready**, has no controller, and keeps the demonstration page open.
 - Stop the demonstration server with Ctrl-C. The browser stays open.
-- Failures: [Troubleshooting](troubleshooting.md).
+- Failures: [Troubleshooting](troubleshooting/index.md).
 
 ## Multiple profiles and handoff
 

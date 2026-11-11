@@ -9,7 +9,7 @@ modified: 2026-11-11T14:27:18Z
 
 # Transfer profiles
 
-Archive: `.stelz-profiles.zip`. Examples move `work`. Contents and compatibility rules: [Archive schema and limits](configuration.md#archive-schema-and-limits).
+Archive: `.stelz-profiles.zip`. Examples move `work`. Contents and compatibility rules: [Archive schema and limits](configuration/archive.md).
 
 ## Before transfer
 
@@ -17,7 +17,7 @@ Archive: `.stelz-profiles.zip`. Examples move `work`. Contents and compatibility
 - Keep the same `STELZ_HOME` for each installation's CLI and UI.
 - Operating system, CPU architecture, and exact Camoufox executable SHA-256 must match on both installations. The import preview refuses a mismatch.
 - Disk space: the ZIP, expanded data, and the staged snapshot or import batch.
-- Stop every exported profile cleanly. Export never stops a browser. Uncertain shutdown or ownership: run `stelz doctor work`, then see [Inspect an unclean lifetime](troubleshooting.md#inspect-an-unclean-lifetime).
+- Stop every exported profile cleanly. Export never stops a browser. Uncertain shutdown or ownership: run `stelz doctor work`, then see [Inspect an unclean lifetime](troubleshooting/lifetime-and-state.md#inspect-an-unclean-lifetime).
 
 Compare these results on both machines. Use each installation's configured Camoufox path:
 
@@ -81,5 +81,5 @@ After import:
 - During import, wait for completion.
 - Reload restores an active transfer in the same UI session. A new UI server starts a new session.
 - The upload needs the file again: choose the ZIP again, or cancel.
-- Active profile, compatibility mismatch, or size limit: [UI session, window, or transfer fails](troubleshooting.md#ui-session-window-or-transfer-fails).
-- Pending import journal: [Configuration save or import is pending](troubleshooting.md#configuration-save-or-import-is-pending).
+- Active profile, compatibility mismatch, or size limit: [UI session, window, or transfer fails](troubleshooting/ui-and-transfer.md).
+- Pending import journal: [Configuration save or import is pending](troubleshooting/lifetime-and-state.md#configuration-save-or-import-is-pending).

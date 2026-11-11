@@ -55,4 +55,4 @@ Blockers:
    2. Start a new agent session in this project. Approve the `stelz` server if the client asks.
    3. Ask for a browser task, for example: "Open example.com in my Stelz profile `work`."
 
-For failures, see [Troubleshooting](troubleshooting.md).
+For failures, see [Troubleshooting](troubleshooting/index.md).

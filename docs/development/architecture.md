@@ -15,7 +15,7 @@ How Stelz works. For what it is, see [Stelz as a product](../product.md).
 
 | Part | Role |
 | --- | --- |
-| Camoufox | Firefox-based browser build with fingerprint controls. See [Browser executable](../configuration.md#browser-executable). |
+| Camoufox | Firefox-based browser build with fingerprint controls. See [Browser executable](../configuration/environment.md#browser-executable). |
 | `camoufox` launcher | Official JavaScript launcher. Generates fingerprints and launch options, including GeoIP location settings. |
 | Camofox (`@askjo/camofox-browser`) | HTTP automation server. Drives Camoufox through Playwright. Stelz patches it. See [Camofox integration](camofox-integration.md). |
 | Playwright (`playwright-core`) | Browser automation library inside Camofox. |
@@ -68,7 +68,7 @@ A browser tool call:
 
 - `prepareProfileConfiguration()` in `src/profiles/profile-configuration.ts` handles every configuration mutation.
 - It holds `profiles/admission.lock` under `STELZ_HOME` while it completes pending recovery and the requested mutation.
-- Recovery checks the import, catalog, and network journals in that order. See [Transactions and recovery](../configuration.md#transactions-and-recovery).
+- Recovery checks the import, catalog, and network journals in that order. See [Transactions and recovery](../configuration/profiles.md#transactions-and-recovery).
 - An operation that needs a profile lifecycle lock acquires it after the admission lock.
 - Explicit start also completes pending configuration recovery before it starts the browser.
 - Creation saves new secrets before it publishes the profile in the catalog. The catalog journal stores complete before and after snapshots.
@@ -90,7 +90,7 @@ A browser tool call:
 - Import checks private staging data, assigns unused IDs, ports, and secret references, and installs the batch through a durable journal.
 - One catalog replacement publishes the batch. Imported profiles remain stopped. Existing profiles stay unchanged.
 - An active UI transfer prevents UI shutdown.
-- See [Archive schema and limits](../configuration.md#archive-schema-and-limits).
+- See [Archive schema and limits](../configuration/archive.md).
 
 ## MCP contracts
 
@@ -98,20 +98,20 @@ A browser tool call:
 - Camofox shares its MCP contracts with its OpenClaw plugin. Stelz reuses them through its own adapter and does not run OpenClaw.
 - Browser tools keep the canonical Camofox arguments and add `profileId` and `controlHandle`.
 - The adapter excludes `camofox_evaluate` and `camofox_import_cookies`. See [Shared MCP tools](../mcp.md).
-- `camofox_type` has per-call modes. See [Typing](../configuration.md#typing).
+- `camofox_type` has per-call modes. See [Typing](../configuration/typing.md).
 - A new control must use controller checks, the action queue, network checks, and the service time limit.
 - An upstream HTTP endpoint alone does not establish Stelz MCP support.
 
 ## Failures and network policy
 
-- Each outer layer waits longer than the layer that it calls, so the innermost limit reports first. Limits: [Typing](../configuration.md#typing).
+- Each outer layer waits longer than the layer that it calls, so the innermost limit reports first. Limits: [Typing](../configuration/typing.md).
 - A timeout blocks subsequent actions, because the original operation may remain active.
 - An MCP client timeout does not cancel the service operation.
-- After a blocked browser operation, the operator must stop and start the profile. Stelz does not replay interrupted actions. See [Browser action or IP check timed out](../troubleshooting.md#browser-action-or-ip-check-timed-out).
+- After a blocked browser operation, the operator must stop and start the profile. Stelz does not replay interrupted actions. See [Browser action or IP check timed out](../troubleshooting/lifetime-and-state.md#browser-action-or-ip-check-timed-out).
 - The plugin rejects replacement browsers and sessions within an existing service lifetime.
-- An operator must resolve uncertain ownership before another start. See [Troubleshooting](../troubleshooting.md).
+- An operator must resolve uncertain ownership before another start. See [Troubleshooting](../troubleshooting/index.md).
 - Browser IP checks share the action queue. A failed check blocks actions until an explicit recheck succeeds.
-- The service does not replay the failed action. IP checks provide no host firewall. See [IP check policy](../configuration.md#ip-check-policy).
+- The service does not replay the failed action. IP checks provide no host firewall. See [IP check policy](../configuration/network.md#ip-check-policy).
 
 ## Local UI HTTP session
 

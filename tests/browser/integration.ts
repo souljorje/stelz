@@ -128,7 +128,7 @@ try {
   await rejection(d.client, "camofox_click", { tabId: tabs["profile-01"], selector: "#human" });
   await call(d.client, "profile_resume");
   await call(d.client, "camofox_snapshot", { tabId: tabs["profile-01"] });
-  // Known issue: a scroll in a tab that is not selected can exceed the action deadline. See docs/troubleshooting.md#browser-action-or-ip-check-timed-out.
+  // Known issue: a scroll in a tab that is not selected can exceed the action deadline. See docs/troubleshooting/lifetime-and-state.md#browser-action-or-ip-check-timed-out.
   // Stelz then blocks the lifetime, so record the issue and let the restart below replace that lifetime. Other errors still fail.
   const scrolled = await call(d.client, "camofox_scroll", { tabId: tabs["profile-01"], direction: "down", amount: 100 })
     .then(() => true, (error: Error) => { if (!error.message.includes("action timed out")) throw error; return false; });

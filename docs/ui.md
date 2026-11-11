@@ -31,7 +31,7 @@ Local UI for visible browsers. Setup first: [Getting started](getting-started.md
 - **Ready**: the browser runs. The controller label shows the current connection.
 - **Restart to update**: the browser uses an earlier runtime. See [Update Stelz](getting-started.md#update-stelz).
 - Disabled **Start**: the profile has an issue. Read its details or Diagnostics.
-- **Location alignment** shows known problems before Start. **Check connection** checks the route without starting a browser. See [Location alignment blocks Start](troubleshooting.md#location-alignment-blocks-start) and [IP check policy](configuration.md#ip-check-policy).
+- **Location alignment** shows known problems before Start. **Check connection** checks the route without starting a browser. See [Location alignment blocks Start](troubleshooting/network.md#location-alignment-blocks-start) and [IP check policy](configuration/network.md#ip-check-policy).
 - Browser windows show Camoufox's pink cursor marker. The marker can stop at the page boundary.
 - Overview shows the shared MCP command and the `profileId`. See [Connect your agent](clients.md).
 
@@ -50,7 +50,7 @@ Local UI for visible browsers. Setup first: [Getting started](getting-started.md
 | Recheck IP | Repeat a failed IP check. |
 
 - Closing a profile's browser window stops that profile. Start it again explicitly.
-- Choice of action and failures: [Troubleshooting](troubleshooting.md#choose-the-lifecycle-action).
+- Choice of action and failures: [Troubleshooting](troubleshooting/index.md#choose-the-lifecycle-action).
 
 ## Find a profile's windows
 
@@ -69,7 +69,7 @@ Local UI for visible browsers. Setup first: [Getting started](getting-started.md
 ## Change typing behavior
 
 Overview, **Default typing mode**: **Balanced**, **Keyboard input** (service default), or **Instant input**.
-Changes apply to later typing actions without a restart. See [Typing](configuration.md#typing).
+Changes apply to later typing actions without a restart. See [Typing](configuration/typing.md).
 
 ## Change a proxy or move profiles
 
@@ -83,7 +83,7 @@ Changes apply to later typing actions without a restart. See [Typing](configurat
 3. Type the exact profile ID.
 
 - Stelz archives its data under `STELZ_HOME/trash/`. Other profiles keep shared secret values.
-- Running profiles, profiles with uncertain ownership, and profiles with an unclean shutdown cannot be deleted. See [Troubleshooting](troubleshooting.md).
+- Running profiles, profiles with uncertain ownership, and profiles with an unclean shutdown cannot be deleted. See [Troubleshooting](troubleshooting/index.md).
 
 ## Inspect a problem
 

@@ -10,7 +10,7 @@ modified: 2026-11-11T14:27:18Z
 # CLI reference
 
 - `ID`: stable profile ID, such as `work`. A display name does not select a profile.
-- Use the same [`STELZ_HOME`](configuration.md#service-directory-and-precedence) for the CLI, UI, and each MCP connection.
+- Use the same [`STELZ_HOME`](configuration/environment.md#service-directory-and-precedence) for the CLI, UI, and each MCP connection.
 - `--json` works only on commands that list it.
 
 ## Installation and UI
@@ -26,7 +26,7 @@ modified: 2026-11-11T14:27:18Z
 - Setup asks once in a terminal before it downloads. `--yes` skips the question.
 - No terminal and no `--yes`: a setup that needs downloads fails with `confirmation_required` and a `downloads` list. Each entry has `name`, `size`, `purpose`, and `source`.
 - `setup --json` never prompts. Stdout: one JSON report (`browser` with `source`, `locationData` for each dataset, `fingerprintModel`, `runtime` with `id` and `status`: `prepared` or `reused`). Stderr: progress and a JSON error.
-- Setup does not stop running profiles. See [Update Stelz](getting-started.md#update-stelz) and [Setup fails](troubleshooting.md#setup-fails).
+- Setup does not stop running profiles. See [Update Stelz](getting-started.md#update-stelz) and [Setup fails](troubleshooting/setup.md#setup-fails).
 - Keep the UI URL private. Its fragment holds a temporary session token. Ctrl-C stops the UI server. Profile browsers keep running.
 
 ## Profile commands
@@ -67,11 +67,11 @@ stelz profile create work --json
 
 `stelz profile fingerprint check work --json`: inspects the saved pin and configured engine without a browser.
 
-- `fingerprint_uninitialized`: no pin exists. Other errors: see [Fingerprint recovery](troubleshooting.md#native-data-or-fingerprint-is-unavailable).
+- `fingerprint_uninitialized`: no pin exists. Other errors: see [Fingerprint recovery](troubleshooting/lifetime-and-state.md#native-data-or-fingerprint-is-unavailable).
 
 ## Browser lifecycle and diagnostics
 
-- Output: formatted JSON. Progress: stderr. To choose an action, see [Troubleshooting](troubleshooting.md).
+- Output: formatted JSON. Progress: stderr. To choose an action, see [Troubleshooting](troubleshooting/index.md).
 - `--json` gives structured errors on stderr and never prompts. Only `start`, `restart`, `status`, `doctor`, and `recheck` accept it.
 
 | Command | Scope | Output |
@@ -90,12 +90,12 @@ stelz profile create work --json
 
 - `pause`, `resume`, and `release` also accept `all`. Use an explicit ID for authentication and controller handoff.
 - `all` runs in sequence. Each success prints a separate JSON object, not an array. A failure goes to stderr and the rest continue. `doctor` prints one object with a `profiles` array.
-- `recover` refuses recorded live processes and unknown ownership. Inspect browser descendants first. See [Recovery procedures](troubleshooting.md#inspect-an-unclean-lifetime).
+- `recover` refuses recorded live processes and unknown ownership. Inspect browser descendants first. See [Recovery procedures](troubleshooting/lifetime-and-state.md#inspect-an-unclean-lifetime).
 
 ### Status and doctor fields
 
 - `phase` is separate from `controller`. Phases: `starting`, `ready`, `paused`, `verification_failed`, `blocked`, `stopping`, `stopped`. Process inspection can instead report `orphaned`, `ownership_unknown`, or `unclean`.
-- Live state includes the [IP verification fields](configuration.md#ip-verification-fields).
+- Live state includes the [IP verification fields](configuration/network.md#ip-verification-fields).
 - `restartToUpdate: true`: the running profile uses an earlier runtime. See [Update Stelz](getting-started.md#update-stelz).
 - `ownership`: separate supervisor and server verdicts, each `owned`, `missing`, `different`, or `unverified`.
 - `controlError`: the live status request failed. Stored fields can remain after shutdown. Read the phase and ownership first.

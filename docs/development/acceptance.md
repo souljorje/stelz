@@ -10,7 +10,7 @@ modified: 2026-11-11T14:27:18Z
 # Acceptance
 
 - Run these suites only on explicit command. Routine checks and report paths: see [Testing](testing.md).
-- Browser suites need desktop access and the paired Camoufox build. See [Browser executable](../configuration.md#browser-executable).
+- Browser suites need desktop access and the paired Camoufox build. See [Browser executable](../configuration/environment.md#browser-executable).
 - Run `bun run build` first. `bunx lefthook run browser` selects the suites for the changed files.
 - Reports can contain private data.
 - `bun run test:integration` and `bun run test:concurrency` need no other input.
@@ -75,7 +75,7 @@ Human takeover:
 
 - Run `bun run test:typing`.
 - It rejects `--profile`. Each run creates a disposable profile and stops it.
-- See [Typing](../configuration.md#typing).
+- See [Typing](../configuration/typing.md).
 
 ## Public fingerprint checks
 

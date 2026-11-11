@@ -23,16 +23,19 @@ Stelz runs persistent browser profiles that a coding agent controls through MCP.
 - [Manage profiles](ui.md) — create, start, rename, and delete profiles, find their windows, and take over manually.
 - [Configure a proxy](proxies.md) — route a profile through a proxy, or require an exit IP.
 - [Transfer profiles](profile-transfer.md) — export and import saved browser data.
-- [Troubleshooting](troubleshooting.md) — find the cause of a failure and recover.
+- [Troubleshooting](troubleshooting/index.md) — symptom table and lifecycle actions.
+  - [Setup](troubleshooting/setup.md) · [Control](troubleshooting/control.md) · [Network](troubleshooting/network.md) · [Lifetime and state](troubleshooting/lifetime-and-state.md) · [UI and transfer](troubleshooting/ui-and-transfer.md)
 
 ## Reference
 
 - [CLI](cli.md) — commands, options, outputs, and exit status.
-- [Configuration](configuration.md) — settings, paths, schemas, typing, IP checks, and location data.
+- [Configuration](configuration/index.md) — settings and saved data.
+  - [Environment](configuration/environment.md) · [Profile data](configuration/profiles.md) · [Typing](configuration/typing.md) · [IP checks and location](configuration/network.md) · [Archive format](configuration/archive.md)
 - [Shared MCP tools](mcp.md) — the 18 tools and the control-handle contract.
 - [Browser skill](../skills/stelz-browser/SKILL.md) — how an agent uses the tools.
 
 ## Contribute
 
-- [Development](development/index.md) — architecture, testing, acceptance, Camofox integration, and releases.
+- [Development](development/index.md) — for contributors.
+  - [Architecture](development/architecture.md) · [Testing](development/testing.md) · [Acceptance](development/acceptance.md) · [Camofox integration](development/camofox-integration.md) · [Releasing](development/releasing.md)
 - [Contributing](../CONTRIBUTING.md) — how to prepare and submit a change.

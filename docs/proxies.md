@@ -22,17 +22,17 @@ modified: 2026-11-11T14:27:18Z
 4. Paste the provider's proxy details in **Proxy**. To use a direct connection, clear **Proxy**, or select **Remove proxy** for a managed proxy.
 5. Enter an optional **Expected exit IP**. Clear it to remove the fixed-address requirement.
 6. Select **Save network**. Require `Network settings saved.`.
-7. Select **Check connection**. Resolve any blocker in **Location alignment**: [Location alignment blocks Start](troubleshooting.md#location-alignment-blocks-start).
-8. Select **Start**. Run `stelz status work` to check the [IP verification fields](configuration.md#ip-verification-fields).
+7. Select **Check connection**. Resolve any blocker in **Location alignment**: [Location alignment blocks Start](troubleshooting/network.md#location-alignment-blocks-start).
+8. Select **Start**. Run `stelz status work` to check the [IP verification fields](configuration/network.md#ip-verification-fields).
 
 - Changing only the expected IP keeps the saved proxy authentication. The UI hides saved credentials.
 - Replace credentials: paste the replacement details, or select **Edit details** and enter the credentials again.
 - Removing a proxy detaches this profile's reference. Other profiles keep the shared secret value.
 - Checks stay required when a proxy remains with no expected IP, or when an expected IP remains with no proxy.
 - **Managed externally**: a process environment override or shared secret reference controls the value. The UI cannot replace it. Stop the profile, change the external value, and keep the reference name.
-- An empty override still takes precedence over `secrets.env`. See [Setting precedence](configuration.md#service-directory-and-precedence).
+- An empty override still takes precedence over `secrets.env`. See [Setting precedence](configuration/environment.md#service-directory-and-precedence).
 - UI conflict: select **Discard edits and load latest**. Review the new configuration before you enter the change again.
-- Do not force a stale save or remove a transaction journal. See [Configuration save or import is pending](troubleshooting.md#configuration-save-or-import-is-pending).
+- Do not force a stale save or remove a transaction journal. See [Configuration save or import is pending](troubleshooting/lifetime-and-state.md#configuration-save-or-import-is-pending).
 
 ## Paste provider details
 
@@ -85,6 +85,6 @@ Only the selected proxy reaches the local service. Limits: 1 MB, 10,000 lines.
 ## Location checks
 
 - A rotated exit is allowed only when its location settings and the expected-IP rule stay compatible.
-- A failed check blocks agent actions: [IP verification failed](troubleshooting.md#ip-verification-failed).
-- Providers, cache timing, and routing limits: [IP check policy](configuration.md#ip-check-policy).
-- Data age and `STELZ_LOCATION_POLICY`: [Managed location data](configuration.md#managed-location-data).
+- A failed check blocks agent actions: [IP verification failed](troubleshooting/network.md#ip-verification-failed).
+- Providers, cache timing, and routing limits: [IP check policy](configuration/network.md#ip-check-policy).
+- Data age and `STELZ_LOCATION_POLICY`: [Managed location data](configuration/network.md#managed-location-data).
