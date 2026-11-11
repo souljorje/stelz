@@ -17,7 +17,7 @@ modified: 2026-11-11T15:01:55Z
 
 1. Build and pack a candidate. Push its branch, so that the skill link resolves to the candidate's skill.
 2. Prepare a new writable project directory, npm prefix, and temporary `STELZ_HOME`.
-3. Give a fresh agent in that project the [setup request from the README](../../README.md#let-your-agent-set-it-up) with the branch's skill link.
+3. Give a fresh agent in that project the [setup request from the README](../../README.md#agent-setup) with the branch's skill link.
    Add the test conditions: install the archive instead of the registry, and use the test prefix and `STELZ_HOME`.
 4. Approve the setup downloads when the agent asks. Record each other intervention request.
 5. Make sure that the agent produced the installed package, a prepared runtime, the skill link, one shared MCP registration, an open UI, and a report with the next steps.
