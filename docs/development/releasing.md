@@ -4,7 +4,7 @@ description: "Changesets, the Release workflow, archive contents, and publicatio
 tags: [development, release]
 sources: []
 created: 2026-11-06T13:49:16Z
-modified: 2026-11-11T14:55:54Z
+modified: 2026-11-11T15:05:26Z
 ---
 
 # Release Stelz
@@ -26,7 +26,7 @@ modified: 2026-11-11T14:55:54Z
 | `major` | A breaking change after `1.0.0`. |
 
 - Changesets uses the largest pending increment. `bun run changeset status` shows the plan.
-- Tests and internal tooling alone need no Changeset.
+- Tests, internal tooling, and documentation alone need no Changeset.
 
 ## Workflow
 
