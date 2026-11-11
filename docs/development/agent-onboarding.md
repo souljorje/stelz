@@ -20,7 +20,7 @@ modified: 2026-11-11T15:01:55Z
 3. Give a fresh agent in that project the [setup request from the README](../../README.md#agent-setup) with the branch's skill link.
    Add the test conditions: install the archive instead of the registry, and use the test prefix and `STELZ_HOME`.
 4. Approve the setup downloads when the agent asks. Record each other intervention request.
-5. Make sure that the agent produced the installed package, a prepared runtime, the skill link, one shared MCP registration, an open UI, and a report with the next steps.
+5. Make sure that the agent produced the installed package, a prepared runtime, the installed skill file, one shared MCP registration, an open UI, and a report with the next steps.
    The agent must not create or start a profile.
 6. Create and start `work` in the UI. Start a new client session in the same project.
 7. Serve the fixture as in [Verify the connection](../clients.md#verify-the-connection). Ask the agent to verify Stelz on that page in profile `work`. Keep the browser window visible.

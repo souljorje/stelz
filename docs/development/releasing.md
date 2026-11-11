@@ -57,7 +57,7 @@ Publish mode starts after the merged version PR:
 
 ## Archive contents
 
-- The root manifest defines package contents. It excludes Stelz source, tests, browser state, and credentials.
+- The root manifest defines package contents: the built runtime, README, and LICENSE. Documentation and the browser skill stay in the repository.
 - Only prepared Camofox is bundled. Packing removes packages that no manifest reaches (such as `camoufox-js`), and bundled native packages and platform binaries.
 - `test:install` checks the archive. See [Native dependencies](camofox-integration.md#native-dependencies).
 
