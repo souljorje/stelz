@@ -9,6 +9,7 @@ import { runInNewContext } from "node:vm";
 import { setImmediate } from "node:timers/promises";
 import { launchProfileBrowser, claimProfileContext, createProfilePage, protectProfileStartup, validateStartupGeometry, verifyProfileFingerprint } from "../../src/browser/native-profile.ts";
 import { applyFingerprint } from "../../src/browser/fingerprint.ts";
+import { UPSTREAM_VERSION } from "../../src/versions.ts";
 import type { StartupWindowObservation } from "../../src/browser/profile-windows.ts";
 import { mockLauncherResources } from "../helpers/launcher-resources.ts";
 
@@ -17,11 +18,12 @@ mockLauncherResources();
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const leaseApi = await import(new URL("../../node_modules/@askjo/camofox-browser/lib/page-lease.js", import.meta.url).href);
 const ownership = await import(new URL("../../node_modules/@askjo/camofox-browser/lib/stelz-page-ownership.js", import.meta.url).href);
+const errors = await import(new URL("../../node_modules/@askjo/camofox-browser/lib/browser-errors.js", import.meta.url).href);
 
 // Exercise the pending patch without changing the shared dependency installation.
 function patchedServer() {
   let source = readFileSync(join(root, "node_modules/@askjo/camofox-browser/server.js"), "utf8");
-  const patch = readFileSync(join(root, "patches/@askjo%2Fcamofox-browser@1.18.1.patch"), "utf8").split("diff --git a/server.js b/server.js\n")[1]!.split("\ndiff --git ")[0]!;
+  const patch = readFileSync(join(root, `patches/@askjo%2Fcamofox-browser@${UPSTREAM_VERSION}.patch`), "utf8").split("diff --git a/server.js b/server.js\n")[1]!.split("\ndiff --git ")[0]!;
   for (const hunk of patch.split(/^@@[^\n]*\n/m).slice(1)) {
     const lines = hunk.split("\n");
     const before = lines.filter(line => /^[ -]/.test(line)).map(line => line.slice(1)).join("\n") + "\n";
@@ -530,12 +532,15 @@ async function startupHarness() {
     validateUrl() {}, navigatePage: () => navigation,
     withPageLoadDuration: (_label: string, work: () => Promise<void>) => work(),
     recordNavSuccess() {}, recordNavFailure: () => false, isProxyError: () => false,
+    // Cold-build extension, route-deadline mapping, and Linux memory-cap handling: not exercised here.
+    isTimeoutError: errors.isTimeoutError, isTabCreateDeadlineTimeout: () => false, sessionCreations: new Map(),
+    TAB_CREATE_BUILD_EXTENSION_MS: 30_000, cgroupMemory: () => null, memoryCapResponse() { throw Error("Unexpected memory cap response"); },
   };
   const source = patchedServer();
   const route = source.slice(source.indexOf("let stelzStartupAdmitted = false;"), source.indexOf("// Navigate\n/**"));
   assert.ok(route.includes("tabCreateRequestTimeoutMs()"));
   runInNewContext(route, globals);
-  runInNewContext(source.slice(source.indexOf("// Per-tab inactivity reaper"), source.indexOf("// Idle memory pressure restart")), globals);
+  runInNewContext(source.slice(source.indexOf("// Per-tab inactivity reaper"), source.indexOf("// Memory pressure restart")), globals);
   return { ...f, session, deadlines, initialized, reapers, sessionClosures: () => sessionClosures,
     failRegistration() { failRegistration = true; },
     async request(body: Record<string, unknown> = { userId: "test", sessionKey: "default", stelzStartup: true }) {

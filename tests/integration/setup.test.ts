@@ -125,8 +125,25 @@ async function fillLocator(locator, text, typingMode) {
   await (await import('./plugins/local-profile/index.js')).typeIntoLocator(locator, text, typingMode);
 }
 async function withTabLock(tabId, operation, timeoutMs) {
+  const operationPromise = Promise.resolve().then(operation);
     // Stelz owns the deadline for typing. Keep its tab lock until input settles.
-    return await (timeoutMs === null ? operation() : withTimeout(operation(), timeoutMs, 'action'));
+    return await (timeoutMs === null ? operationPromise : withTimeout(operationPromise, timeoutMs, 'action'));
+}
+function attachPopupHandler(popupPage) {
+    // stelz: a popup keeps its native window size. Stelz never emulates a viewport.
+    // Recursively handle popups from the popup
+}
+function reapTabs(tabState, TAB_INACTIVITY_MS) {
+          // stelz: TAB_INACTIVITY_MS alone governs reaping, also for a crashed tab.
+          const reapAfterMs = TAB_INACTIVITY_MS;
+}
+async function memoryPressure(browser, sessions, _lastBrowserRestartAt, MEM_PRESSURE_RESTART_COOLDOWN_MS) {
+  try {
+    if (!browser) return;
+    // stelz: only an explicit lifecycle command stops a browser that has a session.
+    if (sessions.size > 0) return;
+    if (_lastBrowserRestartAt && (Date.now() - _lastBrowserRestartAt) < MEM_PRESSURE_RESTART_COOLDOWN_MS) return;
+  } catch {}
 }
 async function scrollRoute(tabState, isVertical, delta) {
       await tabState.page.bringToFront();
@@ -210,8 +227,10 @@ async function typeRoute(req, locator, tabState, selector, text, mode) {
   file(join(upstream, "lib/stelz-click-guard.js"), "export function clickReachedPage(error) { return String(error?.message || '').includes('performing click action'); }\nexport function domClickRejected() { return false; }\nexport function uncertainClickError(cause) { return Object.assign(Error('uncertain'), { cause }); }\n");
   file(join(upstream, "lib/browser-identity.js"), "function contextIdentityOptions(hasProxy) { if (hasProxy) return {}; // Stelz never grants location access to arbitrary sites.\n}\n");
   file(join(upstream, "lib/new-page-recovery.js"), `async function createPageWithSessionRecovery(session) {
+  let pagePromise;
   try {
-    const page = setLeasedPage(lease, await withTimeout((await import('../plugins/local-profile/index.js')).createProfilePage(session.context), timeoutMs, 'new page'));
+    pagePromise = (await import('../plugins/local-profile/index.js')).createProfilePage(session.context);
+    const page = setLeasedPage(lease, await withTimeout(pagePromise, timeoutMs, 'new page'));
     return { session, page, lease };
   } catch (err) {
     const page = setLeasedPage(lease, await withTimeout((await import('../plugins/local-profile/index.js')).createProfilePage(session.context), timeoutMs, 'new page retry'));
@@ -364,15 +383,19 @@ test("a failed model preparation preserves the active model and permits retry", 
 });
 
 test("setup rejects a missing, reverted, or duplicate native page patch in either creation attempt", async () => {
-  for (const label of ["new page", "new page retry"]) for (const change of ["missing", "reverted", "duplicate"]) {
+  const create = "(await import('../plugins/local-profile/index.js')).createProfilePage(session.context)";
+  const attempts = {
+    "new page": [`pagePromise = ${create};`, "pagePromise = session.context.newPage();"],
+    "new page retry": [`const page = setLeasedPage(lease, await withTimeout(${create}, timeoutMs, 'new page retry'));`,
+      "const page = setLeasedPage(lease, await withTimeout(session.context.newPage(), timeoutMs, 'new page retry'));"],
+  } as const;
+  for (const [label, [patched, upstream]] of Object.entries(attempts)) for (const change of ["missing", "reverted", "duplicate"]) {
     const f = fixture(); installedRuntime(f);
     const path = join(f.upstream, "lib/new-page-recovery.js");
-    const patched = `const page = setLeasedPage(lease, await withTimeout((await import('../plugins/local-profile/index.js')).createProfilePage(session.context), timeoutMs, '${label}'));`;
-    const replacement = change === "missing" ? "" : change === "duplicate" ? `${patched}\n${patched}`
-      : `const page = setLeasedPage(lease, await withTimeout(session.context.newPage(), timeoutMs, '${label}'));`;
+    const replacement = change === "missing" ? "" : change === "duplicate" ? `${patched}\n${patched}` : upstream;
     file(path, readFileSync(path, "utf8").replace(patched, replacement));
     const result = await finish(launch(f));
-    expect(result.code).not.toBe(0);
+    expect(result.code, label).not.toBe(0);
     expect(result.stderr).toContain("missing a required Stelz patch");
     expect(result.stderr).toContain("new-page-recovery.js");
     oldRuntime(f);

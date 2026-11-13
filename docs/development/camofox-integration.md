@@ -14,8 +14,8 @@ Camofox and Camoufox: see [Technology](architecture.md#technology). Request path
 ## Pinned dependencies and patches
 
 - Bun applies the committed patches in `patches/` during workspace installation.
-- Pins in the root `package.json`: Camofox (`@askjo/camofox-browser`) `1.18.1`, official `camoufox` launcher `0.5.8`.
-- The Camofox patch sets its launcher dependency to that version. No override is necessary.
+- Pins in the root `package.json`: Camofox (`@askjo/camofox-browser`) `1.19.0`, official `camoufox` launcher `0.5.8`.
+- The Camofox patch sets its launcher dependency to that version and its optional MCP SDK range to the Stelz SDK range. No override is necessary, and the archive holds one SDK copy.
 - `src/versions.ts` records the upstream source commit.
 - Setup checks each patched location in the prepared source (`src/browser/camofox-adapter.ts`). It fails when a patch is missing, duplicated, or changed.
 
@@ -33,6 +33,7 @@ Camofox and Camoufox: see [Technology](architecture.md#technology). Request path
 | Launch options | Prepared by the plugin. Replaces the GeoIP retry. A failed proxied launch never retries without GeoIP. |
 | Geolocation permission | No grant for a proxied context. See [IP check policy](../configuration/network.md#ip-check-policy). |
 | Window and screen bounds | Keeps the explicit desktop window and screen policy. |
+| Browser lifetime and windows | Disabled. Camofox does not restart a browser that has a session, close a crashed tab, or resize a popup. |
 | Proxy WebRTC policy | WebRTC off for proxied browsers. See [IP check policy](../configuration/network.md#ip-check-policy). |
 | Browser start | Persistent profile and saved device handling. |
 | Context claim | Reuses the selected persistent profile context. |
@@ -54,6 +55,8 @@ Camofox and Camoufox: see [Technology](architecture.md#technology). Request path
 6. Run `bun run check` and the relevant checks from [Testing](testing.md) and [Acceptance](acceptance.md).
 
 - Keep exact versions until a separate compatibility review approves an upgrade.
+- Bun writes the registry manifest of Camofox into `bun.lock`, not the patched one. After a version change, give the `@askjo/camofox-browser` lock entry the dependencies of the patched manifest. Then run `bun install --frozen-lockfile`. Otherwise the archive holds a second MCP SDK.
+- Stelz exposes only the tools and properties that `src/mcp/tool-policy.ts` lists. Review each new upstream tool, property, and background timer before you list or enable it.
 - Only `src/browser/camoufox.ts` imports `camoufox` internals. Its unit test fails when an upgrade removes one of them.
 - Update `src/browser/camofox-adapter.ts` when a required patched location changes.
 

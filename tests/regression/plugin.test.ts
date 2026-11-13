@@ -13,7 +13,6 @@ import { locationResult } from "../../src/browser/location.ts";
 import { register } from "../../src/browser/plugin.ts";
 import { allowedBrowserTools } from "../../src/mcp/tool-policy.ts";
 import { commitFingerprint, readFingerprintJournal, stageFingerprint, writeInitialized } from "../../src/browser/fingerprint-transaction.ts";
-import type { Tool } from "../../src/browser/upstream.ts";
 import { upstreamTyping } from "../helpers/upstream-typing.ts";
 import { mockLauncherResources } from "../helpers/launcher-resources.ts";
 
@@ -26,8 +25,8 @@ const tabId = "79bed5c4-d5b8-4369-9d13-b159451ece91";
 test("typing advertises optional per-call modes without changing upstream definitions", async () => {
   const { TOOL_DEFS } = await import(contractsUrl);
   const original = structuredClone(TOOL_DEFS);
-  const tools = allowedBrowserTools<Tool>(TOOL_DEFS);
-  assert.equal(tools.length, TOOL_DEFS.length - 2);
+  const tools = allowedBrowserTools(TOOL_DEFS);
+  assert.equal(tools.length, 9);
   const typing = tools.find((tool: { name: string }) => tool.name === "camofox_type");
   assert.ok(typing);
   const mode = typing.inputSchema.properties?.mode;
@@ -928,11 +927,12 @@ test("typing overrides reach Camofox per call and profile defaults update in the
     assert.equal((await type()).code, 200);
     assert.equal(lastBody().typingMode, "instant", "Overrides must not persist to the next call");
     configure("keyboard");
-    assert.equal((await type({ typingMode: "instant" })).code, 200);
-    assert.equal(lastBody().typingMode, "keyboard", "Ignore caller-supplied internal fields");
     const count = requests.length;
+    assert.equal((await type({ typingMode: "instant" })).code, 409, "Reject caller-supplied internal fields");
     for (const mode of ["auto", "paced", "fill", "other", null, false, 1]) assert.equal((await type({ mode })).code, 409);
     assert.equal(requests.length, count);
+    assert.equal((await type()).code, 200);
+    assert.equal(lastBody().typingMode, "keyboard");
     assert.equal(h.state().phase, "ready");
   } finally { await fixture.close(); }
 });

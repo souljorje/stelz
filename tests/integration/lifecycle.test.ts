@@ -237,10 +237,11 @@ test("a changed configuration port cannot redirect control to another service", 
     expect(result.code).toBe(0);
     expect(intendedCalls).toBe(1);
     expect(unrelatedCalls).toBe(0);
-    const contractDir = join(f.home, "runtime/camofox-1.18.1/mcp/lib");
+    const contractDir = join(f.home, `runtime/camofox-${UPSTREAM_VERSION}/mcp/lib`);
     mkdirSync(contractDir, { recursive: true });
     writeFileSync(join(contractDir, "tool-contracts.mjs"), `
-      export const TOOL_DEFS = ["camofox_snapshot", "camofox_evaluate", "camofox_import_cookies"]
+      export const TOOL_DEFS = ["camofox_create_tab", "camofox_snapshot", "camofox_click", "camofox_type", "camofox_upload", "camofox_navigate",
+        "camofox_scroll", "camofox_screenshot", "camofox_close_tab", "camofox_evaluate", "camofox_list_tabs", "camofox_import_cookies"]
         .map(name => ({ name, description: name, inputSchema: { type: "object" } }));
     `);
     await client.connect(new StdioClientTransport({
@@ -253,6 +254,7 @@ test("a changed configuration port cannot redirect control to another service", 
     expect(listed).toContain("profile_recheck");
     expect(listed).not.toContain("camofox_evaluate");
     expect(listed).not.toContain("camofox_import_cookies");
+    expect(listed).not.toContain("camofox_upload");
     const acquired = await client.callTool({ name: "profile_acquire", arguments: { profileId: "test" } });
     expect(acquired.isError).not.toBe(true);
     const { controlHandle } = JSON.parse((acquired.content as Array<{ text: string }>)[0]!.text);
@@ -561,7 +563,7 @@ test("startup creates one blank tab before a supervisor crash leaves its server 
     port = socket.port!;
   socket.stop(true);
   const f = fixture(port),
-    upstream = join(f.home, "runtime", "camofox-1.18.1");
+    upstream = join(f.home, "runtime", `camofox-${UPSTREAM_VERSION}`);
   mkdirSync(upstream, { recursive: true });
   writeFileSync(
     join(upstream, "server.js"),

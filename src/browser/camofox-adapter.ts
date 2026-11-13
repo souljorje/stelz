@@ -51,10 +51,23 @@ function assertReaperPatches(upstream: string) {
     "      // stelz: a page that a person or a website opened is not an orphan.\n      if (isOrphanPage(page, registered, isPageLeased(session, page))) {");
 }
 
+// Camofox must not restart the browser, close a crashed tab, or resize a popup by itself.
+// Only an explicit lifecycle command or a person changes the native browser and its windows.
+function assertNativeWindowPatches(upstream: string) {
+  const server = join(upstream, "server.js");
+  check(server, "    if (!browser) return;\n    if (_lastBrowserRestartAt &&",
+    "    if (!browser) return;\n    // stelz: only an explicit lifecycle command stops a browser that has a session.\n    if (sessions.size > 0) return;\n    if (_lastBrowserRestartAt &&");
+  check(server, "const reapAfterMs = tabState.crashed ? Math.min(60_000, TAB_INACTIVITY_MS) : TAB_INACTIVITY_MS;",
+    "// stelz: TAB_INACTIVITY_MS alone governs reaping, also for a crashed tab.\n          const reapAfterMs = TAB_INACTIVITY_MS;");
+  check(server, "    maybeResizeSmallPopup(popupPage);\n",
+    "    // stelz: a popup keeps its native window size. Stelz never emulates a viewport.\n");
+}
+
 export function assertBundledPatches(upstream: string) {
   assertLocationPatches(upstream);
   assertClickPatches(upstream);
   assertReaperPatches(upstream);
+  assertNativeWindowPatches(upstream);
   // The health probe opens a visible window and can only end in a refused replacement browser.
   check(join(upstream, "server.js"), "setInterval(async () => {\n  if (!browser || healthState.isRecovering) return;",
     "setInterval(async () => {\n  // stelz: the probe context opens a visible window, and Stelz refuses a replacement browser.\n");
@@ -69,9 +82,10 @@ export function assertBundledPatches(upstream: string) {
     "      const viewport = await tabState.page.evaluate(() => ({ width: innerWidth, height: innerHeight }));\n" +
     "      await tabState.page.mouse.move(viewport.width / 2, viewport.height / 2);\n" +
     "      await tabState.page.mouse.wheel(isVertical ? 0 : delta, isVertical ? delta : 0);");
+  // Upstream starts the operation once, before the deadline. Never call it a second time.
   check(join(upstream, "server.js"),
-    "    return await withTimeout(operation(), timeoutMs, 'action');",
-    "    // Stelz owns the deadline for typing. Keep its tab lock until input settles.\n    return await (timeoutMs === null ? operation() : withTimeout(operation(), timeoutMs, 'action'));");
+    "    return await withTimeout(operationPromise, timeoutMs, 'action');",
+    "    // Stelz owns the deadline for typing. Keep its tab lock until input settles.\n    return await (timeoutMs === null ? operationPromise : withTimeout(operationPromise, timeoutMs, 'action'));");
   check(join(upstream, "server.js"),
     "      if (shouldSubmit) await tabState.page.keyboard.press('Enter');\n    });",
     "      if (shouldSubmit) await tabState.page.keyboard.press('Enter');\n    }, typingMode === undefined ? HANDLER_TIMEOUT_MS : null);");
@@ -121,11 +135,11 @@ export function assertBundledPatches(upstream: string) {
   ].join("\n"));
   check(join(upstream, "server.js"), "      createdTabId = tabId;\n      releasePageLease(session, lease);",
     "      createdTabId = tabId;\n      session.releaseProfileStartup?.();\n      delete session.releaseProfileStartup;\n      releasePageLease(session, lease);");
-  for (const label of ["new page", "new page retry"]) {
-    check(join(upstream, "lib/new-page-recovery.js"),
-      `const page = setLeasedPage(lease, await withTimeout(session.context.newPage(), timeoutMs, '${label}'));`,
-      `const page = setLeasedPage(lease, await withTimeout((await import('../plugins/local-profile/index.js')).createProfilePage(session.context), timeoutMs, '${label}'));`);
-  }
+  const recovery = join(upstream, "lib/new-page-recovery.js");
+  check(recovery, "pagePromise = session.context.newPage();",
+    "pagePromise = (await import('../plugins/local-profile/index.js')).createProfilePage(session.context);");
+  check(recovery, "await withTimeout(session.context.newPage(), timeoutMs, 'new page retry')",
+    "await withTimeout((await import('../plugins/local-profile/index.js')).createProfilePage(session.context), timeoutMs, 'new page retry')");
   check(join(upstream, "plugins/persistence/index.js"), "export async function register(app, ctx, pluginConfig = {}) {",
     "export async function register(app, ctx, pluginConfig = {}) {\n  return; // Native Firefox profile owns storage.");
 }

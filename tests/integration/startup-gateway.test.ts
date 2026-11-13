@@ -33,7 +33,9 @@ async function fixture() {
   mkdirSync(join(directory, "fontconfig/linux"), { recursive: true });
   writeFileSync(join(directory, "fontconfig/linux/fonts.conf"), '<fontconfig><dir prefix="cwd">fonts</dir></fontconfig>');
   writeFileSync(join(upstream, "mcp/lib/tool-contracts.mjs"), `
-    export const TOOL_DEFS = [{ name: 'camofox_snapshot', description: 'snapshot', inputSchema: { type: 'object', required: ['tabId'] } }];
+    export const TOOL_DEFS = ['camofox_create_tab', 'camofox_snapshot', 'camofox_click', 'camofox_type', 'camofox_navigate', 'camofox_scroll',
+      'camofox_screenshot', 'camofox_close_tab', 'camofox_list_tabs']
+      .map(name => ({ name, description: name, inputSchema: { type: 'object', properties: { tabId: { type: 'string' } }, required: ['tabId'] } }));
     export async function runTool() { return globalThis.__gatewayAction(); }
     export function adaptResponse(_spec, payload) { return [{ type: 'text', text: JSON.stringify(payload) }]; }
   `);

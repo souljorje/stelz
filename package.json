@@ -78,7 +78,7 @@
     "release": "changeset publish --from-pack-dir release-artifacts"
   },
   "dependencies": {
-    "@askjo/camofox-browser": "1.18.1",
+    "@askjo/camofox-browser": "1.19.0",
     "@modelcontextprotocol/sdk": "1.30.0",
     "camoufox": "0.5.8",
     "hono": "4.13.16",
@@ -109,6 +109,6 @@
     "vite": "8.3.6"
   },
   "patchedDependencies": {
-    "@askjo/camofox-browser@1.18.1": "patches/@askjo%2Fcamofox-browser@1.18.1.patch"
+    "@askjo/camofox-browser@1.19.0": "patches/@askjo%2Fcamofox-browser@1.19.0.patch"
   }
 }
