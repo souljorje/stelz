@@ -8,7 +8,7 @@ import { fixture } from "../helpers/fixture.ts";
 import { unusedPorts } from "../helpers/ports.ts";
 import { routeProfileTools } from "../helpers/mcp-client.ts";
 const root = resolve(import.meta.dir, "../.."); mkdirSync(join(root, ".state"), { recursive: true });
-const home = createTestHome("manual-acceptance", join(root, ".state")), cli = process.env.STELZ_TEST_CLI || join(root, "dist/cli.js"), id = "manual-01";
+const home = createTestHome("manual-acceptance", join(root, ".state")), cli = process.env.STELZ_TEST_CLI || join(root, "src/cli/cli.ts"), id = "manual-01";
 const env: Record<string, string> = { STELZ_HOME: home };
 for (const key of ["PATH", "HOME", "LANG", "TMPDIR", "CAMOUFOX_EXECUTABLE"]) if (process.env[key]) env[key] = process.env[key]!;
 const report: unknown[] = [], client = routeProfileTools(new Client({ name: "manual-acceptance", version: "1.0.0" }), id);

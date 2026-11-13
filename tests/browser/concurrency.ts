@@ -8,7 +8,7 @@ import { fixture } from "../helpers/fixture.ts";
 import { routeProfileTools } from "../helpers/mcp-client.ts";
 import { processStart, type Running } from "../../src/runtime/profile-process.ts";
 
-const root = resolve(import.meta.dir, "../.."), cli = process.env.STELZ_CLI || process.env.STELZ_TEST_CLI || join(root, "dist/cli.js");
+const root = resolve(import.meta.dir, "../.."), cli = process.env.STELZ_CLI || process.env.STELZ_TEST_CLI || join(root, "src/cli/cli.ts");
 const home = createTestHome("stelz-browser-concurrency");
 const ids = ["concurrency-01", "concurrency-02", "concurrency-03"];
 const env: Record<string, string> = { STELZ_HOME: home };

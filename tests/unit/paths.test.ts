@@ -23,11 +23,6 @@ console.log(JSON.stringify({ root: ROOT, home: HOME_DIR, supervisor: entry("supe
     const supervisor = Bun.spawnSync([process.execPath, "--no-env-file", JSON.parse(result.stdout.toString()).supervisor, "source"], { cwd, env: { ...process.env, STELZ_HOME: home } });
     expect(supervisor.exitCode).not.toBe(0);
     expect(supervisor.stderr.toString()).toContain("A supervisor requires a reserved service instance.");
-    // Bundled entry names retain their public artifact paths.
-    mkdirSync(join(product, "dist")); writeFileSync(join(product, "dist/supervisor.js"), "");
-    const built = Bun.spawnSync([process.execPath, "--no-env-file", driver], { cwd });
-    expect(built.exitCode).toBe(0);
-    expect(JSON.parse(built.stdout.toString()).supervisor).toBe(join(product, "dist/supervisor.js"));
   } finally { rmSync(temp, { recursive: true, force: true }); }
 });
 

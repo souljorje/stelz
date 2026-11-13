@@ -11,7 +11,6 @@ New code: TypeScript and Bun. Preserve other contributors' edits and client appr
    bunx lefthook install   # once per clone
    ```
 
-   Hooks apply to every worktree of the clone. New BB worktrees install them through `.bb-env-setup.sh`.
    - Pre-commit: typecheck, regression tests, and the Bun tests that import changed files. Misses tests that reach a change only through a CLI subprocess.
    - Pre-push: `bun run check`.
 2. Make the change. Run `bun run check`. See [Choose a check](docs/development/testing.md#choose-a-check).
@@ -29,11 +28,12 @@ Dependency patches: [Camofox integration](docs/development/camofox-integration.m
 
 ```sh
 bun run build
-bun link       # adds `stelz` to ~/.bun/bin, which runs this checkout's dist/
+bun link       # adds `stelz` to ~/.bun/bin, which runs this checkout's src/
 stelz setup
 ```
 
-- After a change: `bun run build`, `stelz setup`, then `stelz restart all` to move running profiles to the new runtime.
+- The CLI and service run from `src/`. After a plugin or UI change, run `bun run build` and `stelz setup`.
+- Then run `stelz restart all` to move running profiles to the new code.
 - Running profiles load dependencies from the checkout's `node_modules`. Restart them after `bun install` or a switch to a branch with other dependencies.
 - Remove the command: `bun unlink`.
 - Release acceptance uses the packed archive instead. See [Installed-package acceptance](docs/development/acceptance.md#installed-package-acceptance).

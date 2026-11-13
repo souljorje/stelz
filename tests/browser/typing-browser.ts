@@ -7,7 +7,7 @@ import type { TypingMode } from "../../src/browser/typing.ts";
 import { assertTestHome, createTestHome } from "../helpers/test-home.ts";
 import { routeProfileTools } from "../helpers/mcp-client.ts";
 
-const root = resolve(import.meta.dir, "../.."), cli = process.env.STELZ_TEST_CLI || join(root, "dist/cli.js");
+const root = resolve(import.meta.dir, "../.."), cli = process.env.STELZ_TEST_CLI || join(root, "src/cli/cli.ts");
 const args = process.argv.slice(2);
 if (args.length === 1 && ["--help", "-h"].includes(args[0]!)) {
   console.log("Use: bun run test:typing\nThe check creates and stops its own temporary profile.");

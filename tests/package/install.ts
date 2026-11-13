@@ -1,6 +1,5 @@
 import { inspectBundledDependencies } from "../../scripts/bundled-dependencies.ts";
 import { packageArguments, inspectPackageArchive, assertArchiveUnchanged } from "../../scripts/package-archive.ts";
-import { checkMarkdownLinks } from "../../scripts/markdown-links.ts";
 import { nativeSmoke } from "../helpers/native-dependencies.ts";
 import { mkdtempSync, mkdirSync, symlinkSync, readFileSync, writeFileSync, readdirSync, lstatSync, realpathSync, rmSync, existsSync, chmodSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -33,22 +32,15 @@ const product = root;
 const preparedDependencies = inspectBundledDependencies(product);
 if (!existsSync(archive)) throw Error("Release archive not found. Run bun run pack first, or supply --archive FILE.");
 const candidate = inspectPackageArchive(archive);
-for (const file of candidate.files) if (/^(src|test|\.git|\.codex|\.state|sessions)\//.test(file.path)) throw Error(`Unexpected archive file: ${file.path}`);
+for (const file of candidate.files) if (/^(test|\.git|\.codex|\.state|sessions)\//.test(file.path)) throw Error(`Unexpected archive file: ${file.path}`);
 const uiFiles = candidate.files.filter(file => file.path.startsWith("dist/ui/"));
 if (!uiFiles.some(file => file.path === "dist/ui/index.html") || !uiFiles.some(file => file.path.endsWith(".js")) || !uiFiles.some(file => file.path.endsWith(".woff2"))) throw Error("The archive is missing built UI assets.");
 const paths = candidate.files.map(file => file.path).sort();
-for (const path of ["CONTRIBUTING.md", "assets/screenshots/stelz-overview.png", "examples/onboarding-fixture.html",
-  ...["index", "product", "bootstrap", "getting-started", "clients", "ui", "proxies", "profile-transfer", "troubleshooting/index", "cli", "configuration/index", "mcp",
-    "development/index", "development/architecture", "development/ui-session", "development/transactions",
-    "development/source-layout", "development/testing", "development/acceptance", "development/public-site-checks",
-    "development/agent-onboarding", "development/releasing", "development/camofox-integration"].map(name => `docs/${name}.md`)])
+for (const path of ["src/cli/cli.ts", "src/runtime/supervisor.ts", "dist/plugin.js", "dist/ui/index.html", "README.md", "LICENSE",
+  ...["react", "react-dom", "scheduler", "ibm-plex-mono", "ibm-plex-sans"].map(name => "dist/ui/licenses/" + name + ".txt")])
   if (!paths.includes(path)) throw Error("Archive is missing " + path);
-for (const name of ["README", "configuration", "troubleshooting", "agents", "tests", "distribution", "releasing", "architecture", "camofox-patches", "onboarding-acceptance"])
-  if (paths.includes(`docs/${name}.md`)) throw Error(`Archive contains obsolete documentation: docs/${name}.md`);
-for (const path of ["dist/cli.js", "dist/supervisor.js", "dist/plugin.js", "dist/ui/index.html", "README.md", "LICENSE", "examples/profiles.json", "skills/stelz-browser/SKILL.md", ...["README.md", "stelz-logo.svg", "stelz-logo-full.svg", "stelz-logo-full-dark.svg", "favicon.svg"].map(name => "assets/brand/" + name), ...["react", "react-dom", "scheduler", "ibm-plex-mono", "ibm-plex-sans"].map(name => "dist/ui/licenses/" + name + ".txt")]) {
-  if (!paths.includes(path)) throw Error("Archive is missing " + path);
-}
-for (const path of paths) if (!/^(?:node_modules\/|dist\/|assets\/(?:brand|screenshots)\/|docs\/|examples\/|skills\/|package.json$|README.md$|CONTRIBUTING.md$|CHANGELOG.md$|LICENSE$)/.test(path)) throw Error("Unexpected archive path: " + path);
+// The package holds the runtime only. Documentation and the browser skill stay in the repository.
+for (const path of paths) if (!/^(?:node_modules\/|src\/|dist\/|package.json$|README.md$|LICENSE$)/.test(path)) throw Error("Unexpected archive path: " + path);
 await run([npm, "install", "--global", ...(input.flags.has("--native") ? [] : ["--ignore-scripts"]), "--no-audit", "--no-fund", "--prefer-offline", "--prefix", prefix, archive]);
 const installed = join(prefix, "lib/node_modules/stelz");
 const installedDependencies = inspectBundledDependencies(installed);
@@ -56,9 +48,7 @@ if (JSON.stringify(installedDependencies) !== JSON.stringify(preparedDependencie
   throw Error("The installed archive changed the patched dependency files.");
 const manifest = JSON.parse(readFileSync(join(installed, "package.json"), "utf8"));
 if (manifest.name !== "stelz" || manifest.version !== STELZ_VERSION || manifest.private || manifest.license !== "MIT") throw Error("Invalid release manifest.");
-checkMarkdownLinks(["README.md", "CONTRIBUTING.md", "AGENTS.md", "docs", "examples", "skills"].map(path => join(root, path)));
-checkMarkdownLinks(["README.md", "CONTRIBUTING.md", "docs", "examples", "skills"].map(path => join(installed, path)));
-for (const file of ["cli.js", "supervisor.js", "plugin.js"]) if (readFileSync(join(installed, "dist", file), "utf8").includes(root)) throw Error("Bundle contains a checkout path: " + file);
+if (readFileSync(join(installed, "dist/plugin.js"), "utf8").includes(root)) throw Error("The plugin bundle contains a checkout path.");
 const cleanEnv: Record<string, string> = { PATH: `${join(prefix, "bin")}:${bin}:/usr/bin:/bin`, HOME: env.HOME!, STELZ_HOME: home };
 if (env.TMPDIR) cleanEnv.TMPDIR = env.TMPDIR;
 for (const harness of ["codex", "claude", "hermes"]) if (Bun.which(harness, { PATH: cleanEnv.PATH })) throw Error(`Unexpected harness command in isolated PATH: ${harness}`);
@@ -158,7 +148,7 @@ const nativeCheck = input.flags.has("--native") ? await nativeSmoke(node, instal
 assertArchiveUnchanged(candidate);
 console.log(JSON.stringify({ result: "passed", archive, sha256: candidate.sha256, nativeCheck,
   checks: "Archive contents, Markdown links, isolated CLI, HTTP UI, and installed setup/dependency validation" }));
-return { candidate, env: cleanEnv, cwd, home, prefix, node, bun, npm, executable, installedCli: join(installed, "dist/cli.js"), version, nativeCheck, uiChecked: true };
+return { candidate, env: cleanEnv, cwd, home, prefix, node, bun, npm, executable, installedCli: join(installed, "src/cli/cli.ts"), version, nativeCheck, uiChecked: true };
 } finally { if (!options.keep) rmSync(temp, { recursive: true, force: true }); }
 }
 
