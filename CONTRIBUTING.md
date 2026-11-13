@@ -32,7 +32,8 @@ bun link       # adds `stelz` to ~/.bun/bin, which runs this checkout's src/
 stelz setup
 ```
 
-- After a change: `bun run build`, `stelz setup`, then `stelz restart all` to move running profiles to the new runtime.
+- The CLI and service run from `src/`. After a plugin or UI change, run `bun run build` and `stelz setup`.
+- Then run `stelz restart all` to move running profiles to the new code.
 - Running profiles load dependencies from the checkout's `node_modules`. Restart them after `bun install` or a switch to a branch with other dependencies.
 - Remove the command: `bun unlink`.
 - Release acceptance uses the packed archive instead. See [Installed-package acceptance](docs/development/acceptance.md#installed-package-acceptance).
