@@ -31,9 +31,10 @@ Run `stelz setup` only in a terminal. MCP tools do not download prerequisites.
 5. Call `profile_acquire({profileId})`. Keep the returned `controlHandle` with its profile ID. Never write it in reports, configuration, or handoff notes.
    Send both fields in each later call for that profile.
 6. Call `camofox_list_tabs` to find the startup page. Navigate that tab.
-7. Before each action, read a fresh `camofox_snapshot`. Use its element references to click and type.
-8. After each action, read a fresh snapshot to check the result.
-9. When you finish, or before another agent takes over, call `profile_release({profileId, controlHandle})`. Leave the browser open.
+7. Before the first action on a tab, read a `camofox_snapshot`. Use its element references to click and type.
+8. After each action, read one snapshot. Use it to check the result. Use its element references for the next action.
+9. Read another snapshot before an action only if the page may have changed after your last snapshot. For example, you waited, you used a different tab, or the operator used the window.
+10. When you finish, or before another agent takes over, call `profile_release({profileId, controlHandle})`. Leave the browser open.
 
 ## Rules
 
