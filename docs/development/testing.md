@@ -4,7 +4,7 @@ description: "Commands for routine checks, fixtures, CI, and diagnostics, to rea
 tags: [development, testing]
 sources: []
 created: 2026-11-06T13:49:16Z
-modified: 2026-11-11T14:55:54Z
+modified: 2026-11-15T17:14:33Z
 ---
 
 # Testing
@@ -35,6 +35,8 @@ Bun runs `tests/unit/` and `tests/integration/`. Node runs `tests/regression/`.
 ## Browser fixtures and cleanup
 
 - Build before any browser suite.
+- `bunx lefthook run browser` builds the package and prepares one runtime in `.state/browser-seed`. Each suite clones it into its own new home, so setup downloads nothing. The next run replaces it.
+- A suite that you run by hand prepares its own runtime.
 - Suites use independent MCP SDK clients and synthetic local pages. No model credentials.
 - Live checks use disposable profiles in separate service directories. They never select a saved profile. They stop their own browsers.
 - Proxy and public checks need declared test proxies. See [Proxy and human acceptance](acceptance.md#proxy-and-human-acceptance) and [Public fingerprint checks](public-site-checks.md).

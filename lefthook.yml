@@ -30,13 +30,20 @@ pre-push:
 #   STELZ_DRY_RUN=echo bunx lefthook run browser  list the selected suites only
 # Core paths run in every browser session, so they select every suite.
 # Startup paths fail on any start, so integration and setup cover them.
+# The seed job removes the old seed, builds, and prepares one runtime first. The suites that set up a home clone it, so none downloads anything.
+# It runs again in every session. A failed step leaves no seed. Its glob covers every path that selects a suite, and a few more.
+# `tests/helpers/browser-seed.ts` holds the same path as each STELZ_TEST_SEED_HOME below.
 browser:
   files: >-
     base=$(git merge-base "${BASE:-origin/main}" HEAD) &&
     git diff --name-only "$base" &&
     git ls-files --others --exclude-standard
   jobs:
+    - name: seed
+      glob: ["{bun.lock,package.json,patches/**,scripts/**,src/**}", "tests/{browser,helpers}/**"]
+      run: $STELZ_DRY_RUN bun run test:seed
     - name: integration
+      env: &seed { STELZ_TEST_SEED_HOME: .state/browser-seed }
       glob:
         - &core "{bun.lock,patches/**,scripts/{bundle-package,bundled-dependencies}.ts,src/mcp/**,\
           src/runtime/{operations,profile-process,runtime-plugin,runtime,supervisor}.ts,\
@@ -49,27 +56,34 @@ browser:
         - "{src/sdk/**,tests/browser/{integration,sdk-job}.ts}"
       run: $STELZ_DRY_RUN bun run test:integration
     - name: concurrency
+      env: *seed
       glob: [*core, tests/browser/concurrency.ts]
       run: $STELZ_DRY_RUN bun run test:concurrency
     - name: native
+      env: *seed
       glob: [*core, "src/browser/fingerprint*.ts", src/profiles/fingerprint-check.ts, tests/helpers/observations.ts, tests/browser/native-integration.ts]
       run: $STELZ_DRY_RUN bun run test:native
     - name: transfer
+      env: *seed
       glob: [*core, "src/profiles/profile-{archive,export,import,import-transaction,transfer-types}.ts", "src/api/{profile-transfers,transfer-contracts}.ts", src/cli/profile-transfer.ts, tests/browser/profile-transfer.ts]
       run: $STELZ_DRY_RUN bun run test:transfer
     - name: windows
+      env: *seed
       glob:
         - *core
         - &windows "{src/browser/{profile-appearance,profile-extension,profile-windows,window-activation}.ts,src/api/{contracts,window-model}.ts}"
         - tests/browser/profile-windows-browser.ts
       run: $STELZ_DRY_RUN bun run test:windows
     - name: window-close
+      env: *seed
       glob: [*core, *windows, tests/browser/window-close.ts]
       run: $STELZ_DRY_RUN bun run test:window-close
     - name: typing
+      env: *seed
       glob: [*core, src/browser/typing.ts, src/profiles/typing-mode.ts, tests/helpers/upstream-typing.ts, tests/browser/typing-browser.ts]
       run: $STELZ_DRY_RUN bun run test:typing
     - name: proxy
+      env: *seed
       glob:
         - *core
         - &location "{src/browser/{geoip-setup,ip-probe,ip-verification,location}.ts,\

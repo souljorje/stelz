@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { assertTestHome, createTestHome } from "../helpers/test-home.ts";
+import { assertTestHome, createTestHome, replaceTestHome } from "../helpers/test-home.ts";
 
 const root = resolve(import.meta.dir, "../.."), directories: string[] = [];
 function temporary() { const home = mkdtempSync(join(tmpdir(), "stelz-test-isolation-")); directories.push(home); return home; }
@@ -15,6 +15,28 @@ test("test homes are fresh private directories with explicit ownership", () => {
   expect(statSync(first).mode & 0o777).toBe(0o700);
   expect(statSync(join(first, ".stelz-test-home.json")).mode & 0o777).toBe(0o600);
   expect(() => createTestHome("../operator", parent)).toThrow();
+});
+
+test("a fixed test home replaces an earlier test home and never an unowned directory", () => {
+  const parent = temporary(), path = join(parent, "seed"), first = replaceTestHome(path);
+  writeFileSync(join(first, "old"), "x");
+  expect(replaceTestHome(path)).toBe(first);
+  expect(existsSync(join(first, "old"))).toBe(false);
+  expect(assertTestHome(first)).toBe(first);
+  const operator = join(parent, "operator"); mkdirSync(operator); writeFileSync(join(operator, "profiles.json"), "{}");
+  expect(() => replaceTestHome(operator)).toThrow("unowned service directory");
+  expect(readdirSync(operator)).toEqual(["profiles.json"]);
+});
+
+test("a seed must exist and be a test home", () => {
+  const parent = temporary(), operator = join(parent, "operator"); mkdirSync(operator);
+  const saved = process.env.STELZ_TEST_SEED_HOME;
+  try {
+    process.env.STELZ_TEST_SEED_HOME = operator;
+    expect(() => createTestHome("seeded", parent)).toThrow("unowned service directory");
+    process.env.STELZ_TEST_SEED_HOME = join(parent, "absent");
+    expect(() => createTestHome("seeded", parent)).toThrow("The seed home is missing. Run `bun run test:seed`");
+  } finally { if (saved === undefined) delete process.env.STELZ_TEST_SEED_HOME; else process.env.STELZ_TEST_SEED_HOME = saved; }
 });
 
 test("unowned directories and linked or invalid markers cannot become test homes", () => {

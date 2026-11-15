@@ -70,6 +70,7 @@
     "test:typing": "bun --no-env-file tests/browser/typing-browser.ts",
     "test:public": "bun --no-env-file tests/qa/public-sites.ts",
     "test:package": "bun --no-env-file tests/qa/package.ts",
+    "test:seed": "bun --no-env-file tests/helpers/browser-seed.ts",
     "typecheck": "tsc --noEmit",
     "test:concurrency": "bun --no-env-file tests/browser/concurrency.ts",
     "check": "bun run build && bun run typecheck && bun run check:docs && bun run test",
