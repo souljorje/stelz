@@ -36,6 +36,7 @@ Bun runs `tests/unit/` and `tests/integration/`. Node runs `tests/regression/`.
 
 - Build before any browser suite.
 - `bunx lefthook run browser` builds the package and prepares one runtime in `.state/browser-seed`. Each suite clones it into its own new home, so setup downloads nothing. The next run replaces it.
+- Browser runs keep location data between runs in `.state/seed-cache`, and setup refreshes it when it is old ([rule](../configuration/network.md#managed-location-data)).
 - A suite that you run by hand prepares its own runtime.
 - Suites use independent MCP SDK clients and synthetic local pages. No model credentials.
 - Live checks use disposable profiles in separate service directories. They never select a saved profile. They stop their own browsers.
