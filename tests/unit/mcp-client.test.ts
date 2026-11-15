@@ -5,8 +5,8 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { CallToolRequestSchema, ListToolsRequestSchema, type CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { redactControlHandles, routeProfileTools } from "../helpers/mcp-client.ts";
 
-const browserTools = ["camofox_create_tab", "camofox_list_tabs", "camofox_snapshot", "camofox_click", "camofox_type",
-  "camofox_navigate", "camofox_scroll", "camofox_close_tab", "camofox_screenshot"];
+const browserTools = ["tab_create", "tab_list", "tab_snapshot", "tab_click", "tab_type",
+  "tab_navigate", "tab_scroll", "tab_close", "tab_screenshot"];
 const controlTools = ["profile_release", "profile_pause", "profile_resume", "profile_recheck"];
 const names = ["profile_list", "profile_create", "profile_start", "profile_status", "profile_acquire", ...controlTools, ...browserTools];
 const reply = (value: unknown): CallToolResult => ({ content: [{ type: "text", text: JSON.stringify(value) }] });
@@ -39,7 +39,7 @@ async function fixture() {
       if (rejectRelease) return rejection();
       held.delete(args.profileId);
     }
-    if (name === "camofox_screenshot") return { content: [{ type: "image", data: "fixture", mimeType: "image/png" }] };
+    if (name === "tab_screenshot") return { content: [{ type: "image", data: "fixture", mimeType: "image/png" }] };
     return reply({ ok: true });
   });
   const client = routeProfileTools(new Client({ name: "routing-check", version: "1" }), "alpha");
@@ -69,20 +69,20 @@ test("one connection routes two profiles and all nine browser tools without chan
         expect(response.isError).not.toBe(true);
         expect(f.calls.at(-1)!.args).toEqual({ profileId, controlHandle: profileId === "alpha" ? alpha : beta,
           tabId: "synthetic-tab", mode: "instant" });
-        if (name === "camofox_screenshot") expect(response.content).toEqual([{ type: "image", data: "fixture", mimeType: "image/png" }]);
+        if (name === "tab_screenshot") expect(response.content).toEqual([{ type: "image", data: "fixture", mimeType: "image/png" }]);
       }
     }
     await f.call("profile_release");
-    expect((await f.call("camofox_list_tabs", { profileId: "beta" })).isError).not.toBe(true);
-    expect((await f.call("camofox_list_tabs")).isError).toBe(true);
+    expect((await f.call("tab_list", { profileId: "beta" })).isError).not.toBe(true);
+    expect((await f.call("tab_list")).isError).toBe(true);
   } finally { await f.close(); }
 });
 
 test("duplicate acquires reach the server and explicit invalid routing stays invalid", async () => {
   const f = await fixture();
   try {
-    expect((await f.call("camofox_list_tabs")).isError).toBe(true);
-    expect(f.calls.map(call => call.name)).toEqual(["camofox_list_tabs"]);
+    expect((await f.call("tab_list")).isError).toBe(true);
+    expect(f.calls.map(call => call.name)).toEqual(["tab_list"]);
     const attempts = await Promise.all([f.call("profile_acquire"), f.call("profile_acquire")]);
     expect(attempts.filter(result => !result.isError)).toHaveLength(1);
     expect(f.calls.filter(call => call.name === "profile_acquire")).toHaveLength(2);
@@ -91,10 +91,10 @@ test("duplicate acquires reach the server and explicit invalid routing stays inv
     for (const args of [
       { profileId: "alpha", controlHandle: beta }, { profileId: "beta", controlHandle: alpha },
       { controlHandle: "unknown" }, { controlHandle: undefined }, { profileId: "unowned" }, { profileId: null },
-    ]) expect((await f.call("camofox_list_tabs", args)).isError).toBe(true);
+    ]) expect((await f.call("tab_list", args)).isError).toBe(true);
     // A failed duplicate acquire must not discard the original handle.
-    expect((await f.call("camofox_list_tabs")).isError).not.toBe(true);
-    expect((await f.call("camofox_list_tabs", { profileId: "beta" })).isError).not.toBe(true);
+    expect((await f.call("tab_list")).isError).not.toBe(true);
+    expect((await f.call("tab_list", { profileId: "beta" })).isError).not.toBe(true);
   } finally { await f.close(); }
 });
 
@@ -104,13 +104,13 @@ test("failed release retains control and a new acquisition replaces the released
     const original = parsed(await f.call("profile_acquire")).controlHandle;
     f.rejectRelease(true);
     expect((await f.call("profile_release")).isError).toBe(true);
-    expect((await f.call("camofox_list_tabs")).isError).not.toBe(true);
+    expect((await f.call("tab_list")).isError).not.toBe(true);
     f.rejectRelease(false);
     await f.call("profile_release");
     const replacement = parsed(await f.call("profile_acquire")).controlHandle;
     expect(replacement).not.toBe(original);
     expect((await f.call("profile_release", { controlHandle: original })).isError).toBe(true);
-    expect((await f.call("camofox_list_tabs")).isError).not.toBe(true);
+    expect((await f.call("tab_list")).isError).not.toBe(true);
     expect(f.calls.at(-1)!.args.controlHandle).toBe(replacement);
   } finally { await f.close(); }
 });

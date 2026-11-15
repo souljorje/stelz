@@ -16,6 +16,7 @@ async function run(dir: string, args: string[], extra: Record<string, string> = 
   return { code, out, err, value: args.includes("--json") ? JSON.parse(out || err) : undefined };
 }
 const create = (dir: string, args: string[] = [], env?: Record<string, string>) => run(dir, ["profile", "create", "work", ...args, "--json"], env);
+const config = (dir: string, ...args: string[]) => run(dir, ["profile", "config", ...args, "--json"]);
 const files = (dir: string) => [readFileSync(join(dir, "profiles.json"), "utf8"), readFileSync(join(dir, "secrets.env"), "utf8")];
 
 test("CLI creates a native profile and reuses it without rewriting configuration or saved state", async () => {
@@ -122,4 +123,45 @@ test("missing existing proxy credentials and unsafe service files cannot become 
   const target = join(dir, "outside.env"); writeFileSync(target, before[1]!); symlinkSync(target, join(dir, "secrets.env"));
   expect((await create(dir)).code).toBe(1);
   expect(readFileSync(target, "utf8")).toBe(before[1]);
+});
+
+test("CLI turns scripts on and off for one profile without changing its other configuration", async () => {
+  const dir = home(); initializeHome(dir);
+  await create(dir, ["--proxy-url", "http://original.test:8080"]);
+  await create(dir, [], {}); // Reuse leaves the profile unchanged.
+  const saved = () => JSON.parse(readFileSync(join(dir, "profiles.json"), "utf8")).profiles[0];
+  const before = saved(), secrets = files(dir)[1];
+  expect(before).not.toHaveProperty("allowScripts");
+  for (const [flag, expected] of [["--allow-scripts", true], ["--allow-scripts", true], ["--no-allow-scripts", false], ["--no-allow-scripts", false]] as const) {
+    const result = await config(dir, "work", flag);
+    expect(result.code, result.err).toBe(0);
+    expect(result.value).toEqual({ ok: true, home: dir, profile: { id: "work", allowScripts: expected } });
+    expect(saved()).toEqual(expected ? { ...before, allowScripts: true } : before);
+    expect(files(dir)[1]).toBe(secrets);
+  }
+  const text = await run(dir, ["profile", "config", "work", "--allow-scripts"]);
+  expect(text.out.trim()).toBe("Scripts are allowed for profile work.");
+  expect((await run(dir, ["profile", "config", "work", "--no-allow-scripts"])).out.trim()).toBe("Scripts are off for profile work.");
+  expect((await run(dir, ["profile", "config", "work", "--no-allow-scripts", "--json"])).value.profile.allowScripts).toBe(false);
+});
+
+test("CLI refuses a bad scripts command and leaves the catalog unchanged", async () => {
+  const dir = home(); initializeHome(dir); await create(dir);
+  const before = files(dir);
+  for (const args of [[], ["work"], ["work", "--json"], ["work", "--allow-scripts", "--no-allow-scripts"], ["work", "--allow-scripts", "--allow-scripts"],
+    ["work", "--allow-scripts", "--unknown"], ["work", "--allow-scripts", "--json", "--json"], ["--allow-scripts", "work"], ["--allow-scripts"], ["work", "allow-scripts"]]) {
+    const result = await config(dir, ...args);
+    expect(result.code, args.join(" ")).toBe(1);
+    expect(result.value).toMatchObject({ ok: false, error: { code: "invalid_input" } });
+    expect(result.value.error.message).toContain("stelz profile config ID --allow-scripts | --no-allow-scripts");
+  }
+  const missing = await config(dir, "missing", "--allow-scripts");
+  expect(missing.code).toBe(1);
+  expect(missing.value).toMatchObject({ ok: false, error: { code: "not_found" } });
+  expect(files(dir)).toEqual(before);
+  const empty = home();
+  expect((await config(empty, "work", "--allow-scripts")).value).toMatchObject({ ok: false, error: { code: "not_initialized" } });
+  const help = await run(dir, ["profile", "config", "--help"]);
+  expect(help.out.trim()).toBe("stelz profile config ID --allow-scripts | --no-allow-scripts [--json]");
+  expect((await run(dir, ["profile", "--help"])).out).toContain("stelz profile config ID");
 });

@@ -6,7 +6,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { fixture } from "../helpers/fixture.ts";
 import { assertTestHome, createTestHome } from "../helpers/test-home.ts";
 import { unusedPorts } from "../helpers/ports.ts";
-import { routeProfileTools } from "../helpers/mcp-client.ts";
+import { parseToolText, routeProfileTools } from "../helpers/mcp-client.ts";
 
 const root = resolve(import.meta.dir, "../.."), home = createTestHome("transfer-native", join(root, ".state"));
 const cli = process.env.STELZ_TEST_CLI || join(root, "src/cli/cli.ts");
@@ -27,12 +27,12 @@ async function call(client: Client, name: string, args: Record<string, unknown> 
   const response = await client.callTool({ name, arguments: args }, undefined, { timeout: 180_000 });
   const text = (response.content as { type: string; text?: string }[]).filter(item => item.type === "text").map(item => item.text).join("\n");
   if (response.isError) throw Error(text);
-  return JSON.parse(text) as Record<string, unknown>;
+  return parseToolText(text) as Record<string, unknown>;
 }
 async function connect(id: string) {
   const client = routeProfileTools(new Client({ name: "profile-transfer-acceptance", version: "1.0.0" }), id); clients.add(client);
   await client.connect(new StdioClientTransport({ command: process.execPath, args: ["--no-env-file", cli, "mcp"], env }));
-  await call(client, "profile_status"); await call(client, "profile_acquire"); await call(client, "camofox_list_tabs");
+  await call(client, "profile_status"); await call(client, "profile_acquire"); await call(client, "tab_list");
   return client;
 }
 async function release(client: Client) { await call(client, "profile_release"); await client.close(); clients.delete(client); }
@@ -46,7 +46,7 @@ async function observe(name: string) {
 }
 async function requireMarker(client: Client, tabId: string) {
   for (let index = 0; index < 100; index++) {
-    const snapshot = await call(client, "camofox_snapshot", { tabId });
+    const snapshot = await call(client, "tab_snapshot", { tabId });
     if (String(snapshot.snapshot).includes(`Storage marker: ${marker}`)) return;
     await Bun.sleep(50);
   }
@@ -58,11 +58,11 @@ try {
   await command("profile", "create", source, "--direct", "--json");
   active.add(source); await command("start", source);
   const original = await connect(source);
-  const tabId = String((await call(original, "camofox_create_tab", { url: site.url })).tabId);
-  await call(original, "camofox_snapshot", { tabId });
-  await call(original, "camofox_type", { tabId, selector: "#marker", text: marker });
-  await call(original, "camofox_snapshot", { tabId });
-  await call(original, "camofox_click", { tabId, selector: "#save" });
+  const tabId = String((await call(original, "tab_create", { url: site.url })).tabId);
+  await call(original, "tab_snapshot", { tabId });
+  await call(original, "tab_type", { tabId, selector: "#marker", text: marker });
+  await call(original, "tab_snapshot", { tabId });
+  await call(original, "tab_click", { tabId, selector: "#save" });
   await requireMarker(original, tabId);
   await release(original); await command("stop", source); active.delete(source);
   const profilePath = (id: string, path: string) => join(home, "profiles", id, path);
@@ -84,7 +84,7 @@ try {
   assert(statuses.phase === "stopped", "Import started a browser implicitly.");
   active.add(copied); await command("start", copied);
   const imported = await connect(copied);
-  const copiedTab = String((await call(imported, "camofox_create_tab", { url: site.url + "/?capture=imported-copy" })).tabId);
+  const copiedTab = String((await call(imported, "tab_create", { url: site.url + "/?capture=imported-copy" })).tabId);
   await requireMarker(imported, copiedTab);
   const observation = await observe("imported-copy");
   const storage = observation.storage as { cookie: string; localStorage: string; indexedDB: string };

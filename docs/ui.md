@@ -35,6 +35,7 @@ Local UI for visible browsers. Setup first: [Getting started](getting-started.md
 - **Location alignment** shows known problems before Start. **Check connection** checks the route without starting a browser. See [Location alignment blocks Start](troubleshooting/network.md#location-alignment-blocks-start) and [IP check policy](configuration/network.md#ip-check-policy).
 - Browser windows show Camoufox's pink cursor marker. The marker can stop at the page boundary.
 - Overview shows the shared MCP command and the `profileId`. See [Connect your agent](clients.md).
+- **Allow scripts** (below the typing mode) lets an agent run JavaScript in this profile's pages. It is off by default. It applies at the next call, with no restart. See [Scripts](mcp.md#scripts).
 
 ## Manual work
 
@@ -42,7 +43,7 @@ Local UI for visible browsers. Setup first: [Getting started](getting-started.md
 2. [Find the profile's window](#find-a-profiles-windows). Do your work there.
 3. Select **Resume**. The UI does not resume by itself. Resume can need an IP check.
 
-Buttons: **Stop**, **Pause**, **Resume**, **Release**, **Recheck IP**. See [Choose the lifecycle action](troubleshooting/index.md#choose-the-lifecycle-action).
+Buttons: **Stop**, **Pause**, **Resume**, **Release**, **Recheck**. See [Choose the lifecycle action](troubleshooting/index.md#choose-the-lifecycle-action).
 
 - Closing a profile's browser window stops that profile. Start it again explicitly.
 

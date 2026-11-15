@@ -70,7 +70,8 @@ for (const condition of ["missing", "corrupt", "incompatible", "incomplete"] as 
   const client = new Client({ name: "geoip-test", version: "1" });
   try {
     await client.connect(new StdioClientTransport({ command: process.execPath, args: ["--no-env-file", f.cliPath, "mcp"], env: f.env as Record<string, string>, stderr: "pipe" }));
-    expect((await client.listTools()).tools).toHaveLength(18);
+    // The default group is core: nine profile tools and thirteen tab tools.
+    expect((await client.listTools()).tools).toHaveLength(22);
     const result = await client.callTool({ name: "profile_start", arguments: { profileId: "test" } });
     expect(result.isError).toBe(true);
     expect(JSON.parse((result.content as { text: string }[])[0]!.text)).toMatchObject({ location: { code, browserStarted: false } });

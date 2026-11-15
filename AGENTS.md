@@ -18,11 +18,14 @@ Do not add a reasoning loop, agent framework, generic plugin framework, or fleet
 Enforce one browser instance per profile. Do not add global browser or saved-profile count limits.
 
 Register `stelz mcp` once per client configuration. Each connection can control many profiles.
-Keep the 18 fixed tools. Use `profile_list` for a fresh catalog.
+Tools come from the catalog (`src/browser/catalog.ts`). Use `profile_list` for a fresh catalog.
+Held and excluded upstream tools are never listed. A new upstream tool stays held until it is reviewed.
 Pass `profileId` to create, start, status, and acquire.
 Acquisition returns status and a fresh opaque `controlHandle` for that connection, profile, and browser lifetime.
-Pass both fields to release, pause, resume, recheck, and all nine Camofox tools.
+Every owned tool takes `profileId` and `controlHandle`: release, pause, resume, recheck, and each catalog tool.
 Never expose handles in status or catalog summaries.
+Only a person turns on the scripts switch (`allowScripts`), in the CLI or UI. MCP never changes it.
+One operation has one name in the CLI, MCP, the SDK, and the UI.
 Enforce one controller and one action queue per profile. Do not add agent identities or agent count limits.
 A client must call `profile_release` before handoff. Release and disconnect must preserve browsers and open pages.
 Only an explicit lifecycle command stops a browser.
@@ -39,7 +42,7 @@ Require fresh location preflight for each new proxied lifetime. Verify the brows
 Use `stelz setup` to prepare shared location data. Never download prerequisites during Start or MCP calls.
 A failed startup closes only its owned attempt and preserves the location failure and native data.
 
-Browser tasks must use fresh observations. Pause for human authentication in the same window.
+Browser tasks must use fresh observations. A fresh observation is a snapshot read after the page last changed. Pause for human authentication in the same window.
 Do not bypass authentication challenges or write website-specific task scripts.
 
 Use local fixtures and synthetic proxy inputs for routine tests. Never copy everyday profile proxies into test inputs.

@@ -7,7 +7,7 @@ export const phaseLabels: Record<UiPhase, string> = {
 };
 
 export const actionLabels: Record<UiAction, string> = {
-  start: "Start", stop: "Stop", pause: "Pause", resume: "Resume", release: "Release", recheck: "Recheck IP",
+  start: "Start", stop: "Stop", pause: "Pause", resume: "Resume", release: "Release", recheck: "Recheck",
 };
 
 export function redact(value: string): string {

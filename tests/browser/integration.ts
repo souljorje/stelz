@@ -6,7 +6,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { fixture } from "../helpers/fixture.ts";
 import { unusedPorts } from "../helpers/ports.ts";
 import { assertTestHome, createTestHome } from "../helpers/test-home.ts";
-import { routeProfileTools } from "../helpers/mcp-client.ts";
+import { parseToolText, routeProfileTools } from "../helpers/mcp-client.ts";
 import { assertSingleStartupWindow } from "../helpers/startup-window.ts";
 const root = resolve(import.meta.dir, "../..");
 const home = process.env.STELZ_TEST_HOME ? assertTestHome(process.env.STELZ_TEST_HOME)
@@ -35,7 +35,7 @@ async function call(client: Client, name: string, args: Record<string, unknown> 
   if (result.isError) throw Error(text);
   const shot = blocks.find(x => x.type === "image");
   if (shot?.data) writeFileSync(join(home, `snapshot-${Date.now()}.png`), Buffer.from(shot.data, "base64"), { mode: 0o600 });
-  return JSON.parse(text) as Record<string, unknown>;
+  return parseToolText(text) as Record<string, unknown>;
 }
 async function rejection(client: Client, name: string, args: Record<string, unknown> = {}) {
   const result = await client.callTool({ name, arguments: args }, undefined, { timeout: 180000 }); assert(result.isError, `${name} did not reject an invalid controller`);
@@ -60,25 +60,25 @@ try {
   await rejection(b.client, "profile_acquire");
   const tabs: Record<string, string> = {};
   for (const [id, client] of [["profile-01", a.client], ["profile-02", second.client]] as const) {
-    const tabId = await assertSingleStartupWindow(home, id, await call(client, "camofox_list_tabs"));
+    const tabId = await assertSingleStartupWindow(home, id, await call(client, "tab_list"));
     await call(client, "profile_recheck");
-    await assertSingleStartupWindow(home, id, await call(client, "camofox_list_tabs"));
+    await assertSingleStartupWindow(home, id, await call(client, "tab_list"));
     tabs[id] = tabId!;
-    await call(client, "camofox_navigate", { tabId, url: `${pageServer.url}/?profile=${id}` });
-    await call(client, "camofox_type", { tabId: tabs[id], selector: "#marker", text: id });
-    await call(client, "camofox_click", { tabId: tabs[id], selector: "#save" });
-    const snapshot = await call(client, "camofox_snapshot", { tabId: tabs[id] });
+    await call(client, "tab_navigate", { tabId, url: `${pageServer.url}/?profile=${id}` });
+    await call(client, "tab_type", { tabId: tabs[id], selector: "#marker", text: id });
+    await call(client, "tab_click", { tabId: tabs[id], selector: "#save" });
+    const snapshot = await call(client, "tab_snapshot", { tabId: tabs[id] });
     assert(String(snapshot.snapshot).includes(`Storage marker: ${id}`), "Storage marker is missing from the browser snapshot");
   }
   report.push({ check: "Startup and recheck leave one blank native window with one usable MCP tab", result: "passed" });
-  const scrollTab = await call(a.client, "camofox_create_tab", { url: `${pageServer.url}/scroll` });
+  const scrollTab = await call(a.client, "tab_create", { url: `${pageServer.url}/scroll` });
   let scrollX = 0, scrollY = 0;
   for (const direction of ["down", "up", "right", "left"]) {
-    await call(a.client, "camofox_snapshot", { tabId: scrollTab.tabId });
-    await call(a.client, "camofox_click", { tabId: scrollTab.tabId, selector: "#header" });
-    await call(a.client, "camofox_snapshot", { tabId: scrollTab.tabId });
-    await call(a.client, "camofox_scroll", { tabId: scrollTab.tabId, direction, amount: 500 });
-    const snapshot = await call(a.client, "camofox_snapshot", { tabId: scrollTab.tabId });
+    await call(a.client, "tab_snapshot", { tabId: scrollTab.tabId });
+    await call(a.client, "tab_click", { tabId: scrollTab.tabId, selector: "#header" });
+    await call(a.client, "tab_snapshot", { tabId: scrollTab.tabId });
+    await call(a.client, "tab_scroll", { tabId: scrollTab.tabId, direction, amount: 500 });
+    const snapshot = await call(a.client, "tab_snapshot", { tabId: scrollTab.tabId });
     const match = /Scroll position: x=(\d+) y=(\d+)/.exec(String(snapshot.snapshot));
     assert(match, "Scroll fixture position is missing");
     const x = Number(match[1]), y = Number(match[2]);
@@ -86,15 +86,15 @@ try {
       `Scroll ${direction} returned without moving the feed: ${x},${y}`);
     scrollX = x; scrollY = y;
   }
-  await call(a.client, "camofox_close_tab", { tabId: scrollTab.tabId });
+  await call(a.client, "tab_close", { tabId: scrollTab.tabId });
   report.push({ check: "Scroll moves a nested feed in all four directions after a header click", result: "passed" });
-  await rejection(a.client, "camofox_snapshot", { tabId: tabs["profile-02"] });
+  await rejection(a.client, "tab_snapshot", { tabId: tabs["profile-02"] });
   report.push({ check: "Two browsers, separate storage, explicit profile routing, and duplicate acquire rejection", result: "passed" });
   await call(a.client, "profile_release"); await call(b.client, "profile_acquire");
   const checkSamePage = async (client: Client) => {
-    const listing = await call(client, "camofox_list_tabs");
+    const listing = await call(client, "tab_list");
     assert(JSON.stringify(listing).includes(tabs["profile-01"]!), "The original tab disappeared during handoff");
-    const snapshot = await call(client, "camofox_snapshot", { tabId: tabs["profile-01"] });
+    const snapshot = await call(client, "tab_snapshot", { tabId: tabs["profile-01"] });
     assert(String(snapshot.snapshot).includes("Storage marker: profile-01"), "The original page lost its state");
     assert(JSON.stringify(instance("profile-01")) === JSON.stringify(before), "Handoff relaunched the browser");
     assert(pin("profile-01") === fingerprint, "Handoff changed the saved fingerprint");
@@ -105,7 +105,7 @@ try {
   const c = await connect("profile-01", "sdk-client-c-after-disconnect");
   await call(c.client, "profile_acquire"); await checkSamePage(c.client);
   report.push({ check: "Disconnect and reconnect preserve the same running browser", result: "passed" });
-  const pendingAction = call(c.client, "camofox_navigate", { tabId: tabs["profile-01"], url: `${pageServer.url}/slow` }).catch(() => undefined);
+  const pendingAction = call(c.client, "tab_navigate", { tabId: tabs["profile-01"], url: `${pageServer.url}/slow` }).catch(() => undefined);
   for (let n = 0; n < 30; n++) {
     const s = await call(c.client, "profile_status");
     if ((s.controller as { activeActions?: number } | undefined)?.activeActions) break;
@@ -123,18 +123,18 @@ try {
   await pendingAction; await checkSamePage(d.client);
   report.push({ check: "A crashed MCP client retains its action lock until the service finishes the action", result: "passed" });
   // A tab ID must keep routing input to the original page after another tab opens.
-  const foreground = await call(d.client, "camofox_create_tab", { url: pageServer.url });
+  const foreground = await call(d.client, "tab_create", { url: pageServer.url });
   await call(d.client, "profile_pause");
-  await rejection(d.client, "camofox_click", { tabId: tabs["profile-01"], selector: "#human" });
+  await rejection(d.client, "tab_click", { tabId: tabs["profile-01"], selector: "#human" });
   await call(d.client, "profile_resume");
-  await call(d.client, "camofox_snapshot", { tabId: tabs["profile-01"] });
+  await call(d.client, "tab_snapshot", { tabId: tabs["profile-01"] });
   // Known issue: a scroll in a tab that is not selected can exceed the action deadline. See docs/troubleshooting/lifetime-and-state.md#browser-action-or-ip-check-timed-out.
   // Stelz then blocks the lifetime, so record the issue and let the restart below replace that lifetime. Other errors still fail.
-  const scrolled = await call(d.client, "camofox_scroll", { tabId: tabs["profile-01"], direction: "down", amount: 100 })
+  const scrolled = await call(d.client, "tab_scroll", { tabId: tabs["profile-01"], direction: "down", amount: 100 })
     .then(() => true, (error: Error) => { if (!error.message.includes("action timed out")) throw error; return false; });
   if (scrolled) {
     await checkSamePage(d.client);
-    await call(d.client, "camofox_close_tab", { tabId: foreground.tabId });
+    await call(d.client, "tab_close", { tabId: foreground.tabId });
     report.push({ check: "Pause and resume keep the selected browser", result: "passed" });
   } else report.push({ check: "Pause and resume keep the selected browser", result: "known-issue",
     reason: "The scroll in a tab that is not selected exceeded the action deadline. The restart below replaces the blocked lifetime." });
@@ -144,9 +144,9 @@ try {
   await command("stop", "all"); await command("start", "all");
   for (const id of ["profile-01", "profile-02"]) {
     const next = await connect(id, `restart-${id}`); await call(next.client, "profile_acquire");
-    const tabId = await assertSingleStartupWindow(home, id, await call(next.client, "camofox_list_tabs"));
-    await call(next.client, "camofox_navigate", { tabId, url: pageServer.url });
-    const snapshot = await call(next.client, "camofox_snapshot", { tabId });
+    const tabId = await assertSingleStartupWindow(home, id, await call(next.client, "tab_list"));
+    await call(next.client, "tab_navigate", { tabId, url: pageServer.url });
+    const snapshot = await call(next.client, "tab_snapshot", { tabId });
     assert(String(snapshot.snapshot).includes(`Storage marker: ${id}`), "Storage did not survive restart");
     assert(pin(id) === pins[id as keyof typeof pins], "Restart changed a saved fingerprint"); await next.client.close();
   }

@@ -16,7 +16,7 @@ import {
 import { pendingProfileImport, profileImportSecretValues, ProfileImportTransactionError } from "../profiles/profile-import-transaction.ts";
 import {
   ProfileCatalogError, ProfileConfigurationError, catalogRevision, createProfile, deleteProfile,
-  updateNetwork, updateTyping, renameProfile, networkRevision, typingRevision,
+  updateNetwork, updateTyping, updateScripts, renameProfile, networkRevision, typingRevision,
 } from "../profiles/profile-configuration.ts";
 import { STELZ_VERSION, UPSTREAM_VERSION } from "../versions.ts";
 import type {
@@ -234,6 +234,7 @@ function profile(config: Settings, p: Profile, raw: Data, secrets: ReturnType<ty
     network: network(config, p, secrets),
     typingMode: p.typingMode ?? defaultTypingMode,
     typing: { revision: typingRevision(p), mode: p.typingMode ?? null, defaultMode: defaultTypingMode },
+    allowScripts: p.allowScripts === true,
   };
 }
 
@@ -352,6 +353,11 @@ export function createUiModel(): UiModel {
     }),
     updateTyping: (id, input) => safe(async () => {
       const result = await updateTyping(id, input);
+      const raw = data(await reportStatus(id));
+      return profile(result.config, result.profile, raw, result.secrets, redactor(result.config, [data(raw.controller).id]));
+    }),
+    updateScripts: (id, input) => safe(async () => {
+      const result = await updateScripts(id, input);
       const raw = data(await reportStatus(id));
       return profile(result.config, result.profile, raw, result.secrets, redactor(result.config, [data(raw.controller).id]));
     }),

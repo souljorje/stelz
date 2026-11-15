@@ -79,6 +79,19 @@ test("invalid identity exports with diagnostics and imports exact bytes with sel
   expect(empty.json.fingerprintDiagnostics).toEqual([{ sourceId: "empty", fingerprint: { status: "uninitialized" } }]);
 }, 20_000);
 
+test("an exported profile with scripts on imports with scripts off", async () => {
+  const from = source(), destination = home(), archive = join(from.directory, "scripts.zip");
+  const catalog = JSON.parse(readFileSync(join(from.directory, "profiles.json"), "utf8"));
+  catalog.profiles[0].allowScripts = true;
+  writeFileSync(join(from.directory, "profiles.json"), JSON.stringify(catalog));
+  expect((await exportArchive(from.directory, archive, ["work", "empty"])).json.ok).toBe(true);
+  const imported = await child(destination, [cli, "profile", "import", archive, "--json"]);
+  expect(imported.code, imported.err).toBe(0);
+  const saved = JSON.parse(readFileSync(join(destination, "profiles.json"), "utf8")).profiles as Array<{ id: string }>;
+  expect(saved.map(item => item.id).sort()).toEqual(["empty", "work"]);
+  for (const item of saved) expect(item, item.id).not.toHaveProperty("allowScripts");
+});
+
 test("engine mismatch, missing pins, and unsafe links remain fatal", async () => {
   const from = source(), pinPath = join(from.directory, "profiles/work/fingerprint.json");
   writeFileSync(pinPath, JSON.stringify({ version: 2, engineSha256: "a".repeat(64), config: identity }));

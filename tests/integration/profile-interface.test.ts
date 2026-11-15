@@ -54,7 +54,7 @@ async function fixture() {
       }
       if (action === "release") { if (body.controllerId === state.owner) state.owner = ""; return Response.json({ released: true }); }
       if (body.controllerId !== state.owner) return Response.json({ error: "Wrong controller." }, { status: 409 });
-      return Response.json({ content: [{ type: "text", text: JSON.stringify({ profileId }) }] });
+      return Response.json({ kind: "json", payload: { profileId } });
     } });
     services.add(server);
     profile.port = server.port;
@@ -86,7 +86,8 @@ test("one MCP connection discovers an empty and changing catalog with fixed sche
   const f = await fixture();
   try {
     const client = await f.connect(), original = (await client.listTools()).tools;
-    expect(original).toHaveLength(18);
+    // The default group is core: nine profile tools and thirteen tab tools.
+    expect(original).toHaveLength(22);
     expect(data(await client.callTool({ name: "profile_list" }))).toEqual({ profiles: [] });
     const call = (name: string, profileId: string) => client.callTool({ name, arguments: { profileId } });
     expect(data(await call("profile_create", "alpha"))).toMatchObject({ profileId: "alpha", created: true, phase: "stopped" });
@@ -127,14 +128,14 @@ test("stdio routing requires connection-local handles, strips routing, and never
     const valid = { profileId: "alpha", controlHandle: first.controlHandle };
     for (const args of [{ profileId: "alpha" }, { ...valid, profileId: "beta" }, { ...valid, controlHandle: "unknown" },
       ...["controllerId", "id", "instanceId", "sessionKey", "userId", "accessKey", "typingMode"].map(key => ({ ...valid, [key]: "injected" }))])
-      expect((await client.callTool({ name: "camofox_list_tabs", arguments: args })).isError).toBe(true);
-    expect((await other.callTool({ name: "camofox_list_tabs", arguments: valid })).isError).toBe(true);
+      expect((await client.callTool({ name: "tab_list", arguments: args })).isError).toBe(true);
+    expect((await other.callTool({ name: "tab_list", arguments: valid })).isError).toBe(true);
     expect(f.sent).toHaveLength(count);
-    expect(data(await client.callTool({ name: "camofox_list_tabs", arguments: valid }))).toEqual({ profileId: "alpha" });
+    expect(data(await client.callTool({ name: "tab_list", arguments: valid }))).toEqual({ profileId: "alpha" });
     expect(f.sent.at(-1)!.body.args).toEqual({});
     await client.callTool({ name: "profile_release", arguments: valid });
     expect(b.owner).not.toBe("");
-    expect((await client.callTool({ name: "camofox_list_tabs", arguments: { profileId: "beta", controlHandle: second.controlHandle } })).isError).not.toBe(true);
+    expect((await client.callTool({ name: "tab_list", arguments: { profileId: "beta", controlHandle: second.controlHandle } })).isError).not.toBe(true);
     const next = data(await other.callTool({ name: "profile_acquire", arguments: { profileId: "alpha" } }));
     const owner = a.owner;
     await client.callTool({ name: "profile_release", arguments: valid }); expect(a.owner).toBe(owner);

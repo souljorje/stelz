@@ -7,7 +7,7 @@ import { ROOT } from "../profiles/config.ts";
 import { runLifecycle } from "../runtime/operations.ts";
 import { LocationError } from "../browser/location.ts";
 import { createUiModel, redactUiText } from "./ui-model.ts";
-import { UI_ACTIONS, type UiAction, type UiProfileCreate, type UiProfileRename, type UiModel, type UiNetworkUpdate, type UiTypingUpdate } from "./contracts.ts";
+import { UI_ACTIONS, type UiAction, type UiProfileCreate, type UiProfileRename, type UiModel, type UiNetworkUpdate, type UiTypingUpdate, type UiScriptsUpdate } from "./contracts.ts";
 import { createWindowModel, type WindowModel } from "./window-model.ts";
 import type { ShowProfileWindow } from "../api/contracts.ts";
 import { createProfileTransferManager, type ProfileTransferManager } from "./profile-transfers.ts";
@@ -17,7 +17,7 @@ type Asset = { body: string | Uint8Array<ArrayBuffer>; type: string };
 export type UiSessionState = {
   bootstrapToken: string | null;
   session: string;
-  pending: Map<string, UiAction | "save" | "typing" | "rename" | "delete" | "show" | "export">;
+  pending: Map<string, UiAction | "save" | "typing" | "scripts" | "rename" | "delete" | "show" | "export">;
   activeMutations: number;
   ended: boolean;
 };
@@ -137,7 +137,7 @@ export function createUiApp(options: UiAppOptions = {}) {
   // Keep the exact URL paths used by the asset map and profile ID validation.
   const app = new Hono<UiEnvironment>({ getPath: request => new URL(request.url).pathname });
 
-  async function exclusive<T>(id: string, action: UiAction | "save" | "typing" | "rename" | "delete" | "show", run: () => Promise<T>) {
+  async function exclusive<T>(id: string, action: UiAction | "save" | "typing" | "scripts" | "rename" | "delete" | "show", run: () => Promise<T>) {
     if (pending.has(id)) throw new UiHttpError("An operation is already active for this profile. Wait for its result.", 409);
     pending.set(id, action);
     try { return await run(); }
@@ -259,6 +259,11 @@ export function createUiApp(options: UiAppOptions = {}) {
     return c.json({ profile: await exclusive(id, "typing", () => model.updateTyping(id, body as UiTypingUpdate)) });
   });
   app.all(`${profilePath}/typing`, c => methodNotAllowed(c, "PUT"));
+  app.put(`${profilePath}/scripts`, async c => {
+    const body = await readJson(c.req.raw), id = c.req.param("id");
+    return c.json({ profile: await exclusive(id, "scripts", () => model.updateScripts(id, body as UiScriptsUpdate)) });
+  });
+  app.all(`${profilePath}/scripts`, c => methodNotAllowed(c, "PUT"));
   app.get(`${profilePath}/windows`, async c => {
     if (c.req.method !== "GET") return methodNotAllowed(c, "GET");
     const id = c.req.param("id");

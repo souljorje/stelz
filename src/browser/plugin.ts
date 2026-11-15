@@ -9,8 +9,8 @@ import { applyFingerprint, validateFinalLaunch, type LaunchOptions } from "./fin
 import { initializedFingerprint, type FingerprintOwner } from "./fingerprint-transaction.ts";
 import { verifyProfileFingerprint, type ProfileBrowserContext, type ProfilePage } from "./native-profile.ts";
 import { createIpVerification, parseIpCheckInterval } from "./ip-verification.ts";
-import { allowedBrowserTools, browserToolArguments } from "../mcp/tool-policy.ts";
-import type { Contracts } from "./upstream.ts";
+import { browserTools as catalogTools, toolArguments, type Contracts } from "./catalog.ts";
+import { assertScriptsAllowed } from "../profiles/allow-scripts.ts";
 import { addProfileExtension, createProfileWindows } from "./profile-windows.ts";
 import { activateProfileBrowser } from "./window-activation.ts";
 import { profileTypingMode } from "../profiles/typing-mode.ts";
@@ -82,6 +82,14 @@ function isBrowserNetworkFailure(value: unknown) {
   return /^(?:NS_ERROR_(?:PROXY_[A-Z_]+|UNKNOWN_PROXY_HOST|CONNECTION_REFUSED|NET_(?:RESET|INTERRUPT|TIMEOUT)|UNKNOWN_HOST|OFFLINE)|net::ERR_(?:PROXY_[A-Z_]+|TUNNEL_CONNECTION_FAILED|SOCKS_[A-Z_]+|CONNECTION_(?:RESET|REFUSED|CLOSED|ABORTED|TIMED_OUT)|NETWORK_CHANGED|NAME_NOT_RESOLVED|INTERNET_DISCONNECTED)|proxy connection\b)/i.test(firstLine);
 }
 
+// Upstream answers an evaluate that passed its deadline with 504 and a JSON body. Match the code, not the message.
+const EVALUATE_TIMEOUT = "The script reached its time limit. It may still run in the page. Read a snapshot to see the page state. Do not run the script again.";
+function isEvaluateTimeout(value: unknown) {
+  const body = value instanceof Error ? /^504:\s*([\s\S]*)$/.exec(value.message)?.[1] : undefined;
+  try { return !!body && (JSON.parse(body) as { code?: unknown } | null)?.code === "evaluate_timeout"; }
+  catch { return false; }
+}
+
 export async function register(app: App, ctx: PluginContext, options: {
   actionTimeoutMs?: number; shutdown?: () => void; ipCheckIntervalMs?: number; now?: () => number;
   verifyFingerprint?: (context: Parameters<typeof verifyProfileFingerprint>[0], prepared: ReturnType<typeof applyFingerprint>) =>
@@ -103,7 +111,7 @@ export async function register(app: App, ctx: PluginContext, options: {
     verificationIntervalMs: interval, verificationStatus: "unverified", verificationRequired: requiresCheck };
   const controller = createControllerLease();
   const upstream = await import(pathToFileURL(join(process.env.STELZ_UPSTREAM!, "mcp/lib/tool-contracts.mjs")).href) as Contracts;
-  const browserTools = new Map(allowedBrowserTools(upstream.TOOL_DEFS).map(tool => [tool.name, tool]));
+  const browserTools = catalogTools(upstream.TOOL_DEFS);
   const ipVerification = createIpVerification(state.instanceId, expected);
   let context: Context | undefined;
   let stopping = false;
@@ -445,30 +453,36 @@ export async function register(app: App, ctx: PluginContext, options: {
       const controllerId = ownedController(req.body);
       const body = req.body || {};
       const name = String(body.name || "");
-      const tool = browserTools.get(name);
-      if (!tool) throw Error("Unknown browser tool.");
-      let args = browserToolArguments(tool, body.args);
+      const found = browserTools.get(name);
+      if (!found) throw Error("Unknown browser tool.");
+      let args = toolArguments(found.tool, body.args);
       const result = await controller.run(controllerId, () => bounded(async () => {
+        // Read the switch on each call, inside the queue, so a change applies to a running browser.
+        if (found.entry.policy === "scripts") assertScriptsAllowed(process.env.STELZ_HOME, id, name);
         await ensureVerified();
-        if (name === "camofox_type") {
+        if (name === "tab_type") {
           const { mode, ...input } = args;
           args = { ...input, typingMode: mode ?? profileTypingMode(process.env.STELZ_HOME, id) };
         }
         try {
-          const { spec, payload } = await upstream.runTool(name, args,
+          const { spec, payload } = await upstream.runTool(found.entry.upstream, args,
             { userId: id, sessionKey: "default" }, `http://127.0.0.1:${process.env.CAMOFOX_PORT}`,
             { accessKey: process.env.CAMOFOX_ACCESS_KEY, apiKey: process.env.CAMOFOX_API_KEY, cookiesDir: process.env.CAMOFOX_COOKIES_DIR });
           await recheckAfterNetworkFailure(payload);
-          return { content: upstream.adaptResponse(spec, payload) };
+          // Return the raw payload. Only the MCP server formats it.
+          return { kind: spec?.responseKind ?? "json", payload };
         } catch (error) {
-          if (isBrowserNetworkFailure(error)) {
+          if (name === "tab_evaluate" && isEvaluateTimeout(error)) {
+            // Upstream kept the tab and reported the timeout itself, so the browser lifetime stays usable.
+            throw Error(EVALUATE_TIMEOUT);
+          } else if (isBrowserNetworkFailure(error)) {
             await recheckAfterNetworkFailure(error);
           } else if (/timed out|timeout/i.test((error as Error).message)) {
             invalidate("A browser action timed out. Stop the profile before another browser action.");
           }
           throw error;
         }
-      }, serviceDeadline(name)));
+      }, serviceDeadline(found.entry.deadline(args))));
       res.json(result);
     } catch (error) {
       res.status(409).json({ error: (error as Error).message });

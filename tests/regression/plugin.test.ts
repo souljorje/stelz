@@ -11,7 +11,7 @@ import { createHash } from "node:crypto";
 import { freezeDevice, replayFingerprint, launchPreferences, applyProxyLocale } from "../../src/browser/fingerprint.ts";
 import { locationResult } from "../../src/browser/location.ts";
 import { register } from "../../src/browser/plugin.ts";
-import { allowedBrowserTools } from "../../src/mcp/tool-policy.ts";
+import { browserTools } from "../../src/browser/catalog.ts";
 import { commitFingerprint, readFingerprintJournal, stageFingerprint, writeInitialized } from "../../src/browser/fingerprint-transaction.ts";
 import { upstreamTyping } from "../helpers/upstream-typing.ts";
 import { mockLauncherResources } from "../helpers/launcher-resources.ts";
@@ -25,9 +25,9 @@ const tabId = "79bed5c4-d5b8-4369-9d13-b159451ece91";
 test("typing advertises optional per-call modes without changing upstream definitions", async () => {
   const { TOOL_DEFS } = await import(contractsUrl);
   const original = structuredClone(TOOL_DEFS);
-  const tools = allowedBrowserTools(TOOL_DEFS);
-  assert.equal(tools.length, 9);
-  const typing = tools.find((tool: { name: string }) => tool.name === "camofox_type");
+  const tools = browserTools(TOOL_DEFS);
+  assert.equal(tools.size, 25);
+  const typing = tools.get("tab_type")?.tool;
   assert.ok(typing);
   const mode = typing.inputSchema.properties?.mode;
   assert.ok(mode && typeof mode === "object" && "enum" in mode);
@@ -154,7 +154,6 @@ async function harness(mode: "direct" | "proxy" = "direct", waitForIP?: Promise<
   writeFileSync(join(upstream, "mcp/lib/tool-contracts.mjs"), fixture.canonical ? `export * from ${JSON.stringify(contractsUrl)};` : `
     export { TOOL_DEFS } from ${JSON.stringify(contractsUrl)};
     export async function runTool(name, args) { return globalThis.__stelzTool(name, args); }
-    export function adaptResponse(_spec, payload) { return [{ type: "text", text: JSON.stringify(payload) }]; }
   `);
   const locationConfig = { timezone: "America/New_York", "locale:language": "en", "locale:region": "US", "geolocation:latitude": 40, "geolocation:longitude": -73 };
   const location = { version: 1, inputId: "fixture", attemptId: "test-start", result: { ...locationResult("ready"), valid: true, network: "passed", geoip: "passed" },
@@ -485,7 +484,7 @@ test("pausing during an IP check does not become an irreversible context-loss bl
 });
 
 const controller = { id: "controller-a", pid: process.pid, label: "test" };
-const snapshot = { controllerId: controller.id, name: "camofox_snapshot", args: { tabId } };
+const snapshot = { controllerId: controller.id, name: "tab_snapshot", args: { tabId } };
 
 test("bootstrap preparation cannot admit control before the commit and matching marker", async () => {
   const h = await harness("direct", undefined, { expected: "" });
@@ -822,7 +821,9 @@ test("operator handoff waits for admitted browser work before another owner can 
   } finally { gate.resolve(); await h.close(); }
 });
 
-async function canonicalHarness(options: { timeout?: number; type?: (body: Record<string, unknown>) => Promise<{ code: number; payload: unknown }> } = {}) {
+type Reply = { code: number; payload: unknown };
+async function canonicalHarness(options: { timeout?: number; type?: (body: Record<string, unknown>) => Promise<Reply>;
+  reply?: (path: string) => Promise<Reply | undefined> | Reply | undefined } = {}) {
   const requests: Array<{ method: string; url: string; authorization?: string; body?: Record<string, unknown> }> = [];
   const server = createServer(async (req, res) => {
     let body = "";
@@ -830,7 +831,10 @@ async function canonicalHarness(options: { timeout?: number; type?: (body: Recor
     requests.push({ method: req.method!, url: req.url!, authorization: req.headers.authorization,
       body: body ? JSON.parse(body) : undefined });
     const path = new URL(req.url!, "http://localhost").pathname;
-    if (path.endsWith("/type") && options.type) {
+    const custom = await options.reply?.(path);
+    if (custom) {
+      res.writeHead(custom.code, { "Content-Type": "application/json" }).end(JSON.stringify(custom.payload));
+    } else if (path.endsWith("/type") && options.type) {
       const response = await options.type(JSON.parse(body));
       res.writeHead(response.code, { "Content-Type": "application/json" }).end(JSON.stringify(response.payload));
     } else if (path.endsWith("/screenshot")) {
@@ -852,8 +856,8 @@ test("canonical dispatch rejects tab-ID route injection before any HTTP request"
   const fixture = await canonicalHarness(), { h, requests } = fixture;
   try {
     await h.launch(); await h.create(); await h.request("acquire", controller);
-    for (const name of ["camofox_click", "camofox_type", "camofox_navigate", "camofox_scroll",
-      "camofox_snapshot", "camofox_screenshot", "camofox_close_tab"]) {
+    for (const name of ["tab_click", "tab_type", "tab_navigate", "tab_scroll",
+      "tab_snapshot", "tab_screenshot", "tab_close"]) {
       for (const invalid of [
         "../local-profile/stop?ignored=", `${tabId}/evaluate?ignored=`, "../sessions/profile-01/storage_state",
         "%2e%2e/local-profile/stop?ignored=", "..\\local-profile\\stop?ignored=", `${tabId}%2fevaluate`,
@@ -881,15 +885,15 @@ test("canonical dispatch preserves valid tool routes, arguments, and authenticat
   try {
     await h.launch(); await h.create(); await h.request("acquire", controller);
     const cases: Array<[string, Record<string, unknown>, string, string]> = [
-      ["camofox_create_tab", { url: "https://example.com" }, "POST", "/tabs"],
-      ["camofox_list_tabs", {}, "GET", "/tabs"],
-      ["camofox_click", { tabId, selector: "#x" }, "POST", `/tabs/${tabId}/click`],
-      ["camofox_type", { tabId, selector: "#x", text: "hello" }, "POST", `/tabs/${tabId}/type`],
-      ["camofox_navigate", { tabId, url: "https://example.com" }, "POST", `/tabs/${tabId}/navigate`],
-      ["camofox_scroll", { tabId, direction: "down", amount: 100 }, "POST", `/tabs/${tabId}/scroll`],
-      ["camofox_snapshot", { tabId, offset: 10 }, "GET", `/tabs/${tabId}/snapshot`],
-      ["camofox_screenshot", { tabId }, "GET", `/tabs/${tabId}/screenshot`],
-      ["camofox_close_tab", { tabId }, "DELETE", `/tabs/${tabId}`],
+      ["tab_create", { url: "https://example.com" }, "POST", "/tabs"],
+      ["tab_list", {}, "GET", "/tabs"],
+      ["tab_click", { tabId, selector: "#x" }, "POST", `/tabs/${tabId}/click`],
+      ["tab_type", { tabId, selector: "#x", text: "hello" }, "POST", `/tabs/${tabId}/type`],
+      ["tab_navigate", { tabId, url: "https://example.com" }, "POST", `/tabs/${tabId}/navigate`],
+      ["tab_scroll", { tabId, direction: "down", amount: 100 }, "POST", `/tabs/${tabId}/scroll`],
+      ["tab_snapshot", { tabId, offset: 10 }, "GET", `/tabs/${tabId}/snapshot`],
+      ["tab_screenshot", { tabId }, "GET", `/tabs/${tabId}/screenshot`],
+      ["tab_close", { tabId }, "DELETE", `/tabs/${tabId}`],
     ];
     for (const [name, args, method, path] of cases) {
       assert.equal((await h.request("tool", { controllerId: controller.id, name, args })).code, 200, name);
@@ -900,10 +904,10 @@ test("canonical dispatch preserves valid tool routes, arguments, and authenticat
       assert.equal(req.authorization, "Bearer fixture-key");
       if (method === "POST") {
         const { tabId: _tabId, ...body } = args;
-        assert.deepEqual(req.body, { ...body, userId: h.id, ...(name === "camofox_create_tab" ? { sessionKey: "default" } : {}),
-          ...(name === "camofox_type" ? { typingMode: "balanced" } : {}) });
+        assert.deepEqual(req.body, { ...body, userId: h.id, ...(name === "tab_create" ? { sessionKey: "default" } : {}),
+          ...(name === "tab_type" ? { typingMode: "balanced" } : {}) });
       } else assert.equal(url.searchParams.get("userId"), h.id);
-      if (name === "camofox_snapshot") assert.equal(url.searchParams.get("offset"), "10");
+      if (name === "tab_snapshot") assert.equal(url.searchParams.get("offset"), "10");
     }
     assert.equal(requests.length, cases.length);
   } finally { await fixture.close(); }
@@ -916,7 +920,7 @@ test("typing overrides reach Camofox per call and profile defaults update in the
   try {
     await h.launch(); await h.create(); await h.request("acquire", controller);
     const type = (args: Record<string, unknown> = {}) => h.request("tool", { controllerId: controller.id,
-      name: "camofox_type", args: { tabId, selector: "#message", text: "hello", ...args } });
+      name: "tab_type", args: { tabId, selector: "#message", text: "hello", ...args } });
     const lastBody = () => { const body = requests.at(-1)?.body; if (!body) throw Error("Missing request body"); return body; };
     configure("instant");
     for (const mode of ["balanced", "keyboard", "instant"]) {
@@ -942,7 +946,7 @@ test("the upstream typing timeout reaches the service as a terminal block", asyn
   const fixture = await canonicalHarness({ type: route.call }), { h, requests } = fixture;
   try {
     await h.launch(); await h.create(); await h.request("acquire", controller);
-    const type = { controllerId: controller.id, name: "camofox_type",
+    const type = { controllerId: controller.id, name: "tab_type",
       args: { tabId, selector: "#message", text: "hello", mode: "keyboard", pressEnter: true } };
     const response = await h.request("tool", type);
     assert.equal(response.code, 409);
@@ -955,6 +959,70 @@ test("the upstream typing timeout reaches the service as a terminal block", asyn
   } finally { await fixture.close(); }
 });
 
+const evaluateTimeout = { error: "action timed out after 1000ms; the tab was kept and the script may still be running in the page",
+  code: "evaluate_timeout", retryable: false, tabKept: true };
+const allowScripts = (h: { id: string; stateDir: string }) =>
+  writeFileSync(join(dirname(h.stateDir), "profiles.json"), JSON.stringify({ profiles: [{ id: h.id, allowScripts: true }] }));
+
+test("an upstream evaluate timeout is a clean error that keeps the profile ready", async () => {
+  const fixture = await canonicalHarness({ reply: path => path.endsWith("/evaluate") ? { code: 504, payload: evaluateTimeout } : undefined }), { h, requests } = fixture;
+  try {
+    allowScripts(h);
+    await h.launch(); await h.create(); await h.request("acquire", controller);
+    const evaluate = { controllerId: controller.id, name: "tab_evaluate", args: { tabId, expression: "while (true) {}", timeoutMs: 1000 } };
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const result = await h.request("tool", evaluate);
+      assert.equal(result.code, 409);
+      const message = String((result.payload as { error: string }).error);
+      assert.match(message, /may still run in the page/);
+      assert.match(message, /Read a snapshot/);
+      assert.match(message, /Do not run the script again/);
+      assert.equal(h.state().phase, "ready");
+      assert.equal(h.state().error, undefined);
+    }
+    assert.deepEqual(requests[0]!.body, { userId: h.id, expression: "while (true) {}", timeoutMs: 1000 });
+    assert.equal((await h.request("tool", snapshot)).code, 200);
+    assert.equal(requests.length, 3);
+  } finally { await fixture.close(); }
+});
+
+test("other upstream timeouts still block the browser lifetime", async () => {
+  const bodies: Array<[string, Reply]> = [
+    ["/evaluate", { code: 504, payload: { error: "action timed out after 1000ms", retryable: false } }],
+    ["/evaluate", { code: 504, payload: { ...evaluateTimeout, code: "another_timeout" } }],
+    ["/evaluate", { code: 500, payload: { error: "timeout", code: "evaluate_timeout" } }],
+    ["/click", { code: 504, payload: { error: "Timeout 30000ms exceeded", code: "evaluate_timeout" } }],
+  ];
+  for (const [suffix, response] of bodies) {
+    const fixture = await canonicalHarness({ reply: path => path.endsWith(suffix) ? response : undefined }), { h } = fixture;
+    try {
+      allowScripts(h);
+      await h.launch(); await h.create(); await h.request("acquire", controller);
+      const call = suffix === "/click" ? { name: "tab_click", args: { tabId, selector: "#x" } } : { name: "tab_evaluate", args: { tabId, expression: "1" } };
+      const result = await h.request("tool", { controllerId: controller.id, ...call });
+      assert.equal(result.code, 409, JSON.stringify(response));
+      if (suffix === "/click") assert.doesNotMatch(String((result.payload as { error: string }).error), /Do not run the script again/);
+      assert.equal(h.state().phase, "blocked", JSON.stringify(response));
+      assert.equal((await h.request("tool", snapshot)).code, 409);
+    } finally { await fixture.close(); }
+  }
+});
+
+test("the service deadline of an evaluate still blocks the browser lifetime", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const fixture = await canonicalHarness({ timeout: 40, reply: async path => path.endsWith("/evaluate") ? (await gate, { code: 200, payload: { ok: true } }) : undefined }), { h } = fixture;
+  try {
+    allowScripts(h);
+    await h.launch(); await h.create(); await h.request("acquire", controller);
+    const result = await h.request("tool", { controllerId: controller.id, name: "tab_evaluate", args: { tabId, expression: "1", timeoutMs: 1000 } });
+    assert.equal(result.code, 409);
+    assert.match(String((result.payload as { error: string }).error), /time limit/);
+    assert.doesNotMatch(String((result.payload as { error: string }).error), /Do not run the script again/);
+    assert.equal(h.state().phase, "blocked");
+  } finally { release(); await fixture.close(); }
+});
+
 test("the service deadline prevents overlap while the upstream typing lock remains held", async () => {
   let finish!: () => void, entered!: () => void;
   const gate = new Promise<void>(resolve => { finish = resolve; });
@@ -963,7 +1031,7 @@ test("the service deadline prevents overlap while the upstream typing lock remai
   const fixture = await canonicalHarness({ type: route.call, timeout: 40 }), { h, requests } = fixture;
   try {
     await h.launch(); await h.create(); await h.request("acquire", controller);
-    const type = { controllerId: controller.id, name: "camofox_type",
+    const type = { controllerId: controller.id, name: "tab_type",
       args: { tabId, selector: "#message", text: "hello", mode: "keyboard" } };
     const action = h.request("tool", type);
     await started;
@@ -993,13 +1061,13 @@ for (const [serviceMode, profileMode, expected, fallback] of [
       { id: h.id, ...(profileMode === undefined ? {} : { typingMode: profileMode }) },
     ] }));
     await h.launch(); await h.create(); await h.request("acquire", controller);
-    const result = await h.request("tool", { controllerId: controller.id, name: "camofox_type",
+    const result = await h.request("tool", { controllerId: controller.id, name: "tab_type",
       args: { tabId, selector: "#message", text: "hello" } });
     assert.equal(result.code, 200);
     assert.equal(requests.length, 1);
     assert.deepEqual(requests[0]!.body, { selector: "#message", text: "hello", userId: h.id, typingMode: expected });
     assert.equal(((await h.request("status")).payload as { typingModeDefault: string }).typingModeDefault, fallback);
-    const override = await h.request("tool", { controllerId: controller.id, name: "camofox_type",
+    const override = await h.request("tool", { controllerId: controller.id, name: "tab_type",
       args: { tabId, selector: "#message", text: "hello", mode: "keyboard" } });
     assert.equal(override.code, 200);
     assert.equal(requests.length, 2);
@@ -1334,16 +1402,75 @@ test("an IP failure during resume preserves the pause after recheck", async () =
   } finally { await h.close(); }
 });
 
-test("service rejects excluded upstream tools", async () => {
+test("service rejects held, excluded, upstream-named, and unknown tools", async () => {
   const h = await harness("direct", undefined, { expected: "" });
+  let dispatched = 0;
   try {
     await h.launch();
     await h.create();
     await h.request("acquire", controller);
-    for (const name of ["camofox_evaluate", "camofox_import_cookies"]) {
-      assert.equal((await h.request("tool", { ...snapshot, name })).code, 409);
+    h.setTool(async () => { dispatched++; return { spec: {}, payload: "ok" }; });
+    for (const name of ["tab_activate", "camofox_activate", "camofox_snapshot", "camofox_evaluate", "camofox_import_cookies", "camofox_import_local_storage",
+      "camofox_export_storage_state", "camofox_upload", "camofox_viewport", "tab_viewport", "tab_upload", "tab_unknown", ""]) {
+      const result = await h.request("tool", { ...snapshot, name });
+      assert.equal(result.code, 409, name);
+      assert.match(String((result.payload as { error: string }).error), /Unknown browser tool/);
     }
+    assert.equal(dispatched, 0);
     assert.equal((await h.request("tool", snapshot)).code, 200);
+    assert.equal(dispatched, 1);
+  } finally { await h.close(); }
+});
+
+test("a scripts tool needs the profile switch, and the service reads it on each call", async () => {
+  const h = await harness("direct", undefined, { expected: "" });
+  const catalog = join(dirname(h.stateDir), "profiles.json");
+  const configure = (allowScripts?: boolean) => writeFileSync(catalog, JSON.stringify({ profiles: [{ id: h.id, ...(allowScripts === undefined ? {} : { allowScripts }) }] }));
+  const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
+  const scripts = { tab_evaluate: { tabId, expression: "1+1" }, tab_init_script: { tabId, script: "window.x = 1" } } as const;
+  try {
+    await h.launch(); await h.create(); await h.request("acquire", controller);
+    h.setTool(async (name, args) => { calls.push({ name, args }); return { spec: {}, payload: { ok: true } }; });
+    for (const state of [undefined, false, "yes", 1] as const) {
+      configure(state as boolean | undefined);
+      for (const [name, args] of Object.entries(scripts)) {
+        const result = await h.request("tool", { controllerId: controller.id, name, args });
+        assert.equal(result.code, 409, `${name} with ${String(state)}`);
+        const message = String((result.payload as { error: string }).error);
+        assert.match(message, new RegExp(`stelz profile config ${h.id} --allow-scripts`));
+        assert.match(message, /UI/);
+      }
+    }
+    assert.equal(calls.length, 0);
+    assert.equal(h.state().phase, "ready");
+    configure(true);
+    for (const [name, args] of Object.entries(scripts)) assert.equal((await h.request("tool", { controllerId: controller.id, name, args })).code, 200, name);
+    assert.deepEqual(calls.map(call => call.name), ["camofox_evaluate", "camofox_init_script"]);
+    configure(false);
+    assert.equal((await h.request("tool", { controllerId: controller.id, name: "tab_evaluate", args: scripts.tab_evaluate })).code, 409);
+    assert.equal(calls.length, 2);
+    // Other tools never need the switch.
+    assert.equal((await h.request("tool", snapshot)).code, 200);
+    // A profile that left the catalog fails closed.
+    writeFileSync(catalog, JSON.stringify({ profiles: [] }));
+    assert.equal((await h.request("tool", { controllerId: controller.id, name: "tab_evaluate", args: scripts.tab_evaluate })).code, 409);
+    assert.equal(calls.length, 3);
+  } finally { await h.close(); }
+});
+
+test("the service returns the raw payload and its response kind", async () => {
+  const h = await harness("direct", undefined, { expected: "" });
+  try {
+    await h.launch(); await h.create(); await h.request("acquire", controller);
+    const shots = { url: "https://example.test/", snapshot: "- heading \"Title\" [e1]", refsCount: 1, truncated: false, nextOffset: null, screenshot: { data: "aW1n", mimeType: "image/png" } };
+    for (const [spec, payload, kind] of [[{}, { ok: true }, "json"], [{ responseKind: "json" }, [1, 2], "json"], [{ responseKind: "snapshot" }, shots, "snapshot"],
+      [{ responseKind: "image" }, { type: "image", data: "aW1n", mimeType: "image/png" }, "image"]] as const) {
+      h.setTool(async () => ({ spec, payload }));
+      const result = await h.request("tool", snapshot);
+      assert.equal(result.code, 200);
+      assert.deepEqual(result.payload, { kind, payload });
+      assert.equal(Object.hasOwn(result.payload as object, "content"), false);
+    }
   } finally { await h.close(); }
 });
 

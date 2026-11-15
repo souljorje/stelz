@@ -10,7 +10,7 @@ import { STELZ_VERSION } from "../../src/versions.ts";
 import { assessSite, detectHumanChallenge, type Assessment, type SiteId, type Verdict } from "../helpers/public-site-verdicts.ts";
 import { assertTestHome } from "../helpers/test-home.ts";
 import { proxyRedactor } from "../helpers/proxy-acceptance-helpers.ts";
-import { routeProfileTools } from "../helpers/mcp-client.ts";
+import { parseToolText, routeProfileTools } from "../helpers/mcp-client.ts";
 const ROOT = resolve(import.meta.dir, "../..");
 const cli = process.env.STELZ_TEST_CLI || join(ROOT, "src/cli/cli.ts");
 
@@ -56,7 +56,7 @@ const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function textResult(reply: ToolReply): Record<string, unknown> {
   const text = reply.content.filter(block => block.type === "text").map(block => block.text ?? "").join("\n");
   if (reply.isError) throw Error(text || "MCP tool failed without an error message.");
-  const value: unknown = JSON.parse(text);
+  const value: unknown = parseToolText(text);
   if (!value || typeof value !== "object" || Array.isArray(value)) throw Error("MCP tool returned an invalid JSON object.");
   return value as Record<string, unknown>;
 }
@@ -217,7 +217,7 @@ export async function runPublicSites(options: RunOptions): Promise<PublicReport>
     const lease = await call("profile_acquire");
     if (typeof lease.controlHandle !== "string" || !lease.controlHandle) throw Error("The profile did not return a control handle.");
     acquired = true;
-    report.initialTabIds = tabIds(await call("camofox_list_tabs"));
+    report.initialTabIds = tabIds(await call("tab_list"));
     persist(report);
     for (const site of report.results) {
       checkAbort();
@@ -234,7 +234,7 @@ export async function runPublicSites(options: RunOptions): Promise<PublicReport>
       };
       try {
         await checkReady();
-        const tab = await call("camofox_create_tab", { url: site.url });
+        const tab = await call("tab_create", { url: site.url });
         if (typeof tab.tabId !== "string" || !uuid.test(tab.tabId)) throw Error("MCP returned an invalid tab ID.");
         site.tabId = tab.tabId;
         while (true) {
@@ -251,17 +251,19 @@ export async function runPublicSites(options: RunOptions): Promise<PublicReport>
           while (true) {
             checkAbort();
             if (pages.length && now() >= deadline) throw Error("The site deadline expired during snapshot pagination.");
-            const reply = await connection.call("camofox_snapshot", { tabId: site.tabId, ...(offset ? { offset } : {}) });
+            const reply = await connection.call("tab_snapshot", { tabId: site.tabId, ...(offset ? { offset } : {}) });
             const value = textResult(reply);
             if (typeof value.snapshot !== "string" || typeof value.url !== "string") throw Error("MCP returned an invalid snapshot.");
             if (previousUrl && previousUrl !== value.url) throw Error("The page changed during snapshot pagination.");
             previousUrl = value.url;
-            pages.push({ url: value.url, snapshot: value.snapshot, offset, hasMore: value.hasMore, nextOffset: value.nextOffset });
+            // The MCP header has no hasMore. More text remains while nextOffset is set.
+            const hasMore = value.nextOffset !== null && value.nextOffset !== undefined;
+            pages.push({ url: value.url, snapshot: value.snapshot, offset, hasMore, nextOffset: value.nextOffset });
             try { capture(reply); } catch (error) { lastImageError = message(error); }
             site.finalUrl = value.url;
             site.snapshot = join(outputDir, site.id + ".snapshot.json");
             writePrivate(site.snapshot, JSON.stringify({ capturedAt: stamp(), pages }, null, 2) + "\n");
-            if (!value.hasMore) { parts.push(value.snapshot); break; }
+            if (!hasMore) { parts.push(value.snapshot); break; }
             if (typeof value.nextOffset !== "number" || !Number.isInteger(value.nextOffset) || value.nextOffset <= offset
               || value.nextOffset - offset > value.snapshot.length || pages.length >= 100) {
               throw Error("MCP snapshot pagination did not advance.");
@@ -275,7 +277,7 @@ export async function runPublicSites(options: RunOptions): Promise<PublicReport>
           const challenge = detectHumanChallenge(snapshot);
           if (challenge) {
             site.status = "INCONCLUSIVE"; site.reason = "Human authentication is required: " + challenge;
-            if (!site.screenshot) { try { capture(await connection.call("camofox_screenshot", { tabId: site.tabId })); } catch (error) { lastImageError = message(error); } }
+            if (!site.screenshot) { try { capture(await connection.call("tab_screenshot", { tabId: site.tabId })); } catch (error) { lastImageError = message(error); } }
             await call("profile_pause"); ready = false; persist(report);
             const confirmed = await (options.confirmHuman ?? confirmHuman)(site, challenge, signal);
             if (!confirmed || signal?.aborted) { site.reason += ". The run ended before authentication was confirmed."; halt = true; break; }
@@ -291,7 +293,7 @@ export async function runPublicSites(options: RunOptions): Promise<PublicReport>
             if (ref) {
               site.screenshot = undefined;
               // Native locator clicks scroll the observed control into view before activating it.
-              await call("camofox_click", { tabId: site.tabId, ref });
+              await call("tab_click", { tabId: site.tabId, ref });
               controlObserved = true; framePending = true;
               continue;
             }
@@ -321,7 +323,7 @@ export async function runPublicSites(options: RunOptions): Promise<PublicReport>
       }
       // The snapshot's native image is preferred: it shows the same observation as the verdict.
       if (!site.screenshot && site.tabId && ready && !halt && !signal?.aborted) {
-        try { capture(await connection.call("camofox_screenshot", { tabId: site.tabId })); }
+        try { capture(await connection.call("tab_screenshot", { tabId: site.tabId })); }
         catch (error) { lastImageError = message(error); }
       }
       if (!site.screenshot && site.tabId) {
@@ -334,7 +336,7 @@ export async function runPublicSites(options: RunOptions): Promise<PublicReport>
     }
     if (!halt && !signal?.aborted) {
       await checkReady();
-      report.finalTabIds = tabIds(await call("camofox_list_tabs"));
+      report.finalTabIds = tabIds(await call("tab_list"));
       const required = [...report.initialTabIds, ...report.results.flatMap(site => site.tabId ? [site.tabId] : [])];
       if (required.some(id => !report.finalTabIds!.includes(id))) report.errors.push("A pre-existing tab or suite tab disappeared during the run.");
     }

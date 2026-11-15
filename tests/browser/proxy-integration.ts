@@ -13,7 +13,7 @@ import {
 } from "../helpers/proxy-acceptance-helpers.ts";
 import { assertRelayTraffic, networkProbe, probeExit, proxyRelay } from "../helpers/proxy-network-fixture.ts";
 import { unusedPorts } from "../helpers/ports.ts";
-import { routeProfileTools } from "../helpers/mcp-client.ts";
+import { parseToolText, routeProfileTools } from "../helpers/mcp-client.ts";
 import { assertSingleStartupWindow } from "../helpers/startup-window.ts";
 import { createTestHome } from "../helpers/test-home.ts";
 
@@ -40,7 +40,7 @@ async function call(client: Client, name: string, args: Record<string, unknown> 
   const result = await tool(client, name, args);
   const text = (result.content as Array<{ type: string; text?: string }>).filter(value => value.type === "text").map(value => value.text).join("\n");
   if (result.isError) throw Error(redact(`MCP ${name} rejected: ${text}`));
-  return JSON.parse(text) as Record<string, unknown>;
+  return parseToolText(text) as Record<string, unknown>;
 }
 async function rejected(client: Client, name: string) {
   // A broken transport must fail acceptance, rather than count as policy rejection.
@@ -55,7 +55,7 @@ async function client(id: string) {
   transport.stderr?.on("data", () => {});
   await value.connect(transport);
   const status = await call(value, "profile_status"); await call(value, "profile_acquire");
-  await assertSingleStartupWindow(home!, id, status.phase === "ready" ? await call(value, "camofox_list_tabs") : undefined);
+  await assertSingleStartupWindow(home!, id, status.phase === "ready" ? await call(value, "tab_list") : undefined);
   report.push({ check: "Startup leaves only one blank native window", profile: id, phase: status.phase, result: "passed" });
   return value;
 }
@@ -83,16 +83,16 @@ function unchanged(instances: Pair<string>) {
 }
 async function capture(c: Client, id: string, stage: string, fixturePort: number, initialize = false): Promise<Observation> {
   const key = `${stage}-${id}`;
-  const tab = await call(c, "camofox_create_tab", { url: `http://127.0.0.1:${fixturePort}/?capture=${key}` });
-  await call(c, "camofox_snapshot", { tabId: tab.tabId });
+  const tab = await call(c, "tab_create", { url: `http://127.0.0.1:${fixturePort}/?capture=${key}` });
+  await call(c, "tab_snapshot", { tabId: tab.tabId });
   if (initialize) {
-    await call(c, "camofox_type", { tabId: tab.tabId, selector: "#marker", text: id });
-    await call(c, "camofox_snapshot", { tabId: tab.tabId });
-    await call(c, "camofox_click", { tabId: tab.tabId, selector: "#save" });
+    await call(c, "tab_type", { tabId: tab.tabId, selector: "#marker", text: id });
+    await call(c, "tab_snapshot", { tabId: tab.tabId });
+    await call(c, "tab_click", { tabId: tab.tabId, selector: "#save" });
   }
   let stored = false;
   for (let n = 0; n < 30; n++) {
-    const snapshot = await call(c, "camofox_snapshot", { tabId: tab.tabId });
+    const snapshot = await call(c, "tab_snapshot", { tabId: tab.tabId });
     if (String(snapshot.snapshot).includes(`Storage marker: ${id}`)) { stored = true; break; }
     await Bun.sleep(100);
   }
@@ -121,8 +121,8 @@ function successful(result: ProbeResult, index: number, expected: Pair<string>, 
 }
 async function openProbe(c: Client) {
   const channel = probe!.channel();
-  const tab = await call(c, "camofox_create_tab", { url: channel.url });
-  await call(c, "camofox_snapshot", { tabId: tab.tabId });
+  const tab = await call(c, "tab_create", { url: channel.url });
+  await call(c, "tab_snapshot", { tabId: tab.tabId });
   return channel;
 }
 try {
@@ -196,17 +196,17 @@ try {
     for (const index of [0, 1]) {
       const id = ids[index]!, c = await client(id); active.push(c);
       await verified(c, index, expected, direct);
-      await assertSingleStartupWindow(home!, id, await call(c, "camofox_list_tabs"));
+      await assertSingleStartupWindow(home!, id, await call(c, "tab_list"));
       if (lifetime === 1) {
         const nonce = hostnameFixtures[index]!.nonce, hostname = `${nonce}.invalid`;
-        const tab = await call(c, "camofox_create_tab", { url: `http://${hostname}/` });
-        const snapshot = await call(c, "camofox_snapshot", { tabId: tab.tabId });
+        const tab = await call(c, "tab_create", { url: `http://${hostname}/` });
+        const snapshot = await call(c, "tab_snapshot", { tabId: tab.tabId });
         assert(String(snapshot.snapshot).includes(`Proxy hostname nonce: ${nonce}`), "The browser did not display its relay's hostname nonce.");
         const requests = hostnameRequests.filter(request => request.hostname === hostname);
         assert(requests.length > 0 && requests.every(request => request.profile === id), "The unresolved hostname did not reach only the correct profile's relay.");
         report.push({ check: "HTTP absolute-URI hostname delegation", profile: id, hostname, result: "passed",
           scope: "This request succeeded without requiring local DNS resolution. This does not prove absence of OS or browser DNS leaks." });
-        await call(c, "camofox_close_tab", { tabId: tab.tabId });
+        await call(c, "tab_close", { tabId: tab.tabId });
       }
       const channel = await openProbe(c); channels.push(channel);
       const observed = await capture(c, id, `proxy-${lifetime}`, fixturePort!), result = await channel.sample();
@@ -256,16 +256,16 @@ try {
         const status = await call(active[failedIndex]!, "profile_status");
         assert(status.phase === "verification_failed" && status.exitIp === null && status.fixedIpVerified === false,
           "Explicit recheck did not invalidate the failed proxy's cached verification.");
-        await rejected(active[failedIndex]!, "camofox_list_tabs");
+        await rejected(active[failedIndex]!, "tab_list");
         await verified(active[healthyIndex]!, healthyIndex, expected, direct);
         successful(await channels[healthyIndex]!.sample(), healthyIndex, expected, direct);
-        await call(active[healthyIndex]!, "camofox_list_tabs"); unchanged(instances);
+        await call(active[healthyIndex]!, "tab_list"); unchanged(instances);
         report.push({ check: "Explicit recheck blocks only the failed profile", failedProfile: ids[failedIndex], result: "passed" });
 
         await relays[failedIndex]!.start();
         await verified(active[failedIndex]!, failedIndex, expected, direct);
         successful(await channels[failedIndex]!.sample(), failedIndex, expected, direct);
-        await call(active[failedIndex]!, "camofox_list_tabs"); unchanged(instances);
+        await call(active[failedIndex]!, "tab_list"); unchanged(instances);
         report.push({ check: "Explicit recheck restores the original browser after relay recovery", profile: ids[failedIndex], result: "passed" });
       }
     }

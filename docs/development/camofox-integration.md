@@ -60,7 +60,7 @@ Stelz does these without a patch:
 
 - Keep exact versions until a separate compatibility review approves an upgrade.
 - Bun writes the registry manifest of Camofox into `bun.lock`, not the patched one. After a version change, give the `@askjo/camofox-browser` lock entry the dependencies of the patched manifest. Then run `bun install --frozen-lockfile`. Otherwise the archive holds a second MCP SDK.
-- Stelz exposes only the tools and properties that `src/mcp/tool-policy.ts` lists. Review each new upstream tool, property, and background timer before you list or enable it.
+- Stelz exposes only the tools and properties that `src/browser/catalog.ts` lists. Classify each new upstream tool as an entry or as excluded, because the catalog test fails on an unclassified tool. Review each new property and background timer before you list or enable it.
 - Only `src/browser/camoufox.ts` imports `camoufox` internals. Its unit test fails when an upgrade removes one of them.
 - Update `src/browser/camofox-adapter.ts` when a required patched location changes.
 

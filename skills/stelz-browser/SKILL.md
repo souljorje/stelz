@@ -1,20 +1,20 @@
 ---
 name: stelz-browser
-description: Do browser tasks in persistent Stelz profiles through the Stelz MCP tools (`profile_*` and `camofox_*`), with exclusive control, verified readiness, and human authentication. Also use it to install Stelz when a user sends a link to this skill.
+description: Do browser tasks in persistent Stelz profiles through the Stelz MCP tools (`profile_*` and `tab_*`), with exclusive control, verified readiness, and human authentication. Also use it to install Stelz when a user sends a link to this skill.
 ---
 
 # Stelz browser
 
 Stelz runs persistent browser profiles. You control them through the tools of one `stelz mcp` connection.
 [Shared MCP tools](https://github.com/souljorje/stelz/blob/main/docs/mcp.md) is the tool contract, including the control-handle rules.
-Requires Stelz 0.5.0 or later. Check with `stelz --version`.
+Requires Stelz 0.6.0 or later. Check with `stelz --version`.
 
 ## Install
 
 When a user sends a link to this file and asks you to install it:
 
 1. Save this file as `stelz-browser/SKILL.md` in your client's skill folder. See [Connect your agent](https://github.com/souljorje/stelz/blob/main/docs/clients.md).
-2. If `stelz` is missing or older than 0.5.0, or the Stelz MCP tools are missing, follow [Agent setup](https://github.com/souljorje/stelz/blob/main/docs/bootstrap.md).
+2. If `stelz` is missing or older than 0.6.0, or the Stelz MCP tools are missing, follow [Agent setup](https://github.com/souljorje/stelz/blob/main/docs/bootstrap.md).
 
 Run `stelz setup` only in a terminal. MCP tools do not download prerequisites.
 
@@ -30,8 +30,8 @@ Run `stelz setup` only in a terminal. MCP tools do not download prerequisites.
    If a check fails, do not acquire. Report `location` to the user and go to [Recover](#recover).
 5. Call `profile_acquire({profileId})`. Keep the returned `controlHandle` with its profile ID. Never write it in reports, configuration, or handoff notes.
    Send both fields in each later call for that profile.
-6. Call `camofox_list_tabs` to find the startup page. Navigate that tab.
-7. Before the first action on a tab, read a `camofox_snapshot`. Use its element references to click and type.
+6. Call `tab_list` to find the startup page. Navigate that tab.
+7. Before the first action on a tab, read a `tab_snapshot`. Use its element references to click and type.
 8. After each action, read one snapshot. Use it to check the result. Use its element references for the next action.
 9. Read another snapshot before an action only if the page may have changed after your last snapshot. For example, you waited, you used a different tab, or the operator used the window.
 10. When you finish, or before another agent takes over, call `profile_release({profileId, controlHandle})`. Leave the browser open.
@@ -41,7 +41,8 @@ Run `stelz setup` only in a terminal. MCP tools do not download prerequisites.
 - Never repeat an action that may have reached the page or that stopped before it finished. Read a fresh snapshot first.
 - If another controller holds the profile, do not start another browser or create another profile. Ask the operator to release it.
 - For changes that the tools cannot make, ask the operator to use the CLI or UI.
-- Before you type long text, read [Typing](https://github.com/souljorje/stelz/blob/main/docs/configuration/typing.md) to select a `camofox_type` mode.
+- `tab_evaluate` and `tab_init_script` work only on a profile that the operator allowed, and only when the connection lists them. If a call says that scripts are off, ask the operator to allow scripts in the CLI or UI. Never try to change this setting. After a `tab_evaluate` timeout, read a snapshot. Do not run the script again.
+- Before you type long text, read [Typing](https://github.com/souljorje/stelz/blob/main/docs/configuration/typing.md) to select a `tab_type` mode.
 - Tell the operator about location warnings in `location.evidence`. Never claim a physical location from status, and never bypass a location blocker. See [Managed location data](https://github.com/souljorje/stelz/blob/main/docs/configuration/network.md#managed-location-data).
 - If status shows `restartToUpdate: true`, tell the user. Restart only when the user asks. Release before the restart, and acquire again after it. See [Restart to update](https://github.com/souljorje/stelz/blob/main/docs/troubleshooting/setup.md#restart-to-update).
 

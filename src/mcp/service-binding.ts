@@ -5,6 +5,7 @@ import { assertRunning, running, type Running } from "../runtime/runtime.ts";
 import { ownership } from "../runtime/profile-process.ts";
 import type { ControlTransport } from "./control-registry.ts";
 import { replyTimeout } from "../browser/deadlines.ts";
+import { deadline } from "../browser/catalog.ts";
 
 type ServiceBinding = {
   readonly profileId: string;
@@ -30,8 +31,8 @@ async function request(binding: ServiceBinding, action: string, body?: Record<st
     headers: { Authorization: `Bearer ${binding.accessKey}`, "Content-Type": "application/json" },
     ...(body ? { body: JSON.stringify(body) } : {}),
     redirect: "error",
-    // A browser tool waits for its service deadline. Other control requests keep their own limits.
-    signal: AbortSignal.timeout(action === "tool" ? replyTimeout(String(body?.name)) : body ? 120_000 : 5_000),
+    // A browser tool waits for the service deadline of its own arguments. Other control requests keep their own limits.
+    signal: AbortSignal.timeout(action === "tool" ? replyTimeout(deadline(String(body?.name), (body?.args ?? {}) as Record<string, unknown>)) : body ? 120_000 : 5_000),
   });
   const result = await response.json() as Record<string, unknown>;
   if (!response.ok) throw Error(String(result.error || `Profile control returned ${response.status}.`));

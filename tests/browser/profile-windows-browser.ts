@@ -6,7 +6,7 @@ import { join, resolve } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { profileAppearance, type ProfileWindows } from "../../src/api/contracts.ts";
-import { routeProfileTools } from "../helpers/mcp-client.ts";
+import { parseToolText, routeProfileTools } from "../helpers/mcp-client.ts";
 
 const root = resolve(import.meta.dir, "../..");
 mkdirSync(join(root, ".state"), { recursive: true });
@@ -35,7 +35,7 @@ async function call(client: Client, name: string, args: Record<string, unknown> 
   const result = await client.callTool({ name, arguments: args }, undefined, { timeout: 90_000 });
   const text = (result.content as { type: string; text?: string }[]).filter(item => item.type === "text").map(item => item.text).join("\n");
   if (result.isError) throw Error(text);
-  return JSON.parse(text);
+  return parseToolText(text);
 }
 async function waitFor(id: string, predicate: (value: ProfileWindows) => boolean) {
   const deadline = Date.now() + 20_000;
@@ -63,9 +63,9 @@ try {
     const client = routeProfileTools(new Client({ name: "window-acceptance", version: "1.0.0" }), id); clients.push(client);
     await client.connect(new StdioClientTransport({ command: bun, args: ["--no-env-file", cli, "mcp"], env }));
     await call(client, "profile_status"); await call(client, "profile_acquire");
-    const first = await call(client, "camofox_create_tab", { url: fixture.url + "alpha" });
-    await call(client, "camofox_snapshot", { tabId: first.tabId });
-    await call(client, "camofox_create_tab", { url: fixture.url + "beta" });
+    const first = await call(client, "tab_create", { url: fixture.url + "alpha" });
+    await call(client, "tab_snapshot", { tabId: first.tabId });
+    await call(client, "tab_create", { url: fixture.url + "beta" });
     const before = await call(client, "profile_status");
     const servicePort = JSON.parse(readFileSync(join(home, "profiles.json"), "utf8")).profiles.find((row: { id: string }) => row.id === id).port;
     for (const [path, method] of [["windows", "GET"], ["window-bridge", "POST"], ["network-bridge", "POST"], ["window-show", "POST"]]) {
@@ -89,8 +89,8 @@ try {
       if (!/foreground/.test(String(error))) throw error;
       foregroundLimits.push(id + ": " + String(error));
     }
-    await call(client, "camofox_navigate", { tabId: first.tabId, url: fixture.url + "beta" });
-    const snapshot = await call(client, "camofox_snapshot", { tabId: first.tabId });
+    await call(client, "tab_navigate", { tabId: first.tabId, url: fixture.url + "beta" });
+    const snapshot = await call(client, "tab_snapshot", { tabId: first.tabId });
     assert.match(JSON.stringify(snapshot), /Beta fixture/);
     const changed = await waitFor(id, value => value.windows.some(window => window.id === selected.id && window.title.includes("Beta fixture")));
     assert(changed.windows.every(window => window.title.startsWith("[" + id + "]")));

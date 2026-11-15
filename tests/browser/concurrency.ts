@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { fixture } from "../helpers/fixture.ts";
-import { routeProfileTools } from "../helpers/mcp-client.ts";
+import { parseToolText, routeProfileTools } from "../helpers/mcp-client.ts";
 import { processStart, type Running } from "../../src/runtime/profile-process.ts";
 
 const root = resolve(import.meta.dir, "../.."), cli = process.env.STELZ_CLI || process.env.STELZ_TEST_CLI || join(root, "src/cli/cli.ts");
@@ -83,7 +83,7 @@ async function call(client: Client, name: string, args: Record<string, unknown> 
   const result = await client.callTool({ name, arguments: args }, undefined, { timeout: 120000 });
   const text = (result.content as { type: string; text?: string }[]).filter(block => block.type === "text").map(block => block.text).join("\n");
   if (result.isError) throw Error(text);
-  return JSON.parse(text) as Record<string, unknown>;
+  return parseToolText(text) as Record<string, unknown>;
 }
 async function storage(capture: string, expected: string | null) {
   for (let attempt = 0; attempt < 200; attempt++) {
@@ -117,16 +117,16 @@ try {
     observeBrowserProcesses(id, value);
     assert((await call(client, "profile_status", { profileId: id })).phase === "ready", `${id}: browser is not ready`);
     const acquired = await call(client, "profile_acquire", { profileId: id }); handles.set(id, String(acquired.controlHandle));
-    await call(client, "camofox_list_tabs", { profileId: id });
-    const tabId = String((await call(client, "camofox_create_tab", { profileId: id, url: `${site.url}/?capture=empty-${id}` })).tabId);
-    tabs.set(id, tabId); await call(client, "camofox_snapshot", { profileId: id, tabId });
+    await call(client, "tab_list", { profileId: id });
+    const tabId = String((await call(client, "tab_create", { profileId: id, url: `${site.url}/?capture=empty-${id}` })).tabId);
+    tabs.set(id, tabId); await call(client, "tab_snapshot", { profileId: id, tabId });
     await storage(`empty-${id}`, null);
-    await call(client, "camofox_type", { profileId: id, tabId, selector: "#marker", text: id });
-    await call(client, "camofox_snapshot", { profileId: id, tabId });
-    await call(client, "camofox_click", { profileId: id, tabId, selector: "#save" });
+    await call(client, "tab_type", { profileId: id, tabId, selector: "#marker", text: id });
+    await call(client, "tab_snapshot", { profileId: id, tabId });
+    await call(client, "tab_click", { profileId: id, tabId, selector: "#save" });
     let saved = false;
     for (let attempt = 0; attempt < 50; attempt++) {
-      const snapshot = await call(client, "camofox_snapshot", { profileId: id, tabId });
+      const snapshot = await call(client, "tab_snapshot", { profileId: id, tabId });
       if (String(snapshot.snapshot).includes(`Storage marker: ${id}`)) { saved = true; break; }
       await Bun.sleep(100);
     }
@@ -137,38 +137,38 @@ try {
   report.checks.push("One connection starts empty, creates and starts two profiles during browsing, and discovers a third created through CLI with unchanged schemas");
   const interleaved = await Promise.allSettled(ids.map(async id => {
     const tabId = tabs.get(id)!;
-    await call(client, "camofox_snapshot", { profileId: id, tabId });
-    await call(client, "camofox_navigate", { profileId: id, tabId, url: `${site!.url}/?capture=saved-${id}` });
-    await call(client, "camofox_snapshot", { profileId: id, tabId }); await storage(`saved-${id}`, id);
+    await call(client, "tab_snapshot", { profileId: id, tabId });
+    await call(client, "tab_navigate", { profileId: id, tabId, url: `${site!.url}/?capture=saved-${id}` });
+    await call(client, "tab_snapshot", { profileId: id, tabId }); await storage(`saved-${id}`, id);
   }));
   for (const result of interleaved) if (result.status === "rejected") throw result.reason;
   report.checks.push("Cookie, localStorage, and IndexedDB markers remain isolated across three profiles");
 
   const parallelWheels = await Promise.allSettled(ids.map(async id => {
-    const foreground = await call(client, "camofox_create_tab", { profileId: id, url: site!.url });
+    const foreground = await call(client, "tab_create", { profileId: id, url: site!.url });
     const tabId = tabs.get(id)!;
-    await call(client, "camofox_snapshot", { profileId: id, tabId });
-    await call(client, "camofox_scroll", { profileId: id, tabId, direction: "down", amount: 200 });
-    const observed = await call(client, "camofox_snapshot", { profileId: id, tabId });
+    await call(client, "tab_snapshot", { profileId: id, tabId });
+    await call(client, "tab_scroll", { profileId: id, tabId, direction: "down", amount: 200 });
+    const observed = await call(client, "tab_snapshot", { profileId: id, tabId });
     assert(String(observed.snapshot).includes(`Storage marker: ${id}`), `${id}: background-tab scroll lost profile state`);
-    await call(client, "camofox_close_tab", { profileId: id, tabId: foreground.tabId });
+    await call(client, "tab_close", { profileId: id, tabId: foreground.tabId });
   }));
   for (const result of parallelWheels) if (result.status === "rejected") throw result.reason;
   report.checks.push("Parallel profiles scroll their original tabs after opening another tab, with isolated page state");
 
   const first = ids[0]!, second = ids[1]!, competitor = await connect();
   const page = tabs.get(first)!;
-  await call(client, "camofox_scroll", { profileId: first, tabId: page, direction: "down", amount: 200 });
-  const screenshot = await client.callTool({ name: "camofox_screenshot", arguments: { profileId: first, tabId: page } });
+  await call(client, "tab_scroll", { profileId: first, tabId: page, direction: "down", amount: 200 });
+  const screenshot = await client.callTool({ name: "tab_screenshot", arguments: { profileId: first, tabId: page } });
   assert(!screenshot.isError && (screenshot.content as { type: string; mimeType?: string; data?: string }[])
     .some(block => block.type === "image" && block.mimeType === "image/png" && (block.data?.length || 0) > 1000), "Screenshot response changed");
-  const disposable = await call(client, "camofox_create_tab", { profileId: first, url: `${site.url}/?pagination=1` });
-  const part = await call(client, "camofox_snapshot", { profileId: first, tabId: disposable.tabId });
+  const disposable = await call(client, "tab_create", { profileId: first, url: `${site.url}/?pagination=1` });
+  const part = await call(client, "tab_snapshot", { profileId: first, tabId: disposable.tabId });
   assert(typeof part.nextOffset === "number" && part.nextOffset > 0, "Snapshot pagination is missing");
-  const rest = await call(client, "camofox_snapshot", { profileId: first, tabId: disposable.tabId, offset: part.nextOffset });
+  const rest = await call(client, "tab_snapshot", { profileId: first, tabId: disposable.tabId, offset: part.nextOffset });
   assert(typeof rest.snapshot === "string" && rest.snapshot !== part.snapshot, "Snapshot pagination repeated its first page");
-  await call(client, "camofox_close_tab", { profileId: first, tabId: disposable.tabId });
-  assert(!JSON.stringify(await call(client, "camofox_list_tabs", { profileId: first })).includes(String(disposable.tabId)), "Tab close did not remove the selected tab");
+  await call(client, "tab_close", { profileId: first, tabId: disposable.tabId });
+  assert(!JSON.stringify(await call(client, "tab_list", { profileId: first })).includes(String(disposable.tabId)), "Tab close did not remove the selected tab");
   report.checks.push("All nine canonical browser tools preserve responses, including image screenshots and snapshot pagination");
   for (const connection of [client, competitor])
     assert((await connection.callTool({ name: "profile_acquire", arguments: { profileId: first } })).isError, "Second acquisition acquired a held profile");
@@ -178,27 +178,27 @@ try {
     { profileId: first, controlHandle: handles.get(first), tabId: tabs.get(second) },
     { profileId: first, controlHandle: handles.get(first), tabId: tabs.get(first), userId: second },
     { profileId: first, controlHandle: handles.get(first), tabId: tabs.get(first), controllerId: "injected" },
-  ]) assert((await client.callTool({ name: "camofox_snapshot", arguments: args })).isError, "Invalid routing reached a browser");
-  assert((await competitor.callTool({ name: "camofox_snapshot", arguments: { profileId: first, controlHandle: handles.get(first), tabId: tabs.get(first) } })).isError, "Foreign handle worked on another connection");
+  ]) assert((await client.callTool({ name: "tab_snapshot", arguments: args })).isError, "Invalid routing reached a browser");
+  assert((await competitor.callTool({ name: "tab_snapshot", arguments: { profileId: first, controlHandle: handles.get(first), tabId: tabs.get(first) } })).isError, "Foreign handle worked on another connection");
   await call(client, "profile_pause", { profileId: first });
-  assert((await client.callTool({ name: "camofox_list_tabs", arguments: { profileId: first } })).isError, "Paused A allowed actions");
-  await call(client, "camofox_snapshot", { profileId: second, tabId: tabs.get(second) });
+  assert((await client.callTool({ name: "tab_list", arguments: { profileId: first } })).isError, "Paused A allowed actions");
+  await call(client, "tab_snapshot", { profileId: second, tabId: tabs.get(second) });
   await call(client, "profile_resume", { profileId: first });
   report.checks.push("Swapped handles, foreign tabs, unknown handles, internal overrides, and handles from another connection fail; pausing A leaves B operational");
   const duplicates = await Promise.allSettled(Array.from({ length: 3 }, () => call(client, "profile_start", { profileId: first })));
   for (const duplicate of duplicates) if (duplicate.status === "rejected") throw duplicate.reason;
   for (const id of ids) assert(JSON.stringify(record(id)) === JSON.stringify(records.get(id)), `${id}: repeated start changed its lifetime`);
   await call(client, "profile_release", { profileId: first });
-  await call(client, "camofox_snapshot", { profileId: second, tabId: tabs.get(second) });
+  await call(client, "tab_snapshot", { profileId: second, tabId: tabs.get(second) });
   const races = await Promise.all([client.callTool({ name: "profile_acquire", arguments: { profileId: first } }), competitor.callTool({ name: "profile_acquire", arguments: { profileId: first } })]);
   assert(races.filter(result => !result.isError).length === 1, "Acquisition race did not have exactly one winner");
   const winner = !races[0]!.isError ? client : competitor;
   await call(client, "profile_release", { profileId: first, controlHandle: handles.get(first) });
-  assert(String((await call(winner, "camofox_snapshot", { profileId: first, tabId: tabs.get(first)! })).snapshot).includes(`Storage marker: ${first}`), "Repeated old release affected new owner");
+  assert(String((await call(winner, "tab_snapshot", { profileId: first, tabId: tabs.get(first)! })).snapshot).includes(`Storage marker: ${first}`), "Repeated old release affected new owner");
   await client.close(); clients.delete(client);
   const beforeRestart = await call(competitor, "profile_acquire", { profileId: second });
-  assert(JSON.stringify(await call(competitor, "camofox_list_tabs", { profileId: second })).includes(tabs.get(second)!), "Disconnect lost the original tab");
-  assert(String((await call(competitor, "camofox_snapshot", { profileId: second, tabId: tabs.get(second)! })).snapshot).includes(`Storage marker: ${second}`), "Handoff lost page state");
+  assert(JSON.stringify(await call(competitor, "tab_list", { profileId: second })).includes(tabs.get(second)!), "Disconnect lost the original tab");
+  assert(String((await call(competitor, "tab_snapshot", { profileId: second, tabId: tabs.get(second)! })).snapshot).includes(`Storage marker: ${second}`), "Handoff lost page state");
   report.checks.push("Duplicate starts retain one lifetime; acquisition races have one winner; release and disconnect preserve independent controllers and page state");
   const pin = readFileSync(join(home, "profiles", second, "fingerprint.json"), "utf8");
   await command("stop", second);
@@ -206,12 +206,12 @@ try {
   report.restartedLifetimes[second] = record(second);
   observeBrowserProcesses(second, record(second));
   assert(record(second).instanceId !== records.get(second)!.instanceId, "Explicit restart reused a service lifetime");
-  assert((await competitor.callTool({ name: "camofox_snapshot", arguments: { profileId: second, controlHandle: beforeRestart.controlHandle, tabId: tabs.get(second) } })).isError, "Old handle reached the restarted browser");
+  assert((await competitor.callTool({ name: "tab_snapshot", arguments: { profileId: second, controlHandle: beforeRestart.controlHandle, tabId: tabs.get(second) } })).isError, "Old handle reached the restarted browser");
   const afterRestart = await call(competitor, "profile_acquire", { profileId: second });
   assert(afterRestart.controlHandle !== beforeRestart.controlHandle, "Restart reused a public handle");
   await call(competitor, "profile_release", { profileId: second, controlHandle: beforeRestart.controlHandle });
-  const restored = await call(competitor, "camofox_create_tab", { profileId: second, url: `${site.url}/?capture=restarted-${second}` });
-  await call(competitor, "camofox_snapshot", { profileId: second, tabId: restored.tabId });
+  const restored = await call(competitor, "tab_create", { profileId: second, url: `${site.url}/?capture=restarted-${second}` });
+  await call(competitor, "tab_snapshot", { profileId: second, tabId: restored.tabId });
   await storage(`restarted-${second}`, second);
   assert(readFileSync(join(home, "profiles", second, "fingerprint.json"), "utf8") === pin, "Explicit restart changed saved fingerprint settings");
   report.checks.push("Restart rejects the old handle, permits fresh acquisition on the same connection, and preserves native storage and saved fingerprint settings");

@@ -40,7 +40,8 @@ browser:
       glob:
         - &core "{bun.lock,patches/**,scripts/{bundle-package,bundled-dependencies}.ts,src/mcp/**,\
           src/runtime/{operations,profile-process,runtime-plugin,runtime,supervisor}.ts,\
-          src/browser/{camofox-adapter,camoufox,click-guard,location-launch,native-dependencies,native-profile,page-ownership,plugin,upstream}.ts,\
+          src/browser/{camofox-adapter,camoufox,catalog,click-guard,deadlines,location-launch,native-dependencies,native-profile,page-ownership,plugin}.ts,\
+          src/profiles/allow-scripts.ts,\
           tests/helpers/{fixture,fixture-browser,mcp-client,ports,startup-window,test-home}.ts}"
         - &startup "{package.json,scripts/build.ts,src/{paths,versions}.ts,src/cli/{cli,profile,profile-fingerprint}.ts,\
           src/browser/{browser-setup,release-asset,setup}.ts,\

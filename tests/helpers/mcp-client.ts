@@ -4,7 +4,13 @@ const profileTools = new Set(["profile_create", "profile_start", "profile_status
 const controlTools = new Set(["profile_release", "profile_pause", "profile_resume", "profile_recheck"]);
 
 export function requiresControl(name: string): boolean {
-  return controlTools.has(name) || name.startsWith("camofox_");
+  return controlTools.has(name) || name.startsWith("tab_");
+}
+
+/** Parse the text of a tool result. A snapshot is one JSON header line, then the page text. Other results are one compact JSON value. */
+export function parseToolText(text: string): any {
+  const line = text.indexOf("\n");
+  return line < 0 ? JSON.parse(text) : { ...JSON.parse(text.slice(0, line)), snapshot: text.slice(line + 1) };
 }
 
 /** Add explicit routing to fixture calls. Every acquire request still reaches the server. */

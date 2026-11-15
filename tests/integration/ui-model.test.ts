@@ -400,6 +400,30 @@ test("UI waits for fingerprint commit and initialization before reporting a live
   }
 }, 10000);
 
+test("the scripts switch shows in the profile row and saves without changing network or typing revisions", async () => {
+  const f = fixture();
+  const result = await run(f, `
+    const before = (await model.snapshot()).profiles[0];
+    const on = await model.updateScripts('test', { allow: true });
+    const listed = (await model.snapshot()).profiles[0], detail = (await model.detail('test')).profile;
+    const off = await model.updateScripts('test', { allow: false });
+    let invalid = null;
+    try { await model.updateScripts('test', { allow: 'yes' }); } catch (error) { invalid = error.status; }
+    return { before, on, listed, detail, off, invalid, persisted: JSON.parse(fs.readFileSync(join(home, 'profiles.json'), 'utf8')).profiles[0] };
+  `);
+  expect(result.ok).toBe(true);
+  const { before, on, listed, detail, off } = result.value;
+  expect(before.allowScripts).toBe(false);
+  for (const row of [on, listed, detail]) expect(row.allowScripts).toBe(true);
+  expect(off.allowScripts).toBe(false);
+  for (const row of [on, off]) {
+    expect(row.network.revision).toBe(before.network.revision);
+    expect(row.typing.revision).toBe(before.typing.revision);
+  }
+  expect(result.value.invalid).toBe(400);
+  expect(result.value.persisted).not.toHaveProperty("allowScripts");
+});
+
 test("typing inherits the active service fallback and permits explicit balanced and clearing the override", async () => {
   const f = fixture();
   const result = await run(f, `
@@ -635,7 +659,7 @@ test("all outward state, diagnostics, devices, errors, and both logs redact cred
   expect(profile.network).toMatchObject({ proxyDisplay: "http://proxy.test:8080", proxyConfigured: true, expectedIp: "198.51.100.42" });
   expect(profile.controller).toBeNull();
   expect(profile.engineSha256).toBeNull();
-  expect(Object.keys(profile).sort()).toEqual(["id", "name", "port", "storage", "typingMode", "typing", "phase", "restartToUpdate", "instanceId", "exitIp", "checkedAt", "fixedIpVerified", "windowControls", "controller", "supervisorPid", "serverPid", "ownership", "fingerprintSha256", "engineSha256", "error", "controlError", "configurationError", "network", "location"].sort());
+  expect(Object.keys(profile).sort()).toEqual(["id", "name", "port", "storage", "typingMode", "typing", "allowScripts", "phase", "restartToUpdate", "instanceId", "exitIp", "checkedAt", "fixedIpVerified", "windowControls", "controller", "supervisorPid", "serverPid", "ownership", "fingerprintSha256", "engineSha256", "error", "controlError", "configurationError", "network", "location"].sort());
   expect(result.value.diagnostics.profiles[0].accessKeyPresent).toBe(true);
   expect(result.value.diagnostics.profiles[0]).not.toHaveProperty("accessKey");
   expect(result.value.detail.device.properties).toContainEqual({ name: "CPU cores", value: "8" });

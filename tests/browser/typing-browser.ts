@@ -1,11 +1,11 @@
-// Headed input acceptance through camofox_type in a disposable profile.
+// Headed input acceptance through tab_type in a disposable profile.
 import { writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import type { TypingMode } from "../../src/browser/typing.ts";
 import { assertTestHome, createTestHome } from "../helpers/test-home.ts";
-import { routeProfileTools } from "../helpers/mcp-client.ts";
+import { parseToolText, routeProfileTools } from "../helpers/mcp-client.ts";
 
 const root = resolve(import.meta.dir, "../.."), cli = process.env.STELZ_TEST_CLI || join(root, "src/cli/cli.ts");
 const args = process.argv.slice(2);
@@ -80,7 +80,7 @@ async function call(name: string, args: Record<string, unknown> = {}) {
   const response = await result(name, args);
   const text = (response.content as Array<{ type: string; text?: string }>).filter(block => block.type === "text").map(block => block.text).join("\n");
   if (response.isError) throw Error(`${name}: ${text}`);
-  return JSON.parse(text) as Record<string, unknown>;
+  return parseToolText(text) as Record<string, unknown>;
 }
 async function observed(predicate: (value: Sample) => boolean) {
   const deadline = Date.now() + 3000;
@@ -91,9 +91,9 @@ async function observed(predicate: (value: Sample) => boolean) {
   throw Error("The browser did not report the expected input state.");
 }
 async function type(tabId: string, selector: string, text: string, options: { mode?: TypingMode; pressEnter?: boolean } = {}) {
-  await call("camofox_snapshot", { tabId });
-  await call("camofox_type", { tabId, selector, text, ...options });
-  await call("camofox_snapshot", { tabId });
+  await call("tab_snapshot", { tabId });
+  await call("tab_type", { tabId, selector, text, ...options });
+  await call("tab_snapshot", { tabId });
 }
 function keyboardEvents(value: Sample, text: string) {
   const events = value.events.filter(event => event.target === "message");
@@ -121,13 +121,13 @@ try {
   started = true;
   await command("start", profileId); await connect();
   const tools = await client!.listTools();
-  const schema = tools.tools.find(tool => tool.name === "camofox_type")!.inputSchema;
+  const schema = tools.tools.find(tool => tool.name === "tab_type")!.inputSchema;
   assert(JSON.stringify((schema.properties!.mode as { enum: string[] }).enum) === JSON.stringify(["balanced", "keyboard", "instant"]), "The typing mode overrides are missing.");
-  const tabId = String((await call("camofox_create_tab", { url: `http://127.0.0.1:${server.port}` })).tabId);
+  const tabId = String((await call("tab_create", { url: `http://127.0.0.1:${server.port}` })).tabId);
   const instanceId = (await call("profile_status")).instanceId;
   async function reset() {
     sample = undefined;
-    await call("camofox_navigate", { tabId, url: `http://127.0.0.1:${server.port}` });
+    await call("tab_navigate", { tabId, url: `http://127.0.0.1:${server.port}` });
     await observed(value => value.values.message === "old value");
   }
   async function setDefault(mode: TypingMode) {

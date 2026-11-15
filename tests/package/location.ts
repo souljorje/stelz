@@ -9,7 +9,7 @@ import { installPackage } from "./install.ts";
 import { packageArguments, assertArchiveUnchanged } from "../../scripts/package-archive.ts";
 import { suppliedProxyEndpoints, proxyRedactor } from "../helpers/proxy-acceptance-helpers.ts";
 import { proxyRelay } from "../helpers/proxy-network-fixture.ts";
-import { routeProfileTools } from "../helpers/mcp-client.ts";
+import { parseToolText, routeProfileTools } from "../helpers/mcp-client.ts";
 import { assertSingleStartupWindow } from "../helpers/startup-window.ts";
 
 const { archive } = packageArguments(process.argv.slice(2), []);
@@ -50,7 +50,7 @@ async function call(client: Client, name: string, args: Record<string, unknown> 
   const response = await client.callTool({ name, arguments: args }, undefined, { timeout: 180000 });
   const text = (response.content as { type: string; text?: string }[]).filter(v => v.type === "text").map(v => v.text).join("\n");
   if (response.isError) throw Error(redact(text));
-  return JSON.parse(text);
+  return parseToolText(text);
 }
 const evidence: Record<string, unknown>[] = [], pins = new Map<string, string>();
 const strata = { "fresh-proxy": 0, "saved-valid-proxy": 0 };
@@ -86,13 +86,13 @@ try {
       const client = routeProfileTools(new Client({ name: "location-acceptance", version: "1" }), id); clients.push(client);
       await client.connect(new StdioClientTransport({ command: installed.bun, args: ["--no-env-file", installed.installedCli, "mcp"], env, stderr: "pipe" }));
       await call(client, "profile_acquire");
-      const tabs = await call(client, "camofox_list_tabs"); await assertSingleStartupWindow(installed.home, id, tabs);
+      const tabs = await call(client, "tab_list"); await assertSingleStartupWindow(installed.home, id, tabs);
       const tabId = tabs.tabs[0].tabId;
       observations.delete(id);
-      await call(client, "camofox_navigate", { tabId, url: `http://127.0.0.1:${site.port}/?profile=${id}` });
-      await call(client, "camofox_snapshot", { tabId });
-      await call(client, "camofox_scroll", { tabId, direction: "down", amount: 100 });
-      await call(client, "camofox_snapshot", { tabId });
+      await call(client, "tab_navigate", { tabId, url: `http://127.0.0.1:${site.port}/?profile=${id}` });
+      await call(client, "tab_snapshot", { tabId });
+      await call(client, "tab_scroll", { tabId, direction: "down", amount: 100 });
+      await call(client, "tab_snapshot", { tabId });
       for (let n = 0; n < 100 && !observations.has(id); n++) await Bun.sleep(50);
       const observed = observations.get(id)!; assert(observed);
       assert.equal(observed.timezone, started.location.timezone);
