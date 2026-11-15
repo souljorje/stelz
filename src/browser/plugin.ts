@@ -9,16 +9,18 @@ import { applyFingerprint, validateFinalLaunch, type LaunchOptions } from "./fin
 import { initializedFingerprint, type FingerprintOwner } from "./fingerprint-transaction.ts";
 import { verifyProfileFingerprint, type ProfileBrowserContext, type ProfilePage } from "./native-profile.ts";
 import { createIpVerification, parseIpCheckInterval } from "./ip-verification.ts";
-import { browserTools as catalogTools, toolArguments, type Contracts } from "./catalog.ts";
-import { loadAriaHelpers } from "./aria.ts";
+import { actionDeadline, browserTools as catalogTools, toolArguments, type Contracts, type ToolResult } from "./catalog.ts";
+import { loadAriaHelpers, parseAria } from "./aria.ts";
 import { createSnapshotTracker, type SnapshotRequest, type View } from "./snapshot-tracker.ts";
+import { SelectorError } from "./snapshot-view.ts";
+import { findCondition, resolveTarget, type Condition, type Target } from "./targets.ts";
 import { readTab, TAB_STATE_CHANGED } from "./tab-state.ts";
 import { assertScriptsAllowed } from "../profiles/allow-scripts.ts";
 import { addProfileExtension, createProfileWindows } from "./profile-windows.ts";
 import { activateProfileBrowser } from "./window-activation.ts";
 import { profileTypingMode } from "../profiles/typing-mode.ts";
 import { parseTypingMode } from "./typing.ts";
-import { SERVICE_DEADLINE_MS, serviceDeadline } from "./deadlines.ts";
+import { OBSERVE_LIMIT_MS, SERVICE_DEADLINE_MS, WAIT_POLL_MS, serviceDeadline, waitDuration } from "./deadlines.ts";
 import { launchLocation, checkLaunchLocation, verifyLaunchLocation, saveLaunchLocation, type LocationPage } from "./location-launch.ts";
 import { LocationError, locationFailure, evidenceMessage } from "./location.ts";
 export { prepareProfileLaunch } from "./location-launch.ts";
@@ -95,6 +97,18 @@ function isEvaluateTimeout(value: unknown) {
   catch { return false; }
 }
 
+// The note of a call whose action succeeded and whose read of the page failed. A caller must not repeat the action.
+const OBSERVATION_FAILED = "The action completed. Read tab_snapshot to see the page.";
+// An operation that passed its time limit can still run in the browser, so the lifetime is blocked.
+const TIME_LIMIT = "A service operation exceeded its time limit. Stop the profile before another browser action.";
+
+/** A snapshot reply. `more` adds the structure and the screenshot. */
+const snapshotResult = (view: View, more: Record<string, unknown> = {}): ToolResult => ({ kind: "snapshot", payload: { url: view.url, refsCount: view.refsCount,
+  truncated: view.truncated, ...(view.nextOffset === undefined ? {} : { nextOffset: view.nextOffset }), viewId: view.viewId,
+  ...(view.baseline ? { baseline: true } : {}), snapshot: view.text, ...more } });
+// A refused action, such as a click that failed its role check, did not happen. It has nothing to observe.
+const refused = (payload: unknown) => !!payload && typeof payload === "object" && (payload as { ok?: unknown }).ok === false;
+
 // An embedded snapshot can be larger than a page window. Stelz drops it and sends the caller to tab_snapshot, which can shape it.
 const READ_SNAPSHOT = "Read tab_snapshot for the current page.";
 function withoutEmbeddedSnapshot(body: unknown, tool: string) {
@@ -114,7 +128,7 @@ function withoutEmbeddedSnapshotError(error: unknown) {
 }
 
 export async function register(app: App, ctx: PluginContext, options: {
-  actionTimeoutMs?: number; shutdown?: () => void; ipCheckIntervalMs?: number; now?: () => number;
+  actionTimeoutMs?: number; observeTimeoutMs?: number; shutdown?: () => void; ipCheckIntervalMs?: number; now?: () => number;
   verifyFingerprint?: (context: Parameters<typeof verifyProfileFingerprint>[0], prepared: ReturnType<typeof applyFingerprint>) =>
     Promise<Awaited<ReturnType<typeof verifyProfileFingerprint>> | void>;
 } = {}) {
@@ -135,8 +149,10 @@ export async function register(app: App, ctx: PluginContext, options: {
   const controller = createControllerLease();
   const upstream = await import(pathToFileURL(join(process.env.STELZ_UPSTREAM!, "mcp/lib/tool-contracts.mjs")).href) as Contracts;
   const browserTools = catalogTools(upstream.TOOL_DEFS);
+  const ariaHelpers = await loadAriaHelpers(process.env.STELZ_UPSTREAM!);
+  const snapshotTool = browserTools.get("tab_snapshot")!.entry.upstream;
   // What each controller saw of each tab. One browser lifetime owns it.
-  const tracker = createSnapshotTracker(await loadAriaHelpers(process.env.STELZ_UPSTREAM!));
+  const tracker = createSnapshotTracker(ariaHelpers);
   const ipVerification = createIpVerification(state.instanceId, expected);
   let context: Context | undefined;
   let stopping = false;
@@ -225,8 +241,8 @@ export async function register(app: App, ctx: PluginContext, options: {
     const deadline = new Promise<never>((_resolve, reject) => {
       timer = setTimeout(() => {
         controller.retain(work);
-        invalidate("A service operation exceeded its time limit. Stop the profile before another browser action.");
-        reject(Error("A service operation exceeded its time limit. Stop the profile before another browser action."));
+        invalidate(TIME_LIMIT);
+        reject(Error(TIME_LIMIT));
       }, options.actionTimeoutMs ?? limit);
     });
     try {
@@ -304,31 +320,81 @@ export async function register(app: App, ctx: PluginContext, options: {
   }
 
   // The snapshot route of Camofox keeps the full annotated page in the tab state. Read it in the same queued action, so no other action changes it.
-  async function readSnapshot(tool: string, controllerId: string, args: Record<string, unknown>, baseUrl: string, config: Record<string, unknown>) {
-    const tabId = args.tabId as string;
-    const done = (view: View, more: Record<string, unknown> = {}) => ({ kind: "snapshot", payload: { url: view.url, refsCount: view.refsCount,
-      truncated: view.truncated, ...(view.nextOffset === undefined ? {} : { nextOffset: view.nextOffset }), viewId: view.viewId,
-      ...(view.baseline ? { baseline: true } : {}), snapshot: view.text, ...more } });
-    if (typeof args.offset === "number" && args.offset > 0) {
-      const tab = readTab(ctx.sessions, id, tabId);
-      if (!tab) throw Error("The tab no longer exists. Read tab_list.");
-      return done(tracker.page(controllerId, tabId, args.viewId as string, args.offset, args.maxChars as number | undefined, tab.refs));
-    }
+  // The route also rebuilds the refs of the tab. A read that no controller receives still changes what a ref names, and the stale-ref guard sees that.
+  async function fetchPage(tabId: string, includeScreenshot: boolean, baseUrl: string, config: Record<string, unknown>) {
     // Use the request of the upstream tool, and change only the query. The upstream request always asks for a screenshot.
-    const built = upstream.buildRequest(tool, { tabId }, { userId: id, sessionKey: "default" });
+    const built = upstream.buildRequest(snapshotTool, { tabId }, { userId: id, sessionKey: "default" });
     const route = new URL(built.path, "http://127.0.0.1");
-    route.searchParams.set("includeScreenshot", String(args.includeScreenshot === true));
+    route.searchParams.set("includeScreenshot", String(includeScreenshot));
     const reply = await upstream.fetchSpec(baseUrl, { ...built, path: `${route.pathname}${route.search}` }, config) as { url?: unknown; refsCount?: unknown; totalChars?: unknown; structure?: unknown; screenshot?: unknown } | null;
     const tab = readTab(ctx.sessions, id, tabId), yaml = tab?.lastSnapshot;
     // The reply and the tab state describe the same snapshot, or Camofox changed.
     if (!tab || !reply || typeof reply.url !== "string" || typeof yaml !== "string" || reply.totalChars !== yaml.length || reply.refsCount !== tab.refs.size)
       throw Error(TAB_STATE_CHANGED);
+    return { reply, tab, yaml, url: reply.url };
+  }
+
+  async function readSnapshot(controllerId: string, args: Record<string, unknown>, baseUrl: string, config: Record<string, unknown>) {
+    const tabId = args.tabId as string;
+    if (typeof args.offset === "number" && args.offset > 0) {
+      const tab = readTab(ctx.sessions, id, tabId);
+      if (!tab) throw Error("The tab no longer exists. Read tab_list.");
+      return snapshotResult(tracker.page(controllerId, tabId, args.viewId as string, args.offset, args.maxChars as number | undefined, tab.refs));
+    }
+    const { reply, tab, yaml, url } = await fetchPage(tabId, args.includeScreenshot === true, baseUrl, config);
     const { scope, contains, diff, collapse, maxChars } = args as SnapshotRequest;
     const request: SnapshotRequest = { ...(scope ? { scope } : {}), ...(contains === undefined ? {} : { contains }), ...(diff === undefined ? {} : { diff }),
       ...(collapse === undefined ? {} : { collapse }), ...(maxChars === undefined ? {} : { maxChars }) };
-    const view = tracker.read(controllerId, tabId, { yaml, url: reply.url, refsCount: tab.refs.size, refs: tab.refs, request });
-    return done(view, { ...(args.includeStructure === true && reply.structure != null ? { structure: reply.structure } : {}),
+    const view = tracker.read(controllerId, tabId, { yaml, url, refsCount: tab.refs.size, refs: tab.refs, request });
+    return snapshotResult(view, { ...(args.includeStructure === true && reply.structure != null ? { structure: reply.structure } : {}),
       ...(reply.screenshot ? { screenshot: reply.screenshot } : {}) });
+  }
+
+  // The page after an action, as the diff that tab_snapshot with diff builds. This read is a view: the controller receives it.
+  // The action has happened, so a failed read never fails the call. A client could repeat the action.
+  // The read has its own time limit, apart from the service deadline of the action. A read that hangs ends as a failed read: the call succeeds with the note.
+  // The upstream read can still run, so the work stays with the controller and the lifetime is blocked, as for any operation that passes its limit.
+  async function observePage(controllerId: string, tabId: string, baseUrl: string, config: Record<string, unknown>): Promise<ToolResult["observation"]> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const work = (async (): Promise<ToolResult["observation"]> => {
+      try {
+        const { tab, yaml, url } = await fetchPage(tabId, false, baseUrl, config);
+        return snapshotResult(tracker.read(controllerId, tabId, { yaml, url, refsCount: tab.refs.size, refs: tab.refs, request: { diff: true } }));
+      } catch (error) {
+        await afterFailure(error).catch(() => {});
+        return { error: OBSERVATION_FAILED };
+      }
+    })();
+    const deadline = new Promise<{ error: string }>(resolve => {
+      timer = setTimeout(() => {
+        controller.retain(work);
+        invalidate(TIME_LIMIT);
+        resolve({ error: OBSERVATION_FAILED });
+      }, options.observeTimeoutMs ?? OBSERVE_LIMIT_MS);
+    });
+    try {
+      return await Promise.race([work, deadline]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  // Poll fresh snapshots until the element or the text is on the page. The polls are not views: the controller receives none of them.
+  // A pause or a release waits for this action, so the loop ends when either begins. The result is not an error.
+  async function waitFor(tabId: string, args: Record<string, unknown>, baseUrl: string, config: Record<string, unknown>): Promise<ToolResult> {
+    const condition: Condition = args.target === undefined ? { contains: String(args.contains) } : { target: args.target as Target };
+    const timeout = waitDuration(args), started = performance.now();
+    const elapsed = () => performance.now() - started;
+    const result = (found: boolean, more: Record<string, unknown>): ToolResult => ({ kind: "json", payload: { found, waitedMs: Math.round(elapsed()), ...more } });
+    for (;;) {
+      const matched = findCondition(parseAria((await fetchPage(tabId, false, baseUrl, config)).yaml), condition, ariaHelpers);
+      if (matched !== undefined) return result(true, { matched });
+      if (elapsed() >= timeout) return result(false, { reason: "timeout" });
+      await new Promise(resolve => setTimeout(resolve, Math.min(WAIT_POLL_MS, timeout - elapsed())));
+      const reason = controller.status()?.releasing ? "releasing" : state.phase === "paused" ? "paused" : undefined;
+      if (reason) return result(false, { reason });
+      assertUsable();
+    }
   }
 
   async function recheckAfterNetworkFailure(value: unknown) {
@@ -336,6 +402,11 @@ export async function register(app: App, ctx: PluginContext, options: {
     lastVerifiedAt = undefined;
     persist({ verificationStatus: "unverified", exitIp: null, fixedIpVerified: false });
     await ensureVerified(true);
+  }
+  // What a failed browser call means for the lifetime. A network failure checks the exit again. A timeout can leave work in the browser, so it blocks the lifetime.
+  async function afterFailure(error: unknown) {
+    if (isBrowserNetworkFailure(error)) await recheckAfterNetworkFailure(error);
+    else if (/timed out|timeout/i.test((error as Error).message)) invalidate("A browser action timed out. Stop the profile before another browser action.");
   }
 
   persist({});
@@ -517,38 +588,52 @@ export async function register(app: App, ctx: PluginContext, options: {
       const found = browserTools.get(name);
       if (!found) throw Error("Unknown browser tool.");
       let args = toolArguments(found.tool, body.args);
-      const result = await controller.run(controllerId, () => bounded(async () => {
-        // Read the switch on each call, inside the queue, so a change applies to a running browser.
-        if (found.entry.policy === "scripts") assertScriptsAllowed(process.env.STELZ_HOME, id, name);
-        await ensureVerified();
-        if (name === "tab_type") {
-          const { mode, ...input } = args;
-          args = { ...input, typingMode: mode ?? profileTypingMode(process.env.STELZ_HOME, id) };
-        }
-        const baseUrl = `http://127.0.0.1:${process.env.CAMOFOX_PORT}`;
-        const config = { accessKey: process.env.CAMOFOX_ACCESS_KEY, apiKey: process.env.CAMOFOX_API_KEY, cookiesDir: process.env.CAMOFOX_COOKIES_DIR };
-        // A ref is a position. Refuse one that this controller did not see in a reply, or that now names another element. A selector is not checked.
-        if (args.ref && typeof args.tabId === "string" && found.tool.inputSchema.properties && "ref" in found.tool.inputSchema.properties)
-          tracker.check(controllerId, args.tabId, String(args.ref), readTab(ctx.sessions, id, args.tabId)?.refs);
-        try {
-          if (name === "tab_snapshot") return await readSnapshot(found.entry.upstream, controllerId, args, baseUrl, config);
-          const { spec, payload } = await upstream.runTool(found.entry.upstream, args, { userId: id, sessionKey: "default" }, baseUrl, config);
-          await recheckAfterNetworkFailure(payload);
-          if (name === "tab_close") tracker.dropTab(controllerId, String(args.tabId));
-          // Return the raw payload. Only the MCP server formats it.
-          return { kind: spec?.responseKind ?? "json", payload: name === "tab_click" ? withoutEmbeddedSnapshot(payload, name) : payload };
-        } catch (error) {
-          if (name === "tab_evaluate" && isEvaluateTimeout(error)) {
-            // Upstream kept the tab and reported the timeout itself, so the browser lifetime stays usable.
-            throw Error(EVALUATE_TIMEOUT);
-          } else if (isBrowserNetworkFailure(error)) {
-            await recheckAfterNetworkFailure(error);
-          } else if (/timed out|timeout/i.test((error as Error).message)) {
-            invalidate("A browser action timed out. Stop the profile before another browser action.");
+      const baseUrl = `http://127.0.0.1:${process.env.CAMOFOX_PORT}`;
+      const config = { accessKey: process.env.CAMOFOX_ACCESS_KEY, apiKey: process.env.CAMOFOX_API_KEY, cookiesDir: process.env.CAMOFOX_COOKIES_DIR };
+      // The tab to read after the action. It is set only when the action succeeded and the caller wants the page.
+      let observed: string | undefined;
+      const result = await controller.run(controllerId, async () => {
+        // The service deadline covers the action alone. The read of the page after it has its own limit, so the deadline never fires during that read.
+        const action = await bounded(async () => {
+          // Read the switch on each call, inside the queue, so a change applies to a running browser.
+          if (found.entry.policy === "scripts") assertScriptsAllowed(process.env.STELZ_HOME, id, name);
+          await ensureVerified();
+          if (name === "tab_type") {
+            const { mode, ...input } = args;
+            args = { ...input, typingMode: mode ?? profileTypingMode(process.env.STELZ_HOME, id) };
           }
-          throw name === "tab_extract" ? withoutEmbeddedSnapshotError(error) : error;
-        }
-      }, serviceDeadline(found.entry.deadline(args))));
+          // A ref is a position. Refuse one that this controller did not see in a reply, or that now names another element. A selector is not checked.
+          if (args.ref && typeof args.tabId === "string" && found.tool.inputSchema.properties && "ref" in found.tool.inputSchema.properties)
+            tracker.check(controllerId, args.tabId, String(args.ref), readTab(ctx.sessions, id, args.tabId)?.refs);
+          try {
+            const tabId = args.tabId as string;
+            if (name === "tab_snapshot") return await readSnapshot(controllerId, args, baseUrl, config);
+            if (name === "tab_wait" && (args.target !== undefined || args.contains !== undefined)) return await waitFor(tabId, args, baseUrl, config);
+            // Upstream does not know these two arguments.
+            const { observe, target, ...request } = args;
+            // A target becomes a ref in this queued action, from a fresh snapshot. No controller receives that snapshot,
+            // so it changes no baseline, view, or shown ref. The ref needs no guard. Upstream checks nothing more: the ref and the page agree.
+            if (target) request.ref = resolveTarget(parseAria((await fetchPage(tabId, false, baseUrl, config)).yaml), target as Target, ariaHelpers);
+            const { spec, payload } = await upstream.runTool(found.entry.upstream, request, { userId: id, sessionKey: "default" }, baseUrl, config);
+            await recheckAfterNetworkFailure(payload);
+            if (name === "tab_close") tracker.dropTab(controllerId, tabId);
+            // Return the raw payload. Only the MCP server formats it.
+            const done: ToolResult = { kind: spec?.responseKind ?? "json", payload: name === "tab_click" ? withoutEmbeddedSnapshot(payload, name) : payload };
+            if (found.tool.inputSchema.properties && "observe" in found.tool.inputSchema.properties && observe !== "none" && !refused(payload)) observed = tabId;
+            return done;
+          } catch (error) {
+            // A selector that matches no safe element is the caller's mistake. The name in its message can contain "timeout".
+            if (error instanceof SelectorError) throw error;
+            if (name === "tab_evaluate" && isEvaluateTimeout(error)) {
+              // Upstream kept the tab and reported the timeout itself, so the browser lifetime stays usable.
+              throw Error(EVALUATE_TIMEOUT);
+            }
+            await afterFailure(error);
+            throw name === "tab_extract" ? withoutEmbeddedSnapshotError(error) : error;
+          }
+        }, serviceDeadline(actionDeadline(name, args)));
+        return observed === undefined ? action : { ...action, observation: await observePage(controllerId, observed, baseUrl, config) };
+      });
       res.json(result);
     } catch (error) {
       res.status(409).json({ error: (error as Error).message });

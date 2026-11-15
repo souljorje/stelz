@@ -146,7 +146,7 @@ type App = Parameters<typeof register>[0];
 type Handler = Parameters<App["post"]>[1];
 async function harness(mode: "direct" | "proxy" = "direct", waitForIP?: Promise<void>,
   fixture: { expected?: string; timeout?: number; ipError?: string; canonical?: boolean; port?: number;
-    interval?: number; now?: () => number; observedTimezone?: string; fingerprintError?: string } = {}) {
+    interval?: number; now?: () => number; observedTimezone?: string; fingerprintError?: string; observeTimeout?: number } = {}) {
   const root = mkdtempSync(join(tmpdir(), "stelz-regression-")), id = "profile-01";
   const stateDir = join(root, id), upstream = join(root, "upstream"), binary = join(root, "browser");
   mkdirSync(stateDir); mkdirSync(join(upstream, "mcp/lib"), { recursive: true });
@@ -186,7 +186,7 @@ async function harness(mode: "direct" | "proxy" = "direct", waitForIP?: Promise<
   } })]);
   const context = Object.assign(new EventEmitter(), { pages: () => [...pages], async close() { context.emit("close"); } });
   await register(app, { auth: () => () => {}, events, sessions },
-    { actionTimeoutMs: fixture.timeout, ipCheckIntervalMs: fixture.interval ?? 0, now: fixture.now,
+    { actionTimeoutMs: fixture.timeout, observeTimeoutMs: fixture.observeTimeout, ipCheckIntervalMs: fixture.interval ?? 0, now: fixture.now,
       verifyFingerprint: async () => { if (fixture.fingerprintError) throw Error(fixture.fingerprintError); },
       shutdown: () => { shutdowns++; events.emit("server:shutdown"); } });
   const emit = async (name: string, value: unknown = {}) => { await Promise.all(events.listeners(name).map(fn => fn(value))); };
@@ -826,7 +826,7 @@ test("operator handoff waits for admitted browser work before another owner can 
 });
 
 type Reply = { code: number; payload: unknown };
-async function canonicalHarness(options: { timeout?: number; type?: (body: Record<string, unknown>) => Promise<Reply>;
+async function canonicalHarness(options: { timeout?: number; observeTimeout?: number; type?: (body: Record<string, unknown>) => Promise<Reply>;
   reply?: (path: string) => Promise<Reply | undefined> | Reply | undefined } = {}) {
   const requests: Array<{ method: string; url: string; authorization?: string; body?: Record<string, unknown> }> = [];
   const server = createServer(async (req, res) => {
@@ -849,7 +849,7 @@ async function canonicalHarness(options: { timeout?: number; type?: (body: Recor
   await once(server, "listening");
   const address = server.address();
   assert(address && typeof address !== "string");
-  const h = await harness("direct", undefined, { expected: "", canonical: true, port: address.port, timeout: options.timeout });
+  const h = await harness("direct", undefined, { expected: "", canonical: true, port: address.port, timeout: options.timeout, observeTimeout: options.observeTimeout });
   return { h, requests, async close() {
     try { await h.close(); }
     finally { await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); }
@@ -891,8 +891,8 @@ test("canonical dispatch preserves valid tool routes, arguments, and authenticat
     const cases: Array<[string, Record<string, unknown>, string, string]> = [
       ["tab_create", { url: "https://example.com" }, "POST", "/tabs"],
       ["tab_list", {}, "GET", "/tabs"],
-      ["tab_click", { tabId, selector: "#x" }, "POST", `/tabs/${tabId}/click`],
-      ["tab_type", { tabId, selector: "#x", text: "hello" }, "POST", `/tabs/${tabId}/type`],
+      ["tab_click", { tabId, selector: "#x", observe: "none" }, "POST", `/tabs/${tabId}/click`],
+      ["tab_type", { tabId, selector: "#x", text: "hello", observe: "none" }, "POST", `/tabs/${tabId}/type`],
       ["tab_navigate", { tabId, url: "https://example.com" }, "POST", `/tabs/${tabId}/navigate`],
       ["tab_scroll", { tabId, direction: "down", amount: 100 }, "POST", `/tabs/${tabId}/scroll`],
       ["tab_screenshot", { tabId }, "GET", `/tabs/${tabId}/screenshot`],
@@ -906,7 +906,8 @@ test("canonical dispatch preserves valid tool routes, arguments, and authenticat
       assert.equal(url.pathname, path);
       assert.equal(req.authorization, "Bearer fixture-key");
       if (method === "POST") {
-        const { tabId: _tabId, ...body } = args;
+        // Stelz keeps observe to itself.
+        const { tabId: _tabId, observe: _observe, ...body } = args;
         assert.deepEqual(req.body, { ...body, userId: h.id, ...(name === "tab_create" ? { sessionKey: "default" } : {}),
           ...(name === "tab_type" ? { typingMode: "balanced" } : {}) });
       } else assert.equal(url.searchParams.get("userId"), h.id);
@@ -922,7 +923,7 @@ test("typing overrides reach Camofox per call and profile defaults update in the
   try {
     await h.launch(); await h.create(); await h.request("acquire", controller);
     const type = (args: Record<string, unknown> = {}) => h.request("tool", { controllerId: controller.id,
-      name: "tab_type", args: { tabId, selector: "#message", text: "hello", ...args } });
+      name: "tab_type", args: { tabId, selector: "#message", text: "hello", observe: "none", ...args } });
     const lastBody = () => { const body = requests.at(-1)?.body; if (!body) throw Error("Missing request body"); return body; };
     configure("instant");
     for (const mode of ["balanced", "keyboard", "instant"]) {
@@ -1064,13 +1065,13 @@ for (const [serviceMode, profileMode, expected, fallback] of [
     ] }));
     await h.launch(); await h.create(); await h.request("acquire", controller);
     const result = await h.request("tool", { controllerId: controller.id, name: "tab_type",
-      args: { tabId, selector: "#message", text: "hello" } });
+      args: { tabId, selector: "#message", text: "hello", observe: "none" } });
     assert.equal(result.code, 200);
     assert.equal(requests.length, 1);
     assert.deepEqual(requests[0]!.body, { selector: "#message", text: "hello", userId: h.id, typingMode: expected });
     assert.equal(((await h.request("status")).payload as { typingModeDefault: string }).typingModeDefault, fallback);
     const override = await h.request("tool", { controllerId: controller.id, name: "tab_type",
-      args: { tabId, selector: "#message", text: "hello", mode: "keyboard" } });
+      args: { tabId, selector: "#message", text: "hello", mode: "keyboard", observe: "none" } });
     assert.equal(override.code, 200);
     assert.equal(requests.length, 2);
     assert.equal(requests[1]!.body?.typingMode, "keyboard");
@@ -1628,17 +1629,23 @@ test("a startup verification deadline closes its attempt and a late reply cannot
 
 // The snapshot path reads the full page from the tab state of Camofox, in the same queued action as the snapshot route.
 // The fake route does what the real one does: it rebuilds the refs and the last snapshot of the tab, and then it replies.
-async function snapshotFixture(options: { structure?: unknown } = {}) {
-  const state = { page: annotate(shop()), shot: undefined as unknown, route: 0 };
+async function snapshotFixture(options: { structure?: unknown; timeout?: number; observeTimeout?: number } = {}) {
+  // `act` answers the routes of the actions, and `snapshot` can change the page or fail a snapshot route. Both start unset.
+  const state = { page: annotate(shop()), shot: undefined as unknown, route: 0,
+    act: undefined as ((path: string, body: Record<string, unknown> | undefined) => Reply | Promise<Reply> | undefined) | undefined, delay: 0,
+    snapshot: undefined as ((route: number) => Reply | Promise<Reply> | undefined) | undefined };
   const tab = { refs: new Map<string, unknown>(), lastSnapshot: null as unknown, page: { url: () => "https://shop.test/" } };
   const fixture = await canonicalHarness({ reply: path => {
-    if (!path.endsWith("/snapshot")) return undefined;
+    if (!path.endsWith("/snapshot")) return state.act?.(path, fixture.requests.at(-1)!.body);
     state.route++;
+    const custom = state.snapshot?.(state.route);
+    if (custom) return custom;
     tab.refs = new Map(state.page.refs); tab.lastSnapshot = state.page.yaml;
     const asked = new URL(fixture.requests.at(-1)!.url, "http://localhost").searchParams.get("includeScreenshot") === "true";
-    return { code: 200, payload: { url: "https://shop.test/", snapshot: state.page.yaml.slice(0, 80_000), structure: options.structure, refsCount: state.page.refs.size,
+    const answer = { code: 200, payload: { url: "https://shop.test/", snapshot: state.page.yaml.slice(0, 80_000), structure: options.structure, refsCount: state.page.refs.size,
       truncated: false, totalChars: state.page.yaml.length, hasMore: false, nextOffset: null, ...(asked ? { screenshot: state.shot } : {}) } };
-  } });
+    return state.delay ? new Promise<Reply>(resolve => setTimeout(() => resolve(answer), state.delay)) : answer;
+  }, timeout: options.timeout, observeTimeout: options.observeTimeout });
   const { h, requests } = fixture;
   h.sessions.set(h.id, { tabGroups: new Map([["default", new Map([[tabId, tab]])]]) });
   const as = (controllerId: string) => (name: string, args: Record<string, unknown> = {}) => h.request("tool", { controllerId, name, args: { tabId, ...args } });
@@ -1743,13 +1750,13 @@ test("the guard refuses a ref before any request, accepts a ref that a reply sho
     assert.equal(f.requests.length, requests);
     assert.equal(f.h.state().phase, "ready");
     // A shown ref passes. The ref is checked again at the call: a rebuilt ref table that moved e7 makes it unsafe.
-    assert.equal((await f.read("tab_click", { ref: "e7" })).code, 200);
+    assert.equal((await f.read("tab_click", { ref: "e7", observe: "none" })).code, 200);
     assert.equal(f.requests.at(-1)!.url, `/tabs/${tabId}/click`);
     assert.deepEqual(f.requests.at(-1)!.body, { ref: "e7", userId: f.h.id });
     f.tab.refs = new Map([...f.tab.refs, ["e7", { role: "link", name: "Moved", nth: 0 }]]);
     assert.match(errorOf(await f.read("tab_click", { ref: "e7" })), /ref e7 may have shifted/);
     // A selector goes to Camofox as it is.
-    assert.equal((await f.read("tab_click", { selector: "#save" })).code, 200);
+    assert.equal((await f.read("tab_click", { selector: "#save", observe: "none" })).code, 200);
     assert.deepEqual(f.requests.at(-1)!.body, { selector: "#save", userId: f.h.id });
     // A controller that has read nothing has no reliable refs.
     assert.equal((await f.h.request("release", { controllerId: controller.id })).code, 200);
@@ -1768,7 +1775,7 @@ test("a ref that moved after a diff is refused, and a ref that the diff showed i
     const diff = payloadOf(await f.read("tab_snapshot", { diff: true, collapse: false }));
     assert.match(diff.snapshot, /\+ {2}- button "Menu" \[e1\]/);
     const requests = f.requests.length;
-    assert.equal((await f.read("tab_click", { ref: "e1" })).code, 200);
+    assert.equal((await f.read("tab_click", { ref: "e1", observe: "none" })).code, 200);
     assert.match(errorOf(await f.read("tab_click", { ref: "e5" })), /ref e5 may have shifted/);
     assert.equal(f.requests.length, requests + 1);
   } finally { await f.close(); }
@@ -1903,5 +1910,476 @@ test("a click that passed has its upstream payload, and an extract error that is
     assert.deepEqual((click.payload as { payload: unknown }).payload, { ok: true });
     const failed = await f.h.request("tool", { controllerId: controller.id, name: "tab_extract", args: { tabId, schema: { type: "object", properties: {} } } });
     assert.equal(errorOf(failed), '500: {"error":"Extract failed"}');
+  } finally { await f.close(); }
+});
+
+// Role/name targets, the observation after an action, and tab_wait with a target. They all read fresh snapshots in the queued action.
+type Raw = { kind: string; payload: any; observation?: any };
+const raw = (result: { code: number; payload: unknown }) => {
+  assert.equal(result.code, 200, JSON.stringify(result.payload));
+  return result.payload as Raw;
+};
+const refOf = (page: { refs: Map<string, { role: string; name: string }> }, role: string, name: string) =>
+  [...page.refs].find(([, entry]) => entry.role === role && entry.name === name)![0];
+type Sent = { method: string; url: string; body?: Record<string, unknown> };
+const route = (request: Sent) => `${request.method} ${new URL(request.url, "http://localhost").pathname.replace(tabId, "TAB")}`;
+const menu = { top: ['  - button "Menu"'] };
+const NOTE = "The action completed. Read tab_snapshot to see the page.";
+const SHIFTED = /ref e\d+ may have shifted/;
+
+test("a target is read from a fresh snapshot in the queued action, and upstream gets one action request with the ref", async () => {
+  const f = await snapshotFixture();
+  try {
+    await f.start();
+    const cases: Array<[string, Record<string, unknown>, Record<string, unknown>, string]> = [
+      ["tab_click", { target: { role: "BUTTON", name: " add  lamp 3" } }, {}, refOf(f.state.page, "button", "Add Lamp 3")],
+      ["tab_type", { target: { role: "textbox", name: "Email" }, text: "a@b.test" }, { text: "a@b.test", typingMode: "balanced" }, refOf(f.state.page, "textbox", "Email")],
+      ["tab_select", { target: { role: "searchbox", name: "Search" }, option: "red" }, { option: "red" }, refOf(f.state.page, "searchbox", "Search")],
+    ];
+    for (const [name, args, body, ref] of cases) {
+      const before = f.requests.length;
+      assert.equal((await f.read(name, { ...args, observe: "none" })).code, 200, name);
+      const sent = f.requests.slice(before);
+      // One snapshot read without a screenshot, then one action request. Upstream knows neither target nor observe.
+      assert.deepEqual(sent.map(route), ["GET /tabs/TAB/snapshot", `POST /tabs/TAB/${name.slice(4)}`], name);
+      assert.equal(new URL(sent[0]!.url, "http://localhost").searchParams.get("includeScreenshot"), "false");
+      assert.deepEqual(sent[1]!.body, { ref, userId: f.h.id, ...body }, name);
+    }
+    // The ref comes from the snapshot of the same action, so the guard has nothing to check. A controller that read nothing can use a target and not a ref.
+    assert.equal((await f.h.request("release", { controllerId: controller.id })).code, 200);
+    assert.equal((await f.h.request("acquire", { ...controller, id: "controller-b" })).code, 200);
+    const b = f.as("controller-b"), add = refOf(f.state.page, "button", "Add Lamp 3");
+    assert.match(errorOf(await b("tab_click", { ref: add })), SHIFTED);
+    assert.equal((await b("tab_click", { target: { role: "button", name: "Add Lamp 3" }, observe: "none" })).code, 200);
+    assert.equal(f.h.state().phase, "ready");
+  } finally { await f.close(); }
+});
+
+test("a target uses the page as it is now, also after the refs moved", async () => {
+  const f = await snapshotFixture();
+  try {
+    await f.start();
+    payloadOf(await f.read("tab_snapshot", { collapse: false }));
+    const old = refOf(f.state.page, "button", "Add Lamp 3");
+    // A button at the top moves every ref. The controller has not read the new page. The target still finds the right element.
+    f.state.page = annotate(shop(menu));
+    const now = refOf(f.state.page, "button", "Add Lamp 3");
+    assert.notEqual(now, old);
+    assert.equal((await f.read("tab_click", { target: { role: "button", name: "Add Lamp 3" }, observe: "none" })).code, 200);
+    assert.equal(f.requests.at(-1)!.body!.ref, now);
+  } finally { await f.close(); }
+});
+
+test("the read of a target changes no baseline, no latest view, and no shown ref", async () => {
+  const f = await snapshotFixture();
+  try {
+    await f.start();
+    const first = payloadOf(await f.read("tab_snapshot", { collapse: false, maxChars: 1000 }));
+    assert.ok(first.nextOffset > 0);
+    f.state.page = annotate(shop(menu));
+    assert.equal((await f.read("tab_click", { target: { role: "button", name: "Add Lamp 3" }, observe: "none" })).code, 200);
+    // The latest view is still the first one, so its viewId still pages.
+    const second = payloadOf(await f.read("tab_snapshot", { offset: first.nextOffset, viewId: first.viewId, maxChars: 1000 }));
+    assert.equal(second.viewId, first.viewId);
+    // The Menu button is a new line with ref e1 in the page that the target read. The controller never received that page.
+    assert.match(errorOf(await f.read("tab_click", { ref: "e1" })), SHIFTED);
+    // The baseline is still the first page, so a diff shows the Menu button. It is not "No change".
+    const diff = payloadOf(await f.read("tab_snapshot", { diff: true, collapse: false }));
+    assert.equal(Object.hasOwn(diff, "baseline"), false);
+    assert.match(diff.snapshot, /\+ {2}- button "Menu" \[e1\]/);
+  } finally { await f.close(); }
+});
+
+test("a target that names no safe element fails before any action request and does not block the profile", async () => {
+  const f = await snapshotFixture();
+  try {
+    await f.start();
+    f.state.page = annotate(shop(), 5);
+    const refused = async (target: Record<string, unknown>, pattern: RegExp, name = "tab_click") => {
+      const before = f.requests.length;
+      assert.match(errorOf(await f.read(name, { target, ...(name === "tab_type" ? { text: "x" } : {}) })), pattern, JSON.stringify(target));
+      // The snapshot read happened. The action did not.
+      assert.deepEqual(f.requests.slice(before).map(route), ["GET /tabs/TAB/snapshot"]);
+      assert.equal(f.h.state().phase, "ready");
+    };
+    await refused({ role: "button", name: "Add Lamp 99" }, /^No element matches the target: role "button" and name "Add Lamp 99"\. Elements with this role: button "Add Lamp \d+", button "Add Lamp \d+", button "Add Lamp \d+", button "Add Lamp \d+", button "Add Lamp \d+"\.$/);
+    await refused({ role: "table", name: "x" }, /The page has no element with the role "table"/);
+    await refused({ role: "button", name: "Subscribe" }, /^The element is disabled: button "Subscribe"/);
+    await refused({ role: "button", name: "Add Lamp 12" }, /past the 500-ref limit/);
+    await refused({ role: "heading", name: "Results" }, /only elements that take input have refs/, "tab_type");
+    f.state.page = annotate(shop());
+    await f.read("tab_snapshot");
+    f.state.page = annotate(['- button "Add"', '- button "Add"'].join("\n"));
+    await refused({ role: "button", name: "Add" }, /^The target matches 2 elements: role "button" and name "Add"\. Pass nth \(0 to 1\)\.$/);
+    await refused({ role: "button", name: "Add", nth: 2 }, /nth must be 0 to 1/);
+    const before = f.requests.length;
+    assert.equal((await f.read("tab_click", { target: { role: "button", name: "Add", nth: 1 }, observe: "none" })).code, 200);
+    assert.equal(f.requests.slice(before).length, 2);
+    // A word in a name never blocks the profile. The message of a timeout does, and a name can contain that word.
+    for (const word of ["timeout", "timed out", "Session timeout"]) {
+      f.state.page = annotate(`- button "Add"`);
+      await refused({ role: "button", name: word }, new RegExp(`No element matches the target: role "button" and name "${word}"`));
+    }
+    assert.match(errorOf(await f.read("tab_snapshot", { scope: { role: "button", name: "timeout" } })), /No element matches the scope/);
+    assert.equal(f.h.state().phase, "ready");
+  } finally { await f.close(); }
+});
+
+test("observe diff returns the diff from the same queued action, and it is a view that updates the baseline, the latest view, and the refs", async () => {
+  const f = await snapshotFixture();
+  try {
+    await f.start();
+    const first = payloadOf(await f.read("tab_snapshot", { collapse: false, maxChars: 1000 }));
+    const old = refOf(f.state.page, "searchbox", "Search");
+    // The click changes the page, and Camofox rebuilds the refs of the tab when its snapshot route runs.
+    f.state.act = path => { if (path.endsWith("/click")) f.state.page = annotate(shop(menu)); return undefined; };
+    const before = f.requests.length;
+    const result = raw(await f.read("tab_click", { selector: "#menu" }));
+    assert.deepEqual(f.requests.slice(before).map(route), ["POST /tabs/TAB/click", "GET /tabs/TAB/snapshot"]);
+    assert.equal(new URL(f.requests.at(-1)!.url, "http://localhost").searchParams.get("includeScreenshot"), "false");
+    assert.deepEqual(result.payload, { ok: true });
+    assert.equal(result.kind, "json");
+    assert.equal(result.observation.kind, "snapshot");
+    const view = result.observation.payload;
+    assert.deepEqual(Object.keys(view), ["url", "refsCount", "truncated", "viewId", "snapshot"]);
+    assert.match(view.snapshot, /^# Diff from your last snapshot/);
+    assert.match(view.snapshot, /\+ {2}- button "Menu" \[e1\]/);
+    assert.ok(view.snapshot.length < 500);
+    assert.notEqual(view.viewId, first.viewId);
+    // The latest view moved: the first view cannot page any more.
+    assert.match(errorOf(await f.read("tab_snapshot", { offset: first.nextOffset, viewId: first.viewId })), /Read a new tab_snapshot\./);
+    // The baseline moved: the page of the observation is the baseline of the next diff.
+    assert.equal(payloadOf(await f.read("tab_snapshot", { diff: true, collapse: false })).snapshot, "# No change since your last snapshot.");
+  } finally { await f.close(); }
+});
+
+test("the refs that an observation showed are reliable, and the refs that it moved are not", async () => {
+  const f = await snapshotFixture();
+  try {
+    await f.start();
+    payloadOf(await f.read("tab_snapshot", { collapse: false }));
+    const old = refOf(f.state.page, "searchbox", "Search");
+    f.state.act = path => { if (path.endsWith("/click")) f.state.page = annotate(shop(menu)); return undefined; };
+    assert.match(raw(await f.read("tab_click", { selector: "#menu" })).observation.payload.snapshot, /\[e1\]/);
+    // The diff showed e1. Search is unchanged and moved, and no reply showed it.
+    assert.equal((await f.read("tab_click", { ref: "e1", observe: "none" })).code, 200);
+    assert.match(errorOf(await f.read("tab_click", { ref: old })), SHIFTED);
+  } finally { await f.close(); }
+});
+
+test("an action that has no baseline gets the full view with baseline true, and so does a diff that is not smaller", async () => {
+  const f = await snapshotFixture();
+  try {
+    await f.start();
+    const first = raw(await f.read("tab_press", { key: "Enter" })).observation.payload;
+    assert.equal(first.baseline, true);
+    assert.match(first.snapshot, /^- banner:/);
+    assert.match(first.snapshot, /… 11 more like this/);
+    assert.equal(payloadOf(await f.read("tab_snapshot", { diff: true })).snapshot, "# No change since your last snapshot.");
+    // A page that is all new: the diff is as large as the page.
+    f.state.act = path => { if (path.endsWith("/press")) f.state.page = annotate('- main:\n  - heading "Other" [level=1]\n  - button "Go"'); return undefined; };
+    const replaced = raw(await f.read("tab_press", { key: "Enter" })).observation.payload;
+    assert.equal(replaced.baseline, true);
+    assert.equal(replaced.snapshot, '- main:\n  - heading "Other" [level=1]\n  - button "Go" [e1]');
+  } finally { await f.close(); }
+});
+
+test("click, type, select, and press observe by default, and observe none returns the action result only", async () => {
+  const f = await snapshotFixture();
+  try {
+    await f.start();
+    payloadOf(await f.read("tab_snapshot"));
+    const calls: Array<[string, Record<string, unknown>]> = [["tab_click", { selector: "#a" }], ["tab_type", { selector: "#a", text: "x" }],
+      ["tab_select", { selector: "#a", option: "b" }], ["tab_press", { key: "Tab" }]];
+    for (const [name, args] of calls) {
+      let before = f.requests.length;
+      const observed = raw(await f.read(name, args));
+      assert.deepEqual(f.requests.slice(before).map(route), [`POST /tabs/TAB/${name.slice(4)}`, "GET /tabs/TAB/snapshot"], name);
+      assert.equal(observed.observation.kind, "snapshot", name);
+      before = f.requests.length;
+      const same = raw(await f.read(name, { ...args, observe: "diff" }));
+      assert.equal(same.observation.kind, "snapshot", name);
+      before = f.requests.length;
+      const bare = raw(await f.read(name, { ...args, observe: "none" }));
+      assert.deepEqual(f.requests.slice(before).map(route), [`POST /tabs/TAB/${name.slice(4)}`], name);
+      assert.equal(Object.hasOwn(bare, "observation"), false, name);
+      assert.deepEqual(bare, { kind: "json", payload: { ok: true } }, name);
+    }
+    // Other tools never observe.
+    const before = f.requests.length;
+    assert.equal(Object.hasOwn(raw(await f.read("tab_scroll", { direction: "down" })), "observation"), false);
+    assert.equal(f.requests.length, before + 1);
+  } finally { await f.close(); }
+});
+
+test("an observation that fails after a successful action is still a success with a note, and the action is never repeated", async () => {
+  const f = await snapshotFixture();
+  try {
+    await f.start();
+    payloadOf(await f.read("tab_snapshot", { collapse: false }));
+    const clicks = () => f.requests.filter(request => request.url.endsWith("/click")).length;
+    const sessions = f.h.sessions.get(f.h.id);
+    const modes: Array<[string, () => void, () => void]> = [
+      ["the snapshot route fails", () => { f.state.snapshot = () => ({ code: 500, payload: { error: "Snapshot failed" } }); }, () => { f.state.snapshot = undefined; }],
+      ["the tab state is not what Stelz expects", () => { f.state.act = () => { f.h.sessions.set(f.h.id, { tabGroups: {} }); return undefined; }; },
+        () => { f.state.act = undefined; f.h.sessions.set(f.h.id, sessions); }],
+    ];
+    for (const [label, fail, restore] of modes) {
+      fail();
+      const before = clicks();
+      const result = raw(await f.read("tab_click", { selector: "#save" }));
+      assert.deepEqual(result, { kind: "json", payload: { ok: true }, observation: { error: NOTE } }, label);
+      assert.equal(clicks(), before + 1, label);
+      assert.equal(f.h.state().phase, "ready", label);
+      restore();
+    }
+    // The failed reads changed nothing. The baseline is still the first page.
+    assert.equal(payloadOf(await f.read("tab_snapshot", { diff: true, collapse: false })).snapshot, "# No change since your last snapshot.");
+    // A snapshot that times out may leave work in the browser. The action still succeeded, and the lifetime is blocked as for any timeout.
+    f.state.snapshot = () => ({ code: 500, payload: { error: "action timed out after 30000ms" } });
+    const timed = raw(await f.read("tab_click", { selector: "#save" }));
+    assert.deepEqual(timed.observation, { error: NOTE });
+    assert.equal(f.h.state().phase, "blocked");
+  } finally { await f.close(); }
+});
+
+test("an observation that hangs after a successful action ends at its own time limit: success with the note, a blocked profile, and no service deadline error", async () => {
+  // The service deadline of the action is 1 second here. The read has 150 ms of its own, and it hangs.
+  const f = await snapshotFixture({ timeout: 1000, observeTimeout: 150 });
+  let release!: (reply: Reply) => void;
+  const hung = new Promise<Reply>(resolve => { release = resolve; });
+  const activeActions = async () => ((await f.h.request("status")).payload as { controller: { activeActions: number } }).controller.activeActions;
+  try {
+    await f.start();
+    payloadOf(await f.read("tab_snapshot", { collapse: false }));
+    f.state.snapshot = () => hung;
+    const clicks = () => f.requests.filter(request => request.url.endsWith("/click")).length;
+    const before = clicks(), started = Date.now();
+    const result = raw(await f.read("tab_click", { selector: "#save" }));
+    assert.deepEqual(result, { kind: "json", payload: { ok: true }, observation: { error: NOTE } });
+    // The read ended at its own limit, long before the deadline of the service. The click happened once.
+    assert.ok(Date.now() - started < 800, `The call took ${Date.now() - started} ms.`);
+    assert.equal(clicks(), before + 1);
+    // The upstream read can still run. The lifetime is blocked, and the controller keeps the unfinished work.
+    assert.equal(f.h.state().phase, "blocked");
+    assert.match(String(f.h.state().error), /exceeded its time limit/);
+    assert.equal(await activeActions(), 1);
+    assert.match(errorOf(await f.read("tab_click", { selector: "#save" })), /Profile is blocked/);
+    assert.equal(clicks(), before + 1);
+    // The read ends later, and the controller holds no work then.
+    release({ code: 200, payload: { ok: true } });
+    const deadline = Date.now() + 2000;
+    while (await activeActions() > 0 && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10));
+    assert.equal(await activeActions(), 0);
+  } finally { release({ code: 200, payload: { ok: true } }); await f.close(); }
+});
+
+test("a slow read after an action that finishes within its limit is not cut short, and the service deadline still ends a slow action", async () => {
+  const f = await snapshotFixture({ timeout: 400, observeTimeout: 5000 });
+  try {
+    await f.start();
+    payloadOf(await f.read("tab_snapshot", { collapse: false }));
+    // The read takes longer than the service deadline of the action. It has its own, longer limit, so the call still succeeds with the page.
+    f.state.delay = 700;
+    const result = raw(await f.read("tab_click", { selector: "#save" }));
+    assert.equal(result.observation.kind, "snapshot");
+    assert.equal(f.h.state().phase, "ready");
+    // An action that passes the service deadline is still an error, and it has no observation.
+    f.state.delay = 0;
+    f.state.act = () => new Promise<Reply>(resolve => setTimeout(() => resolve({ code: 200, payload: { ok: true } }), 900));
+    assert.match(errorOf(await f.read("tab_click", { selector: "#save" })), /exceeded its time limit/);
+    assert.equal(f.h.state().phase, "blocked");
+  } finally { await f.close(); }
+});
+
+test("a failed action returns its error and no observation, also an uncertain click", async () => {
+  const f = await snapshotFixture();
+  try {
+    await f.start();
+    payloadOf(await f.read("tab_snapshot"));
+    const uncertain = "The click may have reached the page, so Stelz did not try again. Read tab_snapshot, then decide whether to click again.";
+    f.state.act = path => path.endsWith("/click") ? { code: 409, payload: { error: uncertain } } : undefined;
+    const before = f.requests.length;
+    assert.match(errorOf(await f.read("tab_click", { selector: "#save" })), /The click may have reached the page/);
+    // No snapshot request followed the action.
+    assert.deepEqual(f.requests.slice(before).map(route), ["POST /tabs/TAB/click"]);
+    assert.equal(f.h.state().phase, "ready");
+    f.state.act = () => ({ code: 404, payload: { error: "Tab not found" } });
+    for (const [name, args] of [["tab_type", { selector: "#a", text: "x" }], ["tab_select", { selector: "#a", option: "b" }], ["tab_press", { key: "Tab" }]] as const) {
+      const count = f.requests.length;
+      assert.match(errorOf(await f.read(name, args)), /^404:/, name);
+      assert.equal(f.requests.length, count + 1, name);
+    }
+    // A refused click is not an error, and it did not happen. It has nothing to observe.
+    const mismatch = { ok: false, code: "semantic_target_mismatch", error: "No click was performed.", snapshot: "- main:" };
+    f.state.act = () => ({ code: 200, payload: mismatch });
+    const count = f.requests.length, refused = raw(await f.read("tab_click", { selector: "#save", expected_role: "button" }));
+    assert.equal(Object.hasOwn(refused, "observation"), false);
+    assert.equal(f.requests.length, count + 1);
+    assert.equal(Object.hasOwn(refused.payload, "snapshot"), false);
+  } finally { await f.close(); }
+});
+
+test("an observation of a target action is one queued action, so another controller action cannot come between", async () => {
+  const f = await snapshotFixture();
+  try {
+    await f.start();
+    const calls = await Promise.all([1, 2, 3].map(() => f.read("tab_click", { target: { role: "button", name: "Add Lamp 3" } })));
+    assert.ok(calls.every(call => call.code === 200));
+    // Each call is its own run of snapshot, click, snapshot. The runs do not interleave.
+    assert.deepEqual(f.requests.map(route), Array.from({ length: 3 }, () => ["GET /tabs/TAB/snapshot", "POST /tabs/TAB/click", "GET /tabs/TAB/snapshot"]).flat());
+  } finally { await f.close(); }
+});
+
+test("a click result with observe diff after a one-element change is at most 2 KB, on a small page and on a large one", async () => {
+  for (const items of [12, 80]) {
+    const f = await snapshotFixture();
+    try {
+      f.state.page = annotate(shop({ items }));
+      await f.start();
+      payloadOf(await f.read("tab_snapshot"));
+      const bytes: number[] = [];
+      let price = 20;
+      f.state.act = path => { if (path.endsWith("/click")) f.state.page = annotate(shop({ items, change: { 5: ++price } })); return undefined; };
+      for (let n = 0; n < 20; n++) {
+        const result = raw(await f.read("tab_click", { target: { role: "button", name: "Add Lamp 3" } }));
+        // The raw result in JSON is a little larger than the text that the MCP server prints, because JSON escapes the line breaks.
+        bytes.push(Buffer.byteLength(JSON.stringify(result)));
+        assert.match(result.observation.payload.snapshot, new RegExp(`\\+ {6}- text: \\$${20 + 5 + n + 1}$`), "The diff shows the changed price");
+      }
+      assert.ok(Math.max(...bytes) <= 2048, `${items} items: ${bytes.join(", ")} bytes`);
+    } finally { await f.close(); }
+  }
+});
+
+test("tab_wait with a target polls fresh snapshots until the element is on the page, and the polls are not views", async () => {
+  const f = await snapshotFixture();
+  try {
+    await f.start();
+    payloadOf(await f.read("tab_snapshot", { collapse: false }));
+    // The button appears at the fourth snapshot of the wait. The polls rebuild the refs of the tab, as any snapshot does.
+    const routes = f.state.route;
+    f.state.snapshot = n => { if (n >= routes + 3) f.state.page = annotate(shop(({ top: ['  - button "Done"'] }))); return undefined; };
+    const before = f.requests.length;
+    const result = raw(await f.read("tab_wait", { target: { role: "button", name: "done" }, timeout: 5000 }));
+    assert.equal(result.kind, "json");
+    assert.deepEqual(Object.keys(result.payload), ["found", "waitedMs", "matched"]);
+    assert.equal(result.payload.found, true);
+    assert.equal(result.payload.matched, '- button "Done"');
+    assert.ok(result.payload.waitedMs >= 500 && result.payload.waitedMs < 3000, String(result.payload.waitedMs));
+    assert.equal(Object.hasOwn(result, "observation"), false);
+    assert.deepEqual(f.requests.slice(before).map(route), Array(3).fill("GET /tabs/TAB/snapshot"));
+    // The polls did not change the baseline or the shown refs. The diff of the next snapshot shows the button, and refs that the polls saw are refused.
+    assert.match(errorOf(await f.read("tab_click", { ref: "e1" })), SHIFTED);
+    const diff = payloadOf(await f.read("tab_snapshot", { diff: true, collapse: false }));
+    assert.match(diff.snapshot, /\+ {2}- button "Done" \[e1\]/);
+  } finally { await f.close(); }
+});
+
+test("tab_wait with a text, or with a target that is already there, returns at once", async () => {
+  const f = await snapshotFixture();
+  try {
+    await f.start();
+    const before = f.requests.length;
+    const present = raw(await f.read("tab_wait", { target: { role: "button", name: "Add Lamp 1" }, timeout: 5000 }));
+    assert.equal(present.payload.found, true);
+    assert.ok(present.payload.waitedMs < 250, String(present.payload.waitedMs));
+    const text = raw(await f.read("tab_wait", { contains: "© shop", timeout: 5000 }));
+    assert.equal(text.payload.found, true);
+    assert.equal(text.payload.matched, "- text: © Shop");
+    assert.equal(f.requests.length, before + 2);
+    // A text that appears later.
+    const routes = f.state.route;
+    f.state.snapshot = n => { if (n > routes) f.state.page = annotate(shop().replace("© Shop", "Order placed")); return undefined; };
+    const later = raw(await f.read("tab_wait", { contains: "ORDER PLACED", timeout: 5000 }));
+    assert.deepEqual([later.payload.found, later.payload.matched], [true, "- text: Order placed"]);
+    // A target with nth needs that many matches.
+    f.state.snapshot = undefined;
+    f.state.page = annotate(['- button "Add"', '- button "Add"'].join("\n"));
+    assert.equal(raw(await f.read("tab_wait", { target: { role: "button", name: "Add", nth: 1 }, timeout: 0 })).payload.found, true);
+    assert.equal(raw(await f.read("tab_wait", { target: { role: "button", name: "Add", nth: 2 }, timeout: 0 })).payload.found, false);
+  } finally { await f.close(); }
+});
+
+test("tab_wait that reaches its timeout is a clean result, not an error, and the profile stays ready", async () => {
+  const f = await snapshotFixture();
+  try {
+    await f.start();
+    const before = f.requests.length;
+    const started = Date.now();
+    const result = raw(await f.read("tab_wait", { target: { role: "button", name: "Never" }, timeout: 700 }));
+    assert.deepEqual(Object.keys(result.payload), ["found", "waitedMs", "reason"]);
+    assert.equal(result.payload.found, false);
+    assert.equal(result.payload.reason, "timeout");
+    assert.ok(result.payload.waitedMs >= 700 && result.payload.waitedMs < 1500, String(result.payload.waitedMs));
+    assert.ok(Date.now() - started < 3000);
+    // About one poll every 300 ms: at 0, 300, 600, and at the timeout.
+    const polls = f.requests.length - before;
+    assert.ok(polls >= 3 && polls <= 5, String(polls));
+    assert.equal(f.h.state().phase, "ready");
+    // A zero timeout polls once.
+    const count = f.requests.length;
+    assert.equal(raw(await f.read("tab_wait", { contains: "Never", timeout: 0 })).payload.reason, "timeout");
+    assert.equal(f.requests.length, count + 1);
+    assert.equal((await f.read("tab_click", { selector: "#ok", observe: "none" })).code, 200);
+  } finally { await f.close(); }
+});
+
+test("a pause or a release during tab_wait ends it at once with a clean reason", async () => {
+  const f = await snapshotFixture();
+  try {
+    await f.start();
+    const target = { role: "button", name: "Never" };
+    // Run the request after the wait has made its first poll.
+    const during = async (call: () => Promise<{ code: number; payload: unknown }>) => {
+      const deadline = Date.now() + 2000;
+      while (f.state.route < 1 && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 5));
+      assert.ok(f.state.route >= 1, "The wait did not start.");
+      return call();
+    };
+    // The pause waits for the admitted wait. The wait does not wait for its timeout.
+    let started = Date.now();
+    const wait = f.read("tab_wait", { target, timeout: 30_000 });
+    const [paused, afterPause] = await Promise.all([during(() => f.h.request("pause", { controllerId: controller.id })), wait]);
+    assert.equal(paused.code, 200);
+    assert.equal(f.h.state().phase, "paused");
+    assert.ok(Date.now() - started < 3000);
+    assert.deepEqual({ ...raw(afterPause).payload, waitedMs: 0 }, { found: false, waitedMs: 0, reason: "paused" });
+    // A wait on a paused profile is refused like any action. Resume, then release during a wait.
+    assert.match(errorOf(await f.read("tab_wait", { target, timeout: 1000 })), /Profile is paused/);
+    assert.equal((await f.h.request("resume", { controllerId: controller.id })).code, 200);
+    f.state.route = 0; started = Date.now();
+    const second = f.read("tab_wait", { contains: "Never", timeout: 30_000 });
+    const [released, afterRelease] = await Promise.all([during(() => f.h.request("release", { controllerId: controller.id })), second]);
+    assert.equal(released.code, 200);
+    assert.ok(Date.now() - started < 3000);
+    assert.deepEqual({ ...raw(afterRelease).payload, waitedMs: 0 }, { found: false, waitedMs: 0, reason: "releasing" });
+    assert.equal(f.h.state().phase, "ready");
+    assert.equal((await f.h.request("acquire", { ...controller, id: "controller-b" })).code, 200);
+  } finally { await f.close(); }
+});
+
+test("tab_wait without a target or a text is the upstream wait, with only its own arguments", async () => {
+  const f = await snapshotFixture();
+  try {
+    await f.start();
+    const before = f.requests.length;
+    assert.deepEqual(raw(await f.read("tab_wait", { timeout: 500, waitForNetwork: false })), { kind: "json", payload: { ok: true } });
+    const sent = f.requests.slice(before);
+    assert.deepEqual(sent.map(route), ["POST /tabs/TAB/wait"]);
+    assert.deepEqual(sent[0]!.body, { timeout: 500, waitForNetwork: false, userId: f.h.id });
+  } finally { await f.close(); }
+});
+
+test("a poll that fails ends tab_wait with the error, and a poll error that names a timeout still blocks like any timeout", async () => {
+  const f = await snapshotFixture();
+  try {
+    await f.start();
+    f.state.snapshot = () => ({ code: 500, payload: { error: "Snapshot failed" } });
+    assert.match(errorOf(await f.read("tab_wait", { contains: "x", timeout: 1000 })), /^500:/);
+    assert.equal(f.h.state().phase, "ready");
+    f.state.snapshot = () => ({ code: 500, payload: { error: "action timed out after 30000ms" } });
+    assert.match(errorOf(await f.read("tab_wait", { contains: "x", timeout: 1000 })), /timed out/);
+    assert.equal(f.h.state().phase, "blocked");
   } finally { await f.close(); }
 });

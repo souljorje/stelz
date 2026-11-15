@@ -1,6 +1,9 @@
 import { expect, test } from "bun:test";
 import { formatResult } from "../../src/mcp/mcp.ts";
 import { parseToolText } from "../helpers/mcp-client.ts";
+import { createSnapshotTracker } from "../../src/browser/snapshot-tracker.ts";
+import { identityKey } from "../../src/browser/tab-state.ts";
+import { annotate, helpers, shop } from "../helpers/aria-fixtures.ts";
 
 const yaml = '- heading "Title" [e1]\n  - link "Next \\"page\\"" [e2]:\n    - /url: https://example.test/next\n- button "Save" [e3]';
 const snapshot = { url: "https://example.test/", snapshot: yaml, refsCount: 3, truncated: false, viewId: "v7", screenshot: { data: "aW1hZ2U=", mimeType: "image/png" } };
@@ -61,4 +64,61 @@ test("JSON results are compact and one block, with no structured content", () =>
   // A malformed snapshot payload falls back to compact JSON instead of failing.
   expect(formatResult({ kind: "snapshot", payload: { error: "none" } })).toEqual([{ type: "text", text: '{"error":"none"}' }]);
   expect(formatResult({ kind: "snapshot", payload: null })).toEqual([{ type: "text", text: "null" }]);
+});
+
+const diff = '# Diff from your last snapshot. + is a new or changed line, - is a removed line. Note that refs on unchanged lines may have shifted; target by role and name.\n-      - text: $25\n+      - text: $35';
+const observed = { url: "https://example.test/", refsCount: 3, truncated: false, viewId: "v8", snapshot: diff };
+
+test("an action with an observation is its compact result, then the snapshot header, then the page text", () => {
+  const content = formatResult({ kind: "json", payload: { ok: true, url: "https://example.test/" }, observation: { kind: "snapshot", payload: observed } });
+  expect(content).toEqual([{ type: "text", text: `{"ok":true,"url":"https://example.test/"}\n{"url":"https://example.test/","refsCount":3,"truncated":false,"viewId":"v8"}\n${diff}` }]);
+  const lines = (content[0] as { text: string }).text.split("\n");
+  expect(lines).toHaveLength(2 + diff.split("\n").length);
+  expect(JSON.parse(lines[0]!)).toEqual({ ok: true, url: "https://example.test/" });
+  expect(JSON.parse(lines[1]!)).toEqual({ url: "https://example.test/", refsCount: 3, truncated: false, viewId: "v8" });
+  // The page text is not JSON-escaped, as in a snapshot reply.
+  expect(lines.slice(2).join("\n")).toBe(diff);
+  // A full view says so in the header, and the header has the same fields as tab_snapshot.
+  const full = formatResult({ kind: "json", payload: { ok: true }, observation: { kind: "snapshot", payload: { ...observed, baseline: true, truncated: true, nextOffset: 90 } } });
+  expect(JSON.parse((full[0] as { text: string }).text.split("\n")[1]!)).toEqual({ url: "https://example.test/", refsCount: 3, truncated: true, nextOffset: 90, viewId: "v8", baseline: true });
+  // The first line is the whole action result, also when the action returned a list.
+  expect((formatResult({ kind: "json", payload: [1], observation: { kind: "snapshot", payload: observed } })[0] as { text: string }).text.split("\n")[0]).toBe("[1]");
+});
+
+test("a failed read after a successful action is a note under the action result, and not an error", () => {
+  const note = "The action completed. Read tab_snapshot to see the page.";
+  const content = formatResult({ kind: "json", payload: { ok: true }, observation: { error: note } });
+  expect(content).toEqual([{ type: "text", text: `{"ok":true}\n# ${note}` }]);
+  // The reader of the first line gets the action result, as when there is no observation.
+  expect(parseToolText((content[0] as { text: string }).text)).toMatchObject({ ok: true });
+});
+
+test("a result without an observation keeps its format", () => {
+  expect(formatResult({ kind: "json", payload: { ok: true } })).toEqual([{ type: "text", text: '{"ok":true}' }]);
+  expect(formatResult({ kind: "json", payload: { ok: true }, observation: undefined })).toEqual([{ type: "text", text: '{"ok":true}' }]);
+  // An image is never followed by an observation.
+  const image = { type: "image" as const, data: "aW1h", mimeType: "image/png" };
+  expect(formatResult({ kind: "image", payload: image, observation: { error: "x" } })).toEqual([image]);
+});
+
+test("the text of a click with observe diff after a one-element change is at most 2 KB, whatever the size of the page", () => {
+  for (const items of [12, 80, 300]) {
+    const tracker = createSnapshotTracker(helpers);
+    const read = (change: Record<number, number>, request: object) => {
+      const page = annotate(shop({ items, change }));
+      const refs = new Map([...page.refs].map(([ref, entry]) => [ref, identityKey(entry)]));
+      return tracker.read("a", "tab", { yaml: page.yaml, url: "https://shop.test/", refsCount: page.refs.size, refs, request });
+    };
+    read({}, {});
+    const sizes = [26, 27, 28].map(price => {
+      const view = read({ 5: price }, { diff: true });
+      expect(view.baseline).toBeUndefined();
+      const { text, ...header } = view;
+      const [content] = formatResult({ kind: "json", payload: { ok: true }, observation: { kind: "snapshot", payload: { ...header, snapshot: text } } }) as Array<{ text: string }>;
+      // The fixture adds the number of the item to the price.
+      expect(content!.text).toContain(`+      - text: $${price + 5}`);
+      return Buffer.byteLength(content!.text);
+    });
+    expect(Math.max(...sizes), `${items} items`).toBeLessThanOrEqual(2048);
+  }
 });

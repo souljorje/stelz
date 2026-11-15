@@ -9,6 +9,15 @@ export const TYPING_LIMIT_MS = 180_000;
 /** The upstream wait of tab_wait ends at its timeout argument. The schema accepts at most this value. */
 export const WAIT_DEFAULT_MS = 10_000;
 export const WAIT_MAX_MS = 60_000;
+/** The pause between two snapshots of a tab_wait that has a target or a text. */
+export const WAIT_POLL_MS = 300;
+/**
+ * The time limit of one snapshot read after an action (`observe`). That read has its own timer, apart from the service deadline of the action.
+ * A late read then never turns a finished action into an error. It is also the allowance for the last poll of a tab_wait, inside the service deadline.
+ * A snapshot takes well under a second on a normal page. The client examples allow 240 seconds for one call, and a tab_type call
+ * with its read must fit: 180 + 15 seconds for the limit of the call, plus the margins below.
+ */
+export const OBSERVE_LIMIT_MS = 15_000;
 /** The upstream deadline of tab_evaluate is its timeoutMs argument. The schema accepts at most this value. */
 export const EVALUATE_DEFAULT_MS = 30_000;
 export const EVALUATE_MIN_MS = 1_000;
@@ -22,7 +31,15 @@ const REPLY_MARGIN_MS = 15_000;
 function argumentLimit(value: unknown, fallback: number, max: number) {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.min(value, max) : fallback;
 }
-export const waitLimit = (args: Record<string, unknown>) => argumentLimit(args.timeout, WAIT_DEFAULT_MS, WAIT_MAX_MS);
+/** How long a tab_wait waits for its page, target, or text. */
+export const waitDuration = (args: Record<string, unknown>) => argumentLimit(args.timeout, WAIT_DEFAULT_MS, WAIT_MAX_MS);
+/** A wait with a target or a text polls snapshots. A poll can start just before the timeout. */
+export const waitLimit = (args: Record<string, unknown>) => waitDuration(args) + (args.target !== undefined || args.contains !== undefined ? OBSERVE_LIMIT_MS : 0);
+/**
+ * The limit of an action that reads the page afterward, unless the call turns that off with `observe: "none"`. A caller waits this long.
+ * The service deadline covers the action alone (`actionDeadline` in the catalog), and the read follows with its own timer.
+ */
+export const observedLimit = (limit: number) => (args: Record<string, unknown>) => limit + (args.observe === "none" ? 0 : OBSERVE_LIMIT_MS);
 export const evaluateLimit = (args: Record<string, unknown>) => argumentLimit(args.timeoutMs, EVALUATE_DEFAULT_MS, EVALUATE_MAX_MS);
 
 /** The service deadline for a control operation, such as an IP recheck. */

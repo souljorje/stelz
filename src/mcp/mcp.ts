@@ -15,8 +15,7 @@ import { LocationError } from "../browser/location.ts";
 type Content = { type: "text"; text: string } | { type: "image"; data: string; mimeType: string };
 const contracts = () => import(pathToFileURL(join(upstream(), "mcp/lib/tool-contracts.mjs")).href) as Promise<Contracts>;
 
-/** Turn a raw tool result into MCP content. This is the only place that formats results. */
-export function formatResult({ kind, payload }: ToolResult): Content[] {
+function formatPayload(kind: ToolResult["kind"], payload: unknown): Content[] {
   if (kind === "image") return [payload as Content];
   const value = (payload ?? {}) as { url?: unknown; snapshot?: unknown; refsCount?: unknown; truncated?: unknown; nextOffset?: unknown; viewId?: unknown;
     baseline?: unknown; structure?: unknown; screenshot?: { data?: string; mimeType?: string } };
@@ -31,6 +30,17 @@ export function formatResult({ kind, payload }: ToolResult): Content[] {
       ...(value.screenshot?.data ? [{ type: "image" as const, data: value.screenshot.data, mimeType: value.screenshot.mimeType || "image/png" }] : [])];
   }
   return [{ type: "text", text: JSON.stringify(payload) }];
+}
+
+/**
+ * Turn a raw tool result into MCP content. This is the only place that formats results.
+ * An action with an observation is one text block: the compact action result, then the page as a snapshot reply, or a note that the read of the page failed.
+ */
+export function formatResult({ kind, payload, observation }: ToolResult): Content[] {
+  const content = formatPayload(kind, payload), [action] = content;
+  if (!observation || action?.type !== "text") return content;
+  const [page, ...images] = "error" in observation ? [{ type: "text" as const, text: `# ${observation.error}` }] : formatPayload(observation.kind, observation.payload);
+  return [{ type: "text", text: `${action.text}\n${page?.type === "text" ? page.text : ""}` }, ...images];
 }
 
 export async function runMcp(options: { tools?: string } = {}) {

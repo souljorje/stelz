@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
-import { browserTools, deadline, entries, excluded, toolArguments, type Contracts } from "../../src/browser/catalog.ts";
+import { actionDeadline, browserTools, deadline, entries, excluded, toolArguments, type Contracts } from "../../src/browser/catalog.ts";
 import { DEFAULT_MAX_CHARS, MAX_MAX_CHARS, MIN_MAX_CHARS } from "../../src/browser/snapshot-view.ts";
-import { ACTION_LIMIT_MS, EVALUATE_DEFAULT_MS, EVALUATE_MAX_MS, TYPING_LIMIT_MS, WAIT_DEFAULT_MS, WAIT_MAX_MS } from "../../src/browser/deadlines.ts";
+import { ACTION_LIMIT_MS, EVALUATE_DEFAULT_MS, EVALUATE_MAX_MS, OBSERVE_LIMIT_MS, TYPING_LIMIT_MS, WAIT_DEFAULT_MS, WAIT_MAX_MS, replyTimeout, serviceDeadline } from "../../src/browser/deadlines.ts";
 
 const upstream = await import(new URL("../../node_modules/@askjo/camofox-browser/mcp/lib/tool-contracts.mjs", import.meta.url).href) as Contracts;
 const tabId = "79bed5c4-d5b8-4369-9d13-b159451ece91";
@@ -44,9 +44,9 @@ test("no exposed schema has a routing field or an excluded property, and the ups
     for (const name of ["userId", "sessionKey", "coordinates", "annotateScreenshot", "dismissConsent"])
       expect(Object.hasOwn(tool.inputSchema.properties ?? {}, name), `${tool.name}.${name}`).toBe(false);
   }
-  expect(Object.keys(tool("tab_click").inputSchema.properties!)).toEqual(["tabId", "ref", "selector", "expected_role", "expected_accessible_name"]);
+  expect(Object.keys(tool("tab_click").inputSchema.properties!)).toEqual(["tabId", "ref", "selector", "expected_role", "expected_accessible_name", "target", "observe"]);
   expect(Object.keys(tool("tab_screenshot").inputSchema.properties!)).toEqual(["tabId", "fullPage"]);
-  expect(Object.keys(tool("tab_wait").inputSchema.properties!)).toEqual(["tabId", "timeout", "waitForNetwork"]);
+  expect(Object.keys(tool("tab_wait").inputSchema.properties!)).toEqual(["tabId", "timeout", "waitForNetwork", "target", "contains"]);
   expect(tool("tab_type").inputSchema.properties).toHaveProperty("mode.enum", ["balanced", "keyboard", "instant"]);
   expect(tool("tab_type").inputSchema.required).toEqual(upstream.TOOL_DEFS.find(def => def.name === "camofox_type")!.inputSchema.required);
   expect(tool("tab_wait").inputSchema.properties).toHaveProperty("timeout.maximum", WAIT_MAX_MS);
@@ -55,7 +55,7 @@ test("no exposed schema has a routing field or an excluded property, and the ups
 
 test("descriptions use Stelz names and do not promote the engine", () => {
   for (const { tool } of tools.values()) {
-    expect(tool.description, tool.name).not.toMatch(/camofox_|PREFERRED|instead of Chrome|Preferred over Chrome|consent/i);
+    expect(tool.description, tool.name).not.toMatch(/camofox_|PREFERRED:|instead of Chrome|Preferred over Chrome|consent/i);
     expect(tool.description.trim(), tool.name).not.toBe("");
   }
   expect(tool("tab_ax").description).toContain("tab_snapshot");
@@ -145,6 +145,101 @@ test("the service accepts only exposed properties, and only Stelz sets the inter
   for (const args of [null, false, 1, [], "invalid"]) expect(() => toolArguments(tool("tab_click"), args)).toThrow("must be an object");
 });
 
+test("an action that reads the page afterward has time for the read, and observe none takes it away", () => {
+  for (const [name, base] of [["tab_click", ACTION_LIMIT_MS], ["tab_select", ACTION_LIMIT_MS], ["tab_press", ACTION_LIMIT_MS], ["tab_type", TYPING_LIMIT_MS]] as const) {
+    expect(deadline(name, {}), name).toBe(base + OBSERVE_LIMIT_MS);
+    expect(deadline(name, { observe: "diff" }), name).toBe(base + OBSERVE_LIMIT_MS);
+    expect(deadline(name, { observe: "none" }), name).toBe(base);
+  }
+  // A tab_wait with a target or a text polls snapshots. Its last poll can start just before the timeout.
+  expect(deadline("tab_wait", { timeout: 2_000, target: { role: "button", name: "Save" } })).toBe(2_000 + OBSERVE_LIMIT_MS);
+  expect(deadline("tab_wait", { timeout: 1e12, contains: "Done" })).toBe(WAIT_MAX_MS + OBSERVE_LIMIT_MS);
+  expect(deadline("tab_wait", { target: { role: "button", name: "Save" } })).toBe(WAIT_DEFAULT_MS + OBSERVE_LIMIT_MS);
+  for (const name of ["tab_navigate", "tab_scroll", "tab_snapshot", "tab_screenshot"]) expect(deadline(name, { observe: "diff" }), name).toBe(ACTION_LIMIT_MS);
+});
+
+test("the service deadline covers the action alone, and the read after it fits inside what the caller waits", () => {
+  for (const [name, base] of [["tab_click", ACTION_LIMIT_MS], ["tab_select", ACTION_LIMIT_MS], ["tab_press", ACTION_LIMIT_MS], ["tab_type", TYPING_LIMIT_MS]] as const)
+    for (const observe of [undefined, "diff", "none"]) {
+      const args = observe === undefined ? {} : { observe };
+      expect(actionDeadline(name, args), `${name} ${observe}`).toBe(base);
+      // The service deadline fires during the action only. The read has its own timer after it, then the reply.
+      const worst = serviceDeadline(actionDeadline(name, args)) + (observe === "none" ? 0 : OBSERVE_LIMIT_MS);
+      expect(replyTimeout(deadline(name, args)), `${name} ${observe}`).toBeGreaterThan(worst);
+    }
+  // A wait with a target polls inside the action, so its last poll stays inside the service deadline.
+  expect(actionDeadline("tab_wait", { timeout: 2_000, target: { role: "button", name: "Save" } })).toBe(2_000 + OBSERVE_LIMIT_MS);
+  expect(actionDeadline("tab_wait", { timeout: 2_000 })).toBe(2_000);
+  expect(actionDeadline("tab_evaluate", { timeoutMs: 5_000 })).toBe(5_000);
+});
+
+test("click, type, select, and press expose observe, and click, type, select, and wait expose a target", () => {
+  for (const name of ["tab_click", "tab_type", "tab_press", "tab_select"]) {
+    const properties = tool(name).inputSchema.properties!;
+    expect(properties, name).toHaveProperty("observe.enum", ["diff", "none"]);
+    expect(tool(name).description, name).toContain("observe");
+  }
+  for (const name of ["tab_click", "tab_type", "tab_select", "tab_wait"]) {
+    const properties = tool(name).inputSchema.properties!;
+    expect(properties, name).toHaveProperty("target.required", ["role", "name"]);
+    expect(properties, name).toHaveProperty("target.properties.nth.minimum", 0);
+    expect(properties, name).toHaveProperty("target.additionalProperties", false);
+  }
+  expect(tool("tab_press").inputSchema.properties).not.toHaveProperty("target");
+  expect(tool("tab_navigate").inputSchema.properties).not.toHaveProperty("observe");
+  // Describe the target as the preferred way to name an element. The upstream required fields stay.
+  for (const name of ["tab_click", "tab_type", "tab_select"]) {
+    expect(tool(name).description, name).toContain("target (preferred)");
+    expect((tool(name).inputSchema.properties!.target as { description: string }).description, name).toContain("preferred");
+    expect(tool(name).inputSchema.required, name).not.toContain("target");
+  }
+  for (const word of ["target", "contains", "found", "waitedMs", "timeout", "paused", "releasing"]) expect(tool("tab_wait").description).toContain(word);
+  expect(tool("tab_wait").inputSchema.properties).toHaveProperty("contains.type", "string");
+  expect(tool("tab_wait").inputSchema.required).toEqual(["tabId"]);
+});
+
+test("a target names one element, and an element is named by exactly one of ref, selector, and target", () => {
+  const target = { role: "button", name: "Save", nth: 1 };
+  for (const name of ["tab_click", "tab_select"]) {
+    const extra = name === "tab_select" ? { option: "red" } : {};
+    expect(toolArguments(tool(name), { tabId, target, ...extra })).toEqual({ tabId, target, ...extra });
+    expect(toolArguments(tool(name), { tabId, target: { role: "button", name: "" }, ...extra })).toMatchObject({ target: { name: "" } });
+    for (const named of [{}, { ref: "e1", selector: "#x" }, { ref: "e1", target }, { selector: "#x", target }, { ref: "e1", selector: "#x", target }])
+      expect(() => toolArguments(tool(name), { tabId, ...named, ...extra }), `${name} ${Object.keys(named)}`).toThrow("Pass exactly one of ref, selector, and target.");
+  }
+  expect(toolArguments(tool("tab_type"), { tabId, target, text: "hello", mode: "instant", observe: "none" })).toEqual({ tabId, target, text: "hello", mode: "instant", observe: "none" });
+  expect(() => toolArguments(tool("tab_type"), { tabId, text: "hello" })).toThrow("Pass exactly one of ref, selector, and target.");
+  for (const bad of [null, "button", [], {}, { role: "button" }, { name: "Save" }, { role: "", name: "Save" }, { role: " ", name: "Save" }, { role: 1, name: "Save" },
+    { role: "button", name: 1 }, { role: "button", name: null }, { role: "button", name: "Save", nth: -1 }, { role: "button", name: "Save", nth: 1.5 },
+    { role: "button", name: "Save", nth: "1" }, { role: "button", name: "Save", extra: true }])
+    expect(() => toolArguments(tool("tab_click"), { tabId, target: bad }), JSON.stringify(bad)).toThrow("target must be an object with a role, a name, and optionally an nth from 0");
+  // A scope can omit its name. A target cannot.
+  expect(toolArguments(tool("tab_snapshot"), { tabId, scope: { role: "list" } })).toMatchObject({ scope: { role: "list" } });
+});
+
+test("observe is diff or none", () => {
+  for (const name of ["tab_click", "tab_press"]) {
+    const base = name === "tab_press" ? { tabId, key: "Enter" } : { tabId, ref: "e1" };
+    for (const observe of ["diff", "none"]) expect(toolArguments(tool(name), { ...base, observe })).toEqual({ ...base, observe });
+    for (const observe of ["full", "", true, null, 1, "DIFF"]) expect(() => toolArguments(tool(name), { ...base, observe }), String(observe)).toThrow('observe must be "diff" or "none"');
+  }
+  expect(() => toolArguments(tool("tab_navigate"), { tabId, url: "https://x.test", observe: "none" })).toThrow("Unknown tool argument");
+  expect(() => toolArguments(tool("tab_press"), { tabId, key: "Enter", target: { role: "button", name: "Save" } })).toThrow("Unknown tool argument");
+});
+
+test("tab_wait takes a target or a text, not both", () => {
+  const wait = (args: Record<string, unknown>) => toolArguments(tool("tab_wait"), { tabId, ...args });
+  expect(wait({ target: { role: "button", name: "Done" }, timeout: 3000 })).toMatchObject({ target: { role: "button", name: "Done" }, timeout: 3000 });
+  expect(wait({ contains: "Order placed", timeout: 3000 })).toMatchObject({ contains: "Order placed" });
+  expect(wait({})).toEqual({ tabId });
+  expect(wait({ waitForNetwork: false })).toEqual({ tabId, waitForNetwork: false });
+  expect(() => wait({ target: { role: "button", name: "Done" }, contains: "Done" })).toThrow("Pass target or contains, not both.");
+  for (const contains of ["", 5, null, ["x"]]) expect(() => wait({ contains }), String(contains)).toThrow("contains must be text that is not empty");
+  expect(() => wait({ target: { role: "button" } })).toThrow("target must be an object");
+  expect(() => wait({ dismissConsent: true })).toThrow("Unknown tool argument");
+  expect(() => wait({ target: { role: "button", name: "Done" }, timeout: WAIT_MAX_MS + 1 })).toThrow("timeout must be");
+});
+
 test("a time limit above its maximum, below its minimum, or not a number is refused", () => {
   const wait = tool("tab_wait"), evaluate = tool("tab_evaluate");
   expect(toolArguments(wait, { tabId, timeout: WAIT_MAX_MS })).toEqual({ tabId, timeout: WAIT_MAX_MS });
@@ -161,9 +256,7 @@ test("a time limit above its maximum, below its minimum, or not a number is refu
 });
 
 test("deadlines come from the call arguments, with caps", () => {
-  expect(deadline("tab_click", {})).toBe(ACTION_LIMIT_MS);
   expect(deadline("tab_navigate", { tabId })).toBe(ACTION_LIMIT_MS);
-  expect(deadline("tab_type", {})).toBe(TYPING_LIMIT_MS);
   expect(deadline("tab_wait", {})).toBe(WAIT_DEFAULT_MS);
   expect(deadline("tab_wait", { timeout: 2_000 })).toBe(2_000);
   expect(deadline("tab_wait", { timeout: 1e12 })).toBe(WAIT_MAX_MS);

@@ -15,7 +15,7 @@ test("a line has its role, name, attributes, ref, and a text without the ref mar
   expect(parseAria(yaml)[4]).toMatchObject({ role: "listitem", ref: "e1", text: "      - listitem:" });
 });
 
-test("depth, parent, and subtree follow the indentation", () => {
+test("parent and subtree follow the indentation", () => {
   const nodes = parseAria(annotate(shop()).yaml);
   const list = nodes.find(node => node.role === "list" && node.name === "Results")!;
   expect(list).toMatchObject({ indent: 2 });

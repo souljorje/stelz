@@ -28,6 +28,20 @@ export async function fixture(port = 9410) {
 <main><article>Scrollable feed</article></main>
 <script>const feed=document.querySelector('main');feed.addEventListener('scroll',()=>{document.querySelector('#position').textContent='Scroll position: x='+Math.round(feed.scrollLeft)+' y='+Math.round(feed.scrollTop)})</script>`,
       { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
+    // Targets, observe, and tab_wait. This page changes only its DOM. It writes no storage, so no check of another page sees it.
+    if (url.pathname === "/targets") return new Response(`<!doctype html><title>Target acceptance fixture</title>
+<h1>Targets</h1>
+<nav>${Array.from({ length: 12 }, (_, index) => `<a href="#link-${index}">Link number ${index}</a>`).join(" ")}</nav>
+<button class="add">Add item</button><button class="add">Add item</button><button disabled>Disabled action</button>
+<button id="mark">Mark done</button><p id="status" role="status">Waiting</p>
+<label>Note <input id="note"></label><p id="echo">Echo: none</p>
+<button id="reveal">Reveal later</button>
+<script>const text=(id,value)=>{document.getElementById(id).textContent=value};
+document.querySelectorAll('.add').forEach((button,index)=>button.onclick=()=>text('status','Added by button '+index));
+document.getElementById('mark').onclick=()=>text('status','Marked');
+document.getElementById('note').oninput=event=>text('echo','Echo: '+event.target.value);
+document.getElementById('reveal').onclick=()=>setTimeout(()=>{const late=document.createElement('button');late.textContent='Late button';document.body.append(late)},1200)</script>`,
+      { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
     const challenge = crypto.randomUUID().slice(0, 8);
     const candidate = url.searchParams.get("profile") || "";
     const label = /^[a-z0-9-]{1,64}$/.test(candidate) ? ` — ${candidate}` : "";

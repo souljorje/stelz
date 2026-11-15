@@ -39,24 +39,49 @@ export function filterKey({ scope, contains }: Filter) {
   return JSON.stringify([scope ? [scope.role.trim().toLowerCase(), scope.name ?? null, scope.nth ?? null] : null, contains?.toLowerCase() ?? null]);
 }
 
-function findScope(nodes: AriaNode[], scope: Scope, { normalize }: AriaHelpers): AriaNode {
-  const role = scope.role.trim().toLowerCase(), name = scope.name === undefined ? undefined : normalize(scope.name);
-  const hits = nodes.filter(node => node.role === role && (name === undefined || normalize(node.name) === name));
-  const described = `role "${scope.role}"${scope.name === undefined ? "" : ` and name "${scope.name}"`}`;
-  if (!hits.length) throw Error(`No element matches the scope: ${described}.`);
-  if (scope.nth === undefined) {
-    if (hits.length > 1) throw Error(`The scope matches ${hits.length} elements: ${described}. Pass nth (0 to ${hits.length - 1}) or a more exact name.`);
+/** A selector that names no safe element: no match, too many matches, or an element that cannot take the action. The caller's mistake, not a browser failure. */
+export class SelectorError extends Error {}
+
+/** The nodes with this role and name, in page order. The role is exact and not case-sensitive. The names compare after Camofox normalizes them. */
+export function matchNodes(nodes: AriaNode[], { role, name }: Scope, { normalize }: AriaHelpers): AriaNode[] {
+  const wanted = role.trim().toLowerCase(), text = name === undefined ? undefined : normalize(name);
+  return nodes.filter(node => node.role === wanted && (text === undefined || normalize(node.name) === text));
+}
+
+const describe = ({ role, name }: Scope) => `role "${role}"${name === undefined ? "" : ` and name "${name}"`}`;
+
+/**
+ * The one node that a selector names, for a scope or for a target. `nth` counts from 0 in page order.
+ * A selector that matches more than one node needs `nth`.
+ */
+export function findNode(nodes: AriaNode[], selector: Scope, helpers: AriaHelpers, noun: "scope" | "target" = "scope"): AriaNode {
+  const hits = matchNodes(nodes, selector, helpers), described = describe(selector);
+  if (!hits.length) throw new SelectorError(`No element matches the ${noun}: ${described}.${noun === "target" ? nearby(nodes, selector, helpers) : ""}`);
+  if (selector.nth === undefined) {
+    if (hits.length > 1) throw new SelectorError(`The ${noun} matches ${hits.length} elements: ${described}. Pass nth (0 to ${hits.length - 1})${noun === "scope" ? " or a more exact name" : ""}.`);
     return hits[0]!;
   }
-  if (scope.nth >= hits.length) throw Error(`The scope matches ${hits.length} ${hits.length === 1 ? "element" : "elements"}: ${described}. nth must be 0 to ${hits.length - 1}.`);
-  return hits[scope.nth]!;
+  if (selector.nth >= hits.length) throw new SelectorError(`The ${noun} matches ${hits.length} ${hits.length === 1 ? "element" : "elements"}: ${described}. nth must be 0 to ${hits.length - 1}.`);
+  return hits[selector.nth]!;
+}
+
+// The elements with the same role, the ones with the most words of the wanted name first. They tell the caller what the page has.
+const CANDIDATES = 5;
+function nearby(nodes: AriaNode[], { role, name = "" }: Scope, { normalize }: AriaHelpers) {
+  const wanted = normalize(name), words = new Set(wanted.split(" ").filter(Boolean)), same = role.trim().toLowerCase();
+  const close = nodes.filter(node => node.role === same).map((node, order) => {
+    const text = normalize(node.name);
+    return { node, order, score: text.split(" ").filter(word => words.has(word)).length + (text && (text.includes(wanted) || wanted.includes(text)) ? words.size + 1 : 0) };
+  }).sort((a, b) => b.score - a.score || a.order - b.order).slice(0, CANDIDATES);
+  if (!close.length) return ` The page has no element with the role "${role}".`;
+  return ` Elements with this role: ${close.map(({ node }) => `${node.role} ${JSON.stringify(node.name.length > 60 ? `${node.name.slice(0, 57)}...` : node.name)}`).join(", ")}.`;
 }
 
 /** Apply scope, then contains. A scope can match any node, also one that has no ref. The result is in document order. */
 function selectLines(nodes: AriaNode[], filter: Filter, helpers: AriaHelpers): Line[] {
   let lo = 0, hi = nodes.length, dedent = 0;
   if (filter.scope) {
-    const root = findScope(nodes, filter.scope, helpers);
+    const root = findNode(nodes, filter.scope, helpers);
     lo = root.index; hi = root.end; dedent = root.indent;
   }
   let chosen: number[] = [];

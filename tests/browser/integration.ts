@@ -54,6 +54,14 @@ async function refused(client: Client, name: string, args: Record<string, unknow
   const text = (result.content as Array<{ type: string; text?: string }>).filter(x => x.type === "text").map(x => x.text).join("\n");
   assert(result.isError && text.includes(message), `${name} was not refused with "${message}": ${text}`);
 }
+/** One action call. The text is the action result, then the snapshot header and the page text. A call with observe none has the action result only. */
+async function acted(client: Client, name: string, args: Record<string, unknown>) {
+  const result = await client.callTool({ name, arguments: args }, undefined, { timeout: 180000 });
+  const text = (result.content as Array<{ type: string; text?: string }>).filter(x => x.type === "text").map(x => x.text).join("\n");
+  if (result.isError) throw Error(text);
+  const [action, header, ...page] = text.split("\n");
+  return { text, action: JSON.parse(action!) as Record<string, unknown>, header: header ? JSON.parse(header) as Record<string, unknown> : undefined, page: page.join("\n") };
+}
 const refOf = (text: string, element: string) => new RegExp(`${element} \\[(e\\d+)\\]`).exec(text)?.[1];
 const profileDir = (id: string) => join(home, "profiles", id);
 const pin = (id: string) => readFileSync(join(profileDir(id), "fingerprint.json"), "utf8");
@@ -119,10 +127,11 @@ try {
   const base = await snapshot(a.client, { tabId: shaped, collapse: false });
   const saved = refOf(base.text, 'button "Save profile marker"');
   assert(saved, "The full snapshot has no ref for the save button");
-  await call(a.client, "tab_click", { tabId: shaped, ref: saved });
+  // These clicks pass observe none. An observation is a view, and these checks need the baseline and the refs that the snapshots above gave.
+  await call(a.client, "tab_click", { tabId: shaped, ref: saved, observe: "none" });
   // Revealing the task section adds a textbox and a button before the save button, so the ref of the save button now names another element.
   // The check comes before the next snapshot. A snapshot or a diff that shows a ref makes it reliable again.
-  await call(a.client, "tab_click", { tabId: shaped, selector: "#begin" });
+  await call(a.client, "tab_click", { tabId: shaped, selector: "#begin", observe: "none" });
   await refused(a.client, "tab_click", { tabId: shaped, ref: saved }, "may have shifted");
   await refused(a.client, "tab_click", { tabId: shaped, ref: "e999" }, "may have shifted");
   const diff = await snapshot(a.client, { tabId: shaped, diff: true, collapse: false });
@@ -130,10 +139,10 @@ try {
   const check = refOf(diff.text, 'button "Check answer"');
   assert(check && diff.text.includes('textbox "Answer"') && diff.text.length < base.text.length, "The diff has no new controls, or it is not smaller than the page");
   report.push({ check: "Snapshots have no screenshot by default, and scope, contains, and diff shape the reply", result: "passed", evidence: { fullChars: base.text.length, diffChars: diff.text.length } });
-  await call(a.client, "tab_click", { tabId: shaped, ref: check });
+  await call(a.client, "tab_click", { tabId: shaped, ref: check, observe: "none" });
   const moved = refOf((await snapshot(a.client, { tabId: shaped, collapse: false })).text, 'button "Save profile marker"');
   assert(moved && moved !== saved, "The ref of the save button did not move");
-  await call(a.client, "tab_click", { tabId: shaped, ref: moved });
+  await call(a.client, "tab_click", { tabId: shaped, ref: moved, observe: "none" });
   report.push({ check: "A ref that moved is refused before the click, and a ref in the last snapshot works", result: "passed", evidence: { before: saved, after: moved } });
   // Paging. The reply of each window has the viewId of the first one, and the windows add up to the page.
   const long = (await call(a.client, "tab_create", { url: `${pageServer.url}/?pagination` })).tabId as string;
@@ -153,6 +162,34 @@ try {
     "The windows do not add up to the page");
   await call(a.client, "tab_close", { tabId: long }); await call(a.client, "tab_close", { tabId: shaped });
   report.push({ check: "A viewId pages a long snapshot without a gap or an overlap", result: "passed", evidence: { windows: windows.length } });
+  // Targets, observe, and tab_wait on a page that changes only its DOM. It writes no storage, and no later check reads this tab.
+  const targets = (await call(a.client, "tab_create", { url: `${pageServer.url}/targets` })).tabId as string;
+  await snapshot(a.client, { tabId: targets, collapse: false });
+  const marked = await acted(a.client, "tab_click", { tabId: targets, target: { role: "button", name: " mark  DONE " } });
+  assert(marked.header && marked.header.baseline === undefined && marked.page.startsWith("# Diff from your last snapshot") && marked.page.includes("Marked") && marked.text.length < 2048,
+    `A click by role and name did not return a small diff that shows the change: ${marked.text.slice(0, 300)}`);
+  report.push({ check: "A click by role and name returns the diff of the page", result: "passed", evidence: { bytes: marked.text.length } });
+  const typed = await acted(a.client, "tab_type", { tabId: targets, target: { role: "textbox", name: "Note" }, text: "hello" });
+  assert(typed.header && typed.page.includes("Echo: hello"), `Typing by role and name did not return a diff that shows the change: ${typed.text.slice(0, 300)}`);
+  const quiet = await acted(a.client, "tab_click", { tabId: targets, target: { role: "button", name: "Mark done" }, observe: "none" });
+  assert(quiet.header === undefined && quiet.text.split("\n").length === 1, `observe none returned more than the result of the action: ${quiet.text.slice(0, 300)}`);
+  report.push({ check: "Type by role and name returns a diff, and observe none returns the action result only", result: "passed" });
+  await refused(a.client, "tab_click", { tabId: targets, target: { role: "button", name: "Add item" } }, "The target matches 2 elements");
+  await refused(a.client, "tab_click", { tabId: targets, target: { role: "button", name: "Disabled action" } }, "The element is disabled");
+  await refused(a.client, "tab_click", { tabId: targets, target: { role: "button", name: "No such button" } }, "No element matches the target");
+  await refused(a.client, "tab_click", { tabId: targets, target: { role: "button", name: "Add item" }, selector: "#mark" }, "Pass exactly one of ref, selector, and target.");
+  const nth = await acted(a.client, "tab_click", { tabId: targets, target: { role: "button", name: "Add item", nth: 1 } });
+  assert(nth.page.includes("Added by button 1"), `nth 1 did not click the second button: ${nth.page.slice(0, 300)}`);
+  report.push({ check: "An ambiguous target, a disabled element, and a missing element are refused, and nth picks one", result: "passed" });
+  await call(a.client, "tab_click", { tabId: targets, selector: "#reveal", observe: "none" });
+  const late = await call(a.client, "tab_wait", { tabId: targets, target: { role: "button", name: "Late button" }, timeout: 8000 });
+  assert(late.found === true && typeof late.waitedMs === "number", `tab_wait did not find the element that appears later: ${JSON.stringify(late)}`);
+  const present = await call(a.client, "tab_wait", { tabId: targets, contains: "Echo: hello", timeout: 8000 });
+  assert(present.found === true, `tab_wait did not find a text that is on the page: ${JSON.stringify(present)}`);
+  const never = await call(a.client, "tab_wait", { tabId: targets, target: { role: "button", name: "Never there" }, timeout: 1000 });
+  assert(never.found === false && never.reason === "timeout" && (never.waitedMs as number) >= 1000, `tab_wait did not end with a timeout result: ${JSON.stringify(never)}`);
+  await call(a.client, "tab_close", { tabId: targets });
+  report.push({ check: "tab_wait finds an element and a text, and a timeout is a result, not an error", result: "passed", evidence: { waitedMs: late.waitedMs } });
   await rejection(a.client, "tab_snapshot", { tabId: tabs["profile-02"] });
   report.push({ check: "Two browsers, separate storage, explicit profile routing, and duplicate acquire rejection", result: "passed" });
   await call(a.client, "profile_release"); await call(b.client, "profile_acquire");

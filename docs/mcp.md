@@ -52,10 +52,10 @@ Every browser tool requires `profileId` and `controlHandle` with its own argumen
 | `tab_list` | core | Read the tabs that Stelz manages. Tabs that a person opens stay open but are not listed. |
 | `tab_navigate`, `tab_back` | core | Go to a URL or search macro. Go back one history entry. |
 | `tab_snapshot` | core | Read a fresh accessibility snapshot with refs. See [Snapshots](#snapshots). |
-| `tab_click`, `tab_press`, `tab_select`, `tab_scroll` | core | Click an observed element, press a key, choose an option in a native list, or scroll. |
-| `tab_type` | core | Enter text. Also accepts `mode`. See [Typing](configuration/typing.md). |
+| `tab_click`, `tab_press`, `tab_select`, `tab_scroll` | core | Click an element, press a key, choose an option in a native list, or scroll. `tab_click` and `tab_select` accept a [`target`](#targets). `tab_click`, `tab_press`, and `tab_select` accept [`observe`](#observe). |
+| `tab_type` | core | Enter text. Accepts a [`target`](#targets) and [`observe`](#observe). Also accepts `mode`. See [Typing](configuration/typing.md). |
 | `tab_screenshot` | core | Capture a tab image. `fullPage` captures the whole page. |
-| `tab_wait` | core | Wait for a page to settle. `timeout` is 0 to 60000 ms. The default is 10000. |
+| `tab_wait` | core | Wait for a page to settle, or for an element or a text. `timeout` is 0 to 60000 ms. The default is 10000. See [Wait](#wait). |
 | `tab_forward`, `tab_refresh` | full | Go forward one history entry. Reload the page. |
 | `tab_mouse_wheel`, `tab_drag` | full | Wheel over an element or a point. Drag between two points. |
 | `tab_ax`, `tab_actionables`, `tab_table_rows`, `tab_links`, `tab_images`, `tab_extract` | full | Read the raw accessibility tree, candidate targets, table rows, links, images, or structured data. The table ids for `tab_table_rows` come from `tab_snapshot` with `includeStructure`. |
@@ -71,6 +71,7 @@ Every browser tool requires `profileId` and `controlHandle` with its own argumen
 - A JSON result is one compact JSON text block.
 - `tab_snapshot`: the first line is JSON with `url`, `refsCount`, `truncated`, `nextOffset`, `viewId`, and `baseline`. `nextOffset` appears only when more text remains. `baseline` appears only when it is `true`. The page text follows as plain text, not JSON-escaped. A screenshot, when present, is an image block. See [Snapshots](#snapshots).
 - A `tab_click` that fails its `expected_role` or `expected_accessible_name` check, and a failed `tab_extract`, do not return the page. Their reply has `hint`: `Read tab_snapshot for the current page.`
+- A `tab_click`, `tab_type`, `tab_select`, or `tab_press` with `observe` `diff` (the default) is one text block with three parts: one line of compact JSON with the result of the action, the snapshot header line, and the page text. If the read of the page failed, the second line is a note instead. See [Observe](#observe).
 - `tab_screenshot`: one image block.
 - A failed call returns `isError: true` and one text block. A location failure is JSON with `error` and `location`.
 - Results have no `structuredContent`.
@@ -128,7 +129,7 @@ Every browser tool requires `profileId` and `controlHandle` with its own argumen
 - A ref is a position in the page. It can name another element after the page changes.
 - For each connection and tab, Stelz keeps the refs that the connection can rely on. A ref is reliable in two cases. The last reply showed it on a line. Or it still names the same element that the connection saw before. Collapsed lines, lines outside the window, and unchanged lines of a diff do not show refs.
 - `tab_click`, `tab_type`, `tab_select`, and `tab_mouse_wheel` check a `ref` before they call Camofox. A ref that is not reliable, or that now names another element, fails with `ref eN may have shifted. Read tab_snapshot again, or target the element by role and name.` A ref that the connection never saw fails the same way.
-- A `selector` is not checked.
+- A `selector` is not checked. A [`target`](#targets) is not checked either, because Stelz resolves it from a fresh snapshot in the same step.
 - A new connection has no reliable refs. Read `tab_snapshot`, then use a ref that the reply shows.
 
 ### Paging
@@ -138,6 +139,72 @@ Every browser tool requires `profileId` and `controlHandle` with its own argumen
 - Stelz keeps the latest view of each connection and tab. A new snapshot replaces it. An unknown or replaced `viewId` fails with `Read a new tab_snapshot.` Acquire, release, resume, and `tab_close` remove it.
 - `offset` needs `viewId`, and `viewId` needs `offset`. `offset` cannot go with `scope`, `contains`, `diff`, `collapse`, `includeScreenshot`, or `includeStructure`.
 - Paging does not change the baseline. A ref on a window becomes reliable only if it still names the same element.
+
+## Targets
+
+`tab_click`, `tab_type`, and `tab_select` name the element with one of `target`, `ref`, and `selector`. Pass exactly one. `target` is the preferred way, because it does not depend on a ref that can shift.
+
+| Field | Effect |
+| --- | --- |
+| `role` | The role in the snapshot, such as `button`, `link`, or `textbox`. Not case-sensitive. |
+| `name` | The accessible name in the snapshot. Extra spaces and letter case do not count. |
+| `nth` | Which match to use. It counts from 0 in page order, as it does for `scope`. |
+
+- Stelz does these steps in one queued action:
+  1. Read a fresh snapshot, without a screenshot.
+  2. Find the elements with this `role` and `name`. The match is exact, after the normalization that Camofox uses for names. A longer name does not match.
+  3. Call Camofox once, with the ref of the element.
+- The call fails, and Camofox gets no action request, in these cases:
+  - No element matches. The message lists up to five elements with the same role.
+  - More than one element matches, and `nth` is missing. The message gives the number of matches and the range of `nth`.
+  - The element is disabled.
+  - The element has no ref. Only elements that can take input have refs, and Camofox stops at 500 refs. Use a `selector` for that element.
+- A failed target is a mistake in the call. It does not block the browser.
+- The snapshot of a target is not a view. It does not change the baseline, the latest view, or the refs that the connection can rely on.
+- Stelz does not add `expected_role` or `expected_accessible_name`. Camofox takes a second snapshot for each one. You can still pass them.
+
+## Observe
+
+`tab_click`, `tab_type`, `tab_select`, and `tab_press` take `observe`: `"diff"` (the default) or `"none"`.
+
+- `diff`: after the action succeeds, Stelz reads a snapshot in the same queued action. The result is the result of the action, then the page as `tab_snapshot` returns it with `diff: true`. See [Diff](#diff). Read it to check the action. Do not call `tab_snapshot` after an action.
+- The observation is a view that the connection received. It replaces the baseline and the latest view. It also sets the refs that the connection can rely on, as `tab_snapshot` does. With no baseline, or when the diff is not smaller than the page, the page is the full view and the header has `baseline: true`.
+- `none`: the result is the result of the action only.
+- If the action fails, the call fails with the error of the action and has no observation. This includes an uncertain click. A click that Camofox refused (`ok: false`) did not happen, and it has no observation.
+- If the action succeeds and the read of the page fails, the call still succeeds. The second line of the result is `# The action completed. Read tab_snapshot to see the page.` Do not repeat the action. A repeat can do the action twice. The read has its own limit of 15 seconds. If it passes the limit, the call also succeeds with the note, and the browser is blocked for that lifetime, as after any operation that passes its limit.
+- The diff can come before a late change of the page. Use `tab_wait` to wait for that change.
+
+```text
+{"ok":true}
+{"url":"https://example.test/","refsCount":43,"truncated":false,"viewId":"v4"}
+# Diff from your last snapshot. + is a new or changed line, - is a removed line. Note that refs on unchanged lines may have shifted; target by role and name.
+     - listitem:
+-      - text: $25
++      - text: $35
+```
+
+## Wait
+
+`tab_wait` has `timeout` (0 to 60000 ms, default 10000). It also takes one condition, or none.
+
+| Argument | Effect |
+| --- | --- |
+| none | Waits for the page to settle. With `waitForNetwork` (default `true`), it also waits for an idle network. |
+| `target` | `{role, name, nth?}`. Waits until the element is on the page. With `nth`, it waits until that many elements match. The matching rules of a [target](#targets) apply. |
+| `contains` | Waits until a line of the page contains the text. Not case-sensitive. |
+
+- Pass `target` or `contains`, not both. `waitForNetwork` does not apply to them.
+- Stelz reads a fresh snapshot about every 300 ms. A poll is not a view. It changes no baseline, latest view, or reliable ref.
+- The result is `{found, waitedMs}`. If `found` is `true`, the result can have `matched`: the line, without its ref, cut at 200 characters. If `found` is `false`, the result has `reason`:
+
+| `reason` | Meaning |
+| --- | --- |
+| `timeout` | The element or the text did not appear within `timeout`. |
+| `paused` | A person paused the profile during the wait. |
+| `releasing` | The controller is releasing the profile. |
+
+- These results are not errors. They do not block the browser. A pause or a release waits for the active action, so the wait ends at the next poll when either one starts. Stop the work after `paused` or `releasing`.
+- A wait on a paused profile fails, as any action does.
 
 ## Scripts
 

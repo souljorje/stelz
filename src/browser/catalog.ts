@@ -2,7 +2,7 @@ import { isTypingMode, TYPING_MODES } from "./typing.ts";
 import { DEFAULT_MAX_CHARS, MAX_MAX_CHARS, MIN_MAX_CHARS } from "./snapshot-view.ts";
 import {
   ACTION_LIMIT_MS, EVALUATE_DEFAULT_MS, EVALUATE_MAX_MS, EVALUATE_MIN_MS, TYPING_LIMIT_MS, WAIT_DEFAULT_MS, WAIT_MAX_MS,
-  evaluateLimit, waitLimit,
+  evaluateLimit, observedLimit, waitLimit,
 } from "./deadlines.ts";
 
 export type Tool = { name: string; description: string; inputSchema: { type: "object"; properties?: Record<string, unknown>; required?: string[]; [key: string]: unknown } };
@@ -20,7 +20,11 @@ export type Contracts = {
 };
 /** The shape of an upstream payload. Only the MCP server turns it into text and images. */
 export type ResultKind = "json" | "snapshot" | "image";
-export type ToolResult = { kind: ResultKind; payload: unknown };
+/**
+ * What a tool returns. After a click, type, select, or press, `observation` is the page as a snapshot reply (a diff, or the full view with `baseline`).
+ * When that read failed, it is `{ error }`. The action itself did succeed, and a caller must not repeat it.
+ */
+export type ToolResult = { kind: ResultKind; payload: unknown; observation?: ToolResult | { error: string } };
 
 // default: listed. scripts: listed only for a profile that allows scripts. held: reviewed, not listed.
 // Every upstream tool that no entry names is held too. Each Camofox release adds tools and properties, so review them before you add an entry.
@@ -38,7 +42,7 @@ export type Entry = {
   policy: Policy;
   /** `core` tools are in both groups. `full` tools are only in `full`. */
   group: "core" | "full";
-  /** The upstream time limit for one call, in milliseconds. */
+  /** The time limit of one call in milliseconds, with the read of the page after an action. The caller waits this long, plus the margins. */
   deadline(args: Record<string, unknown>): number;
 };
 /** Upstream tools that Stelz never lists and never names. They write or read cookies and storage, send files, or set the viewport. */
@@ -51,6 +55,21 @@ const typingMode = { type: "string", enum: [...TYPING_MODES],
     "Text that needs longer fails before the field changes. Paced input can include corrected typos in plain text fields. Instant uses bulk entry." };
 const waitTimeout = { type: "number", minimum: 0, maximum: WAIT_MAX_MS,
   description: `Maximum milliseconds to wait. Default ${WAIT_DEFAULT_MS}. Maximum ${WAIT_MAX_MS}.` };
+// A role/name selector, as a snapshot shows it. `tab_snapshot` calls it a scope. An action and tab_wait call it a target.
+const selectorProperties = {
+  role: { type: "string", description: "The role in the snapshot, such as button, link, or textbox. Not case-sensitive." },
+  name: { type: "string", description: "The accessible name in the snapshot. Not case-sensitive. Extra spaces do not count." },
+  nth: { type: "integer", minimum: 0, description: "Which match to use, from 0, in page order." },
+};
+const target = (description: string) => ({ type: "object", additionalProperties: false, required: ["role", "name"], description, properties: selectorProperties });
+const actionTarget = target("The preferred way to name the element. Give its role and accessible name, as tab_snapshot shows them. " +
+  "Stelz reads a fresh snapshot in the same step and finds the element, so the name stays correct when the page changes. " +
+  "The call fails when no element matches, when more than one element matches and nth is missing, or when the element is disabled. Pass one of target, ref, and selector.");
+const observe = { type: "string", enum: ["diff", "none"],
+  description: "Default diff. diff returns the result of the action and the lines of the page that the action changed, in the format of tab_snapshot with diff set to true. " +
+    "Read it to check the action. Do not call tab_snapshot after it. none returns the result of the action only. " +
+    "If the page changes later, use tab_wait. If the action succeeds and the read fails, the call still succeeds and says so." };
+const observed = " The result has the lines of the page that the action changed. Set observe to none to get the result of the action only.";
 const evaluateTimeout = { type: "integer", minimum: EVALUATE_MIN_MS, maximum: EVALUATE_MAX_MS,
   description: `Deadline in milliseconds. Default ${EVALUATE_DEFAULT_MS}. Maximum ${EVALUATE_MAX_MS}. On timeout the tab stays open and the script can still run in the page.` };
 // The arguments that shape a snapshot reply. See docs/mcp.md#tab_snapshot.
@@ -89,15 +108,26 @@ export const entries: readonly Entry[] = [
       "Use scope or contains to read a part of a long page. Set diff to true to read only the lines that changed since your last snapshot. Refs on unchanged lines of a diff may have shifted. " +
       "A tool refuses a ref that this connection did not see in a reply, or that now names another element. Read tab_snapshot again, then use a ref that the reply shows. " +
       "A long reply is cut at maxChars. If truncated is true and nextOffset is present, call again with that offset and the same viewId to read more. This call takes no new snapshot." }),
-  entry("tab_click", "camofox_click", "core", { hiddenProperties: ["coordinates"],
-    description: "Click an element in a Camoufox tab by ref (e.g., e1) or CSS selector. Optionally pass expected_role and/or expected_accessible_name to assert the target is still the element you expected before the click lands." }),
-  entry("tab_type", "camofox_type", "core", { extraProperties: { mode: typingMode }, deadline: () => TYPING_LIMIT_MS }),
-  entry("tab_press", "camofox_press", "core"),
-  entry("tab_select", "camofox_select", "core"),
+  entry("tab_click", "camofox_click", "core", { hiddenProperties: ["coordinates"], extraProperties: { target: actionTarget, observe }, deadline: observedLimit(ACTION_LIMIT_MS),
+    description: "Click an element in a Camoufox tab. Name the element with target (preferred), a ref (e.g., e1), or a CSS selector. " +
+      `Optionally pass expected_role and/or expected_accessible_name to assert the target is still the element you expected before the click lands.${observed}` }),
+  entry("tab_type", "camofox_type", "core", { extraProperties: { mode: typingMode, target: actionTarget, observe }, deadline: observedLimit(TYPING_LIMIT_MS),
+    description: `Type text into an element in a Camoufox tab. Name the element with target (preferred), a ref (e.g., e2), or a CSS selector.${observed}` }),
+  entry("tab_press", "camofox_press", "core", { extraProperties: { observe }, deadline: observedLimit(ACTION_LIMIT_MS),
+    description: `Press a single keyboard key in a Camoufox tab (e.g., Enter, Escape, Tab, ArrowDown). Use tab_type to enter text.${observed}` }),
+  entry("tab_select", "camofox_select", "core", { extraProperties: { target: actionTarget, observe }, deadline: observedLimit(ACTION_LIMIT_MS),
+    description: "Choose an option in a native <select> dropdown in a Camoufox tab. Name the dropdown with target (preferred), a ref, or a CSS selector. " +
+      `The option is matched by value or visible label.${observed}` }),
   entry("tab_scroll", "camofox_scroll", "core"),
   entry("tab_screenshot", "camofox_screenshot", "core"),
-  entry("tab_wait", "camofox_wait", "core", { hiddenProperties: ["dismissConsent"], extraProperties: { timeout: waitTimeout }, deadline: waitLimit,
-    description: "Wait for a Camoufox page to settle before you continue. Waits up to timeout ms, and optionally until the network is idle." }),
+  entry("tab_wait", "camofox_wait", "core", { hiddenProperties: ["dismissConsent"], deadline: waitLimit, extraProperties: { timeout: waitTimeout,
+    target: target("Wait until an element with this role and accessible name is on the page. Stelz reads a fresh snapshot about every 300 ms. " +
+      "Pass nth to wait until that many elements match. Pass target or contains, not both."),
+    contains: { type: "string", description: "Wait until a line of the page contains this text. Not case-sensitive. Pass target or contains, not both." } },
+    description: "Wait for a Camoufox page. Without target and contains, wait for the page to settle: up to timeout ms, and optionally until the network is idle. " +
+      "With target or contains, wait until that element or text is on the page, or until timeout. waitForNetwork does not apply then. " +
+      "The result is {found, waitedMs}, and a reason (timeout, paused, or releasing) when found is false. That is not an error. " +
+      "reason paused means that a person paused the profile. reason releasing means that control is ending. Stop the work in both cases." }),
   entry("tab_forward", "camofox_forward", "full"),
   entry("tab_refresh", "camofox_refresh", "full"),
   entry("tab_mouse_wheel", "camofox_mouse_wheel", "full"),
@@ -122,6 +152,9 @@ export function deadline(name: string, args: Record<string, unknown>): number {
   if (!found) throw Error("Unknown browser tool.");
   return found.deadline(args);
 }
+
+/** The time limit of the action alone. The read of the page after it has its own limit and its own timer, so the service deadline does not include it. */
+export const actionDeadline = (name: string, args: Record<string, unknown>) => deadline(name, { ...args, observe: "none" });
 
 // Stelz fixes the profile (userId) and the tab group (sessionKey). Upstream adds both to every schema and accepts both as arguments.
 const routingProperties = ["userId", "sessionKey"];
@@ -148,18 +181,22 @@ export function browserTools(defs: readonly Tool[]): Map<string, BrowserTool> {
   }));
 }
 
+// A role/name selector: the scope of tab_snapshot, or the target of an action or of tab_wait. A target has a name. A scope can omit it.
+function selectorArgument(value: unknown, label: "scope" | "target") {
+  const plain = !!value && typeof value === "object" && !Array.isArray(value);
+  const { role, name, nth, ...extra } = (plain ? value : {}) as Record<string, unknown>;
+  if (!plain || typeof role !== "string" || !role.trim() || Object.keys(extra).length || (name === undefined ? label === "target" : typeof name !== "string")
+    || (nth !== undefined && (!Number.isInteger(nth) || (nth as number) < 0)))
+    throw Error(label === "scope" ? "scope must be an object with a role, and optionally a name and an nth from 0."
+      : "target must be an object with a role, a name, and optionally an nth from 0.");
+}
+
 function snapshotArguments(args: Record<string, unknown>) {
   const { scope, contains, offset, viewId } = args;
   for (const key of ["diff", "collapse", "includeScreenshot", "includeStructure"])
     if (args[key] !== undefined && typeof args[key] !== "boolean") throw Error(`${key} must be true or false.`);
   if (contains !== undefined && (typeof contains !== "string" || !contains)) throw Error("contains must be text that is not empty.");
-  if (scope !== undefined) {
-    const plain = !!scope && typeof scope === "object" && !Array.isArray(scope);
-    const { role, name, nth, ...extra } = (plain ? scope : {}) as Record<string, unknown>;
-    if (!plain || typeof role !== "string" || !role.trim() || Object.keys(extra).length || (name !== undefined && typeof name !== "string")
-      || (nth !== undefined && (!Number.isInteger(nth) || (nth as number) < 0)))
-      throw Error("scope must be an object with a role, and optionally a name and an nth from 0.");
-  }
+  if (scope !== undefined) selectorArgument(scope, "scope");
   if (viewId !== undefined && (typeof viewId !== "string" || !viewId)) throw Error("viewId must be the viewId of a reply.");
   if (offset !== undefined && (!Number.isInteger(offset) || (offset as number) < 0)) throw Error("offset must be a whole number of 0 or more.");
   // An offset pages the view that a reply made. It takes no new snapshot, so it cannot also shape one.
@@ -170,6 +207,18 @@ function snapshotArguments(args: Record<string, unknown>) {
   if (viewId === undefined) throw Error("offset needs the viewId of the reply that gave it. Read a new tab_snapshot without offset.");
   const shaped = shapingArguments.filter(key => args[key] !== undefined);
   if (shaped.length) throw Error(`offset pages the view of an earlier reply. Do not pass ${shaped.join(", ")} with it.`);
+}
+
+// The tools that name one element. Upstream needs a ref or a selector, and Stelz adds the target.
+const elementTools = new Set(["tab_click", "tab_type", "tab_select"]);
+function actionArguments(tool: Tool, args: Record<string, unknown>) {
+  if (args.observe !== undefined && args.observe !== "diff" && args.observe !== "none") throw Error('observe must be "diff" or "none".');
+  if (args.target !== undefined) selectorArgument(args.target, "target");
+  if (elementTools.has(tool.name) && ["ref", "selector", "target"].filter(key => args[key] !== undefined).length !== 1)
+    throw Error("Pass exactly one of ref, selector, and target.");
+  if (tool.name !== "tab_wait") return;
+  if (args.contains !== undefined && (typeof args.contains !== "string" || !args.contains)) throw Error("contains must be text that is not empty.");
+  if (args.target !== undefined && args.contains !== undefined) throw Error("Pass target or contains, not both.");
 }
 
 /** Check the arguments of one call against the exposed schema. The MCP server and the service both use it. */
@@ -199,5 +248,6 @@ export function toolArguments(tool: Tool, value: unknown = {}): Record<string, u
       throw Error(`${key} must be a number from ${minimum} to ${maximum}.`);
   }
   if (tool.name === "tab_snapshot") snapshotArguments(args);
+  else actionArguments(tool, args);
   return args;
 }
