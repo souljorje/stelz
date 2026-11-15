@@ -42,7 +42,7 @@ Require fresh location preflight for each new proxied lifetime. Verify the brows
 Use `stelz setup` to prepare shared location data. Never download prerequisites during Start or MCP calls.
 A failed startup closes only its owned attempt and preserves the location failure and native data.
 
-Browser tasks must use fresh observations. A fresh observation is a snapshot read after the page last changed. Pause for human authentication in the same window.
+Browser tasks must use fresh observations. A fresh observation is a snapshot or an action diff read after the page last changed. Pause for human authentication in the same window.
 Do not bypass authentication challenges or write website-specific task scripts.
 
 Use local fixtures and synthetic proxy inputs for routine tests. Never copy everyday profile proxies into test inputs.

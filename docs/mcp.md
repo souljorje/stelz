@@ -4,7 +4,7 @@ description: "The MCP tools of stelz mcp, the --tools groups, the scripts switch
 tags: [mcp, agent, reference]
 sources: []
 created: 2026-11-06T16:47:49Z
-modified: 2026-11-15T12:00:00Z
+modified: 2026-11-15T16:45:00Z
 ---
 
 # Shared MCP tools
@@ -46,21 +46,46 @@ modified: 2026-11-15T12:00:00Z
 
 Every browser tool requires `profileId` and `controlHandle` with its own arguments. Full schemas: `tools/list`.
 
-| Browser tool | Group | Purpose |
-| --- | --- | --- |
-| `tab_create`, `tab_close` | core | Open or close a tab. |
-| `tab_list` | core | Read the tabs that Stelz manages. Tabs that a person opens stay open but are not listed. |
-| `tab_navigate`, `tab_back` | core | Go to a URL or search macro. Go back one history entry. |
-| `tab_snapshot` | core | Read a fresh accessibility snapshot with refs. See [Snapshots](#snapshots). |
-| `tab_click`, `tab_press`, `tab_select`, `tab_scroll` | core | Click an element, press a key, choose an option in a native list, or scroll. `tab_click` and `tab_select` accept a [`target`](#targets). `tab_click`, `tab_press`, and `tab_select` accept [`observe`](#observe). |
-| `tab_type` | core | Enter text. Accepts a [`target`](#targets) and [`observe`](#observe). Also accepts `mode`. See [Typing](configuration/typing.md). |
-| `tab_screenshot` | core | Capture a tab image. `fullPage` captures the whole page. |
-| `tab_wait` | core | Wait for a page to settle, or for an element or a text. `timeout` is 0 to 60000 ms. The default is 10000. See [Wait](#wait). |
-| `tab_forward`, `tab_refresh` | full | Go forward one history entry. Reload the page. |
-| `tab_mouse_wheel`, `tab_drag` | full | Wheel over an element or a point. Drag between two points. |
-| `tab_ax`, `tab_actionables`, `tab_table_rows`, `tab_links`, `tab_images`, `tab_extract` | full | Read the raw accessibility tree, candidate targets, table rows, links, images, or structured data. The table ids for `tab_table_rows` come from `tab_snapshot` with `includeStructure`. |
-| `tab_evaluate`, `tab_init_script` | full, with [scripts](#scripts) | Run JavaScript in a page. `tab_evaluate` takes `timeoutMs`, a whole number from 1000 to 120000. The default is 30000. |
+Run `bun scripts/mcp-tools.ts` to regenerate this table from the catalog. A unit test checks it.
 
+<!-- tools:start -->
+| Tool | Group | Policy | Description |
+| --- | --- | --- | --- |
+| `tab_list` | core | default | List all open Camofox tabs for the current session. |
+| `tab_create` | core | default | Open a new tab in the browser of this profile and go to a URL. |
+| `tab_close` | core | default | Close a Camoufox browser tab. |
+| `tab_navigate` | core | default | Go to a URL in a tab, or use a search macro such as @google_search or @youtube_search. |
+| `tab_back` | core | default | Go back one entry in a Camoufox tab's history. |
+| `tab_snapshot` | core | default | Read the page of a tab as an accessibility snapshot. |
+| `tab_click` | core | default | Click an element in a Camoufox tab. |
+| `tab_type` | core | default | Type text into an element in a Camoufox tab. |
+| `tab_press` | core | default | Press a single keyboard key in a Camoufox tab (e.g., Enter, Escape, Tab, ArrowDown). |
+| `tab_select` | core | default | Choose an option in a native \<select> dropdown in a Camoufox tab. |
+| `tab_scroll` | core | default | Scroll a Camoufox page. |
+| `tab_screenshot` | core | default | Take a screenshot of a Camoufox page. |
+| `tab_wait` | core | default | Wait for a Camoufox page. |
+| `tab_forward` | full | default | Go forward one entry in a Camoufox tab's history. |
+| `tab_refresh` | full | default | Reload the current page in a Camoufox tab. |
+| `tab_mouse_wheel` | full | default | Send a mouse wheel scroll over a specific element (by ref) or coordinate in a Camoufox tab. |
+| `tab_drag` | full | default | Perform a trusted press-move-release mouse drag between two coordinates in a Camoufox tab. |
+| `tab_ax` | full | default | Get the raw accessibility tree of a Camoufox page (unfiltered, no element refs). |
+| `tab_actionables` | full | default | List the clickable and fillable elements on a Camoufox page as candidate interaction targets, each with its ref. |
+| `tab_table_rows` | full | default | Read one page of rows from a table on a page. |
+| `tab_links` | full | default | List the links on a Camoufox page, with pagination. |
+| `tab_images` | full | default | List the images on a Camoufox page. |
+| `tab_extract` | full | default | Extract structured data from a Camoufox page using a JSON Schema describing the fields to pull out. |
+| `tab_evaluate` | full | scripts | Execute JavaScript in a Camoufox tab's page context. |
+| `tab_init_script` | full | scripts | Register a script that runs in the page context before every subsequent navigation in a Camoufox tab. |
+<!-- tools:end -->
+
+- Group: `core` tools are in `core` and `full`. `full` tools are only in `full`.
+- Policy: `default` tools are always listed. `scripts` tools follow the rules in [Scripts](#scripts).
+- `tab_list` reads the tabs that Stelz manages. Tabs that a person opens stay open but are not listed.
+- `tab_snapshot` has its own arguments. See [Snapshots](#snapshots).
+- `tab_click`, `tab_type`, and `tab_select` accept a [`target`](#targets). These tools and `tab_press` accept [`observe`](#observe).
+- `tab_wait` accepts a `target` or `contains` condition. See [Wait](#wait).
+- `tab_screenshot` takes `fullPage`. The table ids for `tab_table_rows` come from `tab_snapshot` with `includeStructure`.
+- `tab_type` accepts `mode`. See [Typing](configuration/typing.md).
 - Stelz holds `tab_activate` and every upstream tool that it has not reviewed. It lists none of them. Stelz has no tool for cookies, storage, file upload, or the viewport. Cookie import and storage import stay in the CLI or UI.
 - A call with a `progressToken` gets a progress notification every 10 seconds until it ends.
 - Set your client to reset its request timeout on progress. Some calls, such as `tab_type`, can take minutes.
@@ -209,6 +234,7 @@ Every browser tool requires `profileId` and `controlHandle` with its own argumen
 ## Scripts
 
 - `tab_evaluate` and `tab_init_script` run arbitrary JavaScript in a page. They are off by default.
+- `tab_evaluate` takes `timeoutMs`, a whole number from 1000 to 120000. The default is 30000.
 - The `allowScripts` setting of a profile controls them. A person sets it with `stelz profile config ID --allow-scripts` or with **Allow scripts** in the UI. MCP cannot change it. `--no-allow-scripts` turns it off.
 - A connection lists a scripts tool only when both rules hold:
   - `--tools full` or the tool name selects it. `core` never lists it.

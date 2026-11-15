@@ -31,10 +31,16 @@ Run `stelz setup` only in a terminal. MCP tools do not download prerequisites.
 5. Call `profile_acquire({profileId})`. Keep the returned `controlHandle` with its profile ID. Never write it in reports, configuration, or handoff notes.
    Send both fields in each later call for that profile.
 6. Call `tab_list` to find the startup page. Navigate that tab.
-7. Before the first action on a tab, read a `tab_snapshot`. Use its element references to click and type.
-8. After each action, read one snapshot. Use it to check the result. Use its element references for the next action.
-9. Read another snapshot before an action only if the page may have changed after your last snapshot. For example, you waited, you used a different tab, or the operator used the window.
-10. When you finish, or before another agent takes over, call `profile_release({profileId, controlHandle})`. Leave the browser open.
+7. Work on the page with these rules:
+   1. Read a full `tab_snapshot` on a new tab, after a navigation, or after resume.
+   2. Click, type, select, and press return a diff, or the full page with `baseline: true`. Read it to check the result. Do not call `tab_snapshot` after an action. If the result says `The action completed`, the read of the page failed. Read `tab_snapshot`. Do not repeat the action.
+   3. Target elements by role and name (`target`). Use a ref only if the last result showed it.
+   4. If an expected change is not in the diff yet, use `tab_wait`. Do not poll with snapshots.
+   5. Use `scope` or `contains` on long pages.
+   6. Ask for a screenshot only when the layout matters.
+
+   See [Targets](https://github.com/souljorje/stelz/blob/main/docs/mcp.md#targets), [Refs](https://github.com/souljorje/stelz/blob/main/docs/mcp.md#refs), [Observe](https://github.com/souljorje/stelz/blob/main/docs/mcp.md#observe), [Wait](https://github.com/souljorje/stelz/blob/main/docs/mcp.md#wait), and [Snapshots](https://github.com/souljorje/stelz/blob/main/docs/mcp.md#snapshots).
+8. When you finish, or before another agent takes over, call `profile_release({profileId, controlHandle})`. Leave the browser open.
 
 ## Rules
 
@@ -51,7 +57,7 @@ Run `stelz setup` only in a terminal. MCP tools do not download prerequisites.
 1. When a page needs a person, for example to sign in, call `profile_pause({profileId, controlHandle})`.
 2. Tell the operator what to do in that browser window. [Find a profile's windows](https://github.com/souljorje/stelz/blob/main/docs/ui.md#find-a-profiles-windows) tells them how to find it.
 3. Wait for the operator. Then call `profile_resume({profileId, controlHandle})`.
-4. Read a fresh snapshot before the next action.
+4. After the resume, read a full `tab_snapshot` before the next action.
 
 Do not try to bypass an authentication challenge.
 

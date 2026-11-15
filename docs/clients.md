@@ -10,7 +10,7 @@ sources:
   - "https://hermes-agent.nousresearch.com/docs/user-guide/features/mcp"
   - "https://hermes-agent.nousresearch.com/docs/user-guide/features/skills"
 created: 2026-11-02T15:09:08Z
-modified: 2026-11-11T15:01:55Z
+modified: 2026-11-15T16:45:00Z
 ---
 
 # Connect your agent
@@ -117,8 +117,8 @@ Copy the printed loopback URL. Ask your agent:
 > Use the shared Stelz tools. List profiles and select `work`. Create it if missing and start it if stopped.
 > Check its status and acquire control. Keep the returned handle with profile ID `work`.
 > Pass both fields to every control and browser call. Open this local URL: PASTE_URL.
-> Read a fresh accessibility snapshot. Click **Verify Stelz** using its observed element reference.
-> Read another snapshot. Check for **Stelz verified** and an increased persistent check count.
+> Read a fresh accessibility snapshot. Click **Verify Stelz** by its role and name.
+> Read the diff that the click returns. Check for **Stelz verified** and an increased persistent check count.
 > Release control and leave the browser open. Acquire again with a fresh handle.
 > Check the same page and result, then release again.
 

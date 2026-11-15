@@ -4,7 +4,7 @@ description: "Source directories and the runtime generation model, to read befor
 tags: [development, architecture, runtime]
 sources: []
 created: 2026-11-11T14:53:45Z
-modified: 2026-11-11T15:01:55Z
+modified: 2026-11-15T16:45:00Z
 ---
 
 # Source layout and runtime updates
@@ -14,7 +14,8 @@ modified: 2026-11-11T15:01:55Z
 | `src/cli/` | Command parsing and user operations. |
 | `src/profiles/` | Configuration, profile archives, transactions, and secret references. |
 | `src/runtime/` | Process ownership, locks, lifecycle operations, and supervision. |
-| `src/mcp/` | MCP transport, tool policy, and controller ownership. |
+| `src/mcp/` | MCP transport, the tool list and dispatch of the catalog tools, result formatting, and controller ownership. |
+| `src/sdk/` | The `stelz/sdk` script API. It calls the dispatch of `src/mcp/`. |
 | `src/browser/` | Camofox integration, persistent contexts, device properties, typing, and IP checks. |
 | `src/api/` | UI endpoints, models, and transfer jobs. |
 | `ui/src/` | The React interface. |

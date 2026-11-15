@@ -4,7 +4,7 @@ description: "Two-session procedure that checks agent setup and a first browser 
 tags: [development, testing, acceptance, agent]
 sources: []
 created: 2026-11-11T14:53:43Z
-modified: 2026-11-11T15:01:55Z
+modified: 2026-11-15T16:45:00Z
 ---
 
 # Agent onboarding acceptance
@@ -24,7 +24,12 @@ modified: 2026-11-11T15:01:55Z
    The agent must not create or start a profile.
 6. Create and start `work` in the UI. Start a new client session in the same project.
 7. Serve the fixture as in [Verify the connection](../clients.md#verify-the-connection). Ask the agent to verify Stelz on that page in profile `work`. Keep the browser window visible.
-8. Make sure that the agent used a fresh catalog, acquisition with `{profileId}`, fresh snapshots, the fixture action and its result, and release.
+8. Make sure that the agent did these steps:
+   - It read a fresh catalog with `profile_list`.
+   - It acquired control with `{profileId}`.
+   - It read one full `tab_snapshot`, then clicked **Verify Stelz** with a role and name `target`.
+   - It read the result in the diff that the click returned. It did not call `tab_snapshot` after the click.
+   - It released control.
 9. Stop only the test profile and the fixture server. Keep failed test state for inspection.
 
 - The model must do the browser interaction through its registered MCP tools. See [Verify the connection](../clients.md#verify-the-connection).
