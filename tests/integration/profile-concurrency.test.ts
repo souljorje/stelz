@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { processStart, type Running } from "../../src/runtime/profile-process.ts";
 import { UPSTREAM_VERSION } from "../../src/versions.ts";
+import { NO_MEMORY_RESTART } from "../../src/profiles/config.ts";
 import { fixtureLocation } from "../helpers/geoip-fixture.ts";
 import { createMockPackage } from "../helpers/mock-package.ts";
 
@@ -28,6 +29,9 @@ const state = { profileId: id, phase: 'starting', instanceId: 'browser-' + runni
 fs.writeFileSync(path.join(dir, 'launch-environment.json'), JSON.stringify(Object.fromEntries(
   ['PROXY_HOST', 'PROXY_PORT', 'PROXY_PROTOCOL', 'STELZ_MODE', 'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY',
     'http_proxy', 'https_proxy', 'all_proxy', 'no_proxy'].filter(name => process.env[name] !== undefined).map(name => [name, process.env[name]]))));
+fs.writeFileSync(path.join(dir, 'upstream-environment.json'), JSON.stringify(Object.fromEntries(
+  ['CAMOUFOX_EXECUTABLE', 'CAMOUFOX_EXECUTABLE_PATH', 'CAMOFOX_EXECUTABLE_PATH', 'STELZ_CAMOUFOX_EXECUTABLE',
+    'BROWSER_RSS_RESTART_THRESHOLD_MB', 'NATIVE_MEM_RESTART_THRESHOLD_MB'].filter(name => process.env[name] !== undefined).map(name => [name, process.env[name]]))));
 fs.appendFileSync(path.join(process.env.STELZ_HOME, 'launches.jsonl'), JSON.stringify({ id, server: process.pid, supervisor: process.ppid, instanceId: running.instanceId }) + '\\n');
 const save = () => fs.writeFileSync(path.join(dir, 'status.json'), JSON.stringify(state));
 save();
@@ -189,12 +193,16 @@ test("supervisors discard ambient proxy variables and forward only validated pro
     const ambient = Object.fromEntries(["PROXY_HOST", "PROXY_PORT", "PROXY_PROTOCOL", "STELZ_MODE", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
       "http_proxy", "https_proxy", "all_proxy", "no_proxy"].map(name => [name, "untrusted-value"]));
     ambient.CAMOUFOX_EXECUTABLE = join(f.home, "browser");
+    ambient.CAMOUFOX_EXECUTABLE_PATH = ambient.CAMOFOX_EXECUTABLE_PATH = "untrusted-value";
     ambient.NO_PROXY = ambient.no_proxy = "127.0.0.1,localhost";
     for (const p of [direct!, proxy!]) {
       const result = await f.command("start", p.id, ambient);
       expect(result, result.error).toMatchObject({ code: 0 });
     }
     const environment = (id: string) => JSON.parse(readFileSync(join(f.home, "profiles", id, "launch-environment.json"), "utf8"));
+    // Camofox must not see an executable variable, because it would run its own executable shim. It gets no memory-restart limit either.
+    const upstream = (id: string) => JSON.parse(readFileSync(join(f.home, "profiles", id, "upstream-environment.json"), "utf8"));
+    for (const p of [direct!, proxy!]) expect(upstream(p.id)).toEqual({ STELZ_CAMOUFOX_EXECUTABLE: join(f.home, "browser"), ...NO_MEMORY_RESTART });
     expect(environment(direct!.id)).toEqual({});
     expect(environment(proxy!.id)).toEqual({ PROXY_HOST: "configured.test", PROXY_PORT: "9443", PROXY_PROTOCOL: "https" });
   } finally { await f.dispose(); }

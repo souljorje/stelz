@@ -36,7 +36,7 @@ type Launcher = {
 type Storage = { directory: string };
 type ProfileContext = {
   context: Context; options: Options; claimed: boolean; closed: boolean; takeInitialPage(): Page | undefined;
-  initialPage(): Page | undefined;
+  initialPage(): Page | undefined; newPage(): Promise<Page>;
   startupProtected: boolean; releaseStartup?: () => void;
 };
 const contexts = new WeakMap<Browser, ProfileContext>();
@@ -61,6 +61,9 @@ function trackInitialPage(context: Context): { take(): Page | undefined; peek():
   return { take, peek: () => initial };
 }
 
+// Stelz grants no permission to a website. Camofox requests geolocation for a proxied context, so launch and claim both ignore it.
+const withoutPermissions = ({ permissions: _permissions, ...rest }: Options): Options => rest;
+
 function runtimeStorage(): Storage {
   return { directory: process.env.STELZ_PROFILE_DIR || "" };
 }
@@ -74,17 +77,17 @@ export async function launchProfileBrowser(
   if (existsSync(marker) && !existsSync(directory)) throw Error("Native browser data is missing; restore the original browser-data directory before starting this profile");
   if ("storageState" in contextOptions) throw Error("Native profiles must not restore a storage checkpoint on launch");
   mkdirSync(directory, { recursive: true, mode: 0o700 });
-  // Context options (permissions, locale, timezone, viewport) must apply at launch,
+  // Context options (locale, timezone, viewport) must apply at launch,
   // not to a new incognito context after the native profile has already opened.
   // Like the official launcher, use the host media features instead of Playwright's emulation.
-  const effective = launcher().withStockMediaDefaults({ ...options, ...contextOptions });
+  const effective = launcher().withStockMediaDefaults({ ...options, ...withoutPermissions(contextOptions) });
   const context = await firefox.launchPersistentContext(directory, effective);
   try {
     const browser = context.browser();
     if (!browser) throw Error("Persistent context has no browser; refusing an ephemeral substitute");
     const initial = trackInitialPage(context);
     const record: ProfileContext = { context, options: effective, claimed: false, closed: false,
-      takeInitialPage: initial.take, initialPage: initial.peek, startupProtected: false };
+      takeInitialPage: initial.take, initialPage: initial.peek, newPage: context.newPage.bind(context), startupProtected: false };
     context.on("close", () => { record.closed = true; record.takeInitialPage(); record.releaseStartup?.(); });
     contexts.set(browser, record);
     if (!existsSync(marker)) writeFileSync(marker, JSON.stringify({ version: 1 }), { flag: "wx", mode: 0o600 });
@@ -96,13 +99,15 @@ export async function claimProfileContext(browser: Browser, options: Options): P
   const record = contexts.get(browser);
   if (!record) throw Error("Original persistent context is unavailable");
   if (record.claimed || record.closed) throw Error("Persistent context was already claimed or closed; explicit restart required");
-  for (const [key, value] of Object.entries(options)) {
+  for (const [key, value] of Object.entries(withoutPermissions(options))) {
     if (key === "storageState" || !isDeepStrictEqual(record.options[key], value)) {
       // Do not include values: a mismatching option can contain proxy credentials.
       throw Error(`Persistent context launch/session options disagree: ${key}`);
     }
   }
   record.claimed = true;
+  // Camofox creates tabs with context.newPage(). Route each call through the profile page path.
+  record.context.newPage = () => createProfilePage(record.context);
   return record.context;
 }
 
@@ -145,7 +150,7 @@ export async function createProfilePage(context: Context): Promise<Page> {
   const record = originalContext(context);
   const initial = record.takeInitialPage();
   if (initial && !initial.isClosed() && initial.url() === "about:blank" && context.pages().includes(initial)) return initial;
-  return context.newPage();
+  return record.newPage();
 }
 
 export type StartupPageGeometry = { innerWidth: number; innerHeight: number; outerWidth: number; outerHeight: number;

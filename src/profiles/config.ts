@@ -96,6 +96,11 @@ export const browserDirectory = (home = HOME_DIR) => join(home, "browsers", pair
 export const executable = () => secret("CAMOUFOX_EXECUTABLE") || browserExecutable(browserDirectory());
 export const typingMode = (p?: Profile) => p?.typingMode ?? parseTypingMode(secret("STELZ_TYPING_MODE"));
 export const ipCheckIntervalMs = () => parseIpCheckInterval(secret("STELZ_IP_CHECK_INTERVAL_MS"));
+/** Camofox restarts a browser above these memory limits, even with an open session. Only an explicit lifecycle command may stop a Stelz browser. */
+export const NO_MEMORY_RESTART = {
+  BROWSER_RSS_RESTART_THRESHOLD_MB: String(Number.MAX_SAFE_INTEGER),
+  NATIVE_MEM_RESTART_THRESHOLD_MB: String(Number.MAX_SAFE_INTEGER),
+};
 
 export function json<T>(file: string): T | undefined {
   try { return JSON.parse(readFileSync(file, "utf8")); }

@@ -42,8 +42,7 @@ export function managedFixture(runtime: string, selection: Buffer = geoipFixture
 /** Prepare location data and patched Camofox markers. A mock package also gets a fixed exit-IP check. */
 export function fixtureLocation(home: string, packageRoot?: string, ipCode = 'return "198.51.100.10";') {
   const upstream = join(home, "runtime", `camofox-${UPSTREAM_VERSION}`);
-  mkdirSync(join(upstream, "lib"), { recursive: true });
-  writeFileSync(join(upstream, "lib/browser-identity.js"), "// if (hasProxy) return {}; // Stelz never grants location access to arbitrary sites.");
+  mkdirSync(upstream, { recursive: true });
   if (existsSync(join(upstream, "server.js"))) appendFileSync(join(upstream, "server.js"), "\n// Simulated server: const prepared = await (await import('./plugins/local-profile/index.js')).prepareProfileLaunch(baseOptions,\n");
   if (packageRoot) writeFileSync(join(packageRoot, "src/runtime/public-ip.ts"),
     `export async function publicIP(proxy: string, signal: AbortSignal): Promise<string> { ${ipCode} }`);

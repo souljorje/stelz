@@ -12,8 +12,6 @@ function check(file: string, before: string, after: string) {
 export function assertLocationPatches(upstream: string) {
   check(join(upstream, "server.js"), "return await launchOptions({ ...baseOptions, geoip: false });",
     "const prepared = await (await import('./plugins/local-profile/index.js')).prepareProfileLaunch(baseOptions,");
-  check(join(upstream, "lib/browser-identity.js"), "if (hasProxy) return { permissions: ['geolocation'] };",
-    "if (hasProxy) return {}; // Stelz never grants location access to arbitrary sites.");
 }
 
 // A fallback click runs only when the failed attempt sent no input. Otherwise one request could click twice.
@@ -21,9 +19,6 @@ export function assertLocationPatches(upstream: string) {
 function assertClickPatches(upstream: string) {
   const server = join(upstream, "server.js"), guard = "if (clickReachedPage(forceErr)) throw uncertainClickError(forceErr);\n";
   const force = "            try {\n              await click({ timeout: inputTimeout(), force: true });\n            } catch (forceErr) {\n              " + guard;
-  check(join(upstream, "lib/stelz-click-guard.js"), "return true;", "includes('performing click action')");
-  check(server, "} from './lib/browser-errors.js';\n\nconst CONFIG",
-    "} from './lib/browser-errors.js';\nimport { clickReachedPage, domClickRejected, uncertainClickError } from './lib/stelz-click-guard.js';\n");
   check(server, "        } catch (domErr) {\n          log('warn', 'DOM click fallback failed",
     "        } catch (domErr) {\n          // stelz: a DOM click can reach the page before it fails. Then the mouse sequence would repeat it.\n          if (!domClickRejected(domErr)) throw uncertainClickError(domErr);\n");
   check(server, "          await click({ timeout: 3000 });\n        } catch (err) {",
@@ -41,9 +36,6 @@ function assertClickPatches(upstream: string) {
 // The orphan page reaper closes only pages that Camofox owned. Pages that a person or a website opens stay open.
 function assertReaperPatches(upstream: string) {
   const server = join(upstream, "server.js");
-  check(join(upstream, "lib/stelz-page-ownership.js"), "return true;", "return owned.has(page) && !registered.has(page) && !leased;");
-  check(server, "import { isOrphanPage, ownPage } from './lib/stelz-page-ownership.js';\n\n",
-    "import { clickReachedPage, domClickRejected, uncertainClickError } from './lib/stelz-click-guard.js';\nimport { isOrphanPage, ownPage } from './lib/stelz-page-ownership.js';\n");
   check(server, "async function safePageClose(page) {\n  if (!page || page.isClosed()) return;\n  try {",
     "async function safePageClose(page) {\n  if (!page || page.isClosed()) return;\n  ownPage(page);\n");
   check(server, "function createTabState(page) {\n  const healthTracker", "function createTabState(page) {\n  ownPage(page);\n");
@@ -51,12 +43,10 @@ function assertReaperPatches(upstream: string) {
     "      // stelz: a page that a person or a website opened is not an orphan.\n      if (isOrphanPage(page, registered, isPageLeased(session, page))) {");
 }
 
-// Camofox must not restart the browser, close a crashed tab, or resize a popup by itself.
+// Camofox must not close a crashed tab or resize a popup by itself. The supervisor environment disables its memory restart.
 // Only an explicit lifecycle command or a person changes the native browser and its windows.
 function assertNativeWindowPatches(upstream: string) {
   const server = join(upstream, "server.js");
-  check(server, "    if (!browser) return;\n    if (_lastBrowserRestartAt &&",
-    "    if (!browser) return;\n    // stelz: only an explicit lifecycle command stops a browser that has a session.\n    if (sessions.size > 0) return;\n    if (_lastBrowserRestartAt &&");
   check(server, "const reapAfterMs = tabState.crashed ? Math.min(60_000, TAB_INACTIVITY_MS) : TAB_INACTIVITY_MS;",
     "// stelz: TAB_INACTIVITY_MS alone governs reaping, also for a crashed tab.\n          const reapAfterMs = TAB_INACTIVITY_MS;");
   check(server, "    maybeResizeSmallPopup(popupPage);\n",
@@ -64,6 +54,9 @@ function assertNativeWindowPatches(upstream: string) {
 }
 
 export function assertBundledPatches(upstream: string) {
+  // The click guard and the page ownership checks come from the plugin.
+  check(join(upstream, "server.js"), "} from './lib/browser-errors.js';\n\nconst CONFIG",
+    "} from './lib/browser-errors.js';\nimport { clickReachedPage, domClickRejected, uncertainClickError, isOrphanPage, ownPage } from './plugins/local-profile/index.js';\n");
   assertLocationPatches(upstream);
   assertClickPatches(upstream);
   assertReaperPatches(upstream);
@@ -72,8 +65,6 @@ export function assertBundledPatches(upstream: string) {
   check(join(upstream, "server.js"), "setInterval(async () => {\n  if (!browser || healthState.isRecovering) return;",
     "setInterval(async () => {\n  // stelz: the probe context opens a visible window, and Stelz refuses a replacement browser.\n");
   check(join(upstream, "server.js"), "from 'camoufox-js'", "import { Camoufox, launchOptions, VirtualDisplay } from 'camoufox';");
-  check(join(upstream, "server.js"), "const externalCamoufox = getExternalCamoufoxLaunch();",
-    "const externalCamoufox = null; // stelz: the plugin passes the executable to the official launcher.");
   check(join(upstream, "server.js"), "get xvfb_args() {", "constructor() { super(false, DEFAULT_VIRTUAL_DISPLAY_RESOLUTION); }");
   check(join(upstream, "server.js"),
     "      const delta = (direction === 'up' || direction === 'left') ? -amount : amount;\n      await tabState.page.mouse.wheel(isVertical ? 0 : delta, isVertical ? delta : 0);",
@@ -104,10 +95,6 @@ export function assertBundledPatches(upstream: string) {
   check(join(upstream, "server.js"),
     "      if (mode === 'fill') {\n        if (locator) {\n          await fillLocator(locator, text);\n        } else {\n          await fillLocator(tabState.page.locator(selector), text);\n        }",
     "      if (mode === 'fill') {\n        if (locator) {\n          await fillLocator(locator, text, typingMode);\n        } else {\n          await fillLocator(tabState.page.locator(selector), text, typingMode);\n        }");
-  check(join(upstream, "server.js"), "os: hostOS,\n        humanize: true,",
-    "os: hostOS,\n        window: [1200, 800],\n        screen: { minWidth: 1280, minHeight: 900, maxWidth: 1920, maxHeight: 1200 },\n        humanize: true,");
-  check(join(upstream, "server.js"), "proxy: launchProxy,\n        geoip: !!launchProxy,",
-    "proxy: launchProxy,\n        block_webrtc: !!launchProxy,\n        geoip: !!launchProxy,");
   // contextIdentityOptions and directIdentity are upstream Camofox identifiers.
   check(join(upstream, "server.js"), "candidateBrowser = await firefox.launch(options);",
     "candidateBrowser = await (await import('./plugins/local-profile/index.js')).launchProfileBrowser(firefox, options, { viewport: null, ...contextIdentityOptions({ hasProxy: !!proxyPool, directIdentity: CONFIG.directIdentity }) });");
@@ -135,11 +122,4 @@ export function assertBundledPatches(upstream: string) {
   ].join("\n"));
   check(join(upstream, "server.js"), "      createdTabId = tabId;\n      releasePageLease(session, lease);",
     "      createdTabId = tabId;\n      session.releaseProfileStartup?.();\n      delete session.releaseProfileStartup;\n      releasePageLease(session, lease);");
-  const recovery = join(upstream, "lib/new-page-recovery.js");
-  check(recovery, "pagePromise = session.context.newPage();",
-    "pagePromise = (await import('../plugins/local-profile/index.js')).createProfilePage(session.context);");
-  check(recovery, "await withTimeout(session.context.newPage(), timeoutMs, 'new page retry')",
-    "await withTimeout((await import('../plugins/local-profile/index.js')).createProfilePage(session.context), timeoutMs, 'new page retry')");
-  check(join(upstream, "plugins/persistence/index.js"), "export async function register(app, ctx, pluginConfig = {}) {",
-    "export async function register(app, ctx, pluginConfig = {}) {\n  return; // Native Firefox profile owns storage.");
 }

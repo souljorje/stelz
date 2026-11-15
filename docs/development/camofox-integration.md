@@ -28,18 +28,22 @@ Camofox and Camoufox: see [Technology](architecture.md#technology). Request path
 | Browser health probe | Disabled. Its test context opens a visible window, and Stelz refuses the replacement browser it requests. |
 | Official launcher import | Imports `Camoufox`, `launchOptions`, and `VirtualDisplay` from `camoufox`. |
 | Virtual display | 1280x720x24 screen on the official display. Drops the Camofox cleanup code. |
-| External executable shim | Disabled. It writes `version.json` into the shared Camoufox cache. The plugin passes the executable. |
 | Bundled downloader | Removes `postinstall.js`, `lib/camoufox-download.js`, and their scripts. |
 | Launch options | Prepared by the plugin. Replaces the GeoIP retry. A failed proxied launch never retries without GeoIP. |
-| Geolocation permission | No grant for a proxied context. See [IP check policy](../configuration/network.md#ip-check-policy). |
-| Window and screen bounds | Keeps the explicit desktop window and screen policy. |
-| Browser lifetime and windows | Disabled. Camofox does not restart a browser that has a session, close a crashed tab, or resize a popup. |
-| Proxy WebRTC policy | WebRTC off for proxied browsers. See [IP check policy](../configuration/network.md#ip-check-policy). |
+| Crashed tab and popup | Disabled. Camofox does not close a crashed tab or resize a popup. |
 | Browser start | Persistent profile and saved device handling. |
 | Context claim | Reuses the selected persistent profile context. |
 | Initial page claim | Original blank page becomes the first managed tab. Page leases and a separate initialization deadline protect startup. |
-| New page creation | Plugin creates each page. It first hands out the original blank page. |
-| Native persistence guard | Firefox keeps control of persistent browser data. |
+
+Stelz does these without a patch:
+
+- Plugins: setup stages only the `local-profile` plugin. Camofox does not load its persistence plugin, so Firefox keeps control of persistent browser data.
+- Executable: the supervisor passes the browser path in `STELZ_CAMOUFOX_EXECUTABLE`. Camofox sees none of its own executable variables, so its executable shim stays off. The shim writes `version.json` into the shared Camoufox cache. The `CAMOUFOX_EXECUTABLE` override in `secrets.env` is unchanged.
+- Memory restart: the supervisor sets both memory limits (`NO_MEMORY_RESTART` in `src/profiles/config.ts`) to the largest safe integer. Camofox never restarts a browser for memory.
+- Window, screen, and WebRTC: `prepareProfileLaunch` sets the desktop window and screen bounds. It turns WebRTC off for proxied browsers. See [IP check policy](../configuration/network.md#ip-check-policy).
+- Geolocation: `launchProfileBrowser` and `claimProfileContext` drop the context permissions. No website gets a permission.
+- New pages: `claimProfileContext` replaces `newPage()` on the claimed context. The first call returns the original blank page. Each Camofox route that creates a page uses it.
+- Click guard and page ownership: the patched server imports these functions from the built plugin.
 
 - Click retry guard: a trial click sends no input. Forced, DOM, or mouse fallback runs only when the trial fails. A failure after input returns a non-retryable conflict that asks for a fresh snapshot.
 - Typing keeps the tab lock until input finishes. Timeout effects: [Typing](../configuration/typing.md).

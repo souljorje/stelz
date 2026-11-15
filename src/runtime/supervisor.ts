@@ -17,6 +17,7 @@ import {
   configurationHash,
   typingMode,
   ipCheckIntervalMs,
+  NO_MEMORY_RESTART,
 } from "../profiles/config.ts";
 import { key, lock, processStart, rotateLog, type Running } from "./runtime.ts";
 import { assertRuntimePlugin } from "./runtime-plugin.ts";
@@ -53,7 +54,8 @@ for (const name of ["PATH", "HOME", "LANG", "LC_ALL", "USER", "LOGNAME", "SHELL"
   if (process.env[name]) inherited[name] = process.env[name]!;
 const env = {
   ...inherited,
-  CAMOUFOX_EXECUTABLE: executable(),
+  // Upstream reads CAMOUFOX_EXECUTABLE and runs its own executable shim. The plugin passes this path to the launcher.
+  STELZ_CAMOUFOX_EXECUTABLE: executable(),
   CAMOUFOX_FPGEN_DATA: join(serviceRuntime(), "fpgen"),
   CAMOFOX_BIND_HOST: "127.0.0.1",
   CAMOFOX_PORT: String(p.port),
@@ -71,6 +73,7 @@ const env = {
   // Upstream route limit for clicks, navigation, and other short actions.
   HANDLER_TIMEOUT_MS: String(ACTION_LIMIT_MS),
   MAX_SESSIONS: "1",
+  ...NO_MEMORY_RESTART,
   TAB_INACTIVITY_MS: "31536000000",
   STELZ_TYPING_MODE: typingMode(),
   STELZ_IP_CHECK_INTERVAL_MS: String(ipCheckIntervalMs()),

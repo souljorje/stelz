@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
+import * as ownership from "../../src/browser/page-ownership.ts";
 
-// The patched upstream module decides which pages the orphan page reaper may close.
-const ownership = await import(new URL("../../node_modules/@askjo/camofox-browser/lib/stelz-page-ownership.js", import.meta.url).href);
+// The plugin decides which pages the orphan page reaper may close. The patched server imports it.
 
 test("the reaper closes only pages that Camofox owned and no longer tracks", () => {
   const managed = {}, dropped = {}, leased = {}, person = {};

@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
+import * as guard from "../../src/browser/click-guard.ts";
 
-// The patched upstream module decides whether a failed click attempt may have reached the page.
-const guard = await import(new URL("../../node_modules/@askjo/camofox-browser/lib/stelz-click-guard.js", import.meta.url).href);
+// The plugin decides whether a failed click attempt may have reached the page. The patched server imports it.
 const errors = await import(new URL("../../node_modules/@askjo/camofox-browser/lib/browser-errors.js", import.meta.url).href);
 // Playwright's call log, as a timed-out click reports it.
 const timeout = (...steps: string[]) => Error(["locator.click: Timeout 3000ms exceeded.", "Call log:", "  - waiting for locator('#save')", ...steps].join("\n"));

@@ -34,7 +34,7 @@ export function engineVersion(executable: string) {
 }
 /** Launch uses prepared files only. A missing prerequisite fails instead of downloading. */
 async function launcherOptions(options: Record<string, unknown>) {
-  const executable = process.env.CAMOUFOX_EXECUTABLE, model = process.env.CAMOUFOX_FPGEN_DATA;
+  const executable = process.env.STELZ_CAMOUFOX_EXECUTABLE, model = process.env.CAMOUFOX_FPGEN_DATA;
   if (!executable || !model || !isPreparedModel(model)) throw Error("Browser prerequisites are missing. Run stelz setup.");
   // On macOS the launcher reads the version of its active cache install, not of this bundle, so Stelz passes it.
   // The flag silences the launcher's warnings about that version and the location config. Stelz validates both.
@@ -43,14 +43,16 @@ async function launcherOptions(options: Record<string, unknown>) {
 export async function prepareProfileLaunch(options: Record<string, unknown>, prepare: (options: Record<string, unknown>) => Promise<unknown>) {
   // Runtime geometry admission supports macOS only. Reject before upstream can create Linux home/cache files.
   if (process.platform !== "darwin") throw Error("Browser Start requires macOS. This platform has no supported startup geometry contract.");
-  options = { ...options, config: { showcursor: true, ...options.config as Fingerprint | undefined } };
+  // Desktop window and screen bounds. A proxied browser never leaks its real address through WebRTC.
+  options = { ...options, window: [1200, 800], screen: { minWidth: 1280, minHeight: 900, maxWidth: 1920, maxHeight: 1200 },
+    block_webrtc: !!options.proxy, config: { showcursor: true, ...options.config as Fingerprint | undefined } };
   if (!process.env.PROXY_HOST) return prepare(await launcherOptions(options));
   let record: LocationRecord | undefined;
   try {
     record = launchLocation()!;
     const prepared = record.prepared!;
     const data = await managedGeoip(process.env.STELZ_RUNTIME!);
-    if (data.sha256 !== prepared.dataId || hash(readLocationFile(process.env.CAMOUFOX_EXECUTABLE!)) !== prepared.engineId || !options.proxy)
+    if (data.sha256 !== prepared.dataId || hash(readLocationFile(process.env.STELZ_CAMOUFOX_EXECUTABLE!)) !== prepared.engineId || !options.proxy)
       throw locationFailure("LOCATION_INPUT_CHANGED");
     // Location comes from the preflight, so the launcher must not look up the IP again.
     // The pinned browser can retain the host zone from CAMOU_CONFIG alone.

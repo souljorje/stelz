@@ -21,6 +21,8 @@ import { LocationError, locationFailure, evidenceMessage } from "./location.ts";
 export { prepareProfileLaunch } from "./location-launch.ts";
 export { typeIntoLocator } from "./typing.ts";
 export { initializedFingerprint } from "./fingerprint-transaction.ts";
+export { clickReachedPage, domClickRejected, uncertainClickError } from "./click-guard.ts";
+export { ownPage, isOrphanPage } from "./page-ownership.ts";
 
 type Page = ProfilePage;
 type Context = ProfileBrowserContext;
@@ -116,7 +118,7 @@ export async function register(app: App, ctx: PluginContext, options: {
   let fingerprint: ReturnType<typeof applyFingerprint> | undefined;
   const windows = createProfileWindows({ id, instanceId: state.instanceId, directory: stateDir,
     port: Number(process.env.CAMOFOX_PORT), accessKey: process.env.CAMOFOX_ACCESS_KEY!, phase: () => state.phase,
-    activate: () => activateProfileBrowser(process.env.CAMOUFOX_EXECUTABLE!), verifyNetwork: requiresCheck });
+    activate: () => activateProfileBrowser(process.env.STELZ_CAMOUFOX_EXECUTABLE!), verifyNetwork: requiresCheck });
 
   function persist(patch: Partial<ProfileState>) {
     state = { ...state, ...patch };
@@ -285,7 +287,7 @@ export async function register(app: App, ctx: PluginContext, options: {
       // Add the window extension first, so validation covers the complete launch config.
       windows.prepare(launchOptions.proxy);
       addProfileExtension(launchOptions, windows.extensionPath);
-      fingerprint = applyFingerprint(launchOptions, stateDir, process.env.CAMOUFOX_EXECUTABLE!, proxied, owner);
+      fingerprint = applyFingerprint(launchOptions, stateDir, process.env.STELZ_CAMOUFOX_EXECUTABLE!, proxied, owner);
       if (location) {
         try { checkLaunchLocation(launchOptions, location); }
         catch {
@@ -449,7 +451,7 @@ export async function register(app: App, ctx: PluginContext, options: {
       const result = await controller.run(controllerId, () => bounded(async () => {
         await ensureVerified();
         if (name === "camofox_type") {
-          const { mode, typingMode: _internal, ...input } = args;
+          const { mode, ...input } = args;
           args = { ...input, typingMode: mode ?? profileTypingMode(process.env.STELZ_HOME, id) };
         }
         try {
@@ -530,4 +532,4 @@ export async function register(app: App, ctx: PluginContext, options: {
   });
 }
 
-export { launchProfileBrowser, claimProfileContext, createProfilePage, protectProfileStartup } from "./native-profile.ts";
+export { launchProfileBrowser, claimProfileContext, protectProfileStartup } from "./native-profile.ts";

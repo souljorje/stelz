@@ -40,7 +40,7 @@ browser:
       glob:
         - &core "{bun.lock,patches/**,scripts/{bundle-package,bundled-dependencies}.ts,src/mcp/**,\
           src/runtime/{operations,profile-process,runtime-plugin,runtime,supervisor}.ts,\
-          src/browser/{camofox-adapter,camoufox,native-dependencies,native-profile,plugin,upstream}.ts,\
+          src/browser/{camofox-adapter,camoufox,click-guard,location-launch,native-dependencies,native-profile,page-ownership,plugin,upstream}.ts,\
           tests/helpers/{fixture,fixture-browser,mcp-client,ports,startup-window,test-home}.ts}"
         - &startup "{package.json,scripts/build.ts,src/{paths,versions}.ts,src/cli/{cli,profile,profile-fingerprint}.ts,\
           src/browser/{browser-setup,release-asset,setup}.ts,\
@@ -71,7 +71,7 @@ browser:
     - name: proxy
       glob:
         - *core
-        - &location "{src/browser/{geoip-setup,ip-probe,ip-verification,location,location-launch}.ts,\
+        - &location "{src/browser/{geoip-setup,ip-probe,ip-verification,location}.ts,\
           src/runtime/{location-preflight,public-ip}.ts,src/profiles/{network-transaction,proxy-input,proxy-url}.ts,\
           tests/helpers/{observations,*proxy*}.ts}"
         - tests/browser/proxy-integration.ts

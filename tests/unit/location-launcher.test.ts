@@ -28,7 +28,7 @@ test("the exit-IP check stops on proxy authentication and cancellation", async (
 });
 test("the launcher reads the paired engine version from a macOS bundle and requires the prepared model", async () => {
   const home = mkdtempSync(join(tmpdir(), "stelz-launcher-")), executable = join(home, "Camoufox.app/Contents/MacOS/camoufox");
-  const previous = { CAMOUFOX_EXECUTABLE: process.env.CAMOUFOX_EXECUTABLE, CAMOUFOX_FPGEN_DATA: process.env.CAMOUFOX_FPGEN_DATA, PROXY_HOST: process.env.PROXY_HOST };
+  const previous = { STELZ_CAMOUFOX_EXECUTABLE: process.env.STELZ_CAMOUFOX_EXECUTABLE, CAMOUFOX_FPGEN_DATA: process.env.CAMOUFOX_FPGEN_DATA, PROXY_HOST: process.env.PROXY_HOST };
   const platform = Object.getOwnPropertyDescriptor(process, "platform")!;
   try {
     Object.defineProperty(process, "platform", { ...platform, value: "darwin" });
@@ -38,7 +38,7 @@ test("the launcher reads the paired engine version from a macOS bundle and requi
     expect(() => engineVersion(executable)).toThrow(`Camoufox 152.0.4-beta.30 at ${executable} is not supported. Stelz requires Camoufox 156.0.1-beta.36. Run stelz setup to prepare it.`);
     writeFileSync(ini, "[App]\nVersion=156.0.1-beta.36\n");
     expect(engineVersion(executable)).toBe("156");
-    Object.assign(process.env, { CAMOUFOX_EXECUTABLE: executable, CAMOUFOX_FPGEN_DATA: join(home, "missing") }); delete process.env.PROXY_HOST;
+    Object.assign(process.env, { STELZ_CAMOUFOX_EXECUTABLE: executable, CAMOUFOX_FPGEN_DATA: join(home, "missing") }); delete process.env.PROXY_HOST;
     await expect(prepareProfileLaunch({}, async options => options)).rejects.toThrow("Run stelz setup");
     const model = join(home, "model"); mkdirSync(model);
     const pin = fingerprintModel().MODEL_PIN;
@@ -55,7 +55,9 @@ test("the launcher reads the paired engine version from a macOS bundle and requi
     await expect(prepareProfileLaunch({}, prepare)).rejects.toThrow("Run stelz setup");
     expect(prepared).toBe(false); expect(readFileSync(join(model, "values.dat"), "utf8")).toBe("short");
     writeFileSync(join(model, "values.dat"), "0123456789");
-    await expect(prepareProfileLaunch({}, prepare)).resolves.toMatchObject({ executable_path: executable, ff_version: "156", config: { showcursor: true } });
+    await expect(prepareProfileLaunch({}, prepare)).resolves.toMatchObject({ executable_path: executable, ff_version: "156", config: { showcursor: true },
+      window: [1200, 800], screen: { minWidth: 1280, minHeight: 900, maxWidth: 1920, maxHeight: 1200 }, block_webrtc: false });
+    await expect(prepareProfileLaunch({ proxy: { server: "http://proxy.test:80" } }, prepare)).resolves.toMatchObject({ block_webrtc: true });
     await expect(prepareProfileLaunch({ config: { timezone: "Europe/London" } }, prepare)).resolves.toMatchObject({
       config: { showcursor: true, timezone: "Europe/London" },
     });
