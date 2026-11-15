@@ -18,6 +18,9 @@
   "bin": {
     "stelz": "src/cli/cli.ts"
   },
+  "exports": {
+    "./sdk": "./src/sdk/index.ts"
+  },
   "files": [
     "src/",
     "dist/plugin.js",

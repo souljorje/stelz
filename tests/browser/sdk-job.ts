@@ -1,0 +1,34 @@
+// One SDK job, as a script author writes it. tests/browser/integration.ts runs it with STELZ_HOME set, against a started profile.
+// It uses the DOM-only /targets page and the read-only long page. It writes no storage, cookies, or marker.
+export {};
+const [sdkModule, profileId, origin] = process.argv.slice(2);
+if (!sdkModule || !profileId || !origin) throw Error("Use: bun tests/browser/sdk-job.ts SDK_MODULE PROFILE_ID FIXTURE_ORIGIN");
+const { acquire, start } = await import(sdkModule) as typeof import("../../src/sdk/index.ts");
+function assert(value: unknown, message: string): asserts value { if (!value) throw Error(message); }
+
+// A repeated start keeps the browser that runs. The caller compares the browser instance before and after the job.
+assert((await start(profileId)).phase === "ready", "A repeated start did not return the status of the ready browser.");
+await acquire(profileId, async browser => {
+  const page = await browser.open(`${origin}/targets`);
+  await page.expectElement("heading", "Targets");
+  await page.type("textbox", "Note", "hello");
+  await page.expectText("Echo: hello");
+  await page.click("button", "Add item", { nth: 1 });
+  await page.expectText("Added by button 1");
+  await page.click("button", "Mark done");
+  await page.expectText("Marked");
+  await page.click("button", "Reveal later");
+  await page.expectElement("button", "Late button", { timeoutMs: 8000 });
+  await page.press("Tab");
+  await page.scroll("down", 200);
+  assert((await page.snapshot({ contains: "Echo" })).includes("Echo: hello"), "The snapshot of the page does not show the typed text.");
+  const long = await (await browser.open(`${origin}/?pagination`)).snapshot();
+  assert(long.includes("Pagination row 0:") && long.includes("Pagination row 899:") && long.split("Pagination row 450:").length === 2, "The snapshot does not hold the whole long page once.");
+}, { label: "sdk-job" });
+
+// A failed expectation fails the job with a clear message. Control is released again.
+const failure = await acquire(profileId, async browser => {
+  await (await browser.open(`${origin}/targets`)).expectElement("button", "Never there", { timeoutMs: 1000 });
+}, { label: "sdk-job" }).then(() => undefined, error => error as Error);
+assert(failure?.message.includes('Expected button "Never there" on the page. It did not appear in'), `The failed expectation has no clear message: ${failure?.message}`);
+console.log("SDK job passed.");

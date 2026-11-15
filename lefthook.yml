@@ -46,7 +46,7 @@ browser:
         - &startup "{package.json,scripts/build.ts,src/{paths,versions}.ts,src/cli/{cli,profile,profile-fingerprint}.ts,\
           src/browser/{browser-setup,release-asset,setup}.ts,\
           src/profiles/{config,profile-catalog,profile-configuration,profile-configuration-types}.ts}"
-        - tests/browser/integration.ts
+        - "{src/sdk/**,tests/browser/{integration,sdk-job}.ts}"
       run: $STELZ_DRY_RUN bun run test:integration
     - name: concurrency
       glob: [*core, tests/browser/concurrency.ts]

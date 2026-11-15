@@ -36,7 +36,7 @@ for (const file of candidate.files) if (/^(test|\.git|\.codex|\.state|sessions)\
 const uiFiles = candidate.files.filter(file => file.path.startsWith("dist/ui/"));
 if (!uiFiles.some(file => file.path === "dist/ui/index.html") || !uiFiles.some(file => file.path.endsWith(".js")) || !uiFiles.some(file => file.path.endsWith(".woff2"))) throw Error("The archive is missing built UI assets.");
 const paths = candidate.files.map(file => file.path).sort();
-for (const path of ["src/cli/cli.ts", "src/runtime/supervisor.ts", "dist/plugin.js", "dist/ui/index.html", "README.md", "LICENSE",
+for (const path of ["src/cli/cli.ts", "src/sdk/index.ts", "src/runtime/supervisor.ts", "dist/plugin.js", "dist/ui/index.html", "README.md", "LICENSE",
   ...["react", "react-dom", "scheduler", "ibm-plex-mono", "ibm-plex-sans"].map(name => "dist/ui/licenses/" + name + ".txt")])
   if (!paths.includes(path)) throw Error("Archive is missing " + path);
 // The package holds the runtime only. Documentation and the browser skill stay in the repository.
@@ -123,6 +123,17 @@ const reused = JSON.parse(await run([executable, "profile", "create", "work", "-
 if (!reused.ok || reused.created || reused.profile.port !== created.profile.port ||
     readFileSync(join(home, "profiles.json"), "utf8") !== configBeforeReuse || readFileSync(join(home, "secrets.env"), "utf8") !== secretsBeforeReuse)
   throw Error("The installed CLI changed an existing profile.");
+// The SDK must resolve as `stelz/sdk` through the package exports and run on the installed runtime. A stopped profile fails with the message that names start(). No browser starts.
+const project = join(temp, "sdk-project");
+mkdirSync(join(project, "node_modules"), { recursive: true });
+symlinkSync(installed, join(project, "node_modules/stelz"));
+writeFileSync(join(project, "job.ts"), `import { acquire, start, LocationError } from "stelz/sdk";
+if (typeof start !== "function" || typeof LocationError !== "function") throw Error("stelz/sdk lacks an export.");
+await acquire("work", async () => { throw Error("The job ran on a stopped profile."); }).then(
+  () => { throw Error("acquire succeeded on a stopped profile."); },
+  error => { if (!String(error.message).includes('Call start("work") first')) throw error; });
+`);
+await run([bun, "--no-env-file", join(project, "job.ts")], { cwd: project, env: cleanEnv });
 const runtime = join(home, "runtime");
 const versions = JSON.parse(readFileSync(join(runtime, "versions.json"), "utf8"));
 if (versions.stelz !== STELZ_VERSION || versions.camoufoxExecutable !== fakeBrowser || versions.upstreamVersion !== manifest.dependencies["@askjo/camofox-browser"])
@@ -147,7 +158,7 @@ if (!links) throw Error("Setup did not stage dependency links.");
 const nativeCheck = input.flags.has("--native") ? await nativeSmoke(node, installed, upstream, { cwd, env: cleanEnv }) : undefined;
 assertArchiveUnchanged(candidate);
 console.log(JSON.stringify({ result: "passed", archive, sha256: candidate.sha256, nativeCheck,
-  checks: "Archive contents, Markdown links, isolated CLI, HTTP UI, and installed setup/dependency validation" }));
+  checks: "Archive contents, Markdown links, isolated CLI, HTTP UI, stelz/sdk import, and installed setup/dependency validation" }));
 return { candidate, env: cleanEnv, cwd, home, prefix, node, bun, npm, executable, installedCli: join(installed, "src/cli/cli.ts"), version, nativeCheck, uiChecked: true };
 } finally { if (!options.keep) rmSync(temp, { recursive: true, force: true }); }
 }

@@ -1,6 +1,6 @@
 // Harness-independent acceptance. Both profiles use direct connections without proxy references.
 import { writeFileSync, readFileSync } from "node:fs";
-import { resolve, join } from "node:path";
+import { resolve, join, dirname } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { fixture } from "../helpers/fixture.ts";
@@ -17,12 +17,13 @@ const env: Record<string, string> = { STELZ_HOME: home };
 for (const key of ["PATH", "HOME", "LANG", "TMPDIR", "CAMOUFOX_EXECUTABLE"]) if (process.env[key]) env[key] = process.env[key]!;
 const report: Record<string, unknown>[] = [], clients: Client[] = [];
 function assert(value: unknown, message: string): asserts value { if (!value) throw Error(message); }
-async function command(...args: string[]) {
+async function runBun(file: string, ...args: string[]) {
   assertTestHome(home);
-  const process = Bun.spawn([Bun.which("bun")!, "--no-env-file", cli, ...args], { env, stdout: "pipe", stderr: "pipe" });
+  const process = Bun.spawn([Bun.which("bun")!, "--no-env-file", file, ...args], { env, stdout: "pipe", stderr: "pipe" });
   const [out, err, code] = await Promise.all([new Response(process.stdout).text(), new Response(process.stderr).text(), process.exited]);
   if (code) throw Error(`${args.join(" ")}: ${err || out}`); return out;
 }
+const command = (...args: string[]) => runBun(cli, ...args);
 async function connect(id: string, label: string) {
   const client = routeProfileTools(new Client({ name: label, version: "1.0.0" }), id); clients.push(client);
   const transport = new StdioClientTransport({ command: Bun.which("bun")!, args: ["--no-env-file", cli, "mcp"], env, stderr: "inherit" });
@@ -253,6 +254,16 @@ try {
     assert(pin(id) === pins[id as keyof typeof pins], "Restart changed a saved fingerprint"); await next.client.close();
   }
   report.push({ check: "Separate storage and saved fingerprints survive explicit stop and start", result: "passed" });
+  // The SDK, as a script uses it, with the SDK module of the same package as the CLI. It runs last. Its job navigates profile-01 and writes nothing that another check reads.
+  const sdkBefore = JSON.stringify(instance("profile-01"));
+  await runBun(join(root, "tests/browser/sdk-job.ts"), join(dirname(cli), "../sdk/index.ts"), "profile-01", pageServer.url);
+  const afterJob = await connect("profile-01", "after-sdk-job");
+  await call(afterJob.client, "profile_acquire");
+  const jobTabs = JSON.stringify(await call(afterJob.client, "tab_list"));
+  assert(jobTabs.includes("/targets") && jobTabs.includes("pagination"), "The SDK job did not leave its tabs open");
+  assert(JSON.stringify(instance("profile-01")) === sdkBefore, "The SDK job or its repeated start relaunched the browser");
+  await afterJob.client.close();
+  report.push({ check: "An SDK job starts a running profile again, acts, fails clearly, releases control, and leaves the browser and tabs open", result: "passed" });
   report.push({ check: "Handoff between two installed LLM harnesses", result: "unverified", reason: "SDK clients prove the protocol. Actual Codex, Claude Code and Hermes integration needs separate validation." });
   report.push({ check: "Supplied fixed-IP proxies and human takeover", result: "unverified", reason: "No proxy credentials or human action were supplied." });
 } catch (e) { report.push({ check: "Acceptance run", result: "failed", error: String(e) }); process.exitCode = 1; }

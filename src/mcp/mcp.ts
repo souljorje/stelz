@@ -1,10 +1,9 @@
-import { join } from "node:path";
-import { pathToFileURL } from "node:url";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
-import { settings, upstream } from "../profiles/config.ts";
-import type { Contracts, ToolResult } from "../browser/catalog.ts";
+import { settings } from "../profiles/config.ts";
+import type { ToolResult } from "../browser/catalog.ts";
+import { loadContracts } from "./contracts.ts";
 import { createDispatch } from "./dispatch.ts";
 import { createControlRegistry } from "./control-registry.ts";
 import { withProgress } from "./progress.ts";
@@ -13,7 +12,6 @@ import { STELZ_VERSION } from "../versions.ts";
 import { LocationError } from "../browser/location.ts";
 
 type Content = { type: "text"; text: string } | { type: "image"; data: string; mimeType: string };
-const contracts = () => import(pathToFileURL(join(upstream(), "mcp/lib/tool-contracts.mjs")).href) as Promise<Contracts>;
 
 function formatPayload(kind: ToolResult["kind"], payload: unknown): Content[] {
   if (kind === "image") return [payload as Content];
@@ -53,7 +51,7 @@ export async function runMcp(options: { tools?: string } = {}) {
     instructions: "Register Stelz once. Discover profiles with profile_list; create and start them explicitly. Every owned operation requires the profileId and controlHandle from this connection's profile_acquire. One profile has one browser and one controller. You may control multiple profiles in parallel. Read fresh snapshots. Pause for human authentication in the same window. Release each handle for handoff. Disconnect preserves browsers and pages. Never repeat an uncertain browser action automatically.",
   });
   // The tool list stays fixed for the connection. A bad `--tools` name fails here, before the server connects.
-  const dispatch = createDispatch({ defs: (await contracts()).TOOL_DEFS, registry, tools: options.tools,
+  const dispatch = createDispatch({ defs: (await loadContracts()).TOOL_DEFS, registry, tools: options.tools,
     label: () => server.getClientVersion()?.name || "MCP client" });
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: dispatch.tools }));
   server.setRequestHandler(CallToolRequestSchema, (request, extra) => {

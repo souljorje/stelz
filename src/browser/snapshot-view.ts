@@ -31,7 +31,8 @@ const MAX_SHAPE = 500;
 const DIFF_NOTE = "# Diff from your last snapshot. + is a new or changed line, - is a removed line. " +
   "Note that refs on unchanged lines may have shifted; target by role and name.";
 const NO_CHANGE_NOTE = "# No change since your last snapshot.";
-const NO_REF_NOTE = "# Interactive lines without a ref are past the 500-ref limit of this page.";
+/** The first line of a window that shows interactive lines without a ref. */
+export const NO_REF_NOTE = "# Interactive lines without a ref are past the 500-ref limit of this page.";
 
 /** The key that tells whether two requests read the same part of the page. An empty key means the whole page. */
 export function filterKey({ scope, contains }: Filter) {
