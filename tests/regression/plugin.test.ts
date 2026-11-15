@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { EventEmitter, once } from "node:events";
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
-import { existsSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -15,11 +15,12 @@ import { browserTools } from "../../src/browser/catalog.ts";
 import { commitFingerprint, readFingerprintJournal, stageFingerprint, writeInitialized } from "../../src/browser/fingerprint-transaction.ts";
 import { upstreamTyping } from "../helpers/upstream-typing.ts";
 import { mockLauncherResources } from "../helpers/launcher-resources.ts";
+import { annotate, shop } from "../helpers/aria-fixtures.ts";
 
 mockLauncherResources();
 
-const contractsUrl = pathToFileURL(join(dirname(createRequire(import.meta.url).resolve("@askjo/camofox-browser/package.json")),
-  "mcp/lib/tool-contracts.mjs")).href;
+const packageDir = dirname(createRequire(import.meta.url).resolve("@askjo/camofox-browser/package.json"));
+const contractsUrl = pathToFileURL(join(packageDir, "mcp/lib/tool-contracts.mjs")).href;
 const tabId = "79bed5c4-d5b8-4369-9d13-b159451ece91";
 
 test("typing advertises optional per-call modes without changing upstream definitions", async () => {
@@ -149,6 +150,8 @@ async function harness(mode: "direct" | "proxy" = "direct", waitForIP?: Promise<
   const root = mkdtempSync(join(tmpdir(), "stelz-regression-")), id = "profile-01";
   const stateDir = join(root, id), upstream = join(root, "upstream"), binary = join(root, "browser");
   mkdirSync(stateDir); mkdirSync(join(upstream, "mcp/lib"), { recursive: true });
+  // The plugin loads the ARIA helpers from the Camofox tree.
+  symlinkSync(join(packageDir, "lib"), join(upstream, "lib"), "dir");
   writeFileSync(join(root, "profiles.json"), JSON.stringify({ profiles: [{ id, typingMode: "balanced" }] }));
   writeFileSync(binary, "test browser binary");
   writeFileSync(join(upstream, "mcp/lib/tool-contracts.mjs"), fixture.canonical ? `export * from ${JSON.stringify(contractsUrl)};` : `
@@ -167,7 +170,7 @@ async function harness(mode: "direct" | "proxy" = "direct", waitForIP?: Promise<
   Object.assign(process.env, settings);
   writeFileSync(join(stateDir, "running.json"), JSON.stringify({ instanceId: settings.STELZ_START_ID,
     configurationHash: settings.STELZ_CONFIGURATION_HASH, serverPid: process.pid }));
-  const events = new EventEmitter(), routes = new Map<string, Handler>();
+  const events = new EventEmitter(), routes = new Map<string, Handler>(), sessions = new Map<string, unknown>();
   const app: App = { get(path, ...handlers) { routes.set(path, handlers.at(-1)!); }, post(path, ...handlers) { routes.set(path, handlers.at(-1)!); } };
   let ipGate = waitForIP;
   let ipError = fixture.ipError;
@@ -182,7 +185,7 @@ async function harness(mode: "direct" | "proxy" = "direct", waitForIP?: Promise<
     return { timezone: fixture.observedTimezone ?? "America/New_York", locale: "en-US", language: "en-US", languages: ["en-US"] };
   } })]);
   const context = Object.assign(new EventEmitter(), { pages: () => [...pages], async close() { context.emit("close"); } });
-  await register(app, { auth: () => () => {}, events },
+  await register(app, { auth: () => () => {}, events, sessions },
     { actionTimeoutMs: fixture.timeout, ipCheckIntervalMs: fixture.interval ?? 0, now: fixture.now,
       verifyFingerprint: async () => { if (fixture.fingerprintError) throw Error(fixture.fingerprintError); },
       shutdown: () => { shutdowns++; events.emit("server:shutdown"); } });
@@ -232,7 +235,7 @@ async function harness(mode: "direct" | "proxy" = "direct", waitForIP?: Promise<
   bridgeTimer = setTimeout(networkTick, 0);
   const request = (action: string, body: Record<string, unknown> = {}) => rawRequest(action,
     ["acquire", "release", "tool"].includes(action) || Object.hasOwn(body, "controllerId") ? { ...identity, ...body } : body);
-  return { id, identity, stateDir, binary, context, emit, state, options, launch, create, commit, request, rawRequest,
+  return { id, identity, stateDir, binary, context, sessions, emit, state, options, launch, create, commit, request, rawRequest,
     setIPGate(value: Promise<void> | undefined) { ipGate = value; },
     setIPError(value: string | undefined) { ipError = value; },
     setIP(value: string) { ip = value; },
@@ -484,7 +487,8 @@ test("pausing during an IP check does not become an irreversible context-loss bl
 });
 
 const controller = { id: "controller-a", pid: process.pid, label: "test" };
-const snapshot = { controllerId: controller.id, name: "tab_snapshot", args: { tabId } };
+// A plain action. tab_snapshot has its own path, which reads the tab state of Camofox.
+const listTabs = { controllerId: controller.id, name: "tab_list", args: {} };
 
 test("bootstrap preparation cannot admit control before the commit and matching marker", async () => {
   const h = await harness("direct", undefined, { expected: "" });
@@ -494,7 +498,7 @@ test("bootstrap preparation cannot admit control before the commit and matching 
     assert.equal(h.state().phase, "starting");
     assert.equal(existsSync(join(h.stateDir, "fingerprint.json")), false);
     for (const [action, body] of [["acquire", controller], ["check", {}], ["pause", {}], ["resume", {}],
-      ["window-show", {}], ["tool", snapshot]] as const) assert.equal((await h.request(action, body)).code, 409, action);
+      ["window-show", {}], ["tool", listTabs]] as const) assert.equal((await h.request(action, body)).code, 409, action);
     const journal = readFingerprintJournal(h.stateDir)!;
     const body = { instanceId: journal.owner.attemptId, browserInstanceId: journal.owner.browserInstanceId };
     assert.equal((await h.rawRequest("startup-ack", body, { "x-stelz-bootstrap": "wrong" })).code, 409);
@@ -537,7 +541,7 @@ test("removing the matching marker blocks an existing controller's actions and r
     await h.launch(); await h.create();
     assert.equal((await h.request("acquire", controller)).code, 200);
     rmSync(join(h.stateDir, "initialized.json"));
-    assert.equal((await h.request("tool", snapshot)).code, 409);
+    assert.equal((await h.request("tool", listTabs)).code, 409);
     assert.equal((await h.request("check", { controllerId: controller.id })).code, 409);
     assert.equal((await h.request("pause", { controllerId: controller.id })).code, 409);
   } finally { await h.close(); }
@@ -582,7 +586,7 @@ test("control status pins protocol and service identity without disclosing contr
       assert.ok(!JSON.stringify(value).includes("private-credential"));
     }
     assert.equal((await h.request("acquire", controller)).code, 409);
-    assert.equal((await h.request("tool", snapshot)).code, 200);
+    assert.equal((await h.request("tool", listTabs)).code, 200);
   } finally { await h.close(); }
 });
 
@@ -604,7 +608,7 @@ test("foreign and incomplete service envelopes fail before lease checks or effec
     const checks = h.checks(), before = (await h.request("status")).payload;
     for (const action of ["acquire", "tool", "release", "pause", "resume", "check"]) {
       for (const invalid of invalidIdentities) {
-        const body = { ...h.identity, ...controller, ...snapshot, ...invalid };
+        const body = { ...h.identity, ...controller, ...listTabs, ...invalid };
         const result = await h.rawRequest(action, body);
         assert.equal(result.code, 409, action);
         assert.match((result.payload as { error: string }).error, /profile and service instance/, action);
@@ -622,7 +626,7 @@ test("foreign and incomplete service envelopes fail before lease checks or effec
     assert.equal(h.checks(), checks);
     assert.equal(dispatched, 0);
     assert.deepEqual((await h.request("status")).payload, before);
-    assert.equal((await h.request("tool", snapshot)).code, 200);
+    assert.equal((await h.request("tool", listTabs)).code, 200);
     await h.request("release", { controllerId: controller.id });
     assert.equal((await h.request("acquire", { ...controller, id: "future-controller" })).code, 200);
   } finally { await h.close(); }
@@ -652,7 +656,7 @@ test("release before delayed acquisition permanently revokes that ID while prese
     assert.equal((await h.request("acquire", next)).code, 200);
     assert.equal((await h.request("release", { controllerId: controller.id })).code, 200);
     assert.equal((await h.request("release", { controllerId: "never-acquired" })).code, 200);
-    assert.equal((await h.request("tool", { ...snapshot, controllerId: next.id })).code, 200);
+    assert.equal((await h.request("tool", { ...listTabs, controllerId: next.id })).code, 200);
     await h.request("release", { controllerId: next.id });
     for (const id of [controller.id, next.id, "never-acquired"]) {
       const result = await h.request("acquire", { ...controller, id });
@@ -671,13 +675,13 @@ test("operator handoff fences every old-owner action and stale cleanup preserves
     assert.equal((await h.request("acquire", next)).code, 200);
     const before = (await h.request("status")).payload, checks = h.checks();
     for (const action of ["tool", "pause", "resume", "check"]) {
-      assert.equal((await h.request(action, snapshot)).code, 409, action);
+      assert.equal((await h.request(action, listTabs)).code, 409, action);
     }
     assert.equal((await h.request("release", { controllerId: controller.id })).code, 200);
     assert.deepEqual((await h.request("status")).payload, before);
     assert.equal(h.checks(), checks);
     assert.equal((await h.request("acquire", controller)).code, 409);
-    assert.equal((await h.request("tool", { ...snapshot, controllerId: next.id })).code, 200);
+    assert.equal((await h.request("tool", { ...listTabs, controllerId: next.id })).code, 200);
     // Operator controls remain available without a controller envelope.
     assert.equal((await h.request("pause")).code, 200);
     assert.equal((await h.request("check")).code, 200);
@@ -697,9 +701,9 @@ test("a prior service lifetime cannot acquire, revoke, or operate the replacemen
     assert.equal((await h.rawRequest("release", { ...previous, controllerId: controller.id })).code, 409);
     assert.equal((await h.request("acquire", controller)).code, 200);
     for (const action of ["tool", "release", "pause", "resume", "check"]) {
-      assert.equal((await h.rawRequest(action, { ...previous, ...snapshot })).code, 409);
+      assert.equal((await h.rawRequest(action, { ...previous, ...listTabs })).code, 409);
     }
-    assert.equal((await h.request("tool", snapshot)).code, 200);
+    assert.equal((await h.request("tool", listTabs)).code, 200);
   } finally { await h.close(); }
 });
 
@@ -718,7 +722,7 @@ for (const operation of ["check", "resume"]) test(`release drains an admitted ${
     assert.equal(h.checks(), checks + 1);
     const release = h.request("release", { controllerId: controller.id }).then(result => { released = true; return result; });
     for (const action of ["pause", "resume", "check", "tool"]) {
-      const response = await h.request(action, snapshot);
+      const response = await h.request(action, listTabs);
       assert.equal(response.code, 409, action);
       assert.match((response.payload as { error: string }).error, /Acquire/, action);
     }
@@ -734,7 +738,7 @@ for (const operation of ["check", "resume"]) test(`release drains an admitted ${
     assert.equal(h.state().phase, "ready");
     assert.equal((await h.request("acquire", next)).code, 200);
     assert.equal((await h.request("release", { controllerId: controller.id })).code, 200);
-    assert.equal((await h.request("tool", { ...snapshot, controllerId: next.id })).code, 200);
+    assert.equal((await h.request("tool", { ...listTabs, controllerId: next.id })).code, 200);
   } finally { gate.resolve(); await h.close(); }
 });
 
@@ -745,9 +749,9 @@ test("owned pause changes phase immediately and release waits for its admitted w
   try {
     await h.launch(); await h.create(); await h.request("acquire", controller);
     h.setTool(async () => { dispatched++; started.resolve(); await gate.promise; return { spec: {}, payload: "ok" }; });
-    const action = h.request("tool", snapshot);
+    const action = h.request("tool", listTabs);
     await started.promise;
-    const queued = h.request("tool", snapshot);
+    const queued = h.request("tool", listTabs);
     const pause = h.request("pause", { controllerId: controller.id }).then(result => { paused = true; return result; });
     assert.equal(h.state().phase, "paused");
     const release = h.request("release", { controllerId: controller.id }).then(result => { released = true; return result; });
@@ -806,7 +810,7 @@ test("operator handoff waits for admitted browser work before another owner can 
   try {
     await h.launch(); await h.create(); await h.request("acquire", controller);
     h.setTool(async () => { started.resolve(); await gate.promise; return { spec: {}, payload: "ok" }; });
-    const action = h.request("tool", snapshot);
+    const action = h.request("tool", listTabs);
     await started.promise;
     const handoff = h.request("handoff").then(result => { handedOff = true; return result; });
     assert.equal((await h.request("pause", { controllerId: controller.id })).code, 409);
@@ -817,7 +821,7 @@ test("operator handoff waits for admitted browser work before another owner can 
     assert.equal((await h.request("acquire", controller)).code, 409);
     assert.equal((await h.request("acquire", { ...controller, id: "controller-b" })).code, 200);
     assert.equal((await h.request("release", { controllerId: controller.id })).code, 200);
-    assert.equal((await h.request("tool", { ...snapshot, controllerId: "controller-b" })).code, 200);
+    assert.equal((await h.request("tool", { ...listTabs, controllerId: "controller-b" })).code, 200);
   } finally { gate.resolve(); await h.close(); }
 });
 
@@ -871,11 +875,11 @@ test("canonical dispatch rejects tab-ID route injection before any HTTP request"
       }
     }
     for (const args of [null, false, 1, [], "invalid"]) {
-      assert.equal((await h.request("tool", { ...snapshot, args })).code, 409);
+      assert.equal((await h.request("tool", { ...listTabs, args })).code, 409);
     }
     assert.deepEqual(requests, []);
     assert.equal(h.state().phase, "ready");
-    assert.equal((await h.request("tool", snapshot)).code, 200);
+    assert.equal((await h.request("tool", listTabs)).code, 200);
     assert.equal(requests.length, 1);
   } finally { await fixture.close(); }
 });
@@ -891,7 +895,6 @@ test("canonical dispatch preserves valid tool routes, arguments, and authenticat
       ["tab_type", { tabId, selector: "#x", text: "hello" }, "POST", `/tabs/${tabId}/type`],
       ["tab_navigate", { tabId, url: "https://example.com" }, "POST", `/tabs/${tabId}/navigate`],
       ["tab_scroll", { tabId, direction: "down", amount: 100 }, "POST", `/tabs/${tabId}/scroll`],
-      ["tab_snapshot", { tabId, offset: 10 }, "GET", `/tabs/${tabId}/snapshot`],
       ["tab_screenshot", { tabId }, "GET", `/tabs/${tabId}/screenshot`],
       ["tab_close", { tabId }, "DELETE", `/tabs/${tabId}`],
     ];
@@ -907,7 +910,6 @@ test("canonical dispatch preserves valid tool routes, arguments, and authenticat
         assert.deepEqual(req.body, { ...body, userId: h.id, ...(name === "tab_create" ? { sessionKey: "default" } : {}),
           ...(name === "tab_type" ? { typingMode: "balanced" } : {}) });
       } else assert.equal(url.searchParams.get("userId"), h.id);
-      if (name === "tab_snapshot") assert.equal(url.searchParams.get("offset"), "10");
     }
     assert.equal(requests.length, cases.length);
   } finally { await fixture.close(); }
@@ -981,7 +983,7 @@ test("an upstream evaluate timeout is a clean error that keeps the profile ready
       assert.equal(h.state().error, undefined);
     }
     assert.deepEqual(requests[0]!.body, { userId: h.id, expression: "while (true) {}", timeoutMs: 1000 });
-    assert.equal((await h.request("tool", snapshot)).code, 200);
+    assert.equal((await h.request("tool", listTabs)).code, 200);
     assert.equal(requests.length, 3);
   } finally { await fixture.close(); }
 });
@@ -1003,7 +1005,7 @@ test("other upstream timeouts still block the browser lifetime", async () => {
       assert.equal(result.code, 409, JSON.stringify(response));
       if (suffix === "/click") assert.doesNotMatch(String((result.payload as { error: string }).error), /Do not run the script again/);
       assert.equal(h.state().phase, "blocked", JSON.stringify(response));
-      assert.equal((await h.request("tool", snapshot)).code, 409);
+      assert.equal((await h.request("tool", listTabs)).code, 409);
     } finally { await fixture.close(); }
   }
 });
@@ -1084,7 +1086,7 @@ for (const interval of [0, 120_000]) test(`IP interval ${interval} bounds checks
   const h = await harness("proxy", undefined, { interval, now: () => 100 });
   try {
     await h.launch(); await h.create(); await h.request("acquire", controller);
-    const actions = await Promise.all(Array.from({ length: 100 }, () => h.request("tool", snapshot)));
+    const actions = await Promise.all(Array.from({ length: 100 }, () => h.request("tool", listTabs)));
     assert.ok(actions.every(action => action.code === 200));
     assert.equal(h.checks(), interval === 0 ? 101 : 1);
     assert.equal(((await h.request("status")).payload as { verificationIntervalMs: number }).verificationIntervalMs, interval);
@@ -1097,13 +1099,13 @@ test("expiry refreshes once for queued actions and a clock rollback forces a fre
   try {
     await h.launch(); await h.create(); await h.request("acquire", controller);
     clock = 120_099;
-    assert.equal((await h.request("tool", snapshot)).code, 200);
+    assert.equal((await h.request("tool", listTabs)).code, 200);
     assert.equal(h.checks(), 1);
     clock = 120_100;
-    const actions = await Promise.all(Array.from({ length: 5 }, () => h.request("tool", snapshot)));
+    const actions = await Promise.all(Array.from({ length: 5 }, () => h.request("tool", listTabs)));
     assert.ok(actions.every(action => action.code === 200)); assert.equal(h.checks(), 2);
     clock = 1;
-    assert.equal((await h.request("tool", snapshot)).code, 200);
+    assert.equal((await h.request("tool", listTabs)).code, 200);
     assert.equal(h.checks(), 3);
   } finally { await h.close(); }
 });
@@ -1142,17 +1144,17 @@ test("a mismatched exit after 100 cached actions blocks every subsequent action"
     await h.launch(); await h.create(); await h.request("acquire", controller);
     h.setTool(async () => { dispatched++; return { spec: {}, payload: "ok" }; });
     h.setIP("203.0.113.7");
-    for (let action = 0; action < 100; action++) assert.equal((await h.request("tool", snapshot)).code, 200);
+    for (let action = 0; action < 100; action++) assert.equal((await h.request("tool", listTabs)).code, 200);
     assert.equal(h.checks(), 1); assert.equal(dispatched, 100);
     clock = 120_000;
-    const actions = await Promise.all(Array.from({ length: 5 }, () => h.request("tool", snapshot)));
+    const actions = await Promise.all(Array.from({ length: 5 }, () => h.request("tool", listTabs)));
     assert.ok(actions.every(action => action.code === 409));
     assert.equal(h.checks(), 2); assert.equal(dispatched, 100);
     assert.equal(h.state().verificationStatus, "verification_failed");
     assert.equal(h.state().phase, "verification_failed");
     assert.match(h.state().checkFailure!, /does not match/);
     h.setIP("198.51.100.10");
-    assert.equal((await h.request("tool", snapshot)).code, 409);
+    assert.equal((await h.request("tool", listTabs)).code, 409);
     assert.equal(h.checks(), 2);
   } finally { await h.close(); }
 });
@@ -1163,16 +1165,16 @@ test("recheck and resume bypass the cache and verification failure stays latched
     await h.launch(); await h.create(); await h.request("acquire", controller);
     assert.equal((await h.request("check")).code, 200); assert.equal(h.checks(), 2);
     assert.equal((await h.request("pause")).code, 200);
-    assert.equal((await h.request("tool", snapshot)).code, 409);
+    assert.equal((await h.request("tool", listTabs)).code, 409);
     assert.equal((await h.request("resume")).code, 200); assert.equal(h.checks(), 3);
     h.setIP("203.0.113.7");
     assert.equal((await h.request("check")).code, 409);
     const failedChecks = h.checks();
     h.setIP("198.51.100.10");
-    assert.equal((await h.request("tool", snapshot)).code, 409);
+    assert.equal((await h.request("tool", listTabs)).code, 409);
     assert.equal(h.checks(), failedChecks);
     assert.equal((await h.request("check")).code, 200);
-    assert.equal((await h.request("tool", snapshot)).code, 200);
+    assert.equal((await h.request("tool", listTabs)).code, 200);
     assert.equal(h.checks(), failedChecks + 1);
   } finally { await h.close(); }
 });
@@ -1183,13 +1185,13 @@ test("an expired failed check blocks cached browser actions until recovery", asy
   try {
     await h.launch(); await h.create(); await h.request("acquire", controller);
     h.setIPError("offline"); clock = 119_999;
-    assert.equal((await h.request("tool", snapshot)).code, 200);
+    assert.equal((await h.request("tool", listTabs)).code, 200);
     assert.equal(h.checks(), 1);
     clock = 120_000;
-    assert.equal((await h.request("tool", snapshot)).code, 409);
+    assert.equal((await h.request("tool", listTabs)).code, 409);
     assert.equal(h.state().phase, "verification_failed");
     h.setIPError(undefined); clock = 0;
-    assert.equal((await h.request("tool", snapshot)).code, 409);
+    assert.equal((await h.request("tool", listTabs)).code, 409);
     assert.equal((await h.request("check")).code, 200);
   } finally { await h.close(); }
 });
@@ -1199,7 +1201,7 @@ test("a fresh cache cannot permit actions after the original browser is lost", a
   try {
     await h.launch(); await h.create(); await h.request("acquire", controller);
     await h.emit("session:destroying", { userId: h.id });
-    assert.equal((await h.request("tool", snapshot)).code, 409);
+    assert.equal((await h.request("tool", listTabs)).code, 409);
     assert.equal(h.checks(), 1);
   } finally { await h.close(); }
 });
@@ -1216,10 +1218,10 @@ for (const diagnostic of [
     await h.launch(); await h.create(); await h.request("acquire", controller);
     h.setIP("203.0.113.7");
     h.setTool(async () => { dispatched++; throw Error(`500: ${JSON.stringify({ error: diagnostic, retryable: false })}`); });
-    assert.equal((await h.request("tool", snapshot)).code, 409);
+    assert.equal((await h.request("tool", listTabs)).code, 409);
     assert.equal(h.checks(), 2); assert.equal(dispatched, 1);
     assert.equal(h.state().verificationStatus, "verification_failed");
-    assert.equal((await h.request("tool", snapshot)).code, 409);
+    assert.equal((await h.request("tool", listTabs)).code, 409);
     assert.equal(h.checks(), 2); assert.equal(dispatched, 1);
   } finally { await h.close(); }
 });
@@ -1232,13 +1234,13 @@ test("network recovery shares the action queue, exposes unverified status, and n
     await h.launch(); await h.create(); await h.request("acquire", controller);
     h.setIPGate(gate);
     h.setTool(async () => { dispatched++; throw Error("page.goto: NS_ERROR_NET_RESET at https://example.invalid/"); });
-    const failed = h.request("tool", snapshot);
+    const failed = h.request("tool", listTabs);
     for (let attempt = 0; h.checks() < 2 && attempt < 100; attempt++) await new Promise(resolve => setTimeout(resolve, 1));
     assert.equal(h.checks(), 2);
     const during = (await h.request("status")).payload as Record<string, unknown>;
     assert.equal(during.verificationStatus, "unverified"); assert.equal(during.verificationFresh, false);
     assert.equal(during.phase, "ready");
-    const queued = h.request("tool", snapshot);
+    const queued = h.request("tool", listTabs);
     assert.equal(dispatched, 1);
     h.setTool(async () => { dispatched++; return { spec: {}, payload: "ok" }; });
     finish();
@@ -1254,9 +1256,9 @@ test("a structured network error in a successful upstream response also invalida
     await h.launch(); await h.create(); await h.request("acquire", controller);
     h.setTool(async () => ({ spec: {}, payload: { error: "page.goto: NS_ERROR_PROXY_BAD_GATEWAY at https://example.invalid/" } }));
     h.setIPError("offline");
-    assert.equal((await h.request("tool", snapshot)).code, 409);
+    assert.equal((await h.request("tool", listTabs)).code, 409);
     assert.equal(h.state().verificationStatus, "verification_failed");
-    assert.equal((await h.request("tool", snapshot)).code, 409);
+    assert.equal((await h.request("tool", listTabs)).code, 409);
   } finally { await h.close(); }
 });
 
@@ -1265,7 +1267,7 @@ test("page content, URLs, call logs, HTTP errors, and validation errors do not t
   try {
     await h.launch(); await h.create(); await h.request("acquire", controller);
     h.setTool(async () => ({ spec: {}, payload: { snapshot: "NS_ERROR_PROXY_CONNECTION_REFUSED", url: "https://example.invalid/NS_ERROR_UNKNOWN_HOST" } }));
-    assert.equal((await h.request("tool", snapshot)).code, 200);
+    assert.equal((await h.request("tool", listTabs)).code, 200);
     for (const message of [
       "500: An HTML body contains NS_ERROR_PROXY_CONNECTION_REFUSED",
       `500: ${JSON.stringify({ error: "Destination returned HTTP 503", code: "destination_unavailable" })}`,
@@ -1273,7 +1275,7 @@ test("page content, URLs, call logs, HTTP errors, and validation errors do not t
       "Invalid selector\nCall log:\n  NS_ERROR_PROXY_CONNECTION_REFUSED",
     ]) {
       h.setTool(async () => { throw Error(message); });
-      assert.equal((await h.request("tool", snapshot)).code, 409);
+      assert.equal((await h.request("tool", listTabs)).code, 409);
     }
     assert.equal(h.checks(), 1); assert.equal(h.state().phase, "ready");
     assert.equal(h.state().verificationStatus, "verified");
@@ -1285,7 +1287,7 @@ test("direct mode without an expected IP does not acquire a health-check depende
   try {
     await h.launch(); await h.create(); await h.request("acquire", controller);
     h.setTool(async () => { throw Error("page.goto: NS_ERROR_UNKNOWN_HOST at https://example.invalid/"); });
-    assert.equal((await h.request("tool", snapshot)).code, 409);
+    assert.equal((await h.request("tool", listTabs)).code, 409);
     assert.equal(h.checks(), 0); assert.equal(h.state().phase, "ready");
   } finally { await h.close(); }
 });
@@ -1296,7 +1298,7 @@ test("direct mode without an expected IP works when the IP service is unavailabl
     await h.launch();
     await h.create();
     assert.equal((await h.request("acquire", controller)).code, 200);
-    assert.equal((await h.request("tool", snapshot)).code, 200);
+    assert.equal((await h.request("tool", listTabs)).code, 200);
     assert.equal((await h.request("pause")).code, 200);
     assert.equal((await h.request("resume")).code, 200);
     assert.equal(h.checks(), 0);
@@ -1312,17 +1314,17 @@ test("a failed proxy check blocks actions until an explicit successful recheck",
     await h.create();
     await h.request("acquire", controller);
     h.setIPError("network unavailable");
-    assert.equal((await h.request("tool", snapshot)).code, 409);
+    assert.equal((await h.request("tool", listTabs)).code, 409);
     assert.equal(h.state().phase, "verification_failed");
     h.setIPError(undefined);
-    assert.equal((await h.request("tool", snapshot)).code, 409);
+    assert.equal((await h.request("tool", listTabs)).code, 409);
     h.setIP("203.0.113.7");
     assert.equal((await h.request("check")).code, 409);
     assert.equal(h.state().phase, "verification_failed");
     h.setIP("198.51.100.10");
     assert.equal((await h.request("check")).code, 200);
     assert.equal(h.state().phase, "ready");
-    assert.equal((await h.request("tool", snapshot)).code, 200);
+    assert.equal((await h.request("tool", listTabs)).code, 200);
   } finally { await h.close(); }
 });
 
@@ -1332,13 +1334,13 @@ test("direct mode checks an explicitly expected IP and reports failure without p
     await h.launch(); await h.create();
     await h.request("acquire", controller);
     h.setIP("203.0.113.7");
-    assert.equal((await h.request("tool", snapshot)).code, 409);
+    assert.equal((await h.request("tool", listTabs)).code, 409);
     assert.equal(h.state().phase, "verification_failed");
     assert.match(h.state().error!, /Expected exit IP/);
     assert.doesNotMatch(h.state().error!, /proxy|fallback/i);
     h.setIP("198.51.100.10");
     assert.equal((await h.request("check")).code, 200);
-    assert.equal((await h.request("tool", snapshot)).code, 200);
+    assert.equal((await h.request("tool", listTabs)).code, 200);
   } finally { await h.close(); }
 });
 
@@ -1349,7 +1351,7 @@ test("proxy mode verifies its exit even without an expected IP", async () => {
     assert.equal(h.checks(), 1);
     await h.request("acquire", controller);
     h.setIPError("offline");
-    assert.equal((await h.request("tool", snapshot)).code, 409);
+    assert.equal((await h.request("tool", listTabs)).code, 409);
     assert.equal(h.state().phase, "verification_failed");
     assert.match(h.state().error!, /Proxy exit IP/);
     assert.match(h.state().error!, /Direct fallback is disabled/);
@@ -1412,12 +1414,12 @@ test("service rejects held, excluded, upstream-named, and unknown tools", async 
     h.setTool(async () => { dispatched++; return { spec: {}, payload: "ok" }; });
     for (const name of ["tab_activate", "camofox_activate", "camofox_snapshot", "camofox_evaluate", "camofox_import_cookies", "camofox_import_local_storage",
       "camofox_export_storage_state", "camofox_upload", "camofox_viewport", "tab_viewport", "tab_upload", "tab_unknown", ""]) {
-      const result = await h.request("tool", { ...snapshot, name });
+      const result = await h.request("tool", { ...listTabs, name });
       assert.equal(result.code, 409, name);
       assert.match(String((result.payload as { error: string }).error), /Unknown browser tool/);
     }
     assert.equal(dispatched, 0);
-    assert.equal((await h.request("tool", snapshot)).code, 200);
+    assert.equal((await h.request("tool", listTabs)).code, 200);
     assert.equal(dispatched, 1);
   } finally { await h.close(); }
 });
@@ -1450,7 +1452,7 @@ test("a scripts tool needs the profile switch, and the service reads it on each 
     assert.equal((await h.request("tool", { controllerId: controller.id, name: "tab_evaluate", args: scripts.tab_evaluate })).code, 409);
     assert.equal(calls.length, 2);
     // Other tools never need the switch.
-    assert.equal((await h.request("tool", snapshot)).code, 200);
+    assert.equal((await h.request("tool", listTabs)).code, 200);
     // A profile that left the catalog fails closed.
     writeFileSync(catalog, JSON.stringify({ profiles: [] }));
     assert.equal((await h.request("tool", { controllerId: controller.id, name: "tab_evaluate", args: scripts.tab_evaluate })).code, 409);
@@ -1466,7 +1468,7 @@ test("the service returns the raw payload and its response kind", async () => {
     for (const [spec, payload, kind] of [[{}, { ok: true }, "json"], [{ responseKind: "json" }, [1, 2], "json"], [{ responseKind: "snapshot" }, shots, "snapshot"],
       [{ responseKind: "image" }, { type: "image", data: "aW1n", mimeType: "image/png" }, "image"]] as const) {
       h.setTool(async () => ({ spec, payload }));
-      const result = await h.request("tool", snapshot);
+      const result = await h.request("tool", listTabs);
       assert.equal(result.code, 200);
       assert.deepEqual(result.payload, { kind, payload });
       assert.equal(Object.hasOwn(result.payload as object, "content"), false);
@@ -1486,9 +1488,9 @@ test("a stalled action times out but retains control until underlying work settl
     await h.create();
     await h.request("acquire", controller);
     h.setTool(async () => { calls++; entered(); return gate; });
-    const action = h.request("tool", snapshot);
+    const action = h.request("tool", listTabs);
     await started;
-    const queued = h.request("tool", snapshot);
+    const queued = h.request("tool", listTabs);
     let released = false;
     const release = h.request("release", { controllerId: controller.id }).then(result => { released = true; return result; });
     assert.equal((await action).code, 409);
@@ -1516,7 +1518,7 @@ test("pause refuses to acknowledge human takeover when an upstream action remain
     await h.create();
     await h.request("acquire", controller);
     h.setTool(async () => { entered(); return gate; });
-    const action = h.request("tool", snapshot);
+    const action = h.request("tool", listTabs);
     await started;
     const pause = h.request("pause");
     assert.equal((await action).code, 409);
@@ -1536,7 +1538,7 @@ test("stop finishes when an upstream action stalls", async () => {
     await h.create();
     await h.request("acquire", controller);
     h.setTool(async () => { entered(); return gate; });
-    const action = h.request("tool", snapshot);
+    const action = h.request("tool", listTabs);
     await started;
     const stop = h.request("stop");
     assert.equal((await action).code, 409);
@@ -1555,7 +1557,7 @@ test("a stalled IP check cannot be cleared while its browser operation is outsta
     await h.create();
     await h.request("acquire", controller);
     h.setIPGate(gate);
-    assert.equal((await h.request("tool", snapshot)).code, 409);
+    assert.equal((await h.request("tool", listTabs)).code, 409);
     assert.equal(h.state().phase, "blocked");
     assert.equal((await h.request("check")).code, 409);
     finish();
@@ -1575,7 +1577,7 @@ test("an explicit recheck waits for the active browser action", async () => {
     await h.create();
     await h.request("acquire", controller);
     h.setTool(async () => { entered(); return gate; });
-    const action = h.request("tool", snapshot);
+    const action = h.request("tool", listTabs);
     await started;
     const before = h.checks();
     const recheck = h.request("check");
@@ -1595,9 +1597,9 @@ test("an upstream timeout error blocks further browser actions", async () => {
     await h.create();
     await h.request("acquire", controller);
     h.setTool(async () => { throw Error("upstream request timed out"); });
-    assert.equal((await h.request("tool", snapshot)).code, 409);
+    assert.equal((await h.request("tool", listTabs)).code, 409);
     assert.equal(h.state().phase, "blocked");
-    assert.equal((await h.request("tool", snapshot)).code, 409);
+    assert.equal((await h.request("tool", listTabs)).code, 409);
   } finally { await h.close(); }
 });
 
@@ -1622,4 +1624,284 @@ test("a startup verification deadline closes its attempt and a late reply cannot
     assert.equal((await h.request("acquire", controller)).code, 409);
     assert.equal(h.state().phase, "blocked");
   } finally { release(); await h.close(); }
+});
+
+// The snapshot path reads the full page from the tab state of Camofox, in the same queued action as the snapshot route.
+// The fake route does what the real one does: it rebuilds the refs and the last snapshot of the tab, and then it replies.
+async function snapshotFixture(options: { structure?: unknown } = {}) {
+  const state = { page: annotate(shop()), shot: undefined as unknown, route: 0 };
+  const tab = { refs: new Map<string, unknown>(), lastSnapshot: null as unknown, page: { url: () => "https://shop.test/" } };
+  const fixture = await canonicalHarness({ reply: path => {
+    if (!path.endsWith("/snapshot")) return undefined;
+    state.route++;
+    tab.refs = new Map(state.page.refs); tab.lastSnapshot = state.page.yaml;
+    const asked = new URL(fixture.requests.at(-1)!.url, "http://localhost").searchParams.get("includeScreenshot") === "true";
+    return { code: 200, payload: { url: "https://shop.test/", snapshot: state.page.yaml.slice(0, 80_000), structure: options.structure, refsCount: state.page.refs.size,
+      truncated: false, totalChars: state.page.yaml.length, hasMore: false, nextOffset: null, ...(asked ? { screenshot: state.shot } : {}) } };
+  } });
+  const { h, requests } = fixture;
+  h.sessions.set(h.id, { tabGroups: new Map([["default", new Map([[tabId, tab]])]]) });
+  const as = (controllerId: string) => (name: string, args: Record<string, unknown> = {}) => h.request("tool", { controllerId, name, args: { tabId, ...args } });
+  return { ...fixture, state, tab, h, requests, read: as(controller.id), as,
+    async start() { await h.launch(); await h.create(); assert.equal((await h.request("acquire", controller)).code, 200); } };
+}
+const payloadOf = (result: { code: number; payload: unknown }) => {
+  assert.equal(result.code, 200, JSON.stringify(result.payload));
+  return (result.payload as { kind: string; payload: Record<string, any> }).payload;
+};
+const errorOf = (result: { code: number; payload: unknown }) => {
+  assert.equal(result.code, 409);
+  return String((result.payload as { error: string }).error);
+};
+
+test("tab_snapshot asks for no screenshot unless the caller wants one, and reads the full page from the tab state", async () => {
+  const f = await snapshotFixture({ structure: { forms: [], tables: [{ id: "table-0" }] } });
+  try {
+    await f.start();
+    const first = await f.read("tab_snapshot");
+    assert.equal(first.code, 200);
+    assert.equal((first.payload as { kind: string }).kind, "snapshot");
+    const reply = payloadOf(first);
+    assert.deepEqual(Object.keys(reply), ["url", "refsCount", "truncated", "viewId", "snapshot"]);
+    assert.match(reply.snapshot, /- … 11 more like this/);
+    assert.equal(reply.refsCount, f.state.page.refs.size);
+    const route = new URL(f.requests.at(-1)!.url, "http://localhost");
+    assert.equal(f.requests.length, 1);
+    assert.equal(route.pathname, `/tabs/${tabId}/snapshot`);
+    assert.equal(route.searchParams.get("includeScreenshot"), "false");
+    assert.equal(route.searchParams.get("userId"), f.h.id);
+    assert.equal(route.searchParams.has("offset"), false);
+    assert.equal(route.searchParams.has("annotateScreenshot"), false);
+    assert.equal(f.requests.at(-1)!.authorization, "Bearer fixture-key");
+    // The structure is dropped unless the caller asks for it. The screenshot is sent when the caller asks for it.
+    assert.equal(Object.hasOwn(reply, "structure"), false);
+    f.state.shot = { data: "aW1n", mimeType: "image/png" };
+    const more = payloadOf(await f.read("tab_snapshot", { includeScreenshot: true, includeStructure: true }));
+    assert.equal(new URL(f.requests.at(-1)!.url, "http://localhost").searchParams.get("includeScreenshot"), "true");
+    assert.deepEqual(more.screenshot, { data: "aW1n", mimeType: "image/png" });
+    assert.deepEqual(more.structure, { forms: [], tables: [{ id: "table-0" }] });
+    assert.equal(Object.hasOwn(payloadOf(await f.read("tab_snapshot")), "screenshot"), false);
+  } finally { await f.close(); }
+});
+
+test("the shaping arguments reach the view, and a scope that fails is an error", async () => {
+  const f = await snapshotFixture();
+  try {
+    await f.start();
+    assert.equal(payloadOf(await f.read("tab_snapshot", { scope: { role: "contentinfo" } })).snapshot, "- contentinfo:\n  - text: © Shop");
+    assert.match(payloadOf(await f.read("tab_snapshot", { contains: "lamp 7", collapse: false })).snapshot, /^- main:\n {2}- list "Results":/);
+    assert.match(errorOf(await f.read("tab_snapshot", { scope: { role: "list" } })), /The scope matches 2 elements/);
+    assert.match(errorOf(await f.read("tab_snapshot", { scope: { role: "table" } })), /No element matches the scope/);
+    assert.match(errorOf(await f.read("tab_snapshot", { maxChars: 100 })), /maxChars must be/);
+  } finally { await f.close(); }
+});
+
+test("the baseline belongs to one controller, and acquire, release, and resume clear it", async () => {
+  const f = await snapshotFixture();
+  const b = { id: "controller-b", pid: process.pid, label: "test" };
+  const diff = { diff: true, collapse: false };
+  try {
+    await f.start();
+    assert.equal(payloadOf(await f.read("tab_snapshot", diff)).baseline, true);
+    f.state.page = annotate(shop({ change: { 5: 30 } }));
+    const second = payloadOf(await f.read("tab_snapshot", diff));
+    assert.equal(Object.hasOwn(second, "baseline"), false);
+    assert.match(second.snapshot, /^# Diff from your last snapshot/);
+    assert.match(second.snapshot, /\n\+ {6}- text: \$35$/);
+    assert.equal(payloadOf(await f.read("tab_snapshot", diff)).snapshot, "# No change since your last snapshot.");
+    // Resume clears it, because a person used the window during the pause.
+    assert.equal((await f.h.request("pause", { controllerId: controller.id })).code, 200);
+    assert.equal((await f.h.request("resume", { controllerId: controller.id })).code, 200);
+    assert.equal(payloadOf(await f.read("tab_snapshot", diff)).baseline, true);
+    assert.equal(payloadOf(await f.read("tab_snapshot", diff)).snapshot, "# No change since your last snapshot.");
+    // Release clears it, and the next controller starts empty.
+    assert.equal((await f.h.request("release", { controllerId: controller.id })).code, 200);
+    assert.equal((await f.h.request("acquire", b)).code, 200);
+    assert.equal(payloadOf(await f.as(b.id)("tab_snapshot", diff)).baseline, true);
+    assert.equal(payloadOf(await f.as(b.id)("tab_snapshot", diff)).snapshot, "# No change since your last snapshot.");
+    // The first controller acquires again. It starts empty, although it read the same page before.
+    assert.equal((await f.h.request("release", { controllerId: b.id })).code, 200);
+    assert.equal((await f.h.request("acquire", { ...controller, id: "controller-c" })).code, 200);
+    assert.equal(payloadOf(await f.as("controller-c")("tab_snapshot", diff)).baseline, true);
+  } finally { await f.close(); }
+});
+
+test("the guard refuses a ref before any request, accepts a ref that a reply showed, and does not check a selector", async () => {
+  const f = await snapshotFixture();
+  try {
+    await f.start();
+    const reply = payloadOf(await f.read("tab_snapshot"));
+    const shown = [...reply.snapshot.matchAll(/\[(e\d+)\]/g)].map(match => match[1]);
+    assert.ok(shown.includes("e7") && !shown.includes("e9"));
+    const requests = f.requests.length;
+    const refusal = (ref: string) => `ref ${ref} may have shifted. Read tab_snapshot again, or target the element by role and name.`;
+    for (const name of ["tab_click", "tab_type", "tab_select", "tab_mouse_wheel"]) {
+      // e9 is a collapsed item. The controller never saw it. e999 does not exist.
+      for (const ref of ["e9", "e999"]) assert.equal(errorOf(await f.read(name, { ref, ...(name === "tab_type" ? { text: "x" } : {}) })), refusal(ref), `${name} ${ref}`);
+    }
+    // No request reached Camofox, and the profile stays usable.
+    assert.equal(f.requests.length, requests);
+    assert.equal(f.h.state().phase, "ready");
+    // A shown ref passes. The ref is checked again at the call: a rebuilt ref table that moved e7 makes it unsafe.
+    assert.equal((await f.read("tab_click", { ref: "e7" })).code, 200);
+    assert.equal(f.requests.at(-1)!.url, `/tabs/${tabId}/click`);
+    assert.deepEqual(f.requests.at(-1)!.body, { ref: "e7", userId: f.h.id });
+    f.tab.refs = new Map([...f.tab.refs, ["e7", { role: "link", name: "Moved", nth: 0 }]]);
+    assert.match(errorOf(await f.read("tab_click", { ref: "e7" })), /ref e7 may have shifted/);
+    // A selector goes to Camofox as it is.
+    assert.equal((await f.read("tab_click", { selector: "#save" })).code, 200);
+    assert.deepEqual(f.requests.at(-1)!.body, { selector: "#save", userId: f.h.id });
+    // A controller that has read nothing has no reliable refs.
+    assert.equal((await f.h.request("release", { controllerId: controller.id })).code, 200);
+    assert.equal((await f.h.request("acquire", { ...controller, id: "controller-b" })).code, 200);
+    assert.match(errorOf(await f.as("controller-b")("tab_click", { ref: "e7" })), /ref e7 may have shifted/);
+  } finally { await f.close(); }
+});
+
+test("a ref that moved after a diff is refused, and a ref that the diff showed is accepted", async () => {
+  const f = await snapshotFixture();
+  try {
+    await f.start();
+    payloadOf(await f.read("tab_snapshot", { collapse: false }));
+    assert.equal((await f.read("tab_click", { ref: "e5" })).code, 200);
+    f.state.page = annotate(shop({ top: ['  - button "Menu"'] }));
+    const diff = payloadOf(await f.read("tab_snapshot", { diff: true, collapse: false }));
+    assert.match(diff.snapshot, /\+ {2}- button "Menu" \[e1\]/);
+    const requests = f.requests.length;
+    assert.equal((await f.read("tab_click", { ref: "e1" })).code, 200);
+    assert.match(errorOf(await f.read("tab_click", { ref: "e5" })), /ref e5 may have shifted/);
+    assert.equal(f.requests.length, requests + 1);
+  } finally { await f.close(); }
+});
+
+test("a closed tab drops what the controller knew about it", async () => {
+  const f = await snapshotFixture();
+  try {
+    await f.start();
+    payloadOf(await f.read("tab_snapshot", { collapse: false }));
+    assert.equal((await f.read("tab_close")).code, 200);
+    assert.match(errorOf(await f.read("tab_click", { ref: "e5" })), /ref e5 may have shifted/);
+    assert.equal(payloadOf(await f.read("tab_snapshot", { diff: true })).baseline, true);
+  } finally { await f.close(); }
+});
+
+test("a viewId pages the cached view without a request, and an unknown or replaced viewId fails", async () => {
+  const f = await snapshotFixture();
+  f.state.page = annotate(shop({ items: 60 }));
+  try {
+    await f.start();
+    const first = payloadOf(await f.read("tab_snapshot", { collapse: false, maxChars: 1000 }));
+    assert.equal(first.truncated, true);
+    assert.ok(first.nextOffset > 0);
+    const requests = f.requests.length, routes = f.state.route;
+    const second = payloadOf(await f.read("tab_snapshot", { offset: first.nextOffset, viewId: first.viewId, maxChars: 1000 }));
+    assert.equal(f.requests.length, requests);
+    assert.equal(f.state.route, routes);
+    assert.equal(second.viewId, first.viewId);
+    assert.equal(second.url, "https://shop.test/");
+    assert.equal(second.refsCount, first.refsCount);
+    assert.ok(!second.snapshot.startsWith("- banner"));
+    assert.equal(f.state.page.yaml.split("\n").slice(0, 3).join("\n"), first.snapshot.split("\n").slice(0, 3).join("\n"));
+    assert.match(errorOf(await f.read("tab_snapshot", { offset: first.nextOffset, viewId: "v999" })), /Read a new tab_snapshot\./);
+    assert.match(errorOf(await f.read("tab_snapshot", { offset: first.nextOffset })), /needs the viewId/);
+    const replaced = payloadOf(await f.read("tab_snapshot", { collapse: false, maxChars: 1000 }));
+    assert.match(errorOf(await f.read("tab_snapshot", { offset: first.nextOffset, viewId: first.viewId })), /Read a new tab_snapshot\./);
+    assert.equal((await f.read("tab_snapshot", { offset: replaced.nextOffset, viewId: replaced.viewId })).code, 200);
+    // After a resume, no view is cached.
+    assert.equal((await f.h.request("pause", { controllerId: controller.id })).code, 200);
+    assert.equal((await f.h.request("resume", { controllerId: controller.id })).code, 200);
+    assert.match(errorOf(await f.read("tab_snapshot", { offset: replaced.nextOffset, viewId: replaced.viewId })), /Read a new tab_snapshot\./);
+  } finally { await f.close(); }
+});
+
+test("a page that is gone fails the paging of its view", async () => {
+  const f = await snapshotFixture();
+  f.state.page = annotate(shop({ items: 60 }));
+  try {
+    await f.start();
+    const first = payloadOf(await f.read("tab_snapshot", { collapse: false, maxChars: 1000 }));
+    f.h.sessions.set(f.h.id, { tabGroups: new Map([["default", new Map()]]) });
+    assert.match(errorOf(await f.read("tab_snapshot", { offset: first.nextOffset, viewId: first.viewId })), /no longer exists/);
+  } finally { await f.close(); }
+});
+
+test("a changed tab state of Camofox fails closed, before and after the snapshot, and the guard fails closed too", async () => {
+  const f = await snapshotFixture();
+  const changed = "Stelz cannot read the page state of Camofox, because its internal tab state has changed. Update Stelz.";
+  try {
+    await f.start();
+    payloadOf(await f.read("tab_snapshot"));
+    const { tab, h } = f, original = h.sessions.get(h.id);
+    const group = (state: unknown) => ({ tabGroups: new Map([["default", new Map([[tabId, state]])]]) });
+    // The structure is not what Stelz expects.
+    for (const broken of [group({ ...tab, refs: {} }), group({ ...tab, refs: new Map([["e1", { role: "button" }]]) }), group(null),
+      { tabGroups: {} }, { tabGroups: new Map([["default", {}]]) }]) {
+      h.sessions.set(h.id, broken);
+      assert.equal(errorOf(await f.read("tab_snapshot")), changed);
+      assert.equal(errorOf(await f.read("tab_click", { ref: "e5" })), changed);
+    }
+    h.sessions.set(h.id, original);
+    // The route replied, and the tab state does not hold the snapshot that the reply describes. The route rewrites both fields, so the test pins them.
+    const pin = (key: "lastSnapshot" | "refs", value: unknown) => Object.defineProperty(tab, key, { get: () => value, set() {}, configurable: true });
+    const unpin = (key: "lastSnapshot" | "refs", value: unknown) => Object.defineProperty(tab, key, { value, writable: true, configurable: true, enumerable: true });
+    for (const value of [null, undefined, 5, {}, f.state.page.yaml + " "]) {
+      pin("lastSnapshot", value);
+      assert.equal(errorOf(await f.read("tab_snapshot")), changed, String(value));
+    }
+    unpin("lastSnapshot", null);
+    pin("refs", new Map([...f.state.page.refs].slice(1)));
+    assert.equal(errorOf(await f.read("tab_snapshot")), changed);
+    unpin("refs", new Map());
+    // The session is gone after the route replied.
+    h.sessions.delete(h.id);
+    assert.equal(errorOf(await f.read("tab_snapshot")), changed);
+    // The failures changed nothing. The next valid read works, against the baseline of the first read.
+    h.sessions.set(h.id, original);
+    assert.equal(payloadOf(await f.read("tab_snapshot", { diff: true })).snapshot, "# No change since your last snapshot.");
+    assert.equal(h.state().phase, "ready");
+  } finally { await f.close(); }
+});
+
+test("the reply of a click that failed its role check has no embedded snapshot, and neither does a failed extract", async () => {
+  const full = "- heading \"Whole page\" [e1]\n".repeat(2000);
+  const mismatch = { ok: false, code: "semantic_target_mismatch", retryable: true, recovery: "use_returned_snapshot",
+    error: "The referenced element no longer matches the requested role or accessible name. No click was performed; use the returned snapshot and a current ref.",
+    ref: "e3", expected: { role: "button" }, actual: { role: "link", accessibleName: "Home" }, url: "https://shop.test/", snapshot: full, refsCount: 4 };
+  let route: "click" | "refs" | "extract" = "click";
+  const f = await canonicalHarness({ reply: path => {
+    if (path.endsWith("/click")) return { code: 200, payload: mismatch };
+    if (path.endsWith("/extract")) return route === "refs"
+      ? { code: 409, payload: { error: "no refs available -- call GET /tabs/:tabId/snapshot first to build the ref table", snapshot: full } }
+      : { code: 422, payload: { ok: false, error: "No match for field title", snapshot: full } };
+    return undefined;
+  } });
+  const h = f.h;
+  try {
+    await h.launch(); await h.create(); await h.request("acquire", controller);
+    // A selector click reaches the role check. A ref click would need a ref that the controller saw.
+    const click = await h.request("tool", { controllerId: controller.id, name: "tab_click", args: { tabId, selector: "#x", expected_role: "button" } });
+    const { snapshot: _dropped, ...rest } = mismatch;
+    assert.deepEqual((click.payload as { payload: unknown }).payload, { ...rest, recovery: "read_tab_snapshot", hint: "Read tab_snapshot for the current page.",
+      error: "The referenced element no longer matches the requested role or accessible name. No click was performed. Read tab_snapshot, then use a current ref." });
+    for (const [kind, code] of [["refs", 409], ["extract", 422]] as const) {
+      route = kind;
+      const result = await h.request("tool", { controllerId: controller.id, name: "tab_extract", args: { tabId, schema: { type: "object", properties: {} } } });
+      const message = errorOf(result);
+      assert.ok(message.startsWith(`${code}: `), message);
+      assert.ok(message.length < 400, message.length.toString());
+      assert.equal(JSON.parse(message.slice(5)).hint, "Read tab_snapshot for the current page.");
+      assert.equal(Object.hasOwn(JSON.parse(message.slice(5)), "snapshot"), false);
+    }
+  } finally { await f.close(); }
+});
+
+test("a click that passed has its upstream payload, and an extract error that is not an object is kept", async () => {
+  const f = await canonicalHarness({ reply: path => path.endsWith("/extract") ? { code: 500, payload: { error: "Extract failed" } } : undefined });
+  try {
+    await f.h.launch(); await f.h.create(); await f.h.request("acquire", controller);
+    const click = await f.h.request("tool", { controllerId: controller.id, name: "tab_click", args: { tabId, selector: "#x" } });
+    assert.deepEqual((click.payload as { payload: unknown }).payload, { ok: true });
+    const failed = await f.h.request("tool", { controllerId: controller.id, name: "tab_extract", args: { tabId, schema: { type: "object", properties: {} } } });
+    assert.equal(errorOf(failed), '500: {"error":"Extract failed"}');
+  } finally { await f.close(); }
 });

@@ -10,6 +10,9 @@ import { initializedFingerprint, type FingerprintOwner } from "./fingerprint-tra
 import { verifyProfileFingerprint, type ProfileBrowserContext, type ProfilePage } from "./native-profile.ts";
 import { createIpVerification, parseIpCheckInterval } from "./ip-verification.ts";
 import { browserTools as catalogTools, toolArguments, type Contracts } from "./catalog.ts";
+import { loadAriaHelpers } from "./aria.ts";
+import { createSnapshotTracker, type SnapshotRequest, type View } from "./snapshot-tracker.ts";
+import { readTab, TAB_STATE_CHANGED } from "./tab-state.ts";
 import { assertScriptsAllowed } from "../profiles/allow-scripts.ts";
 import { addProfileExtension, createProfileWindows } from "./profile-windows.ts";
 import { activateProfileBrowser } from "./window-activation.ts";
@@ -41,6 +44,8 @@ type Handler = (req: { body?: Record<string, unknown>; headers?: Record<string, 
 type App = { get(path: string, ...handlers: Handler[]): void; post(path: string, ...handlers: Handler[]): void };
 type PluginContext = {
   auth(): Handler;
+  /** The sessions of Camofox. Only tab-state.ts reads it. */
+  sessions: unknown;
   events: { on<K extends keyof Events>(name: K, fn: (payload: Events[K]) => unknown): void };
 };
 type Phase = "starting" | "ready" | "paused" | "verification_failed" | "blocked" | "stopping" | "stopped";
@@ -90,6 +95,24 @@ function isEvaluateTimeout(value: unknown) {
   catch { return false; }
 }
 
+// An embedded snapshot can be larger than a page window. Stelz drops it and sends the caller to tab_snapshot, which can shape it.
+const READ_SNAPSHOT = "Read tab_snapshot for the current page.";
+function withoutEmbeddedSnapshot(body: unknown, tool: string) {
+  if (!body || typeof body !== "object" || !("snapshot" in body)) return body;
+  const { snapshot: _dropped, ...rest } = body as Record<string, unknown>;
+  // The upstream mismatch reply says "use the returned snapshot".
+  return tool === "tab_click" && rest.code === "semantic_target_mismatch"
+    ? { ...rest, recovery: "read_tab_snapshot", error: "The referenced element no longer matches the requested role or accessible name. No click was performed. Read tab_snapshot, then use a current ref.", hint: READ_SNAPSHOT }
+    : { ...rest, hint: READ_SNAPSHOT };
+}
+// A failed extract replies with 409 or 422 and the same embedded snapshot.
+function withoutEmbeddedSnapshotError(error: unknown) {
+  const reply = error instanceof Error ? /^(409|422):\s*([\s\S]*)$/.exec(error.message) : null;
+  if (!reply) return error;
+  try { return Error(`${reply[1]}: ${JSON.stringify(withoutEmbeddedSnapshot(JSON.parse(reply[2]!), "tab_extract"))}`); }
+  catch { return error; }
+}
+
 export async function register(app: App, ctx: PluginContext, options: {
   actionTimeoutMs?: number; shutdown?: () => void; ipCheckIntervalMs?: number; now?: () => number;
   verifyFingerprint?: (context: Parameters<typeof verifyProfileFingerprint>[0], prepared: ReturnType<typeof applyFingerprint>) =>
@@ -112,6 +135,8 @@ export async function register(app: App, ctx: PluginContext, options: {
   const controller = createControllerLease();
   const upstream = await import(pathToFileURL(join(process.env.STELZ_UPSTREAM!, "mcp/lib/tool-contracts.mjs")).href) as Contracts;
   const browserTools = catalogTools(upstream.TOOL_DEFS);
+  // What each controller saw of each tab. One browser lifetime owns it.
+  const tracker = createSnapshotTracker(await loadAriaHelpers(process.env.STELZ_UPSTREAM!));
   const ipVerification = createIpVerification(state.instanceId, expected);
   let context: Context | undefined;
   let stopping = false;
@@ -137,6 +162,7 @@ export async function register(app: App, ctx: PluginContext, options: {
     invalidated = true;
     lastVerifiedAt = undefined;
     context = undefined;
+    tracker.reset();
     if (!stopping) persist({ phase: "blocked", error });
   }
   const shutdown = options.shutdown ?? (() => process.kill(process.pid, "SIGTERM"));
@@ -145,6 +171,7 @@ export async function register(app: App, ctx: PluginContext, options: {
     stopping = true;
     invalidated = true;
     context = undefined;
+    tracker.reset();
     persist({ phase: "stopping", error: null, checkFailure: null });
     // Closing the visible browser ends this lifetime. Drain the controller before
     // asking upstream to perform its normal shutdown and save a clean receipt.
@@ -276,6 +303,34 @@ export async function register(app: App, ctx: PluginContext, options: {
     if (!explicit && !startup) assertUsable();
   }
 
+  // The snapshot route of Camofox keeps the full annotated page in the tab state. Read it in the same queued action, so no other action changes it.
+  async function readSnapshot(tool: string, controllerId: string, args: Record<string, unknown>, baseUrl: string, config: Record<string, unknown>) {
+    const tabId = args.tabId as string;
+    const done = (view: View, more: Record<string, unknown> = {}) => ({ kind: "snapshot", payload: { url: view.url, refsCount: view.refsCount,
+      truncated: view.truncated, ...(view.nextOffset === undefined ? {} : { nextOffset: view.nextOffset }), viewId: view.viewId,
+      ...(view.baseline ? { baseline: true } : {}), snapshot: view.text, ...more } });
+    if (typeof args.offset === "number" && args.offset > 0) {
+      const tab = readTab(ctx.sessions, id, tabId);
+      if (!tab) throw Error("The tab no longer exists. Read tab_list.");
+      return done(tracker.page(controllerId, tabId, args.viewId as string, args.offset, args.maxChars as number | undefined, tab.refs));
+    }
+    // Use the request of the upstream tool, and change only the query. The upstream request always asks for a screenshot.
+    const built = upstream.buildRequest(tool, { tabId }, { userId: id, sessionKey: "default" });
+    const route = new URL(built.path, "http://127.0.0.1");
+    route.searchParams.set("includeScreenshot", String(args.includeScreenshot === true));
+    const reply = await upstream.fetchSpec(baseUrl, { ...built, path: `${route.pathname}${route.search}` }, config) as { url?: unknown; refsCount?: unknown; totalChars?: unknown; structure?: unknown; screenshot?: unknown } | null;
+    const tab = readTab(ctx.sessions, id, tabId), yaml = tab?.lastSnapshot;
+    // The reply and the tab state describe the same snapshot, or Camofox changed.
+    if (!tab || !reply || typeof reply.url !== "string" || typeof yaml !== "string" || reply.totalChars !== yaml.length || reply.refsCount !== tab.refs.size)
+      throw Error(TAB_STATE_CHANGED);
+    const { scope, contains, diff, collapse, maxChars } = args as SnapshotRequest;
+    const request: SnapshotRequest = { ...(scope ? { scope } : {}), ...(contains === undefined ? {} : { contains }), ...(diff === undefined ? {} : { diff }),
+      ...(collapse === undefined ? {} : { collapse }), ...(maxChars === undefined ? {} : { maxChars }) };
+    const view = tracker.read(controllerId, tabId, { yaml, url: reply.url, refsCount: tab.refs.size, refs: tab.refs, request });
+    return done(view, { ...(args.includeStructure === true && reply.structure != null ? { structure: reply.structure } : {}),
+      ...(reply.screenshot ? { screenshot: reply.screenshot } : {}) });
+  }
+
   async function recheckAfterNetworkFailure(value: unknown) {
     if (!requiresCheck || invalidated || stopping || !context || !isBrowserNetworkFailure(value)) return;
     lastVerifiedAt = undefined;
@@ -388,6 +443,7 @@ export async function register(app: App, ctx: PluginContext, options: {
     stopping = true;
     invalidated = true;
     context = undefined;
+    tracker.reset();
     void ipVerification.close();
     persist({ phase: state.phase === "blocked" ? "blocked" : "stopped" });
   });
@@ -431,6 +487,8 @@ export async function register(app: App, ctx: PluginContext, options: {
       assertAdmitted();
       if (!["ready", "paused", "verification_failed"].includes(state.phase)) throw Error(`Profile is ${state.phase}.`);
       const lease = controller.acquire(body as AcquireControlRequest);
+      // A new controller has seen nothing. A person or another controller changed the pages after the last one.
+      tracker.reset();
       res.json({ ...snapshot(), ...lease });
     } catch (error) {
       res.status(409).json({ error: (error as Error).message });
@@ -439,13 +497,16 @@ export async function register(app: App, ctx: PluginContext, options: {
   app.post("/local-profile/release", ctx.auth(), async (req, res) => {
     try {
       const controllerId = ownedController(req.body);
-      res.json({ ...await controller.release(controllerId), profileId: id });
+      const released = await controller.release(controllerId);
+      tracker.release(controllerId);
+      res.json({ ...released, profileId: id });
     } catch (error) {
       res.status(409).json({ error: (error as Error).message });
     }
   });
   app.post("/local-profile/handoff", ctx.auth(), async (_req, res) => {
     await controller.releaseCurrent();
+    tracker.reset();
     res.json({ released: true, profileId: id });
   });
   app.post("/local-profile/tool", ctx.auth(), async (req, res) => {
@@ -464,13 +525,18 @@ export async function register(app: App, ctx: PluginContext, options: {
           const { mode, ...input } = args;
           args = { ...input, typingMode: mode ?? profileTypingMode(process.env.STELZ_HOME, id) };
         }
+        const baseUrl = `http://127.0.0.1:${process.env.CAMOFOX_PORT}`;
+        const config = { accessKey: process.env.CAMOFOX_ACCESS_KEY, apiKey: process.env.CAMOFOX_API_KEY, cookiesDir: process.env.CAMOFOX_COOKIES_DIR };
+        // A ref is a position. Refuse one that this controller did not see in a reply, or that now names another element. A selector is not checked.
+        if (args.ref && typeof args.tabId === "string" && found.tool.inputSchema.properties && "ref" in found.tool.inputSchema.properties)
+          tracker.check(controllerId, args.tabId, String(args.ref), readTab(ctx.sessions, id, args.tabId)?.refs);
         try {
-          const { spec, payload } = await upstream.runTool(found.entry.upstream, args,
-            { userId: id, sessionKey: "default" }, `http://127.0.0.1:${process.env.CAMOFOX_PORT}`,
-            { accessKey: process.env.CAMOFOX_ACCESS_KEY, apiKey: process.env.CAMOFOX_API_KEY, cookiesDir: process.env.CAMOFOX_COOKIES_DIR });
+          if (name === "tab_snapshot") return await readSnapshot(found.entry.upstream, controllerId, args, baseUrl, config);
+          const { spec, payload } = await upstream.runTool(found.entry.upstream, args, { userId: id, sessionKey: "default" }, baseUrl, config);
           await recheckAfterNetworkFailure(payload);
+          if (name === "tab_close") tracker.dropTab(controllerId, String(args.tabId));
           // Return the raw payload. Only the MCP server formats it.
-          return { kind: spec?.responseKind ?? "json", payload };
+          return { kind: spec?.responseKind ?? "json", payload: name === "tab_click" ? withoutEmbeddedSnapshot(payload, name) : payload };
         } catch (error) {
           if (name === "tab_evaluate" && isEvaluateTimeout(error)) {
             // Upstream kept the tab and reported the timeout itself, so the browser lifetime stays usable.
@@ -480,7 +546,7 @@ export async function register(app: App, ctx: PluginContext, options: {
           } else if (/timed out|timeout/i.test((error as Error).message)) {
             invalidate("A browser action timed out. Stop the profile before another browser action.");
           }
-          throw error;
+          throw name === "tab_extract" ? withoutEmbeddedSnapshotError(error) : error;
         }
       }, serviceDeadline(found.entry.deadline(args))));
       res.json(result);
@@ -535,6 +601,8 @@ export async function register(app: App, ctx: PluginContext, options: {
       const generation = pauseGeneration;
       await runControl(controllerId, () => bounded(async () => {
         if (state.phase !== "paused") throw Error(`Cannot resume ${state.phase} profile`);
+        // A person used the window during the pause, so no controller can rely on what it saw before.
+        tracker.reset();
         await ensureVerified(true);
         if (generation !== pauseGeneration) throw Error("A newer pause superseded this resume.");
         if (state.phase === "paused") persist({ phase: "ready" });

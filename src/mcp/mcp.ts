@@ -18,13 +18,16 @@ const contracts = () => import(pathToFileURL(join(upstream(), "mcp/lib/tool-cont
 /** Turn a raw tool result into MCP content. This is the only place that formats results. */
 export function formatResult({ kind, payload }: ToolResult): Content[] {
   if (kind === "image") return [payload as Content];
-  const value = (payload ?? {}) as { url?: unknown; snapshot?: unknown; refsCount?: unknown; truncated?: unknown; nextOffset?: unknown;
-    screenshot?: { data?: string; mimeType?: string } };
+  const value = (payload ?? {}) as { url?: unknown; snapshot?: unknown; refsCount?: unknown; truncated?: unknown; nextOffset?: unknown; viewId?: unknown;
+    baseline?: unknown; structure?: unknown; screenshot?: { data?: string; mimeType?: string } };
   if (kind === "snapshot" && typeof value.snapshot === "string") {
     // One header line, then the page text as it is. JSON would escape every line break.
-    const { url, refsCount, truncated, nextOffset } = value;
-    const header = JSON.stringify({ url, refsCount, truncated, ...(nextOffset === null || nextOffset === undefined ? {} : { nextOffset }) });
-    return [{ type: "text", text: `${header}\n${value.snapshot}` },
+    const { url, refsCount, truncated, nextOffset, viewId, baseline, structure } = value;
+    const header = JSON.stringify({ url, refsCount, truncated, ...(nextOffset === null || nextOffset === undefined ? {} : { nextOffset }), viewId,
+      ...(baseline === true ? { baseline } : {}) });
+    // The structure of forms and tables follows the page text as compact JSON, after a comment line.
+    const tail = structure === undefined || structure === null ? "" : `\n# structure\n${JSON.stringify(structure)}`;
+    return [{ type: "text", text: `${header}\n${value.snapshot}${tail}` },
       ...(value.screenshot?.data ? [{ type: "image" as const, data: value.screenshot.data, mimeType: value.screenshot.mimeType || "image/png" }] : [])];
   }
   return [{ type: "text", text: JSON.stringify(payload) }];

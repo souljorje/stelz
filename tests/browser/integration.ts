@@ -40,6 +40,21 @@ async function call(client: Client, name: string, args: Record<string, unknown> 
 async function rejection(client: Client, name: string, args: Record<string, unknown> = {}) {
   const result = await client.callTool({ name, arguments: args }, undefined, { timeout: 180000 }); assert(result.isError, `${name} did not reject an invalid controller`);
 }
+/** One tab_snapshot call. It keeps the header, the page text, and the number of image blocks apart. */
+async function snapshot(client: Client, args: Record<string, unknown>) {
+  const result = await client.callTool({ name: "tab_snapshot", arguments: args }, undefined, { timeout: 180000 });
+  const blocks = result.content as Array<{ type: string; text?: string }>;
+  const text = blocks.filter(x => x.type === "text").map(x => x.text).join("\n");
+  if (result.isError) throw Error(text);
+  const { snapshot: page, ...header } = parseToolText(text) as { snapshot: string } & Record<string, unknown>;
+  return { header, text: page, images: blocks.filter(x => x.type === "image").length };
+}
+async function refused(client: Client, name: string, args: Record<string, unknown>, message: string) {
+  const result = await client.callTool({ name, arguments: args }, undefined, { timeout: 180000 });
+  const text = (result.content as Array<{ type: string; text?: string }>).filter(x => x.type === "text").map(x => x.text).join("\n");
+  assert(result.isError && text.includes(message), `${name} was not refused with "${message}": ${text}`);
+}
+const refOf = (text: string, element: string) => new RegExp(`${element} \\[(e\\d+)\\]`).exec(text)?.[1];
 const profileDir = (id: string) => join(home, "profiles", id);
 const pin = (id: string) => readFileSync(join(profileDir(id), "fingerprint.json"), "utf8");
 const instance = (id: string) => JSON.parse(readFileSync(join(profileDir(id), "running.json"), "utf8")) as { instanceId: string; serverPid: number };
@@ -88,6 +103,56 @@ try {
   }
   await call(a.client, "tab_close", { tabId: scrollTab.tabId });
   report.push({ check: "Scroll moves a nested feed in all four directions after a header click", result: "passed" });
+  // Snapshot shaping on a real page. These checks do not write the storage marker: the profile keeps one marker for the origin of the fixture.
+  const shaped = (await call(a.client, "tab_create", { url: `${pageServer.url}/?profile=snapshot-shapes` })).tabId as string;
+  const first = await snapshot(a.client, { tabId: shaped });
+  assert(first.images === 0, "A snapshot has a screenshot that nobody asked for");
+  assert(typeof first.header.viewId === "string" && first.header.baseline === undefined, "The first snapshot has no viewId, or it has a baseline flag");
+  assert(refOf(first.text, 'button "Save profile marker"'), "The snapshot has no ref for the save button");
+  assert((await snapshot(a.client, { tabId: shaped, includeScreenshot: true })).images === 1, "includeScreenshot did not add one image");
+  const title = 'Camoufox acceptance fixture — snapshot-shapes';
+  const scoped = await snapshot(a.client, { tabId: shaped, scope: { role: "heading", name: title } });
+  assert(scoped.text.startsWith(`- heading "${title}"`) && !scoped.text.includes("\n"), `A scope on a heading that has no ref returned: ${scoped.text}`);
+  const marker = await snapshot(a.client, { tabId: shaped, contains: "profile marker" });
+  assert(marker.text.includes('button "Save profile marker"') && marker.text.length < first.text.length, "contains did not narrow the page");
+  // A ref that the last snapshot showed works. The field is empty, so the click saves nothing.
+  const base = await snapshot(a.client, { tabId: shaped, collapse: false });
+  const saved = refOf(base.text, 'button "Save profile marker"');
+  assert(saved, "The full snapshot has no ref for the save button");
+  await call(a.client, "tab_click", { tabId: shaped, ref: saved });
+  // Revealing the task section adds a textbox and a button before the save button, so the ref of the save button now names another element.
+  // The check comes before the next snapshot. A snapshot or a diff that shows a ref makes it reliable again.
+  await call(a.client, "tab_click", { tabId: shaped, selector: "#begin" });
+  await refused(a.client, "tab_click", { tabId: shaped, ref: saved }, "may have shifted");
+  await refused(a.client, "tab_click", { tabId: shaped, ref: "e999" }, "may have shifted");
+  const diff = await snapshot(a.client, { tabId: shaped, diff: true, collapse: false });
+  assert(diff.header.baseline === undefined && diff.text.startsWith("# Diff from your last snapshot"), `A snapshot after a change is not a diff: ${diff.text.slice(0, 200)}`);
+  const check = refOf(diff.text, 'button "Check answer"');
+  assert(check && diff.text.includes('textbox "Answer"') && diff.text.length < base.text.length, "The diff has no new controls, or it is not smaller than the page");
+  report.push({ check: "Snapshots have no screenshot by default, and scope, contains, and diff shape the reply", result: "passed", evidence: { fullChars: base.text.length, diffChars: diff.text.length } });
+  await call(a.client, "tab_click", { tabId: shaped, ref: check });
+  const moved = refOf((await snapshot(a.client, { tabId: shaped, collapse: false })).text, 'button "Save profile marker"');
+  assert(moved && moved !== saved, "The ref of the save button did not move");
+  await call(a.client, "tab_click", { tabId: shaped, ref: moved });
+  report.push({ check: "A ref that moved is refused before the click, and a ref in the last snapshot works", result: "passed", evidence: { before: saved, after: moved } });
+  // Paging. The reply of each window has the viewId of the first one, and the windows add up to the page.
+  const long = (await call(a.client, "tab_create", { url: `${pageServer.url}/?pagination` })).tabId as string;
+  let page = await snapshot(a.client, { tabId: long });
+  const viewId = page.header.viewId as string, windows = [page.text];
+  assert(page.header.truncated === true && typeof page.header.nextOffset === "number", "The long page was not cut");
+  await rejection(a.client, "tab_snapshot", { tabId: long, offset: page.header.nextOffset });
+  await rejection(a.client, "tab_snapshot", { tabId: long, offset: page.header.nextOffset, viewId: "v0" });
+  for (let n = 0; typeof page.header.nextOffset === "number"; n++) {
+    assert(n < 50, "Paging did not end");
+    page = await snapshot(a.client, { tabId: long, offset: page.header.nextOffset, viewId });
+    assert(page.header.viewId === viewId, "A window has another viewId");
+    windows.push(page.text);
+  }
+  const joined = windows.join("\n");
+  assert(windows.length > 2 && joined.includes("Pagination row 0:") && joined.includes("Pagination row 899:") && joined.split("Pagination row 450:").length === 2,
+    "The windows do not add up to the page");
+  await call(a.client, "tab_close", { tabId: long }); await call(a.client, "tab_close", { tabId: shaped });
+  report.push({ check: "A viewId pages a long snapshot without a gap or an overlap", result: "passed", evidence: { windows: windows.length } });
   await rejection(a.client, "tab_snapshot", { tabId: tabs["profile-02"] });
   report.push({ check: "Two browsers, separate storage, explicit profile routing, and duplicate acquire rejection", result: "passed" });
   await call(a.client, "profile_release"); await call(b.client, "profile_acquire");
@@ -95,7 +160,7 @@ try {
     const listing = await call(client, "tab_list");
     assert(JSON.stringify(listing).includes(tabs["profile-01"]!), "The original tab disappeared during handoff");
     const snapshot = await call(client, "tab_snapshot", { tabId: tabs["profile-01"] });
-    assert(String(snapshot.snapshot).includes("Storage marker: profile-01"), "The original page lost its state");
+    assert(String(snapshot.snapshot).includes("Storage marker: profile-01"), `The original page lost its state. It shows: ${/Storage marker[^\n]*/.exec(String(snapshot.snapshot))?.[0] ?? "no storage marker"}`);
     assert(JSON.stringify(instance("profile-01")) === JSON.stringify(before), "Handoff relaunched the browser");
     assert(pin("profile-01") === fingerprint, "Handoff changed the saved fingerprint");
   };

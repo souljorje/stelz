@@ -246,33 +246,35 @@ export async function runPublicSites(options: RunOptions): Promise<PublicReport>
           }
           const pages: Record<string, unknown>[] = [];
           const parts: string[] = [];
-          let offset = 0, previousUrl: string | undefined;
+          let offset = 0, previousUrl: string | undefined, viewId: string | undefined;
           site.screenshot = undefined;
           while (true) {
             checkAbort();
             if (pages.length && now() >= deadline) throw Error("The site deadline expired during snapshot pagination.");
-            const reply = await connection.call("tab_snapshot", { tabId: site.tabId, ...(offset ? { offset } : {}) });
+            // The first call takes the snapshot and the screenshot. Each later call pages that view.
+            const reply = await connection.call("tab_snapshot", { tabId: site.tabId, maxChars: 80_000, ...(offset ? { offset, viewId } : { collapse: false, includeScreenshot: true }) });
             const value = textResult(reply);
             if (typeof value.snapshot !== "string" || typeof value.url !== "string") throw Error("MCP returned an invalid snapshot.");
             if (previousUrl && previousUrl !== value.url) throw Error("The page changed during snapshot pagination.");
             previousUrl = value.url;
+            viewId = typeof value.viewId === "string" ? value.viewId : undefined;
             // The MCP header has no hasMore. More text remains while nextOffset is set.
             const hasMore = value.nextOffset !== null && value.nextOffset !== undefined;
             pages.push({ url: value.url, snapshot: value.snapshot, offset, hasMore, nextOffset: value.nextOffset });
-            try { capture(reply); } catch (error) { lastImageError = message(error); }
+            if (!offset) try { capture(reply); } catch (error) { lastImageError = message(error); }
             site.finalUrl = value.url;
             site.snapshot = join(outputDir, site.id + ".snapshot.json");
             writePrivate(site.snapshot, JSON.stringify({ capturedAt: stamp(), pages }, null, 2) + "\n");
-            if (!hasMore) { parts.push(value.snapshot); break; }
+            parts.push(value.snapshot);
+            if (!hasMore) break;
+            // A window ends at a line break and nextOffset skips it, so the next offset is at most one character past the text.
             if (typeof value.nextOffset !== "number" || !Number.isInteger(value.nextOffset) || value.nextOffset <= offset
-              || value.nextOffset - offset > value.snapshot.length || pages.length >= 100) {
+              || value.nextOffset - offset > value.snapshot.length + 1 || pages.length >= 100) {
               throw Error("MCP snapshot pagination did not advance.");
             }
-            // Upstream repeats a navigation tail in every window. Omit it until the final window.
-            parts.push(value.snapshot.slice(0, value.nextOffset - offset));
             offset = value.nextOffset;
           }
-          const snapshot = parts.join("");
+          const snapshot = parts.join("\n");
           if (framePending) { site.screenshotFramed = true; framePending = false; }
           const challenge = detectHumanChallenge(snapshot);
           if (challenge) {

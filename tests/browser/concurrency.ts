@@ -165,7 +165,7 @@ try {
   const disposable = await call(client, "tab_create", { profileId: first, url: `${site.url}/?pagination=1` });
   const part = await call(client, "tab_snapshot", { profileId: first, tabId: disposable.tabId });
   assert(typeof part.nextOffset === "number" && part.nextOffset > 0, "Snapshot pagination is missing");
-  const rest = await call(client, "tab_snapshot", { profileId: first, tabId: disposable.tabId, offset: part.nextOffset });
+  const rest = await call(client, "tab_snapshot", { profileId: first, tabId: disposable.tabId, offset: part.nextOffset, viewId: part.viewId });
   assert(typeof rest.snapshot === "string" && rest.snapshot !== part.snapshot, "Snapshot pagination repeated its first page");
   await call(client, "tab_close", { profileId: first, tabId: disposable.tabId });
   assert(!JSON.stringify(await call(client, "tab_list", { profileId: first })).includes(String(disposable.tabId)), "Tab close did not remove the selected tab");

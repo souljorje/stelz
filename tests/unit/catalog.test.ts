@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { browserTools, deadline, entries, excluded, toolArguments, type Contracts } from "../../src/browser/catalog.ts";
+import { DEFAULT_MAX_CHARS, MAX_MAX_CHARS, MIN_MAX_CHARS } from "../../src/browser/snapshot-view.ts";
 import { ACTION_LIMIT_MS, EVALUATE_DEFAULT_MS, EVALUATE_MAX_MS, TYPING_LIMIT_MS, WAIT_DEFAULT_MS, WAIT_MAX_MS } from "../../src/browser/deadlines.ts";
 
 const upstream = await import(new URL("../../node_modules/@askjo/camofox-browser/mcp/lib/tool-contracts.mjs", import.meta.url).href) as Contracts;
@@ -75,6 +76,51 @@ test("no description names a field that the snapshot text drops, and tab_snapsho
   for (const field of ["url", "refsCount", "truncated", "nextOffset", "offset"]) expect(description).toContain(field);
   expect(description).toContain("e1, e2");
   expect(description).not.toContain("hasMore");
+});
+
+test("tab_snapshot exposes the shaping arguments and no annotated screenshot, and tab_table_rows names where table ids come from", () => {
+  const properties = tool("tab_snapshot").inputSchema.properties!;
+  expect(Object.keys(properties)).toEqual(["tabId", "offset", "scope", "contains", "diff", "collapse", "maxChars", "viewId", "includeScreenshot", "includeStructure"]);
+  expect(properties).toHaveProperty("scope.required", ["role"]);
+  expect(properties).toHaveProperty("scope.properties.nth.minimum", 0);
+  expect(properties).toHaveProperty("maxChars.minimum", MIN_MAX_CHARS);
+  expect(properties).toHaveProperty("maxChars.maximum", MAX_MAX_CHARS);
+  expect(properties).toHaveProperty("offset.type", "integer");
+  expect((properties.maxChars as { description: string }).description).toContain(String(DEFAULT_MAX_CHARS));
+  expect(tool("tab_snapshot").inputSchema.required).toEqual(["tabId"]);
+  const { description } = tool("tab_snapshot");
+  for (const word of ["viewId", "baseline", "includeScreenshot", "scope", "contains", "diff", "may have shifted"]) expect(description).toContain(word);
+  expect(tool("tab_table_rows").description).toContain("includeStructure");
+  expect(tool("tab_table_rows").description).not.toContain("camofox_");
+});
+
+test("snapshot arguments are checked before any call", () => {
+  const snapshot = (args: Record<string, unknown>) => toolArguments(tool("tab_snapshot"), { tabId, ...args });
+  expect(snapshot({ scope: { role: "list", name: "Results", nth: 1 }, contains: "lamp", diff: true, collapse: false, maxChars: 5000, includeScreenshot: true, includeStructure: false }))
+    .toMatchObject({ scope: { role: "list", name: "Results", nth: 1 }, maxChars: 5000 });
+  expect(snapshot({ scope: { role: "main" } })).toMatchObject({ scope: { role: "main" } });
+  for (const scope of [null, "list", [], {}, { role: "" }, { role: " " }, { role: 1 }, { role: "list", name: 1 }, { role: "list", nth: -1 },
+    { role: "list", nth: 1.5 }, { role: "list", nth: "1" }, { role: "list", extra: true }])
+    expect(() => snapshot({ scope }), JSON.stringify(scope)).toThrow("scope must be an object with a role");
+  expect(() => snapshot({ contains: "" })).toThrow("contains must be text");
+  expect(() => snapshot({ contains: 5 })).toThrow("contains must be text");
+  for (const key of ["diff", "collapse", "includeScreenshot", "includeStructure"]) for (const value of ["true", 1, null]) expect(() => snapshot({ [key]: value }), key).toThrow(`${key} must be true or false`);
+  for (const maxChars of [MIN_MAX_CHARS - 1, MAX_MAX_CHARS + 1, Number.NaN, Infinity, "5000", 5000.5]) expect(() => snapshot({ maxChars }), String(maxChars)).toThrow("maxChars must be");
+  expect(snapshot({ maxChars: MAX_MAX_CHARS })).toMatchObject({ maxChars: MAX_MAX_CHARS });
+  expect(() => snapshot({ viewId: "" })).toThrow("viewId must be");
+  for (const offset of [-1, 1.5, "10", null, Number.NaN]) expect(() => snapshot({ offset, viewId: "v1" }), String(offset)).toThrow("offset must be");
+});
+
+test("an offset needs the viewId of its reply, and paging cannot shape a new view", () => {
+  const snapshot = (args: Record<string, unknown>) => toolArguments(tool("tab_snapshot"), { tabId, ...args });
+  expect(snapshot({ offset: 4000, viewId: "v3" })).toEqual({ tabId, offset: 4000, viewId: "v3" });
+  expect(snapshot({ offset: 4000, viewId: "v3", maxChars: 2000 })).toMatchObject({ maxChars: 2000 });
+  expect(() => snapshot({ offset: 4000 })).toThrow("offset needs the viewId");
+  expect(() => snapshot({ viewId: "v3" })).toThrow("viewId is for paging");
+  expect(() => snapshot({ offset: 0, viewId: "v3" })).toThrow("viewId is for paging");
+  expect(snapshot({ offset: 0 })).toEqual({ tabId, offset: 0 });
+  for (const extra of [{ scope: { role: "list" } }, { contains: "x" }, { diff: true }, { collapse: false }, { includeScreenshot: false }, { includeStructure: true }])
+    expect(() => snapshot({ offset: 10, viewId: "v1", ...extra }), Object.keys(extra)[0]).toThrow(`Do not pass ${Object.keys(extra)[0]}`);
 });
 
 test("a missing upstream tool stops startup", () => {

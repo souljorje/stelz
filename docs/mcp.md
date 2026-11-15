@@ -4,7 +4,7 @@ description: "The MCP tools of stelz mcp, the --tools groups, the scripts switch
 tags: [mcp, agent, reference]
 sources: []
 created: 2026-11-06T16:47:49Z
-modified: 2026-11-15T09:00:00Z
+modified: 2026-11-15T12:00:00Z
 ---
 
 # Shared MCP tools
@@ -51,14 +51,14 @@ Every browser tool requires `profileId` and `controlHandle` with its own argumen
 | `tab_create`, `tab_close` | core | Open or close a tab. |
 | `tab_list` | core | Read the tabs that Stelz manages. Tabs that a person opens stay open but are not listed. |
 | `tab_navigate`, `tab_back` | core | Go to a URL or search macro. Go back one history entry. |
-| `tab_snapshot` | core | Read a fresh accessibility snapshot. |
+| `tab_snapshot` | core | Read a fresh accessibility snapshot with refs. See [Snapshots](#snapshots). |
 | `tab_click`, `tab_press`, `tab_select`, `tab_scroll` | core | Click an observed element, press a key, choose an option in a native list, or scroll. |
 | `tab_type` | core | Enter text. Also accepts `mode`. See [Typing](configuration/typing.md). |
 | `tab_screenshot` | core | Capture a tab image. `fullPage` captures the whole page. |
 | `tab_wait` | core | Wait for a page to settle. `timeout` is 0 to 60000 ms. The default is 10000. |
 | `tab_forward`, `tab_refresh` | full | Go forward one history entry. Reload the page. |
 | `tab_mouse_wheel`, `tab_drag` | full | Wheel over an element or a point. Drag between two points. |
-| `tab_ax`, `tab_actionables`, `tab_table_rows`, `tab_links`, `tab_images`, `tab_extract` | full | Read the raw accessibility tree, candidate targets, table rows, links, images, or structured data. |
+| `tab_ax`, `tab_actionables`, `tab_table_rows`, `tab_links`, `tab_images`, `tab_extract` | full | Read the raw accessibility tree, candidate targets, table rows, links, images, or structured data. The table ids for `tab_table_rows` come from `tab_snapshot` with `includeStructure`. |
 | `tab_evaluate`, `tab_init_script` | full, with [scripts](#scripts) | Run JavaScript in a page. `tab_evaluate` takes `timeoutMs`, a whole number from 1000 to 120000. The default is 30000. |
 
 - Stelz holds `tab_activate` and every upstream tool that it has not reviewed. It lists none of them. Stelz has no tool for cookies, storage, file upload, or the viewport. Cookie import and storage import stay in the CLI or UI.
@@ -69,10 +69,75 @@ Every browser tool requires `profileId` and `controlHandle` with its own argumen
 ## Tool results
 
 - A JSON result is one compact JSON text block.
-- `tab_snapshot`: the first line is JSON with `url`, `refsCount`, `truncated`, and `nextOffset`. `nextOffset` appears only when more text remains. The page text follows as plain text, not JSON-escaped. A screenshot, when present, is an image block.
+- `tab_snapshot`: the first line is JSON with `url`, `refsCount`, `truncated`, `nextOffset`, `viewId`, and `baseline`. `nextOffset` appears only when more text remains. `baseline` appears only when it is `true`. The page text follows as plain text, not JSON-escaped. A screenshot, when present, is an image block. See [Snapshots](#snapshots).
+- A `tab_click` that fails its `expected_role` or `expected_accessible_name` check, and a failed `tab_extract`, do not return the page. Their reply has `hint`: `Read tab_snapshot for the current page.`
 - `tab_screenshot`: one image block.
 - A failed call returns `isError: true` and one text block. A location failure is JSON with `error` and `location`.
 - Results have no `structuredContent`.
+
+## Snapshots
+
+`tab_snapshot` takes a fresh snapshot and returns the page as YAML lines. An element that can take input has a ref on its line, such as `[e12]`. Without arguments, it returns the page with runs of similar items collapsed, cut at 20000 characters, and with no screenshot.
+
+| Argument | Effect |
+| --- | --- |
+| `scope` | `{role, name?, nth?}`. Returns the subtree of one element. The element can be a container that has no ref. The role and the name are not case-sensitive. If more than one element matches and `nth` is missing, the call fails and gives the number of matches. `nth` counts from 0 in page order. The subtree starts at column 0. |
+| `contains` | Returns the lines whose text contains the string, and their ancestors. The match is not case-sensitive. The ref marker is not text. With `scope`, only lines in the scope match. |
+| `diff` | Returns the lines that changed since the last page that this connection read. See [Diff](#diff). |
+| `collapse` | The default is `true`. Replaces a run of three or more sibling items with the first item and one line, `- … N more like this`. The items in a run have children and the same shape. The shape is the role of an item and the roles below it. Names and text do not count. A line with no children never collapses, so a list of links keeps every name. The collapsed items have no refs in the reply. A reply with `contains` or `diff` does not collapse. |
+| `maxChars` | From 1000 to 80000. The default is 20000. |
+| `offset`, `viewId` | Read the next window of an earlier reply. See [Paging](#paging). |
+| `includeScreenshot` | The default is `false`. Adds a screenshot as an image block. |
+| `includeStructure` | The default is `false`. Adds the forms and tables of the page after the page text, on the line after `# structure`, as compact JSON. |
+
+- The order is: `scope`, then `contains`, then `diff`, then `collapse`, then the window.
+- Camofox gives refs to the first 500 elements that can take input. If a reply shows later lines of such elements, its text starts with `# Interactive lines without a ref are past the 500-ref limit of this page.` Those lines have no refs.
+
+### Diff
+
+- The baseline is the last full page that this connection received for this tab. Each `tab_snapshot` that takes a snapshot replaces it. Paging does not.
+- A read that `maxChars` cut still sets the whole page as the baseline, so a later diff can cover parts that you did not page through.
+- `scope` and `contains` apply to the baseline and to the new page before the diff.
+- The reply is the full view, and the header has `baseline: true`, when:
+  - There is no baseline. Acquire, release, resume, and `tab_close` clear it. The end of the browser lifetime clears it too. This also covers a navigation, a reload, and a new tab.
+  - The earlier read covered less than this one. For example, the earlier read used `scope`, and this one does not.
+  - The scope matches in only one of the two pages.
+  - The diff is not smaller than the page without `collapse`.
+- The diff has one line of note, then the changed lines. Each line starts with one marker character:
+
+| Marker | Line |
+| --- | --- |
+| `+` | A new line, or a changed line in its new form. It keeps its current ref. |
+| `-` | A removed line, or a changed line in its old form. It has no ref. |
+| space | The parent line of the next lines, for context. It has no ref. |
+
+- A line that no marker shows did not change. A ref on an unchanged line may have shifted, so target it by role and name.
+- A parent line shows once for a run of hunks in the same parent. If no line changed, the diff is the line `# No change since your last snapshot.`
+
+```text
+# Diff from your last snapshot. + is a new or changed line, - is a removed line. Note that refs on unchanged lines may have shifted; target by role and name.
+ - banner:
++  - button "Menu" [e1]
+     - listitem:
+-      - text: $25
++      - text: $35
+```
+
+### Refs
+
+- A ref is a position in the page. It can name another element after the page changes.
+- For each connection and tab, Stelz keeps the refs that the connection can rely on. A ref is reliable in two cases. The last reply showed it on a line. Or it still names the same element that the connection saw before. Collapsed lines, lines outside the window, and unchanged lines of a diff do not show refs.
+- `tab_click`, `tab_type`, `tab_select`, and `tab_mouse_wheel` check a `ref` before they call Camofox. A ref that is not reliable, or that now names another element, fails with `ref eN may have shifted. Read tab_snapshot again, or target the element by role and name.` A ref that the connection never saw fails the same way.
+- A `selector` is not checked.
+- A new connection has no reliable refs. Read `tab_snapshot`, then use a ref that the reply shows.
+
+### Paging
+
+- Each reply has a `viewId`. If `truncated` is `true` and `nextOffset` is present, call `tab_snapshot` with that `offset` and the `viewId`. The call reads the cached view and takes no new snapshot.
+- A window ends at a line break. `maxChars` can differ between windows.
+- Stelz keeps the latest view of each connection and tab. A new snapshot replaces it. An unknown or replaced `viewId` fails with `Read a new tab_snapshot.` Acquire, release, resume, and `tab_close` remove it.
+- `offset` needs `viewId`, and `viewId` needs `offset`. `offset` cannot go with `scope`, `contains`, `diff`, `collapse`, `includeScreenshot`, or `includeStructure`.
+- Paging does not change the baseline. A ref on a window becomes reliable only if it still names the same element.
 
 ## Scripts
 

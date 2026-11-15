@@ -4,7 +4,7 @@ description: "Pinned dependencies, patches, location preparation, setup activati
 tags: [development, camofox]
 sources: []
 created: 2026-11-06T13:49:16Z
-modified: 2026-11-11T15:01:55Z
+modified: 2026-11-15T12:00:00Z
 ---
 
 # Camofox integration
@@ -63,6 +63,20 @@ Stelz does these without a patch:
 - Stelz exposes only the tools and properties that `src/browser/catalog.ts` lists. Classify each new upstream tool as an entry or as excluded, because the catalog test fails on an unclassified tool. Review each new property and background timer before you list or enable it.
 - Only `src/browser/camoufox.ts` imports `camoufox` internals. Its unit test fails when an upgrade removes one of them.
 - Update `src/browser/camofox-adapter.ts` when a required patched location changes.
+
+## Internal tab state
+
+`tab_snapshot` reads the tab state of Camofox in process. Camofox does not document this structure, so a Camofox upgrade can break it.
+
+- Path: `ctx.sessions` → session by profile ID → `tabGroups` → tab by tab ID. Each tab has `refs` and `lastSnapshot`.
+- `refs` is a `Map` from a ref to `{role, name, nth}`. A ref in an iframe also has `frameName` and `frameUrl`. `lastSnapshot` is the full annotated page. The snapshot route windows only its reply, at 80000 characters.
+- `src/browser/tab-state.ts` checks the shape on each call. If the shape differs, the call fails with `Stelz cannot read the page state of Camofox…`. Stelz does not guess. The route reply must also agree with the tab state: `totalChars` is the length of `lastSnapshot`, and `refsCount` is the size of `refs`.
+- The stale-ref guard compares the identity of a ref (`role`, `name`, `nth`, and the frame) in `refs` with the identity that the controller saw.
+- Camofox gives refs to the first 500 nodes (`MAX_SNAPSHOT_NODES` in `server.js`). `REF_LIMIT` in `src/browser/snapshot-view.ts` repeats it.
+- The ref marker is ` [eN]` after the role and the name. `src/browser/aria.ts` reads it with the same name pattern as `annotateAriaSnapshotRefs`.
+- The plugin loads `normalizedAccessibleName` and `SKIP_PATTERNS` from `lib/aria-annotate.js`, and `INTERACTIVE_ROLES` from `lib/interactive-roles.js`. It loads them by path from `STELZ_UPSTREAM`, as it loads the tool contracts. A static import cannot work: the plugin runs from `plugins/local-profile/` inside the Camofox tree, and `src/` has no path to that tree.
+- The plugin drops the embedded `snapshot` from a click reply with `semantic_target_mismatch` and from the 409 and 422 replies of `extract`. It adds a hint to read `tab_snapshot`.
+- After an upgrade, run `bun run test:regression` and `bun run test:integration`. Check each item in this list against `server.js`.
 
 ## Location preparation
 

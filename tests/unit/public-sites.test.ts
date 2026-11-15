@@ -356,15 +356,20 @@ test("tab creation time counts toward the site deadline", async () => {
   expect(report.released).toBe(true);
 });
 
-test("pagination omits repeated navigation tails before assessing a complete result", async () => {
+test("pagination joins the windows of one view before assessing a complete result", async () => {
   const mock = mockConnection(({ name, args }) => {
     if (name !== "tab_snapshot" || args.tabId !== id(2)) return;
-    return reply({ url: PUBLIC_SITES[1]!.url, snapshot: args.offset ? flightCards : flightHeading + '\n[truncated]\n- heading "Learn more"',
-      hasMore: !args.offset, nextOffset: args.offset ? null : flightHeading.length });
+    // A window ends at a line break, and nextOffset skips the break.
+    return reply({ url: PUBLIC_SITES[1]!.url, snapshot: args.offset ? flightCards : flightHeading.slice(0, -1), viewId: "v1",
+      nextOffset: args.offset ? null : flightHeading.length });
   });
   const report = await run(mock);
   expect(report.results[1]!.status).toBe("PASS");
-  expect(mock.state.calls.filter(call => call.name === "tab_snapshot" && call.args.tabId === id(2)).map(call => call.args.offset)).toEqual([undefined, flightHeading.length, undefined, flightHeading.length]);
+  const calls = mock.state.calls.filter(call => call.name === "tab_snapshot" && call.args.tabId === id(2));
+  expect(calls.map(call => call.args.offset)).toEqual([undefined, flightHeading.length, undefined, flightHeading.length]);
+  // The first window asks for the screenshot and the whole page. A later window pages that view and asks for nothing else.
+  expect(calls[0]!.args).toEqual({ tabId: id(2), maxChars: 80_000, collapse: false, includeScreenshot: true });
+  expect(calls[1]!.args).toEqual({ tabId: id(2), maxChars: 80_000, offset: flightHeading.length, viewId: "v1" });
   expect(JSON.parse(readFileSync(report.results[1]!.snapshot!, "utf8")).pages).toHaveLength(2);
 });
 
