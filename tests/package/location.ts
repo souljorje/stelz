@@ -82,7 +82,9 @@ try {
       const started = await command("start", id, "--json");
       assert.equal(started.phase, "ready"); assert.equal(started.location.browser, "passed");
       assert.equal(started.location.geolocation, "configured");
-      assert.equal(localRequests.length, localBefore, "A restored fixture page requested traffic before Ready");
+      // Only this profile's page can be a restored page. A running browser of another profile can reload its own fixture page, which its history records as an address-bar visit.
+      const restored = localRequests.slice(localBefore).filter(request => request.profile === id).length;
+      assert.equal(restored, 0, "A restored fixture page requested traffic before Ready");
       const client = routeProfileTools(new Client({ name: "location-acceptance", version: "1" }), id); clients.push(client);
       await client.connect(new StdioClientTransport({ command: installed.bun, args: ["--no-env-file", installed.installedCli, "mcp"], env, stderr: "pipe" }));
       await call(client, "profile_acquire");
@@ -103,7 +105,7 @@ try {
       const fingerprint = readFileSync(file(id, "fingerprint.json"), "utf8");
       if (priorPin !== undefined) assert.equal(fingerprint, priorPin); else pins.set(id, fingerprint);
       evidence.push({ id, lifetime, stratum, scroll: "passed", preflightIp, browserExitIp: started.exitIp, preflight: preflight.location, verified: started.location, observed,
-        startupTraffic: traffic.slice(trafficBefore), restoredFixtureRequestsBeforeReady: localRequests.length - localBefore - 2 });
+        startupTraffic: traffic.slice(trafficBefore), restoredFixtureRequestsBeforeReady: restored });
       strata[stratum]++;
       await call(client, "profile_release"); await client.close(); clients.splice(clients.indexOf(client), 1);
     }
