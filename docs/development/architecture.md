@@ -63,8 +63,9 @@ A browser tool call:
 
 - An HTTP capability reaches a client only when a tool schema, dispatcher, and response adapter expose it.
 - Browser tools keep the canonical Camofox arguments and add `profileId` and `controlHandle`.
-- The adapter excludes some upstream controls. See [Shared MCP tools](../mcp.md).
-- `camofox_type` has per-call modes. See [Typing](../configuration/typing.md).
+- The catalog (`src/browser/catalog.ts`) names each Stelz browser tool, maps it to its upstream tool, and sets its policy, group, and time limit. The plugin and `src/mcp/dispatch.ts` both use it. The plugin returns raw payloads and `src/mcp/mcp.ts` formats them.
+- The catalog holds or excludes some upstream controls. See [Shared MCP tools](../mcp.md).
+- `tab_type` has per-call modes. See [Typing](../configuration/typing.md).
 - A new control must use controller checks, the action queue, network checks, and the service time limit.
 - An upstream HTTP endpoint alone does not establish Stelz MCP support.
 

@@ -141,6 +141,49 @@ test("typing updates reject invalid modes, extra fields, and malformed revisions
   expect(readFileSync(join(home, "profiles.json"), "utf8")).toBe(config);
 });
 
+test("the scripts switch saves live without changing launch state, secrets, network revision, or profile data", async () => {
+  const home = fixture();
+  const secrets = readFileSync(join(home, "secrets.env"), "utf8");
+  const record = '{"phase":"ready","controller":"existing-controller"}';
+  writeFileSync(join(home, "profiles/test/running.json"), record);
+  writeFileSync(join(home, "profiles/test/profile-data"), "existing browser data");
+  const result = await run(home, `
+    const { configurationHash } = await import(${JSON.stringify(join(root, "src/profiles/config.ts"))});
+    const before = settings().profiles[0], hash = configurationHash(before), network = revision(), typing = typingRevision();
+    const states = [];
+    for (const allow of [true, true, false, true, false]) {
+      const saved = await domain.updateScripts('test', { allow });
+      const now = settings().profiles[0];
+      if (configurationHash(now) !== hash) throw Error('The scripts switch changed launch state');
+      if (revision() !== network || typingRevision() !== typing) throw Error('The scripts switch changed a revision');
+      states.push([saved.profile.allowScripts, now.allowScripts, Object.hasOwn(now, 'allowScripts')]);
+    }
+    return { before, states, after: settings().profiles[0] };
+  `);
+  expect(result.ok).toBe(true);
+  expect(result.value.states).toEqual([[true, true, true], [true, true, true], [null, null, false], [true, true, true], [null, null, false]]);
+  // Off is the default, so turning it off removes the field and restores the earlier profile.
+  expect(result.value.after).toEqual(result.value.before);
+  expect(readFileSync(join(home, "secrets.env"), "utf8")).toBe(secrets);
+  expect(readFileSync(join(home, "profiles/test/running.json"), "utf8")).toBe(record);
+  expect(readFileSync(join(home, "profiles/test/profile-data"), "utf8")).toBe("existing browser data");
+});
+
+test("the scripts switch rejects invalid values, extra fields, and unknown profiles", async () => {
+  const home = fixture();
+  const config = readFileSync(join(home, "profiles.json"), "utf8");
+  for (const input of [{ allow: "yes" }, { allow: 1 }, { allow: null }, {}, { allow: true, other: true }, { allow: true, revision: "x" }]) {
+    const result = await run(home, `await domain.updateScripts('test', ${JSON.stringify(input)});`);
+    expect(result.ok, JSON.stringify(input)).toBe(false); expect(result.status).toBe(400);
+  }
+  expect((await run(home, "await domain.updateScripts('missing', { allow: true });"))).toMatchObject({ ok: false, status: 404 });
+  expect((await run(home, "await domain.updateScripts('../escape', { allow: true });"))).toMatchObject({ ok: false, status: 400 });
+  expect(readFileSync(join(home, "profiles.json"), "utf8")).toBe(config);
+  // A hand-edited catalog with a bad value does not load.
+  writeFileSync(join(home, "profiles.json"), JSON.stringify({ profiles: [{ id: "test", port: 19471, allowScripts: "yes" }] }));
+  expect((await run(home, "return settings();"))).toMatchObject({ ok: false, message: expect.stringContaining("allowScripts") });
+});
+
 test("concurrent network and typing edits merge while competing typing edits conflict", async () => {
   const home = fixture();
   const result = await run(home, `

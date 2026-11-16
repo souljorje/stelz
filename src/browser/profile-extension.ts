@@ -1,11 +1,10 @@
 import type { ProfileWindow } from "./profile-appearance.ts";
-import type { ProbeProxyAuth } from "./ip-probe.ts";
 
 export type ProfileExtensionConfig = {
   id: string; instanceId: string; endpoint: string; accessKey: string;
   color: string; badge: string; titlePrefix: string;
   verifyNetwork?: boolean;
-  proxyAuth?: ProbeProxyAuth;
+  proxyAuthentication?: boolean;
 };
 
 // This function is serialized after TypeScript compilation. Keep its dependencies inside the function.

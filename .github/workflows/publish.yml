@@ -93,8 +93,8 @@ jobs:
         with:
           artifact-ids: ${{ needs.plan.outputs.artifact_id }}
           merge-multiple: true
-          path: .state/publish-plan
-      - run: bun run pack --publish-plan .state/publish-plan/publish-plan.json
+          path: ${{ runner.temp }}/publish-plan
+      - run: bun run pack --publish-plan ${{ runner.temp }}/publish-plan/publish-plan.json
       - uses: actions/upload-artifact@v7
         id: archive
         with:

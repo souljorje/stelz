@@ -21,6 +21,7 @@ modified: 2026-11-11T15:01:55Z
 | `storage` | String | Optional for existing entries. Only `native` is valid. New profiles set it. |
 | `proxyEnv`, `expectedIPEnv` | String | Optional secret references. `proxyEnv` present: proxy. Absent: direct networking. `expectedIPEnv` sets an expected exit IP for direct and proxy connections. |
 | `typingMode` | String | Optional typing mode. Overrides the service default. See [Typing](typing.md). |
+| `allowScripts` | Boolean | Optional. `true` lets an agent call `tab_evaluate` and `tab_init_script` on this profile. Absent means off. Set it with `stelz profile config` or the UI. See [Scripts](../mcp.md#scripts). |
 
 - Stelz rejects unknown properties. No inline proxy credential field. Reference names match `[A-Za-z_][A-Za-z0-9_]{0,127}`.
 - Creation and import pick ports from `9377` through `65535`.

@@ -1,21 +1,20 @@
 // Live, explicit lifecycle experiment in a new test home. No model or harness is used.
 import { createHash } from "node:crypto";
 import { createTestHome } from "../helpers/test-home.ts";
-import { mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import { writeFileSync, readFileSync, existsSync } from "node:fs";
 import { arch, platform, release } from "node:os";
 import { join, resolve } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { fixture } from "../helpers/fixture.ts";
 import { unusedPorts } from "../helpers/ports.ts";
-import { routeProfileTools } from "../helpers/mcp-client.ts";
+import { parseToolText, routeProfileTools } from "../helpers/mcp-client.ts";
 import { STABLE_OBSERVATIONS, VARIABLE_OBSERVATIONS, summarizeStability, type Observation, type StabilitySample } from "../helpers/observations.ts";
 
 const LIFETIMES = 3, DOCUMENTS = 2, SAMPLES = 3;
 const policy = "direct:upstream-language-and-location:stelz-fixture-v2";
 const root = resolve(import.meta.dir, "../..");
-mkdirSync(join(root, ".state"), { recursive: true });
-const home = createTestHome("native-acceptance", join(root, ".state"));
+const home = createTestHome("native-acceptance");
 const cli = process.env.STELZ_TEST_CLI || join(root, "src/cli/cli.ts"), ids = ["profile-01", "profile-02", "profile-03"];
 const env: Record<string, string> = { STELZ_HOME: home };
 for (const key of ["PATH", "HOME", "LANG", "TMPDIR", "CAMOUFOX_EXECUTABLE"]) if (process.env[key]) env[key] = process.env[key]!;
@@ -77,7 +76,7 @@ async function connect(id: string) {
   const status = await call(client, "profile_status");
   assert(status.phase === "ready", `${id}: profile is not ready`);
   await call(client, "profile_acquire");
-  await call(client, "camofox_list_tabs");
+  await call(client, "tab_list");
   return { client, status };
 }
 async function disconnect(client: Client) {
@@ -88,7 +87,7 @@ async function call(client: Client, name: string, args: Record<string, unknown> 
   const result = await client.callTool({ name, arguments: args }, undefined, { timeout: 180000 });
   const text = (result.content as Array<{ type: string; text?: string }>).filter(c => c.type === "text").map(c => c.text).join("\n");
   if (result.isError) throw Error(text);
-  return JSON.parse(text) as Record<string, unknown>;
+  return parseToolText(text) as Record<string, unknown>;
 }
 async function observation(id: string): Promise<Observation> {
   for (let n = 0; n < 200; n++) {
@@ -99,7 +98,7 @@ async function observation(id: string): Promise<Observation> {
 }
 async function stored(client: Client, tabId: string, id: string) {
   for (let n = 0; n < 30; n++) {
-    const value = await call(client, "camofox_snapshot", { tabId });
+    const value = await call(client, "tab_snapshot", { tabId });
     if (String(value.snapshot).includes(`Storage marker: ${id}`)) return;
     await Bun.sleep(100);
   }
@@ -140,23 +139,23 @@ async function capture(profile: ProfileEvidence, client: Client, lifetime: Lifet
   let tabId: string | undefined;
   if (lifetime.ordinal === 1) {
     const capture = `storage-${id}`;
-    const tab = await call(client, "camofox_create_tab", { url: `${site!.url}/?capture=${capture}` });
+    const tab = await call(client, "tab_create", { url: `${site!.url}/?capture=${capture}` });
     tabId = String(tab.tabId);
     profile.initialStorageProbe = await observation(capture);
     assert(storageMatches(profile.initialStorageProbe, null), `${id}: a new native profile contains another profile's storage`);
-    await call(client, "camofox_snapshot", { tabId });
-    await call(client, "camofox_type", { tabId, selector: "#marker", text: id });
-    await call(client, "camofox_snapshot", { tabId });
-    await call(client, "camofox_click", { tabId, selector: "#save" });
+    await call(client, "tab_snapshot", { tabId });
+    await call(client, "tab_type", { tabId, selector: "#marker", text: id, mode: "instant" });
+    await call(client, "tab_snapshot", { tabId });
+    await call(client, "tab_click", { tabId, selector: "#save" });
     await stored(client, tabId, id);
   }
   for (let document = 1; document <= DOCUMENTS; document++) {
     const key = `${id}-lifetime-${lifetime.ordinal}-document-${document}`;
     const url = `${site!.url}/?capture=${key}&samples=${SAMPLES}`;
     if (tabId) {
-      await call(client, "camofox_snapshot", { tabId });
-      await call(client, "camofox_navigate", { tabId, url });
-    } else tabId = String((await call(client, "camofox_create_tab", { url })).tabId);
+      await call(client, "tab_snapshot", { tabId });
+      await call(client, "tab_navigate", { tabId, url });
+    } else tabId = String((await call(client, "tab_create", { url })).tabId);
     let documentId: unknown;
     for (let index = 1; index <= SAMPLES; index++) {
       const sampleId = `${key}-${index}`, value = await observation(sampleId);

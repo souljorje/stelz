@@ -1,10 +1,11 @@
 import { useCallback, useState } from "react";
 import type { KeyboardEvent } from "react";
-import type { UiAction, UiProfile, UiProfileDetail, UiNetworkUpdate, UiTypingUpdate, UiSnapshot } from "../../src/api/contracts.ts";
+import type { UiAction, UiProfile, UiProfileDetail, UiNetworkUpdate, UiTypingUpdate, UiScriptsUpdate, UiSnapshot } from "../../src/api/contracts.ts";
 import { profilePath } from "./api.ts";
 import { ActionButton, CopyCommand, Icon, KeyValues, Notice, Phase } from "./components";
 import { NetworkForm } from "./NetworkForm";
 import { TypingForm } from "./TypingForm";
+import { ScriptsForm } from "./ScriptsForm";
 import { actionReason, locationLabel, locationEvidenceRows, homeCommand, boundedLog, dateTime, deleteReason, profileAttention, profileCommand, mcpCommand, redact } from "./model.ts";
 import type { ActionContext } from "./model.ts";
 import { useResource } from "./use-service.ts";
@@ -14,11 +15,12 @@ import { exportUnavailable } from "./use-transfer.ts";
 const tabs = ["Overview", "Device", "Logs"] as const;
 type Tab = typeof tabs[number];
 
-export function ProfileDetail({ profile, snapshot, context, mutationVersion, onAction, onSave, onTypingSave, onBack, onDirtyChange, onDelete, onShow, onExport, exportDisabled = false }: {
+export function ProfileDetail({ profile, snapshot, context, mutationVersion, onAction, onSave, onTypingSave, onScriptsSave, onBack, onDirtyChange, onDelete, onShow, onExport, exportDisabled = false }: {
   profile: UiProfile; snapshot: UiSnapshot; context: ActionContext; mutationVersion: number;
   onAction: (profile: UiProfile, action: UiAction) => void;
   onSave: (id: string, update: UiNetworkUpdate) => Promise<UiProfile>;
   onTypingSave: (id: string, update: UiTypingUpdate) => Promise<UiProfile>;
+  onScriptsSave: (id: string, update: UiScriptsUpdate) => Promise<UiProfile>;
   onDelete: (profile: UiProfile) => void;
   onBack: () => void; onDirtyChange: (dirty: boolean) => void;
   onShow: ShowWindow;
@@ -72,6 +74,7 @@ export function ProfileDetail({ profile, snapshot, context, mutationVersion, onA
       {profile.controller && <KeyValues rows={[{ label: "Controller", value: redact(profile.controller.label) }]} />}
       <section className="detail-section network-section" aria-labelledby="profile-network-heading"><h2 id="profile-network-heading" className={profile.phase === "stopped" ? "sr-only" : undefined}>Connection</h2><NetworkForm profile={profile} connected={context.connected} busy={context.pending} onSave={onSave} onDirtyChange={handleDirtyChange} /></section>
       <TypingForm profile={profile} connected={context.connected} busy={context.pending} onSave={onTypingSave} />
+      <ScriptsForm profile={profile} connected={context.connected} busy={context.pending} onSave={onScriptsSave} />
       {tab === "Overview" && ["ready", "paused", "verification_failed"].includes(profile.phase) && <ProfileWindows profile={profile} context={context} mutationVersion={mutationVersion} onShow={onShow} />}
       <section className="detail-section">
         <h2>Connect via MCP</h2>

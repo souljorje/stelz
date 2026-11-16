@@ -20,6 +20,7 @@ import { commitFingerprint, stageFingerprint, writeInitialized } from "../../src
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { UPSTREAM_VERSION } from "../../src/versions.ts";
+import { entries, excluded } from "../../src/browser/catalog.ts";
 import { createMockPackage } from "../helpers/mock-package.ts";
 
 const bun = Bun.which("bun")!,
@@ -237,10 +238,12 @@ test("a changed configuration port cannot redirect control to another service", 
     expect(result.code).toBe(0);
     expect(intendedCalls).toBe(1);
     expect(unrelatedCalls).toBe(0);
-    const contractDir = join(f.home, "runtime/camofox-1.18.1/mcp/lib");
+    const contractDir = join(f.home, `runtime/camofox-${UPSTREAM_VERSION}/mcp/lib`);
     mkdirSync(contractDir, { recursive: true });
+    // The fake upstream has every listed tool, plus tools that Stelz holds or excludes.
+    const upstreamNames = [...entries.map(item => item.upstream), ...excluded];
     writeFileSync(join(contractDir, "tool-contracts.mjs"), `
-      export const TOOL_DEFS = ["camofox_snapshot", "camofox_evaluate", "camofox_import_cookies"]
+      export const TOOL_DEFS = ${JSON.stringify(upstreamNames)}
         .map(name => ({ name, description: name, inputSchema: { type: "object" } }));
     `);
     await client.connect(new StdioClientTransport({
@@ -249,10 +252,11 @@ test("a changed configuration port cannot redirect control to another service", 
       env: { ...process.env, STELZ_HOME: f.home } as Record<string, string>,
     }));
     const listed = (await client.listTools()).tools.map(tool => tool.name);
-    expect(listed).toContain("camofox_snapshot");
+    expect(listed).toContain("tab_snapshot");
     expect(listed).toContain("profile_recheck");
-    expect(listed).not.toContain("camofox_evaluate");
-    expect(listed).not.toContain("camofox_import_cookies");
+    // The default group is core. Scripts, held, and excluded tools are not listed.
+    for (const name of ["tab_evaluate", "tab_init_script", "tab_activate", "tab_forward"]) expect(listed).not.toContain(name);
+    expect(listed.filter(name => name.startsWith("camofox_"))).toEqual([]);
     const acquired = await client.callTool({ name: "profile_acquire", arguments: { profileId: "test" } });
     expect(acquired.isError).not.toBe(true);
     const { controlHandle } = JSON.parse((acquired.content as Array<{ text: string }>)[0]!.text);
@@ -264,6 +268,13 @@ test("a changed configuration port cannot redirect control to another service", 
     expect(intendedCalls).toBe(5);
     expect(unrelatedCalls).toBe(0);
     expect((await run(f, "mcp", "--identity", "test")).code).toBe(1);
+    const missing = await run(f, "mcp", "--tools");
+    expect(missing.code).toBe(1);
+    expect(missing.stderr).toContain("Use: stelz mcp [--tools core|full|NAME,NAME]");
+    // An unknown name stops the server before it connects.
+    const unknown = await run(f, "mcp", "--tools", "tab_unknown");
+    expect(unknown.code).toBe(1);
+    expect(unknown.stderr).toContain('Unknown tool in --tools: "tab_unknown"');
     expect(intendedCalls).toBe(5);
     expect(unrelatedCalls).toBe(0);
   } finally {
@@ -561,7 +572,7 @@ test("startup creates one blank tab before a supervisor crash leaves its server 
     port = socket.port!;
   socket.stop(true);
   const f = fixture(port),
-    upstream = join(f.home, "runtime", "camofox-1.18.1");
+    upstream = join(f.home, "runtime", `camofox-${UPSTREAM_VERSION}`);
   mkdirSync(upstream, { recursive: true });
   writeFileSync(
     join(upstream, "server.js"),

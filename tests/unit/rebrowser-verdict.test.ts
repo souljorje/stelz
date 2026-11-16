@@ -3,7 +3,7 @@ import { assessRebrowser } from "../helpers/rebrowser-verdict.ts";
 
 type Result = { type: string; rating?: unknown; note?: string; debug?: unknown; msSinceLoad?: number };
 
-// Native JSON from .state/public-sites/2026-11-03T13-51-57-338Z-gyZa1G/rebrowser.snapshot.json.
+// Native JSON from a public-sites run's rebrowser.snapshot.json.
 // Captured on 2026-11-03 at 13:53:18.423Z. Keep this fixture independent of ignored local state.
 const captured: Result[] = [
   {"type":"dummyFn","rating":0,"note":"Call <code>window.dummyFn()</code> to test if you can access main world objects.","msSinceLoad":1},

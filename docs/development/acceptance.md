@@ -4,7 +4,7 @@ description: "Acceptance suites for browsers, archives, proxies, people, agents,
 tags: [development, testing, acceptance]
 sources: []
 created: 2026-11-11T14:13:54Z
-modified: 2026-11-11T15:01:55Z
+modified: 2026-11-16T10:19:11Z
 ---
 
 # Acceptance
@@ -19,7 +19,7 @@ modified: 2026-11-11T15:01:55Z
 
 - Run `bun run test:ui:browser`. It starts no Camoufox profile.
 - Needs Chrome or Chromium. `STELZ_UI_CHROME` selects the executable.
-- Screenshots and report: `.state/ui-browser/`.
+- Screenshots and report: printed when the suite ends.
 
 ## Native storage and device measurements
 
@@ -30,7 +30,7 @@ modified: 2026-11-11T15:01:55Z
 ## Profile transfer acceptance
 
 - Run `bun run test:transfer`.
-- Report: `.state/profile-transfer/report.json`. Cleanup stops only its test profiles.
+- Report: printed when the suite ends. Cleanup stops only its test profiles.
 - To check an installed release's ZIP commands without a browser, run from the source checkout:
 
 ```sh
@@ -56,7 +56,7 @@ STELZ_TEST_CLI=/absolute/path/to/installed/stelz \
 - One route: both relays use it. The report marks the distinct-exit check as unexecuted.
 - No IP pins: preflight observations set the expected addresses for the run.
 - A pass does not prove the absence of OS or browser DNS leaks.
-- Report: `.state/proxy-acceptance-*/report.json`. Cleanup stops test browsers and removes temporary credential copies.
+- Report: printed when the suite ends. Cleanup stops test browsers and removes temporary credential copies.
 - Remove the env file when you no longer need it. See [Configure a proxy or expected exit IP](../proxies.md).
 
 Human takeover:
@@ -89,7 +89,10 @@ bun run test:package --archive /absolute/path/to/candidate.tgz --setup
 - Use the archive path that `pack` prints. Do not rebuild between checks.
 - `pack --destination DIRECTORY`: another output directory. Without `--archive`, local checks select the current manifest version under `release-artifacts/`.
 - `test:install`: no browser. `--native` adds ordinary npm lifecycle scripts and native dependency checks.
-- `test:package`: installs with lifecycle scripts. Always runs integration, native persistence, transfer, concurrency, and typing acceptance. Replaces `test:install --native` and the source-tree suites it repeats. Flags:
+- `test:package`: installs with lifecycle scripts. Always runs integration, native persistence, transfer, concurrency, and typing acceptance. Replaces `test:install --native` and the source-tree suites it repeats.
+- Typing and optional window checks reuse the integration browsers. Separate lifecycle, native, and transfer checks retain their own browsers.
+
+Flags:
 
 | Flag | Adds |
 | --- | --- |
@@ -98,7 +101,7 @@ bun run test:package --archive /absolute/path/to/candidate.tgz --setup
 | `--proxy` | Proxy and location acceptance |
 | `--manual` | Human acceptance. Needs a real click in the visible browser. |
 
-- `test:setup`: needs network access to GitHub and the paired build in the upstream Camoufox cache, which it hides for its consent case. It downloads no browser and starts one headed browser. Report: `.state/package-test/setup-report.json`. A pass removes its files.
+- `test:setup`: needs network access to GitHub and the paired build in the upstream Camoufox cache, which it hides for its consent case. It downloads no browser and starts one headed browser. Report: printed when the suite ends. A pass removes its files.
 
 Full package acceptance:
 

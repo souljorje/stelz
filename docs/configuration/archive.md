@@ -25,6 +25,7 @@ modified: 2026-11-11T15:01:55Z
   - `{ "url": "..." }`: proxy URL and credentials.
   - `{}`: proxy intent without credentials. Import assigns a secret reference without a value.
 - `expectedIp`: literal address or empty string.
+- Archives do not carry the scripts setting. An imported profile starts with scripts off.
 - Included per profile: `fingerprint.json`, `native-profile.json`, `browser-data/` (without root locks `.parentlock`, `parent.lock`, `lock`), `cookies/`, `uploads/`.
 - Excluded: runtime records, keys, logs, add-ons, traces, temporary files, the executable, global settings, client configuration.
 - Import rejects unsafe paths, links, special files, duplicate paths, undeclared entries, invalid sizes, and failed hashes.

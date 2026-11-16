@@ -1,6 +1,6 @@
 // Real acceptance against one saved archive. Private proxy inputs never enter reports.
 import assert from "node:assert/strict";
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { dedicatedProxyInputs } from "../helpers/dedicated-proxy.ts";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -9,7 +9,7 @@ import { installPackage } from "./install.ts";
 import { packageArguments, assertArchiveUnchanged } from "../../scripts/package-archive.ts";
 import { suppliedProxyEndpoints, proxyRedactor } from "../helpers/proxy-acceptance-helpers.ts";
 import { proxyRelay } from "../helpers/proxy-network-fixture.ts";
-import { routeProfileTools } from "../helpers/mcp-client.ts";
+import { parseToolText, routeProfileTools } from "../helpers/mcp-client.ts";
 import { assertSingleStartupWindow } from "../helpers/startup-window.ts";
 
 const { archive } = packageArguments(process.argv.slice(2), []);
@@ -50,7 +50,7 @@ async function call(client: Client, name: string, args: Record<string, unknown> 
   const response = await client.callTool({ name, arguments: args }, undefined, { timeout: 180000 });
   const text = (response.content as { type: string; text?: string }[]).filter(v => v.type === "text").map(v => v.text).join("\n");
   if (response.isError) throw Error(redact(text));
-  return JSON.parse(text);
+  return parseToolText(text);
 }
 const evidence: Record<string, unknown>[] = [], pins = new Map<string, string>();
 const strata = { "fresh-proxy": 0, "saved-valid-proxy": 0 };
@@ -82,17 +82,19 @@ try {
       const started = await command("start", id, "--json");
       assert.equal(started.phase, "ready"); assert.equal(started.location.browser, "passed");
       assert.equal(started.location.geolocation, "configured");
-      assert.equal(localRequests.length, localBefore, "A restored fixture page requested traffic before Ready");
+      // Only this profile's page can be a restored page. A running browser of another profile can reload its own fixture page, which its history records as an address-bar visit.
+      const restored = localRequests.slice(localBefore).filter(request => request.profile === id).length;
+      assert.equal(restored, 0, "A restored fixture page requested traffic before Ready");
       const client = routeProfileTools(new Client({ name: "location-acceptance", version: "1" }), id); clients.push(client);
       await client.connect(new StdioClientTransport({ command: installed.bun, args: ["--no-env-file", installed.installedCli, "mcp"], env, stderr: "pipe" }));
       await call(client, "profile_acquire");
-      const tabs = await call(client, "camofox_list_tabs"); await assertSingleStartupWindow(installed.home, id, tabs);
+      const tabs = await call(client, "tab_list"); await assertSingleStartupWindow(installed.home, id, tabs);
       const tabId = tabs.tabs[0].tabId;
       observations.delete(id);
-      await call(client, "camofox_navigate", { tabId, url: `http://127.0.0.1:${site.port}/?profile=${id}` });
-      await call(client, "camofox_snapshot", { tabId });
-      await call(client, "camofox_scroll", { tabId, direction: "down", amount: 100 });
-      await call(client, "camofox_snapshot", { tabId });
+      await call(client, "tab_navigate", { tabId, url: `http://127.0.0.1:${site.port}/?profile=${id}` });
+      await call(client, "tab_snapshot", { tabId });
+      await call(client, "tab_scroll", { tabId, direction: "down", amount: 100 });
+      await call(client, "tab_snapshot", { tabId });
       for (let n = 0; n < 100 && !observations.has(id); n++) await Bun.sleep(50);
       const observed = observations.get(id)!; assert(observed);
       assert.equal(observed.timezone, started.location.timezone);
@@ -103,7 +105,7 @@ try {
       const fingerprint = readFileSync(file(id, "fingerprint.json"), "utf8");
       if (priorPin !== undefined) assert.equal(fingerprint, priorPin); else pins.set(id, fingerprint);
       evidence.push({ id, lifetime, stratum, scroll: "passed", preflightIp, browserExitIp: started.exitIp, preflight: preflight.location, verified: started.location, observed,
-        startupTraffic: traffic.slice(trafficBefore), restoredFixtureRequestsBeforeReady: localRequests.length - localBefore - 2 });
+        startupTraffic: traffic.slice(trafficBefore), restoredFixtureRequestsBeforeReady: restored });
       strata[stratum]++;
       await call(client, "profile_release"); await client.close(); clients.splice(clients.indexOf(client), 1);
     }
@@ -124,7 +126,13 @@ try {
   writeFileSync(join(installed.home, "location-acceptance-failure.json"), JSON.stringify({ error: redact(String(error)), strata, evidence, traffic, localRequests }, null, 2), { mode: 0o600 });
   console.error(redact(String(error))); process.exitCode = 1;
 } finally {
-  for (const client of clients) await client.close().catch(() => {});
-  for (const id of active) await command("stop", id).catch(error => console.error(redact(String(error))));
-  for (const relay of relays) await relay.stop(); site.stop(true);
+  const cleanup = async (operation: () => unknown) => {
+    try { await operation(); }
+    catch (error) { console.error(redact(String(error))); process.exitCode = 1; }
+  };
+  for (const client of clients) await cleanup(() => client.close());
+  for (const id of active) await cleanup(() => command("stop", id));
+  for (const relay of relays) await cleanup(() => relay.stop());
+  await cleanup(() => site.stop(true));
+  await cleanup(() => rmSync(join(installed.home, "secrets.env"), { force: true }));
 }

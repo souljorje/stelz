@@ -6,7 +6,7 @@ import type { UiAction, UiProfile, UiModel, UiSnapshot } from "../../src/api/con
 function profile(id = "profile-02"): UiProfile {
   return {
     id, name: id, port: 9378, storage: "native", typingMode: "balanced", phase: "stopped", restartToUpdate: false, instanceId: null,
-    typing: { revision: "typing-revision-1", mode: null, defaultMode: "balanced" },
+    typing: { revision: "typing-revision-1", mode: null, defaultMode: "balanced" }, allowScripts: false,
     exitIp: null, checkedAt: null, fixedIpVerified: false, controller: null,
     windowControls: { available: false, reason: null },
     supervisorPid: null, serverPid: null, ownership: null, fingerprintSha256: null,
@@ -42,6 +42,11 @@ function fixture(lifecycle?: (action: UiAction, id: string) => Promise<unknown>,
       calls.push(`typing:${id}`);
       const row = profile(id);
       return { ...row, typingMode: update.mode ?? row.typing.defaultMode, typing: { ...row.typing, mode: update.mode } };
+    },
+    async updateScripts(id, update) {
+      if (typeof update.allow !== "boolean" || Object.keys(update).length !== 1) throw Object.assign(Error("Scripts input is invalid."), { status: 400 });
+      calls.push(`scripts:${id}:${update.allow}`);
+      return { ...profile(id), allowScripts: update.allow };
     },
     async renameProfile(id, update) {
       if (update.revision !== snapshot.catalogRevision) throw Object.assign(Error("Profiles changed. Refresh before continuing."), { status: 409 });
@@ -120,6 +125,23 @@ test("typing preferences use an authenticated same-origin PUT and expose the sav
   expect(f.calls).toEqual(["typing:profile-02", "typing:profile-02"]);
 });
 
+test("the scripts switch uses an authenticated same-origin PUT and exposes the saved value", async () => {
+  const f = fixture(), auth = await f.authenticate();
+  const path = "/api/profiles/profile-02/scripts", body = JSON.stringify({ allow: true });
+  expect((await f.request(path, { method: "PUT", headers: { Origin: f.url, "Content-Type": "application/json" }, body })).status).toBe(401);
+  expect((await f.request(path, { method: "PUT", headers: { ...auth, Origin: "https://other.test" }, body })).status).toBe(403);
+  expect((await f.request(path, { headers: auth })).status).toBe(405);
+  for (const method of ["POST", "PATCH"]) expect((await f.request(path, { method, headers: auth, body })).status).toBe(405);
+  for (const invalid of [{ allow: "yes" }, { allow: 1 }, {}, { allow: true, revision: "x" }])
+    expect((await f.request(path, { method: "PUT", headers: auth, body: JSON.stringify(invalid) })).status, JSON.stringify(invalid)).toBe(400);
+  const response = await f.request(path, { method: "PUT", headers: auth, body });
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({ profile: { id: "profile-02", allowScripts: true } });
+  const off = await f.request(path, { method: "PUT", headers: auth, body: JSON.stringify({ allow: false }) });
+  expect(await off.json()).toMatchObject({ profile: { allowScripts: false } });
+  expect(f.calls).toEqual(["scripts:profile-02:true", "scripts:profile-02:false"]);
+});
+
 test("profile rename requires an authenticated same-origin PATCH with a bounded JSON object", async () => {
   const f = fixture(), auth = await f.authenticate(), path = "/api/profiles/profile-02";
   const body = JSON.stringify({ revision: "a".repeat(64), name: "Work profile" });
@@ -186,6 +208,7 @@ test("profile rename exposes pending state and excludes other writes and UI shut
       ["", "DELETE", { revision: "a".repeat(64) }],
       ["/network", "PUT", { revision: "revision-1" }],
       ["/typing", "PUT", { revision: "typing-revision-1", mode: "keyboard" }],
+      ["/scripts", "PUT", { allow: true }],
       ["/actions", "POST", { action: "start" }],
       ["/window", "POST", { instanceId: "existing" }],
     ] as const) {
@@ -504,6 +527,9 @@ describe("local UI lifecycle", () => {
         body: JSON.stringify({ revision: "typing-revision-1", mode: "keyboard" }) });
       expect(typing.status).toBe(409);
       expect(f.calls).not.toContain("typing:profile-02");
+      const scripts = await f.request("/api/profiles/profile-02/scripts", { method: "PUT", headers: auth, body: JSON.stringify({ allow: true }) });
+      expect(scripts.status).toBe(409);
+      expect(f.calls.some(call => call.startsWith("scripts:"))).toBe(false);
       const rename = await f.request("/api/profiles/profile-02", { method: "PATCH", headers: auth,
         body: JSON.stringify({ revision: "a".repeat(64), name: "Renamed" }) });
       expect(rename.status).toBe(409);

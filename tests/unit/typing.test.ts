@@ -96,19 +96,12 @@ test("specialized form controls and instant mode retain bulk fill", async () => 
   expect(f.events).toEqual([{ action: "fill", text }]);
 });
 
-test("long balanced input selects bulk entry before clearing existing contents", async () => {
-  const f = field();
-  const text = "x".repeat(10_000);
-  await typeIntoLocator(f.target, text, "balanced", f.clock);
-  expect(f.events).toEqual([{ action: "fill", text }]);
-  expect(f.value()).toBe(text);
-});
-
-test("balanced changes methods at the 10-second estimated threshold", async () => {
+test("balanced changes methods at the 10-second threshold and bulk fills before clearing", async () => {
   for (const [length, paced] of [[208, true], [209, false]] as const) {
     const f = field(); f.clock.random = () => 0; // 15 ms hold + 33 ms pause per character.
     await typeIntoLocator(f.target, "x".repeat(length), "balanced", f.clock);
     expect(f.events.filter(event => event.action === "type").length).toBe(paced ? length : 0);
+    if (!paced) expect(f.events).toEqual([{ action: "fill", text: "x".repeat(length) }]);
     expect(f.value()).toBe("x".repeat(length));
   }
 });

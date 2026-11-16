@@ -271,6 +271,7 @@ const malformedManifests: [string, (value: ProfileArchiveManifest) => void][] = 
   ["unknown profile field", value => { Object.assign(value.profiles[0]!, { accessKey: "do-not-echo-this-secret" }); }],
   ["invalid typing mode", value => { Object.assign(value.profiles[0]!, { typingMode: "paced" }); }],
   ["former auto typing mode", value => { Object.assign(value.profiles[0]!, { typingMode: "auto" }); }],
+  ["scripts setting", value => { Object.assign(value.profiles[0]!, { allowScripts: true }); }],
   ["invalid expected IP", value => { value.profiles[0]!.expectedIp = "proxy.example"; }],
   ["invalid display name", value => { value.profiles[0]!.name = "untrimmed "; }],
   ["unknown proxy field", value => { Object.assign(value.profiles[0]!, { proxy: { token: "do-not-echo-this-secret" } }); }],

@@ -2,105 +2,65 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { settings } from "../profiles/config.ts";
-import { ensureProfile } from "../profiles/profile-configuration.ts";
-import { runLifecycle } from "../runtime/operations.ts";
-import { reportStatus } from "../runtime/runtime.ts";
-import { contracts, type Tool } from "../browser/upstream.ts";
-import { allowedBrowserTools, browserToolArguments } from "./tool-policy.ts";
+import type { ToolResult } from "../browser/catalog.ts";
+import { loadContracts } from "./contracts.ts";
+import { createDispatch } from "./dispatch.ts";
 import { createControlRegistry } from "./control-registry.ts";
 import { withProgress } from "./progress.ts";
 import { serviceTransport } from "./service-binding.ts";
 import { STELZ_VERSION } from "../versions.ts";
 import { LocationError } from "../browser/location.ts";
 
-const profileProperty = { type: "string", pattern: "^[a-z][a-z0-9-]{0,63}$", description: "Profile ID from profile_list or profile_create." };
-const handleProperty = { type: "string", minLength: 1, description: "Opaque controlHandle returned by profile_acquire on this connection for this profile and browser lifetime." };
+type Content = { type: "text"; text: string } | { type: "image"; data: string; mimeType: string };
 
-// Never expose internal controller IDs through status or list responses.
-function publicStatus(value: Record<string, unknown>) {
-  const { controlHandle: _handle, controllerId: _id, accessKey: _key, ...result } = value;
-  if (result.controller && typeof result.controller === "object") {
-    const { pid, label, activeActions, releasing } = result.controller as Record<string, unknown>;
-    result.controller = { pid, label, activeActions, releasing };
+function formatPayload(kind: ToolResult["kind"], payload: unknown): Content[] {
+  if (kind === "image") return [payload as Content];
+  const value = (payload ?? {}) as { url?: unknown; snapshot?: unknown; refsCount?: unknown; truncated?: unknown; nextOffset?: unknown; viewId?: unknown;
+    baseline?: unknown; structure?: unknown; screenshot?: { data?: string; mimeType?: string } };
+  if (kind === "snapshot" && typeof value.snapshot === "string") {
+    // One header line, then the page text as it is. JSON would escape every line break.
+    const { url, refsCount, truncated, nextOffset, viewId, baseline, structure } = value;
+    const header = JSON.stringify({ url, refsCount, truncated, ...(nextOffset === null || nextOffset === undefined ? {} : { nextOffset }), viewId,
+      ...(baseline === true ? { baseline } : {}) });
+    // The structure of forms and tables follows the page text as compact JSON, after a comment line.
+    const tail = structure === undefined || structure === null ? "" : `\n# structure\n${JSON.stringify(structure)}`;
+    return [{ type: "text", text: `${header}\n${value.snapshot}${tail}` },
+      ...(value.screenshot?.data ? [{ type: "image" as const, data: value.screenshot.data, mimeType: value.screenshot.mimeType || "image/png" }] : [])];
   }
-  return result;
-}
-function local(name: string, description: string, owned = false): Tool {
-  const properties = name === "profile_list" ? {} : { profileId: profileProperty, ...(owned ? { controlHandle: handleProperty } : {}) };
-  return { name, description, inputSchema: { type: "object", properties, required: Object.keys(properties), additionalProperties: false } };
-}
-export function routedTools(browserTools: Tool[]): Tool[] {
-  return [
-    local("profile_list", "List current profiles and their statuses. This tool does not acquire control or start browsers."),
-    local("profile_create", "Create a direct native profile, or reuse an existing profile without changing its configuration. This tool does not start a browser."),
-    local("profile_start", "Explicitly start this profile through the browser service. Repeated starts preserve the existing browser."),
-    local("profile_status", "Read this profile and controller status without acquiring control or starting a browser."),
-    local("profile_acquire", "Acquire exclusive control of a running profile. Save the returned controlHandle for all owned operations. An existing or pending controller cannot acquire again."),
-    local("profile_release", "Block new operations, finish admitted work, and release this handle. Preserve the browser, pages, storage, and fingerprint configuration.", true),
-    local("profile_pause", "Pause actions immediately, then wait for admitted work to finish before human work in the same window. Keep this controller.", true),
-    local("profile_resume", "Resume after human work. Read a fresh snapshot before the next action.", true),
-    local("profile_recheck", "Check the browser exit IP after a verification failure.", true),
-    ...browserTools.map(tool => ({ ...tool, inputSchema: { ...tool.inputSchema,
-      properties: { ...tool.inputSchema.properties, profileId: profileProperty, controlHandle: handleProperty },
-      required: [...new Set([...(tool.inputSchema.required || []), "profileId", "controlHandle"])], additionalProperties: false } })),
-  ];
-}
-export function routedArguments(tool: Tool, args: Record<string, unknown>) {
-  if (Object.keys(args).some(key => !Object.hasOwn(tool.inputSchema.properties || {}, key)))
-    throw Error("Unknown tool argument. Internal routing and controller fields are not accepted.");
-  for (const key of tool.inputSchema.required || []) if (!Object.hasOwn(args, key)) throw Error(`Missing required argument: ${key}.`);
-  if (tool.name !== "profile_list" && (typeof args.profileId !== "string" || !/^[a-z][a-z0-9-]{0,63}$/.test(args.profileId)))
-    throw Error("profileId must be a valid profile ID.");
-  if ("controlHandle" in (tool.inputSchema.properties || {}) && (typeof args.controlHandle !== "string" || !args.controlHandle))
-    throw Error("controlHandle must be the value returned by profile_acquire.");
-  const { profileId, controlHandle, ...canonical } = args;
-  return { profileId: profileId as string, controlHandle: controlHandle as string, canonical };
+  return [{ type: "text", text: JSON.stringify(payload) }];
 }
 
-export async function runMcp() {
+/**
+ * Turn a raw tool result into MCP content. This is the only place that formats results.
+ * An action with an observation is one text block: the compact action result, then the page as a snapshot reply, or a note that the read of the page failed.
+ */
+export function formatResult({ kind, payload, observation }: ToolResult): Content[] {
+  const content = formatPayload(kind, payload), [action] = content;
+  if (!observation || action?.type !== "text") return content;
+  const [page, ...images] = "error" in observation ? [{ type: "text" as const, text: `# ${observation.error}` }] : formatPayload(observation.kind, observation.payload);
+  return [{ type: "text", text: `${action.text}\n${page?.type === "text" ? page.text : ""}` }, ...images];
+}
+
+export async function runMcp(options: { tools?: string } = {}) {
   settings(); // An initialized empty catalog is valid.
-  const upstream = await contracts();
-  const browserTools = allowedBrowserTools(upstream.TOOL_DEFS);
-  const tools = routedTools(browserTools);
   const registry = createControlRegistry(serviceTransport);
   const requests = new Set<Promise<unknown>>();
   let closing: Promise<void> | undefined, shuttingDown = false;
   const server = new Server({ name: "stelz", version: STELZ_VERSION }, {
     capabilities: { tools: {} },
-    instructions: "Register Stelz once. Discover profiles with profile_list; create and start them explicitly. Every owned operation requires the profileId and controlHandle from this connection's profile_acquire. One profile has one browser and one controller. You may control multiple profiles in parallel. Read fresh snapshots. Pause for human authentication in the same window. Release each handle for handoff. Disconnect preserves browsers and pages. Never repeat an uncertain browser action automatically.",
+    instructions: "Register Stelz once. Discover profiles with profile_list. Create and start them explicitly. Every owned operation requires the profileId and controlHandle from this connection's profile_acquire. One profile has one browser and one controller. You may control multiple profiles in parallel. Act only on a fresh observation: a snapshot or an action diff that you read after the page last changed. Read a full tab_snapshot on a new tab, after a navigation, and after profile_resume. Each tab_click, tab_type, tab_select, and tab_press returns a diff. Read it to check the result. Do not call tab_snapshot after an action. Target elements by role and name (target). Use a ref only if the last result showed it. If an expected change is not in the diff yet, use tab_wait. Pause for human authentication in the same window. Release each handle for handoff. Disconnect preserves browsers and pages. Never repeat an uncertain browser action automatically. First read a fresh tab_snapshot to see what happened.",
   });
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }));
+  // The tool list stays fixed for the connection. A bad `--tools` name fails here, before the server connects.
+  const dispatch = createDispatch({ defs: (await loadContracts()).TOOL_DEFS, registry, tools: options.tools,
+    label: () => server.getClientVersion()?.name || "MCP client" });
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: dispatch.tools }));
   server.setRequestHandler(CallToolRequestSchema, (request, extra) => {
     const work = withProgress(extra, `Stelz is still running ${request.params.name}.`, (async () => {
       const { name, arguments: args = {} } = request.params;
       try {
         if (shuttingDown) throw Error("This MCP connection is closing.");
         extra.signal.throwIfAborted();
-        const tool = tools.find(tool => tool.name === name);
-        if (!tool) throw Error("Unknown tool.");
-        const { profileId, controlHandle, canonical } = routedArguments(tool, args);
-        let result: Record<string, unknown>;
-        if (name === "profile_list") {
-          result = { profiles: await Promise.all(settings().profiles.map(async profile => {
-            try { return publicStatus(await reportStatus(profile.id)); }
-            catch (error) { return { profileId: profile.id, phase: "unavailable", error: (error as Error).message }; }
-          })) };
-        } else if (name === "profile_create") {
-          const created = await ensureProfile({ id: profileId });
-          result = { profileId, created: created.created, ...publicStatus(await reportStatus(profileId)) };
-        } else if (name === "profile_start") result = publicStatus(await runLifecycle("start", profileId, extra.signal));
-        else if (name === "profile_status") result = publicStatus(await reportStatus(profileId));
-        else if (name === "profile_acquire") {
-          const acquired = await registry.acquire(profileId, server.getClientVersion()?.name || "MCP client", extra.signal);
-          result = { ...publicStatus(acquired), controlHandle: acquired.controlHandle };
-        } else if (name === "profile_release") result = await registry.release(profileId, controlHandle);
-        else if (["profile_pause", "profile_resume", "profile_recheck"].includes(name))
-          result = publicStatus(await registry.run(profileId, controlHandle, name === "profile_recheck" ? "check" : name.slice("profile_".length)));
-        else {
-          const browserTool = browserTools.find(tool => tool.name === name)!;
-          return await registry.run(profileId, controlHandle, "tool", { name, args: browserToolArguments(browserTool, canonical) }) as { content: ReturnType<typeof upstream.adaptResponse> };
-        }
-        return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
+        return { content: formatResult(await dispatch.call(name, args, extra.signal)) };
       } catch (error) { return { isError: true, content: [{ type: "text" as const, text: error instanceof LocationError ? JSON.stringify({ error: { code: error.location.code, message: error.message }, location: error.location }) : (error as Error).message }] }; }
     })());
     requests.add(work);

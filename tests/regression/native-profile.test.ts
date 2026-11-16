@@ -9,6 +9,8 @@ import { runInNewContext } from "node:vm";
 import { setImmediate } from "node:timers/promises";
 import { launchProfileBrowser, claimProfileContext, createProfilePage, protectProfileStartup, validateStartupGeometry, verifyProfileFingerprint } from "../../src/browser/native-profile.ts";
 import { applyFingerprint } from "../../src/browser/fingerprint.ts";
+import * as ownership from "../../src/browser/page-ownership.ts";
+import { UPSTREAM_VERSION } from "../../src/versions.ts";
 import type { StartupWindowObservation } from "../../src/browser/profile-windows.ts";
 import { mockLauncherResources } from "../helpers/launcher-resources.ts";
 
@@ -16,12 +18,12 @@ mockLauncherResources();
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const leaseApi = await import(new URL("../../node_modules/@askjo/camofox-browser/lib/page-lease.js", import.meta.url).href);
-const ownership = await import(new URL("../../node_modules/@askjo/camofox-browser/lib/stelz-page-ownership.js", import.meta.url).href);
+const errors = await import(new URL("../../node_modules/@askjo/camofox-browser/lib/browser-errors.js", import.meta.url).href);
 
 // Exercise the pending patch without changing the shared dependency installation.
 function patchedServer() {
   let source = readFileSync(join(root, "node_modules/@askjo/camofox-browser/server.js"), "utf8");
-  const patch = readFileSync(join(root, "patches/@askjo%2Fcamofox-browser@1.18.1.patch"), "utf8").split("diff --git a/server.js b/server.js\n")[1]!.split("\ndiff --git ")[0]!;
+  const patch = readFileSync(join(root, `patches/@askjo%2Fcamofox-browser@${UPSTREAM_VERSION}.patch`), "utf8").split("diff --git a/server.js b/server.js\n")[1]!.split("\ndiff --git ")[0]!;
   for (const hunk of patch.split(/^@@[^\n]*\n/m).slice(1)) {
     const lines = hunk.split("\n");
     const before = lines.filter(line => /^[ -]/.test(line)).map(line => line.slice(1)).join("\n") + "\n";
@@ -328,10 +330,12 @@ test("the measured WebGL renderer must match the pinned renderer", async () => {
 test("native mode launches the directory-backed context and claims that exact context once", async () => {
   const f = fixture();
   try {
+    // Camofox requests geolocation for a proxied context. Stelz grants no permission to a website, at launch or at claim.
     const options = { viewport: null, permissions: ["geolocation"], proxy: { server: "http://example.test:8080" } };
     const browser = await launchProfileBrowser(f.launcher, { headless: false, proxy: options.proxy }, options, { directory: f.directory });
     assert.equal(f.launched().path, join(f.directory, "browser-data"));
-    assert.deepEqual(f.launched().options.permissions, ["geolocation"]);
+    assert.equal("permissions" in f.launched().options, false);
+    assert.equal(f.launched().options.viewport, null);
     assert.equal(await claimProfileContext(browser, options), f.context);
     await assert.rejects(claimProfileContext(browser, options), /already claimed/);
     assert.deepEqual(f.counts(), { persistent: 1, ephemeral: 0, newContexts: 0 });
@@ -364,6 +368,26 @@ test("a marked native profile refuses to replace a missing browser-data director
     writeFileSync(join(f.directory, "native-profile.json"), '{"version":1}');
     await assert.rejects(launchProfileBrowser(f.launcher, {}, {}, { directory: f.directory }), /Native browser data is missing/);
     assert.deepEqual(f.counts(), { persistent: 0, ephemeral: 0, newContexts: 0 });
+  } finally { f.close(); }
+});
+
+test("a claimed context creates every tab through the profile page path", async () => {
+  const f = fixture();
+  try {
+    const nativeNewPage = f.context.newPage, browser = await launchProfileBrowser(f.launcher, {}, {}, { directory: f.directory });
+    assert.equal(f.context.newPage, nativeNewPage);
+    const context = await claimProfileContext(browser, {}), initial = f.pages[0]!;
+    assert.equal(context, f.context);
+    assert.notEqual(context.newPage, nativeNewPage);
+    // Upstream routes call context.newPage() directly. The first call takes the launch blank. Later calls create pages.
+    assert.equal(await context.newPage(), initial);
+    assert.equal(f.pageCreations(), 0);
+    const created = await context.newPage();
+    assert.notEqual(created, initial);
+    assert.equal(f.pageCreations(), 1);
+    await context.close();
+    await assert.rejects(context.newPage(), /closed/);
+    assert.equal(f.pageCreations(), 1);
   } finally { f.close(); }
 });
 
@@ -501,7 +525,7 @@ async function startupHarness() {
     getTotalTabCount: () => context.pages().length,
     async createPageWithRecoveryForUser() {
       const lease = leaseApi.acquirePageLease(session);
-      const page = leaseApi.setLeasedPage(lease, await createProfilePage(context));
+      const page = leaseApi.setLeasedPage(lease, await context.newPage());
       return { session, page, lease };
     },
     getTabGroup(_session: unknown, key: string) {
@@ -530,12 +554,15 @@ async function startupHarness() {
     validateUrl() {}, navigatePage: () => navigation,
     withPageLoadDuration: (_label: string, work: () => Promise<void>) => work(),
     recordNavSuccess() {}, recordNavFailure: () => false, isProxyError: () => false,
+    // Cold-build extension, route-deadline mapping, and Linux memory-cap handling: not exercised here.
+    isTimeoutError: errors.isTimeoutError, isTabCreateDeadlineTimeout: () => false, sessionCreations: new Map(),
+    TAB_CREATE_BUILD_EXTENSION_MS: 30_000, cgroupMemory: () => null, memoryCapResponse() { throw Error("Unexpected memory cap response"); },
   };
   const source = patchedServer();
   const route = source.slice(source.indexOf("let stelzStartupAdmitted = false;"), source.indexOf("// Navigate\n/**"));
   assert.ok(route.includes("tabCreateRequestTimeoutMs()"));
   runInNewContext(route, globals);
-  runInNewContext(source.slice(source.indexOf("// Per-tab inactivity reaper"), source.indexOf("// Idle memory pressure restart")), globals);
+  runInNewContext(source.slice(source.indexOf("// Per-tab inactivity reaper"), source.indexOf("// Memory pressure restart")), globals);
   return { ...f, session, deadlines, initialized, reapers, sessionClosures: () => sessionClosures,
     failRegistration() { failRegistration = true; },
     async request(body: Record<string, unknown> = { userId: "test", sessionKey: "default", stelzStartup: true }) {

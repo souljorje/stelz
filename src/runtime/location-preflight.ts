@@ -28,7 +28,7 @@ export async function locationInputs(p: Profile) {
   let engine: string, integration: string[];
   try {
     engine = digest(executable());
-    integration = ["server.js", "lib/browser-identity.js", "plugins/local-profile/index.js"]
+    integration = ["server.js", "plugins/local-profile/index.js"]
       .map(file => digest(join(upstream(), file)));
     integration.push(digest(join(ROOT, "dist/plugin.js")));
     const identity = hash(integration.join(":"));

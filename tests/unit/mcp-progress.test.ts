@@ -33,7 +33,7 @@ test("a slow call with a progress token reports progress and returns its result"
   const f = await fixture();
   try {
     const received: Progress[] = [];
-    const call = f.client.callTool({ name: "camofox_type", arguments: {} }, undefined,
+    const call = f.client.callTool({ name: "tab_type", arguments: {} }, undefined,
       { onprogress: progress => received.push(progress), resetTimeoutOnProgress: true });
     while (received.length < 3) await wait(interval);
     f.finish();
@@ -41,7 +41,7 @@ test("a slow call with a progress token reports progress and returns its result"
     const progress = received.map(entry => entry.progress);
     expect(progress).toEqual([...progress].sort((a, b) => a - b));
     expect(new Set(progress).size).toBe(progress.length);
-    expect(received[0]!.message).toBe("Stelz is still running camofox_type.");
+    expect(received[0]!.message).toBe("Stelz is still running tab_type.");
     // No notifications follow completion.
     const count = f.sent.length;
     await wait(interval * 4);
@@ -53,7 +53,7 @@ test("a slow call with a progress token reports progress and returns its result"
 test("a call without a progress token sends no notifications", async () => {
   const f = await fixture();
   try {
-    const call = f.client.callTool({ name: "camofox_type", arguments: {} });
+    const call = f.client.callTool({ name: "tab_type", arguments: {} });
     await wait(interval * 4);
     f.finish();
     expect((await call).content).toEqual([{ type: "text", text: "done" }]);
@@ -65,7 +65,7 @@ test("a cancelled call stops progress notifications", async () => {
   const f = await fixture();
   try {
     const controller = new AbortController();
-    const call = f.client.callTool({ name: "camofox_type", arguments: {} }, undefined,
+    const call = f.client.callTool({ name: "tab_type", arguments: {} }, undefined,
       { onprogress: () => {}, signal: controller.signal });
     while (f.sent.length < 1) await wait(interval);
     controller.abort();

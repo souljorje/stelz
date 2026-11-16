@@ -306,7 +306,7 @@ input:disabled, select:disabled { color: var(--faint); background: var(--raised)
 .disclosure > summary .label-note { margin-left: 8px; }
 .network-form > .form-field:first-child, .profile-create-fields > .form-field:first-child { margin-top: 0; }
 .network-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px 16px; }
-.network-fields .form-field, .typing-section .form-field { margin-top: 0; }
+.network-fields .form-field, .typing-section .form-field, .scripts-section .form-field { margin-top: 0; }
 .network-section { margin-top: 20px; padding-top: 20px; }
 .settings-section:first-child { border: 0; padding-top: 0; margin-top: 0; }
 .log-tools { display: flex; justify-content: flex-end; }

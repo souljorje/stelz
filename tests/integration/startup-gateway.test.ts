@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createControlRegistry } from "../../src/mcp/control-registry.ts";
+import { entries } from "../../src/browser/catalog.ts";
 import { initializedFingerprint } from "../../src/browser/fingerprint-transaction.ts";
 import { processStart } from "../../src/runtime/profile-process.ts";
 import { UPSTREAM_VERSION } from "../../src/versions.ts";
@@ -19,6 +20,8 @@ async function fixture() {
   mkdirSync(join(upstream, "mcp/lib"), { recursive: true });
   // The compiled plugin resolves the launcher from the runtime, as setup links it.
   symlinkSync(join(ROOT, "node_modules"), join(upstream, "node_modules"), "dir");
+  // It also loads the ARIA helpers from the Camofox tree.
+  symlinkSync(join(ROOT, "node_modules/@askjo/camofox-browser/lib"), join(upstream, "lib"), "dir");
   writeFileSync(join(directory, "profiles.json"), JSON.stringify({ profiles: [{ id: "test", port }] }));
   writeFileSync(join(directory, "runtime/versions.json"), "{}");
   writeFileSync(join(profile, "access-key"), "test-key");
@@ -33,9 +36,9 @@ async function fixture() {
   mkdirSync(join(directory, "fontconfig/linux"), { recursive: true });
   writeFileSync(join(directory, "fontconfig/linux/fonts.conf"), '<fontconfig><dir prefix="cwd">fonts</dir></fontconfig>');
   writeFileSync(join(upstream, "mcp/lib/tool-contracts.mjs"), `
-    export const TOOL_DEFS = [{ name: 'camofox_snapshot', description: 'snapshot', inputSchema: { type: 'object', required: ['tabId'] } }];
+    export const TOOL_DEFS = ${JSON.stringify(entries.filter(item => item.policy !== "held").map(item => item.upstream))}
+      .map(name => ({ name, description: name, inputSchema: { type: 'object', properties: { tabId: { type: 'string' } }, required: ['tabId'] } }));
     export async function runTool() { return globalThis.__gatewayAction(); }
-    export function adaptResponse(_spec, payload) { return [{ type: 'text', text: JSON.stringify(payload) }]; }
   `);
   const plugin = pathToFileURL(join(upstream, "plugins/local-profile/index.js")).href;
   writeFileSync(join(upstream, "server.js"), `
@@ -134,7 +137,7 @@ for (const mode of ["release", "disconnect"] as const) test(`the HTTP gateway pe
         return result.value;
       } });
     const acquired = await registry.acquire("test", "gateway-test");
-    const action = registry.run("test", acquired.controlHandle, "tool", { name: "camofox_snapshot",
+    const action = registry.run("test", acquired.controlHandle, "tool", { name: "tab_list",
       args: { tabId: "79bed5c4-d5b8-4369-9d13-b159451ece91" } }).catch(error => error);
     expect(String(await action)).toContain("time limit");
     expect(existsSync(join(f.profile, "action-started"))).toBe(true);
@@ -146,7 +149,7 @@ for (const mode of ["release", "disconnect"] as const) test(`the HTTP gateway pe
     expect((await f.request("release", { profileId: "test", instanceId: status.instanceId, controllerId: "foreign" })).code).toBe(200);
     expect((await f.request("status")).value.controller).toBeTruthy();
     expect((await f.request("acquire", { ...binding, id: "next", pid: process.pid, label: "test" })).code).toBe(409);
-    expect((await f.request("tool", { ...binding, controllerId: "foreign", name: "camofox_snapshot", args: {} })).code).toBe(409);
+    expect((await f.request("tool", { ...binding, controllerId: "foreign", name: "tab_list", args: {} })).code).toBe(409);
     let settled = false;
     const cleanup = (mode === "release" ? registry.release("test", acquired.controlHandle) : registry.close())
       .then(value => { settled = true; return value; });

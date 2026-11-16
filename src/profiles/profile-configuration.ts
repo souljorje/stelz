@@ -15,7 +15,7 @@ import {
   NetworkTransactionError, networkTransactionProfile, pendingNetworkTransaction,
   recoverNetworkTransaction, saveNetworkTransaction,
 } from "./network-transaction.ts";
-import type { ProfileCreate, ProfileRename, NetworkUpdate, TypingUpdate } from "./profile-configuration-types.ts";
+import type { ProfileCreate, ProfileRename, NetworkUpdate, TypingUpdate, ScriptsUpdate } from "./profile-configuration-types.ts";
 import { recoverProfileImportTransaction } from "./profile-import-transaction.ts";
 export type { ProfileCreate, ProfileRename, NetworkUpdate } from "./profile-configuration-types.ts";
 export { ProfileCatalogError, recoverProfileCatalog } from "./profile-catalog.ts";
@@ -71,7 +71,7 @@ function referencedElsewhere(config: Settings, p: Profile, name?: string) {
 
 export function networkRevision(config: Settings, p: Profile, secrets: Pick<ReturnType<typeof readSecrets>, "values">): string {
   return createHash("sha256").update(JSON.stringify({
-    config: { ...config, profiles: config.profiles.map(({ name: _name, typingMode: _typingMode, ...profile }) => profile) },
+    config: { ...config, profiles: config.profiles.map(({ name: _name, typingMode: _typingMode, allowScripts: _allowScripts, ...profile }) => profile) },
     proxy: p.proxyEnv ? [secrets.values[p.proxyEnv] ?? null, process.env[p.proxyEnv] ?? null] : null,
     expected: p.expectedIPEnv ? [secrets.values[p.expectedIPEnv] ?? null, process.env[p.expectedIPEnv] ?? null] : null,
   })).digest("hex");
@@ -374,6 +374,24 @@ export async function updateTyping(id: string, input: TypingUpdate) {
     const candidate = structuredClone(config), next = candidate.profiles.find(item => item.id === id)!;
     if (input.mode === null) delete next.typingMode;
     else next.typingMode = input.mode;
+    validateSettings(candidate);
+    // A single atomic catalog replacement needs no secrets-file transaction.
+    save(configFile, JSON.parse(serializeSettings(candidate)));
+    return { config: candidate, profile: next, secrets };
+  });
+}
+
+// Only a person sets the scripts switch, in the CLI or the UI. The value is explicit, so no revision is necessary.
+export async function updateScripts(id: string, input: ScriptsUpdate) {
+  const value = data(input);
+  if (!validId(id) || !input || Object.keys(value).some(key => key !== "allow") || typeof value.allow !== "boolean")
+    throw new ProfileConfigurationError(400, "Supply allow as true or false.");
+  return prepareProfileConfiguration(async () => {
+    const config = readSettings()!, secrets = readSecrets();
+    findProfile(config, id);
+    const candidate = structuredClone(config), next = candidate.profiles.find(item => item.id === id)!;
+    if (input.allow) next.allowScripts = true;
+    else delete next.allowScripts;
     validateSettings(candidate);
     // A single atomic catalog replacement needs no secrets-file transaction.
     save(configFile, JSON.parse(serializeSettings(candidate)));

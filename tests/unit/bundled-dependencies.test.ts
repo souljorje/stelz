@@ -13,10 +13,17 @@ const required = [
 
 test("the installed Camofox contains the committed patches", () => {
   const files = inspectBundledDependencies(resolve(import.meta.dir, "../.."));
-  expect(Object.keys(files)).toHaveLength(6);
-  expect(files["@askjo/camofox-browser/lib/stelz-click-guard.js"]).toContain("performing click action");
-  expect(files["@askjo/camofox-browser/lib/new-page-recovery.js"]).toContain("createProfilePage(session.context)");
+  expect(Object.keys(files)).toEqual(["@askjo/camofox-browser/server.js"]);
   expect(files["@askjo/camofox-browser/server.js"]).toContain("from 'camoufox';");
+  expect(files["@askjo/camofox-browser/server.js"]).toContain("clickWithFallback, isOrphanPage, ownPage } from './plugins/local-profile/index.js';");
+  expect(files["@askjo/camofox-browser/server.js"]).toContain(`await clickWithFallback({
+          click,
+          domClick: () => dispatchDomClick(locator),
+          mouseClick: () => dispatchMouseSequence(locator),
+          remainingBudget,
+          forceFirst: onGoogleSerp,
+        });`);
+  expect(files["@askjo/camofox-browser/server.js"]).not.toContain("trial: true");
 });
 
 test("bundled dependency sources and notices are permitted", () => {

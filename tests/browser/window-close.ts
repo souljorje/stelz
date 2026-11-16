@@ -1,11 +1,10 @@
 // Operator acceptance: close the single test browser window when prompted.
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { createTestHome } from "../helpers/test-home.ts";
 import { join, resolve } from "node:path";
 
 const root = resolve(import.meta.dir, "../..");
-mkdirSync(join(root, ".state"), { recursive: true });
-const home = createTestHome("window-close", join(root, ".state"));
+const home = createTestHome("window-close");
 process.env.STELZ_HOME = home;
 const { initialize, dir } = await import("../../src/profiles/config.ts");
 const { assertStoppedProfile, running } = await import("../../src/runtime/runtime.ts");

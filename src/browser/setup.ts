@@ -155,7 +155,8 @@ function validate(upstream: string) {
     if (!Array.isArray(contract.TOOL_DEFS) || typeof contract.runTool !== "function" || typeof contract.adaptResponse !== "function") {
       throw Error("Invalid Camofox tool contracts.");
     }
-    for (const name of ["register", "launchProfileBrowser", "claimProfileContext", "createProfilePage", "protectProfileStartup", "prepareProfileLaunch", "typeIntoLocator"]) {
+    for (const name of ["register", "launchProfileBrowser", "claimProfileContext", "protectProfileStartup", "prepareProfileLaunch", "typeIntoLocator",
+      "clickWithFallback", "ownPage", "isOrphanPage"]) {
       if (typeof plugin[name] !== "function") throw Error("Missing local-profile export: " + name);
     }
   `;
@@ -163,7 +164,6 @@ function validate(upstream: string) {
   for (const file of [
     "server.js",
     "node_modules/camoufox/dist/index.js",
-    "plugins/persistence/index.js",
     "plugins/local-profile/index.js",
   ]) {
     node(["--check", join(upstream, file)]);
@@ -173,7 +173,7 @@ function validate(upstream: string) {
 function stageRuntime(stage: string, source: string, browser: string, plugin: string) {
   const upstream = join(stage, `camofox-${UPSTREAM_VERSION}`);
   mkdirSync(upstream, { mode: 0o700 });
-  for (const name of ["server.js", "package.json", "LICENSE", "lib", "mcp", "plugins/persistence"]) {
+  for (const name of ["server.js", "package.json", "LICENSE", "lib", "mcp"]) {
     copy(join(source, name), join(upstream, name));
   }
   const dependencies = copyDependencies(source, upstream);
@@ -184,7 +184,7 @@ function stageRuntime(stage: string, source: string, browser: string, plugin: st
   copyFileSync(plugin, output);
   const config = {
     interactive: { mode: "desktop" },
-    plugins: { persistence: { enabled: true, indexedDB: true }, "local-profile": { enabled: true } },
+    plugins: { "local-profile": { enabled: true } },
   };
   writeFileSync(join(upstream, "camofox.config.json"), JSON.stringify(config, null, 2));
   writeManifest(stage, browser, dependencies);

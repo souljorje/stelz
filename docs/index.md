@@ -4,7 +4,7 @@ description: "Entrypoint that lists every Stelz guide, reference page, and contr
 tags: [documentation]
 sources: []
 created: 2026-11-02T15:09:08Z
-modified: 2026-11-11T14:55:54Z
+modified: 2026-11-15T15:00:00Z
 ---
 
 # Stelz documentation
@@ -30,6 +30,7 @@ Stelz runs persistent browser profiles that a coding agent controls through MCP.
 - [CLI](cli.md) — commands, options, outputs, and exit status.
 - [Configuration](configuration/index.md) — settings and saved data.
 - [Shared MCP tools](mcp.md) — the fixed tools and the control-handle contract.
+- [Script SDK](sdk.md) — control profiles from a Bun script with `start`, `acquire`, and page actions.
 - [Browser skill](../skills/stelz-browser/SKILL.md) — how an agent uses the tools.
 
 ## Contribute

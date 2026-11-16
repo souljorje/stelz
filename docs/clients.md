@@ -10,7 +10,7 @@ sources:
   - "https://hermes-agent.nousresearch.com/docs/user-guide/features/mcp"
   - "https://hermes-agent.nousresearch.com/docs/user-guide/features/skills"
 created: 2026-11-02T15:09:08Z
-modified: 2026-11-11T15:01:55Z
+modified: 2026-11-15T16:45:00Z
 ---
 
 # Connect your agent
@@ -20,7 +20,7 @@ Register `stelz mcp` once per client. See [Shared MCP tools](mcp.md).
 ## Before registration
 
 - Use the UI's service directory. See [Service directory and precedence](configuration/environment.md#service-directory-and-precedence).
-- Client tool timeout: at least 240 seconds, so a long `camofox_type` call can finish. A client timeout does not cancel the service operation. See [Typing](configuration/typing.md).
+- Client tool timeout: at least 240 seconds, so a long `tab_type` call can finish. A client timeout does not cancel the service operation. See [Typing](configuration/typing.md).
 
 Shell variables for the steps below:
 
@@ -30,6 +30,9 @@ STELZ_CLI="$(command -v stelz)"
 STELZ_SKILL="https://raw.githubusercontent.com/souljorje/stelz/main/skills/stelz-browser/SKILL.md"
 ```
 
+- Tool selection: `stelz mcp` lists the `core` tools. Add `--tools full` or `--tools core,tab_forward` to the command arguments to list more. See [Tool groups](mcp.md#tool-groups).
+- Scripts tools: `tab_evaluate` and `tab_init_script` appear only with `full` or by name, and only when a profile allows scripts. See [Scripts](mcp.md#scripts).
+- A permission list in your client names each tool, for example `mcp__stelz__tab_click`. After an update from an earlier version, replace the `camofox_*` names with the `tab_*` names.
 - The MCP process needs Bun and Node.js on PATH, even when a desktop application starts your agent. The examples pass the current PATH.
 - Custom Camoufox executable: see [Browser executable](configuration/environment.md#browser-executable).
 - The skill is one file. Install it only when its destination is absent. Preserve an existing file.
@@ -114,12 +117,12 @@ Copy the printed loopback URL. Ask your agent:
 > Use the shared Stelz tools. List profiles and select `work`. Create it if missing and start it if stopped.
 > Check its status and acquire control. Keep the returned handle with profile ID `work`.
 > Pass both fields to every control and browser call. Open this local URL: PASTE_URL.
-> Read a fresh accessibility snapshot. Click **Verify Stelz** using its observed element reference.
-> Read another snapshot. Check for **Stelz verified** and an increased persistent check count.
+> Read a fresh accessibility snapshot. Click **Verify Stelz** by its role and name.
+> Read the diff that the click returns. Check for **Stelz verified** and an increased persistent check count.
 > Release control and leave the browser open. Acquire again with a fresh handle.
 > Check the same page and result, then release again.
 
-- The agent must use its actual `profile_*` and `camofox_*` tools. See the [browser skill](../skills/stelz-browser/SKILL.md#do-a-browser-task).
+- The agent must use its actual `profile_*` and `tab_*` tools. See the [browser skill](../skills/stelz-browser/SKILL.md#do-a-browser-task).
 - Do not substitute a separate SDK script.
 - Success: the browser is **Ready**, has no controller, and keeps the demonstration page open.
 - Stop the demonstration server with Ctrl-C. The browser stays open.

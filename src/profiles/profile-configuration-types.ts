@@ -13,4 +13,5 @@ export type ProfileCreate = {
   expectedIp?: string;
 };
 export type TypingUpdate = { revision: string; mode: TypingMode | null };
+export type ScriptsUpdate = { allow: boolean };
 export type ProfileRename = { revision: string; name: string };

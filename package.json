@@ -18,6 +18,9 @@
   "bin": {
     "stelz": "src/cli/cli.ts"
   },
+  "exports": {
+    "./sdk": "./src/sdk/index.ts"
+  },
   "files": [
     "src/",
     "dist/plugin.js",
@@ -67,6 +70,7 @@
     "test:typing": "bun --no-env-file tests/browser/typing-browser.ts",
     "test:public": "bun --no-env-file tests/qa/public-sites.ts",
     "test:package": "bun --no-env-file tests/qa/package.ts",
+    "test:seed": "bun --no-env-file tests/helpers/browser-seed.ts",
     "typecheck": "tsc --noEmit",
     "test:concurrency": "bun --no-env-file tests/browser/concurrency.ts",
     "check": "bun run build && bun run typecheck && bun run check:docs && bun run test",
@@ -78,9 +82,9 @@
     "release": "changeset publish --from-pack-dir release-artifacts"
   },
   "dependencies": {
-    "@askjo/camofox-browser": "1.18.1",
+    "@askjo/camofox-browser": "1.19.0",
     "@modelcontextprotocol/sdk": "1.30.0",
-    "camoufox": "0.5.8",
+    "camoufox": "0.5.9",
     "hono": "4.13.16",
     "playwright-core": "1.62.1",
     "better-sqlite3": "13.0.1",
@@ -109,6 +113,6 @@
     "vite": "8.3.6"
   },
   "patchedDependencies": {
-    "@askjo/camofox-browser@1.18.1": "patches/@askjo%2Fcamofox-browser@1.18.1.patch"
+    "@askjo/camofox-browser@1.19.0": "patches/@askjo%2Fcamofox-browser@1.19.0.patch"
   }
 }

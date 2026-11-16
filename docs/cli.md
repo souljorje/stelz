@@ -20,12 +20,13 @@ modified: 2026-11-11T15:01:55Z
 | `stelz --help`, `stelz help`, `stelz` | Command syntax and the selected service directory. |
 | `stelz setup` | Setup summary. See below. |
 | `stelz ui` | Serves the UI. See [Open or close the manager](ui.md#open-or-close-the-manager). |
-| `stelz mcp` | Serves MCP over stdio. See [Shared MCP tools](mcp.md). |
+| `stelz mcp [--tools core\|full\|NAME,NAME]` | Serves MCP over stdio. See [Shared MCP tools](mcp.md). |
 
-- Options: `setup` takes `--yes` and `--json`. `ui` takes `--port PORT` and `--open`. Other commands take none.
+- Options: `setup` takes `--yes` and `--json`. `ui` takes `--port PORT` and `--open`. `mcp` takes `--tools VALUE`. Other commands take none.
 - `ui --port`: `1024`-`65535`. Default: `9380`.
 - `ui --open`: opens the UI URL in the system browser.
 - `ui` serves on `127.0.0.1` until shutdown.
+- `mcp --tools`: `core` (default), `full`, or a comma-separated list of tool names. The list can also hold `core` and `full`. An unknown name stops the command at startup. See [Tool groups](mcp.md#tool-groups).
 
 Setup:
 
@@ -76,6 +77,20 @@ stelz profile create work --json
   "profile": { "id": "work", "port": 9377, "storage": "native", "proxyConfigured": false }
 }
 ```
+
+### Allow scripts
+
+```sh
+stelz profile config work --allow-scripts
+stelz profile config work --no-allow-scripts --json
+```
+
+- Sets `allowScripts` for one profile. The default is off. Only a person can turn it on, here or with **Allow scripts** in the UI. MCP cannot.
+- The setting applies to a running browser at its next call. It does not change the browser configuration. `tab_evaluate` and `tab_init_script` need it. See [Scripts](mcp.md#scripts).
+- Turning it off does not remove scripts that `tab_init_script` registered. They stay until their tab closes.
+- Give exactly one of `--allow-scripts` and `--no-allow-scripts`. A repeated or unknown option fails.
+- Without `--json`: `Scripts are allowed for profile work.` or `Scripts are off for profile work.`.
+- With `--json`: `{ "ok": true, "home": "...", "profile": { "id": "work", "allowScripts": true } }`.
 
 ### Check a saved fingerprint
 
@@ -150,5 +165,5 @@ stelz profile create work --json
 { "ok": false, "error": { "code": "conflict", "message": "..." } }
 ```
 
-- Create codes: `not_initialized`, `invalid_input`, `conflict`, `profile_unavailable`. Transfer codes: `cancelled`, `invalid_input`, `conflict`, `too_large`, `transfer_failed`.
+- Create and config codes: `not_initialized`, `invalid_input`, `not_found` (config only), `conflict`, `profile_unavailable`. Transfer codes: `cancelled`, `invalid_input`, `conflict`, `too_large`, `transfer_failed`.
 - An early configuration-loading failure can produce `profile_unavailable` for any profile command.

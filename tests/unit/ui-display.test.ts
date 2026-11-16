@@ -2,16 +2,17 @@ import { describe, expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { TypingForm } from "../../ui/src/TypingForm.tsx";
+import { ScriptsForm } from "../../ui/src/ScriptsForm.tsx";
 import { NetworkForm } from "../../ui/src/NetworkForm.tsx";
 import { ProfileDetail } from "../../ui/src/ProfileDetail.tsx";
 import { ProxyField } from "../../ui/src/ProxyField.tsx";
 import { UI_ACTIONS } from "../../src/api/contracts.ts";
 import type { UiProfile, UiNetwork, UiPhase, UiSnapshot } from "../../src/api/contracts.ts";
-import { actionReason, boundedLog, hasProxy, homeCommand, mcpCommand, networkDirty, networkDraft, networkUpdate, proxyDisplay, redact, shellQuote } from "../../ui/src/model.ts";
+import { actionLabels, actionReason, boundedLog, hasProxy, homeCommand, mcpCommand, networkDirty, networkDraft, networkUpdate, proxyDisplay, redact, shellQuote } from "../../ui/src/model.ts";
 
 const network: UiNetwork = { revision: "revision-1", proxyEnv: null, expectedIPEnv: null, proxyDisplay: null, proxyConfigured: false, expectedIp: "203.0.113.1", proxyReadOnly: false, expectedIpReadOnly: false };
 function profile(phase: UiPhase, changes: Partial<UiProfile> = {}): UiProfile {
-  return { id: "profile-01", name: "profile-01", phase, port: 9340, storage: "native", typingMode: "balanced", typing: { revision: "typing-revision-1", mode: null, defaultMode: "balanced" }, restartToUpdate: false, instanceId: null, exitIp: null, checkedAt: null, fixedIpVerified: false, windowControls: { available: false, reason: null }, controller: null, supervisorPid: null, serverPid: null, ownership: null, fingerprintSha256: null, engineSha256: null, error: null, controlError: null, configurationError: null, network, ...changes };
+  return { id: "profile-01", name: "profile-01", phase, port: 9340, storage: "native", typingMode: "balanced", typing: { revision: "typing-revision-1", mode: null, defaultMode: "balanced" }, allowScripts: false, restartToUpdate: false, instanceId: null, exitIp: null, checkedAt: null, fixedIpVerified: false, windowControls: { available: false, reason: null }, controller: null, supervisorPid: null, serverPid: null, ownership: null, fingerprintSha256: null, engineSha256: null, error: null, controlError: null, configurationError: null, network, ...changes };
 }
 function context(row: UiProfile) {
   const snapshot: UiSnapshot = { home: "/tmp/stelz", version: "0.2.0", upstreamVersion: "1.18.1", initialized: true, setup: true, catalogRevision: "a".repeat(64), profiles: [row], updatedAt: new Date().toISOString() };
@@ -149,6 +150,40 @@ describe("typing preferences", () => {
   });
 });
 
+describe("scripts switch", () => {
+  const render = (row: UiProfile, connected = true, busy = false) => renderToStaticMarkup(createElement(ScriptsForm, {
+    profile: row, connected, busy, onSave: async () => { throw Error("Rendering must not save preferences."); },
+  }));
+  test("the switch is off by default and shows what it allows", () => {
+    const html = render(profile("ready"));
+    expect(html).toContain("Allow scripts");
+    expect(html).toMatch(/<input[^>]*type="checkbox"/);
+    expect(html).not.toMatch(/<input[^>]*checked/);
+    expect(html).toContain("tab_evaluate");
+    expect(html).toContain("MCP cannot");
+    expect(html).toContain("scripts that tab_init_script already registered");
+    expect(render(profile("ready", { allowScripts: true }))).toMatch(/<input[^>]*checked/);
+  });
+  test("offline, local pending, and another pending operation disable the switch", () => {
+    const row = profile("ready");
+    expect(render(row)).not.toMatch(/<input[^>]*disabled/);
+    for (const html of [render(row, false), render(row, true, true), render({ ...row, pendingAction: "stop" }), render({ ...row, pendingAction: "scripts" })])
+      expect(html).toMatch(/<input[^>]*disabled/);
+    expect(render({ ...row, pendingAction: "stop" })).toContain("Wait for the current service action to finish.");
+  });
+  test("the profile page shows the switch next to typing, and the recheck button is named Recheck", () => {
+    const row = profile("ready"), ctx = context(row);
+    const html = renderToStaticMarkup(createElement(ProfileDetail, {
+      profile: row, snapshot: ctx.snapshot, context: ctx, mutationVersion: 0,
+      onAction: () => {}, onSave: async () => row, onTypingSave: async () => row, onScriptsSave: async () => row,
+      onBack: () => {}, onDirtyChange: () => {}, onDelete: () => {}, onShow: async () => {}, onExport: () => {},
+    }));
+    expect(html.indexOf("Default typing mode")).toBeGreaterThan(-1);
+    expect(html.indexOf("Allow scripts")).toBeGreaterThan(html.indexOf("Default typing mode"));
+    expect(actionLabels.recheck).toBe("Recheck");
+  });
+});
+
 describe("display boundaries", () => {
   test("proxy display exposes only the scheme and host", () => {
     expect(proxyDisplay("http://user:password@proxy.example:8080/private?token=secret#secret")).toBe("http://proxy.example:8080");
@@ -172,7 +207,7 @@ describe("display boundaries", () => {
       const row = profile("stopped", { id, name: "Display name" }), ctx = context(row);
       const html = renderToStaticMarkup(createElement(ProfileDetail, {
         profile: row, snapshot: ctx.snapshot, context: ctx, mutationVersion: 0,
-        onAction: () => {}, onSave: async () => row, onTypingSave: async () => row,
+        onAction: () => {}, onSave: async () => row, onTypingSave: async () => row, onScriptsSave: async () => row,
         onBack: () => {}, onDirtyChange: () => {}, onDelete: () => {}, onShow: async () => {}, onExport: () => {},
       }));
       expect(html).toContain("Copy shared MCP command");

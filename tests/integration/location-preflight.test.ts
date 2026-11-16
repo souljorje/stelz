@@ -7,6 +7,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { createMockPackage } from "../helpers/mock-package.ts";
 import { fixtureLocation, fixtureModel, managedFixture, geoipFixture } from "../helpers/geoip-fixture.ts";
 import { UPSTREAM_VERSION } from "../../src/versions.ts";
+import { pairedBrowser } from "../../src/browser/camoufox.ts";
 
 const homes: string[] = [];
 afterEach(() => { for (const home of homes.splice(0)) rmSync(home, { recursive: true, force: true }); });
@@ -22,7 +23,7 @@ function fixture(ipCode?: string) {
   writeFileSync(join(upstream, "server.js"), "throw Error('A blocked preflight must never launch this server');");
   fixtureLocation(home, pkg.packageRoot, ipCode);
   writeFileSync(join(home, "browser"), "fixture executable");
-  writeFileSync(join(home, "application.ini"), "[App]\nVersion=156.0.1-beta.36\n");
+  writeFileSync(join(home, "application.ini"), `[App]\nVersion=${pairedBrowser()}\n`);
   fixtureModel(join(home, "runtime/fpgen"));
   writeFileSync(join(home, "runtime/versions.json"), "{}");
   writeFileSync(join(home, "profiles.json"), JSON.stringify({ profiles: [{ id: "test", port: 19378, proxyEnv: "TEST_PROXY" }] }));
@@ -70,7 +71,8 @@ for (const condition of ["missing", "corrupt", "incompatible", "incomplete"] as 
   const client = new Client({ name: "geoip-test", version: "1" });
   try {
     await client.connect(new StdioClientTransport({ command: process.execPath, args: ["--no-env-file", f.cliPath, "mcp"], env: f.env as Record<string, string>, stderr: "pipe" }));
-    expect((await client.listTools()).tools).toHaveLength(18);
+    // The default group is core: nine profile tools and thirteen tab tools.
+    expect((await client.listTools()).tools).toHaveLength(22);
     const result = await client.callTool({ name: "profile_start", arguments: { profileId: "test" } });
     expect(result.isError).toBe(true);
     expect(JSON.parse((result.content as { text: string }[])[0]!.text)).toMatchObject({ location: { code, browserStarted: false } });
@@ -150,7 +152,7 @@ test("Start repeats network preflight after a green UI result", async () => {
 
 test("changed engine, integration, dataset and expected IP invalidate old green results", async () => {
   const f = fixture();
-  for (const file of [join(f.home, "browser"), join(f.upstream, "lib/browser-identity.js")]) {
+  for (const file of [join(f.home, "browser"), join(f.upstream, "server.js")]) {
     expect((await f.cli("recheck")).code).toBe(0);
     writeFileSync(file, readFileSync(file, "utf8") + "\n// new version");
     expect(await f.script(`return (await runtime.reportStatus('test')).location;`)).toMatchObject({ status: "not_checked", valid: false });
@@ -168,16 +170,19 @@ test("changed engine, integration, dataset and expected IP invalidate old green 
 test("the launch adapter applies checked options and closes a failed preparation without disabled GeoIP", async () => {
   const f = fixture(); expect((await f.cli("recheck")).code).toBe(0);
   const result = await f.script(`
+    const {launcher}=await import(${JSON.stringify(join(f.packageRoot, "src/browser/camoufox.ts"))});
+    launcher(); // Load native dependencies for the actual host before simulating macOS admission.
     Object.defineProperty(process,'platform',{value:'darwin'});
     const {prepareProfileLaunch}=await import(${JSON.stringify(join(f.packageRoot, "src/browser/location-launch.ts"))});
     const path=config.dir('test')+'/location.json', record=JSON.parse(readFileSync(path,'utf8'));record.attemptId='attempt';
-    Object.assign(process.env,{STELZ_PROFILE_DIR:config.dir('test'),STELZ_RUNTIME:config.runtimeDir(),STELZ_UPSTREAM:config.upstream(),PROXY_HOST:'proxy.test',STELZ_START_ID:'attempt',STELZ_LOCATION_LAUNCH:JSON.stringify(record)});
+    Object.assign(process.env,{STELZ_CAMOUFOX_EXECUTABLE:config.executable(),STELZ_PROFILE_DIR:config.dir('test'),STELZ_RUNTIME:config.runtimeDir(),STELZ_UPSTREAM:config.upstream(),PROXY_HOST:'proxy.test',STELZ_START_ID:'attempt',STELZ_LOCATION_LAUNCH:JSON.stringify(record)});
     const options=await prepareProfileLaunch({proxy:{server:'http://proxy.test:8080'}},async options=>options);
     let terminated=false;process.kill=()=>{terminated=true;return true};
     try {await prepareProfileLaunch({proxy:{server:'http://proxy.test:8080'}},async()=>{throw Error('fixture-password')});}catch{}
     await Bun.sleep(40);
     return {options,terminated,result:JSON.parse(readFileSync(path,'utf8')).result};`);
-  expect(result.options).toMatchObject({ geoip: false, ff_version: "156", i_know_what_im_doing: true, timezoneId: "Europe/London", config: { timezone: "Europe/London" } });
+  expect(result.options, JSON.stringify(result)).toMatchObject({ geoip: false, ff_version: pairedBrowser().split(".")[0], i_know_what_im_doing: true, timezoneId: "Europe/London", config: { timezone: "Europe/London" },
+    block_webrtc: true, window: [1200, 800], screen: { minWidth: 1280, minHeight: 900, maxWidth: 1920, maxHeight: 1200 } });
   expect(result).toMatchObject({ terminated: true, result: { code: "LOCATION_PREPARATION_FAILED", browserStarted: false, nextAction: { kind: "run_setup" } } });
   expect(JSON.stringify(result)).not.toContain("fixture-password");
 });
@@ -203,7 +208,7 @@ test("the supervisor cleans its unlaunched reservation when a resolved secret di
 
 test("stale Camofox integration blocks recheck before it can probe", async () => {
   const f = fixture('throw Error("Network probe must not run");');
-  writeFileSync(join(f.upstream, "lib/browser-identity.js"), "if (hasProxy) return { permissions: ['geolocation'] };");
+  writeFileSync(join(f.upstream, "server.js"), "return await launchOptions({ ...baseOptions, geoip: false });");
   expect(await f.script(`return (await runtime.reportStatus('test')).location;`)).toMatchObject({ code: "GEOIP_RUNTIME_MISSING", status: "blocked" });
   const checked = await f.cli("recheck"); expect(checked.code).toBe(1);
   expect(JSON.parse(checked.error)).toMatchObject({ location: { code: "GEOIP_RUNTIME_MISSING", nextAction: { command: "stelz setup" } } });

@@ -20,8 +20,8 @@ Bun.plugin({ name: "fixed-public-ip", setup(build) { build.onLoad({ filter: /src
   contents: 'export async function publicIP(proxy: string, signal: AbortSignal) { return "198.51.100.10"; }' })); } });
 const { processStart } = await import("../../src/runtime/runtime.ts");
 const { createUiServer, createUiSessionState } = await import("../../src/api/ui-server.ts");
-const reports = join(root, ".state/ui-browser");
-mkdirSync(reports, { recursive: true });
+const { stageFingerprint, commitFingerprint, writeInitialized } = await import("../../src/browser/fingerprint-transaction.ts");
+const reports = mkdtempSync(join(tmpdir(), "stelz-ui-browser-"));
 const commands: string[] = [];
 const windowSelections: { id: string; windowId?: number; tabId?: number }[] = [];
 const unavailableWindows = new Set<string>();
@@ -31,6 +31,9 @@ const services: ReturnType<typeof Bun.serve>[] = [];
 const profiles: { id: string; port: number; storage: "native"; proxyEnv?: string; expectedIPEnv?: string }[] = [];
 const born = processStart(process.pid)!;
 const digest = createHash("sha256").update("ui-browser-fixture").digest("hex");
+const configurationHash = "fixture";
+// Each profile has one reservation ID. The browser instance ID in the state is a different value.
+const reservations = new Map<string, string>();
 
 function writeState(id: string, state: Record<string, unknown>) {
   const folder = join(home, "profiles", id);
@@ -39,7 +42,7 @@ function writeState(id: string, state: Record<string, unknown>) {
   if (state.phase === "stopped") rmSync(running, { force: true });
   else writeFileSync(running, JSON.stringify({
     version: 2, pid: process.pid, serverPid: process.pid, supervisorStart: born, serverStart: born,
-    serverState: "started", instanceId: state.instanceId, configurationHash: "fixture", port: profiles.find(p => p.id === id)!.port,
+    serverState: "started", instanceId: reservations.get(id), configurationHash, port: profiles.find(p => p.id === id)!.port,
   }), { mode: 0o600 });
 }
 
@@ -81,14 +84,25 @@ for (const [index, id] of ["profile-01", "profile-02"].entries()) {
     controller: index === 0 ? { id: randomUUID(), pid: process.pid, label: "MCP client", activeActions: 0, releasing: false } : null };
   states.set(id, state);
   writeFileSync(join(folder, "access-key"), key, { mode: 0o600 });
-  writeFileSync(join(folder, "fingerprint.json"), JSON.stringify({ version: 2, engineSha256: digest, config: {
+  const pin = { version: 2, engineSha256: digest, config: {
     "navigator.userAgent": "Stelz UI fixture",
     "navigator.platform": "MacIntel", "navigator.oscpu": "Intel Mac OS X 10.15", "navigator.hardwareConcurrency": 8,
     "screen.width": 1440, "screen.height": 900, "screen.colorDepth": 24,
     "webGl:vendor": "Apple", "webGl:renderer": "Apple M2",
-  } }), { mode: 0o600 });
+  } };
+  writeFileSync(join(folder, "fingerprint.json"), JSON.stringify(pin), { mode: 0o600 });
   writeFileSync(join(folder, "server.log"), "Browser service ready.\nProxy http://fixture-user:fixture-password@proxy.example:8080\n", { mode: 0o600 });
   writeFileSync(join(folder, "supervisor.log"), "Supervisor ready.\n", { mode: 0o600 });
+  // The UI reports a live phase only after the fingerprint is committed and initialized. The product writers record that proof.
+  // Staging needs a reservation, so a stopped profile has one until the last write removes it.
+  const attemptId = randomUUID(), browserInstanceId = state.instanceId as string;
+  reservations.set(id, attemptId);
+  writeState(id, { ...state, phase: "ready" });
+  const owner = { profileId: id, attemptId, browserInstanceId, configurationHash, serverPid: process.pid };
+  const journal = stageFingerprint(folder, owner, pin, digest);
+  commitFingerprint(folder, owner, journal.sha256);
+  writeInitialized(folder, { instanceId: attemptId, browserInstanceId, configurationHash, fingerprintSha256: journal.sha256 });
+  state.pinSha256 = journal.sha256;
   writeState(id, state);
 }
 writeFileSync(join(home, "profiles.json"), JSON.stringify({ profiles: profiles }), { mode: 0o600 });
@@ -407,7 +421,7 @@ if (process.argv.includes("--serve")) {
     try {
       await page.getByRole("button", { name: "Refresh service state", exact: true }).click();
       await page.waitForFunction(() => document.querySelector<HTMLSelectElement>('#typing-profile-01')?.disabled === true);
-      await page.getByText("Wait for the current service action to finish.", { exact: true }).waitFor();
+      await page.locator("#typing-profile-01-status").filter({ hasText: "Wait for the current service action to finish." }).waitFor();
     } finally { sessionState.pending.delete("profile-01"); }
     await page.getByRole("button", { name: "Refresh service state", exact: true }).click();
     await page.waitForFunction(() => document.querySelector<HTMLSelectElement>('#typing-profile-01')?.disabled === false);
@@ -514,5 +528,6 @@ if (process.argv.includes("--serve")) {
     writeFileSync(join(reports, "report.json"), JSON.stringify({ result: "passed", browserErrors: errors, externalRequests: external, commands,
       checks: ["one-use session bootstrap", "fragment removed", "read-only initial observation", "offline bundled assets", "desktop/tablet/mobile layout", "mobile navigation with keyboard selection", "detail and settings responsive layouts", "state-specific lifecycle controls", "network save without credential echo", "dirty form survives polling", "explicit pause and resume", "stop confirmation", "read-only device", "redacted logs", "MCP service home", "diagnostics", "controller release preserves browser", "create direct and proxy profiles", "creation never starts browsers", "running profile deletion unavailable", "typed deletion confirmation", "deleted profiles archived", "create dialog desktop/mobile layout", "UI close preserves browser", "UI shutdown protects unsaved edits", "UI shutdown expires session", "UI shutdown stops polling and listener", "UI shutdown preserves running browsers", "ended session desktop/mobile layout"] }, null, 2));
     console.log(`UI browser checks passed. Screenshots: ${reports}`);
+    console.log("Report: " + join(reports, "report.json"));
   } finally { await browser.close(); close(); }
 }

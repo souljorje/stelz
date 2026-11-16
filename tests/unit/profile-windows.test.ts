@@ -84,16 +84,17 @@ test("network verification grants only its fixed providers to the private backgr
   expect(manifest.web_accessible_resources).toBeUndefined();
   expect(readFileSync(join(bridge.extensionPath, "background.js"), "utf8")).toContain("/local-profile/network-bridge");
   expect(readFileSync(join(bridge.extensionPath, "profile.html"), "utf8")).not.toContain("private-network-key");
-  bridge.prepare({ server: "http://proxy.test:3128", username: "private-proxy-user", password: "already decoded@password" });
+  const auth = bridge.prepare({ server: "http://proxy.test:3128", username: "private-proxy-user", password: "already decoded@password" });
+  expect(auth).toEqual({ host: "proxy.test", port: 3128, username: "private-proxy-user", password: "already decoded@password" });
   const authenticated = JSON.parse(readFileSync(join(bridge.extensionPath, "manifest.json"), "utf8"));
   expect(authenticated.permissions.slice(-2)).toEqual(["webRequest", "webRequestBlocking"]);
-  for (const file of ["manifest.json", "profile.html", "profile.svg"]) {
+  for (const file of ["manifest.json", "profile.html", "profile.svg", "background.js"]) {
     expect(readFileSync(join(bridge.extensionPath, file), "utf8")).not.toContain("private-proxy-user");
     expect(readFileSync(join(bridge.extensionPath, file), "utf8")).not.toContain("already decoded@password");
   }
   const script = readFileSync(join(bridge.extensionPath, "background.js"), "utf8");
-  expect(script).toContain('"host":"proxy.test","port":3128');
-  expect(script).toContain('"password":"already decoded@password"');
+  expect(script).toContain('"proxyAuthentication":true');
+  expect(script).not.toContain('"host":"proxy.test"');
   expect(statSync(join(bridge.extensionPath, "background.js")).mode & 0o777).toBe(0o600);
 });
 
