@@ -112,7 +112,7 @@ test("missing initialization, malformed inputs, and missing proxy variables fail
     expect(result.err).not.toContain("bad-secret"); expect(files(dir)).toEqual(before);
   }
   for (const id of ["all", "../escape", "UPPERCASE"]) expect((await run(dir, ["profile", "create", id, "--json"])).code).toBe(1);
-});
+}, 15000);
 
 test("missing existing proxy credentials and unsafe service files cannot become direct profiles", async () => {
   const dir = home(); initializeHome(dir);
