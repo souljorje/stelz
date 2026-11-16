@@ -155,7 +155,7 @@ try {
   const long = (await call(a.client, "tab_create", { url: `${pageServer.url}/?pagination` })).tabId as string;
   let page = await snapshot(a.client, { tabId: long });
   const viewId = page.header.viewId as string, windows = [page.text];
-  assert(page.header.truncated === true && typeof page.header.nextOffset === "number", "The long page was not cut");
+  assert(page.header.truncated === true && typeof page.header.nextOffset === "number" && page.header.nextOffset > 0, "The long page has no positive continuation offset");
   await rejection(a.client, "tab_snapshot", { tabId: long, offset: page.header.nextOffset });
   await rejection(a.client, "tab_snapshot", { tabId: long, offset: page.header.nextOffset, viewId: "v0" });
   for (let n = 0; typeof page.header.nextOffset === "number"; n++) {
@@ -165,7 +165,8 @@ try {
     windows.push(page.text);
   }
   const joined = windows.join("\n");
-  assert(windows.length > 2 && joined.includes("Pagination row 0:") && joined.includes("Pagination row 899:") && joined.split("Pagination row 450:").length === 2,
+  const rows = [...joined.matchAll(/Pagination row (\d+):/g)].map(match => Number(match[1]));
+  assert(windows.length > 2 && rows.length === 900 && rows.every((row, index) => row === index),
     "The windows do not add up to the page");
   await call(a.client, "tab_close", { tabId: long }); await call(a.client, "tab_close", { tabId: shaped });
   report.push({ check: "A viewId pages a long snapshot without a gap or an overlap", result: "passed", evidence: { windows: windows.length } });

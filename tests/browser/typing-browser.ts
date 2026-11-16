@@ -147,6 +147,8 @@ export async function runTyping(shared?: { home: string; profileId: string; cli:
     assert(inputs.length >= text.length, "Paced typing did not produce per-character input events.");
     keyboardEvents(paced, text);
     assert(Math.max(...gaps) - Math.min(...gaps) > 20, "Typing intervals did not vary.");
+    // The helper checks the message field. Also reject an extra Enter on another element.
+    assert(paced.events.filter(event => event.type === "keydown" && event.key === "Enter").length === 1, "Enter was not pressed exactly once across the page.");
     checks.push({ check: "paced replacement, varied timing, browser-generated events, one Enter", inputEvents: inputs.length,
       minIntervalMs: Math.round(Math.min(...gaps)), maxIntervalMs: Math.round(Math.max(...gaps)) });
     for (const [id, value, expected] of [
