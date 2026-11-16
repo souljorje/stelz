@@ -25,7 +25,8 @@ modified: 2026-11-15T17:14:33Z
 | Release candidate | [Installed-package acceptance](acceptance.md#installed-package-acceptance) |
 
 - `check`: build, typecheck, `check:docs` (relative Markdown links, with linkinator), and all tests that need no browser.
-- After a fix, run only the browser suites that `bunx lefthook run browser` selects. `lefthook.yml` holds the file map.
+- After a fix, run only the browser suites that `bunx lefthook run browser` selects. `tests/browser/suites.yml` holds the file map.
+- `STELZ_DRY_RUN=echo bunx lefthook run browser` prints the selected commands. Use `--file PATH` to select a path explicitly.
 - Run the full archive suites once per candidate, not after each fix.
 
 ## Tests without browsers
@@ -35,7 +36,9 @@ Bun runs `tests/unit/` and `tests/integration/`. Node runs `tests/regression/`.
 ## Browser fixtures and cleanup
 
 - Build before any browser suite.
-- `bunx lefthook run browser` builds the package and prepares one runtime in `.state/browser-seed`. Each suite clones it into its own new home, so setup downloads nothing. The next run replaces it.
+- When selected suites need a source runtime, `bunx lefthook run browser` builds and prepares one in `.state/browser-seed`. Suites clone it into disposable homes. The next run replaces it.
+- When integration and typing are both selected, typing reuses an integration browser. It restores configuration, closes its fixture tab, and releases control. Integration stops the browsers.
+- Integration alone does not add typing. Typing alone creates and stops its own browser. All restart and native stability checks remain unchanged.
 - Browser runs keep location data between runs in `.state/seed-cache`, and setup refreshes it when it is old ([rule](../configuration/network.md#managed-location-data)).
 - A suite that you run by hand prepares its own runtime.
 - Suites use independent MCP SDK clients and synthetic local pages. No model credentials.

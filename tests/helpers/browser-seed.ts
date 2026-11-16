@@ -1,4 +1,4 @@
-// Prepare the one runtime that a browser run shares. lefthook.yml gives its path to every suite as STELZ_TEST_SEED_HOME.
+// Prepare the one runtime that a browser run shares. scripts/browser-tests.ts sets STELZ_TEST_SEED_HOME for each suite.
 // Each run replaces the earlier one first, because the patch, the plugin, or the dependencies can change.
 // A failed step leaves no seed, so the suites fail at once and never clone an old runtime.
 // The location data and the fingerprint model survive in a cache outside the seed. Setup reads it as the current runtime,

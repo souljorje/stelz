@@ -1,0 +1,62 @@
+# Browser suite selection. scripts/browser-tests.ts runs the selected suites in order.
+- name: integration
+  seed: true
+  glob:
+    - &core "{tests/browser/suites.yml,scripts/browser-tests.ts,bun.lock,patches/**,scripts/{bundle-package,bundled-dependencies}.ts,src/mcp/**,\
+      src/runtime/{operations,profile-process,runtime-plugin,runtime,supervisor}.ts,\
+      src/browser/{aria,camofox-adapter,camoufox,catalog,click-guard,deadlines,location-launch,native-dependencies,native-profile,page-ownership,plugin,snapshot-tracker,snapshot-view,tab-state,targets}.ts,\
+      src/profiles/allow-scripts.ts,\
+      tests/helpers/{fixture,fixture-browser,mcp-client,ports,startup-window,test-home}.ts}"
+    - &startup "{package.json,scripts/build.ts,src/{paths,versions}.ts,src/cli/{cli,profile,profile-fingerprint}.ts,\
+      src/browser/{browser-setup,release-asset,setup}.ts,\
+      src/profiles/{config,profile-catalog,profile-configuration,profile-configuration-types}.ts}"
+    - "{src/sdk/**,tests/browser/{integration,sdk-job}.ts}"
+  script: test:integration
+- name: concurrency
+  seed: true
+  glob: [*core, tests/browser/concurrency.ts]
+  script: test:concurrency
+- name: native
+  seed: true
+  glob: [*core, "src/browser/fingerprint*.ts", src/profiles/fingerprint-check.ts, tests/helpers/observations.ts, tests/browser/native-integration.ts]
+  script: test:native
+- name: transfer
+  seed: true
+  glob: [*core, "src/profiles/profile-{archive,export,import,import-transaction,transfer-types}.ts", "src/api/{profile-transfers,transfer-contracts}.ts", src/cli/profile-transfer.ts, tests/browser/profile-transfer.ts]
+  script: test:transfer
+- name: windows
+  seed: true
+  glob:
+    - *core
+    - &windows "{src/browser/{profile-appearance,profile-extension,profile-windows,window-activation}.ts,src/api/{contracts,window-model}.ts}"
+    - tests/browser/profile-windows-browser.ts
+  script: test:windows
+- name: window-close
+  seed: true
+  glob: [*core, *windows, tests/browser/window-close.ts]
+  script: test:window-close
+- name: typing
+  seed: true
+  glob: [*core, src/browser/typing.ts, src/profiles/typing-mode.ts, tests/helpers/upstream-typing.ts, tests/browser/typing-browser.ts]
+  script: test:typing
+- name: proxy
+  seed: true
+  glob:
+    - *core
+    - &location "{src/browser/{geoip-setup,ip-probe,ip-verification,location}.ts,\
+      src/runtime/{location-preflight,public-ip}.ts,src/profiles/{network-transaction,proxy-input,proxy-url}.ts,\
+      tests/helpers/{observations,*proxy*}.ts}"
+    - tests/browser/proxy-integration.ts
+  script: test:proxy
+- name: ui
+  glob: [*core, "ui/**", "src/api/{contracts,ui-app,ui-model,ui-server,window-model}.ts", tests/helpers/geoip-fixture.ts, tests/browser/ui-browser.ts]
+  script: test:ui:browser
+# Package suites test the packed archive.
+- name: setup
+  glob: [*core, *startup, src/browser/geoip-setup.ts, "scripts/{pack,package-archive}.ts", "tests/package/{install,setup}.ts", tests/helpers/native-dependencies.ts]
+  script: test:setup
+  archive: true
+- name: location
+  glob: [*core, *location, "scripts/{pack,package-archive}.ts", "tests/package/{install,location}.ts", tests/helpers/native-dependencies.ts]
+  script: test:location
+  archive: true

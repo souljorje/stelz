@@ -8,6 +8,7 @@ import { unusedPorts } from "../helpers/ports.ts";
 import { assertTestHome, createTestHome } from "../helpers/test-home.ts";
 import { parseToolText, routeProfileTools } from "../helpers/mcp-client.ts";
 import { assertSingleStartupWindow } from "../helpers/startup-window.ts";
+import { runTyping } from "./typing-browser.ts";
 const root = resolve(import.meta.dir, "../..");
 const home = process.env.STELZ_TEST_HOME ? assertTestHome(process.env.STELZ_TEST_HOME)
   : createTestHome("standalone-acceptance", join(root, ".state"));
@@ -89,7 +90,7 @@ try {
     await assertSingleStartupWindow(home, id, await call(client, "tab_list"));
     tabs[id] = tabId!;
     await call(client, "tab_navigate", { tabId, url: `${pageServer.url}/?profile=${id}` });
-    await call(client, "tab_type", { tabId: tabs[id], selector: "#marker", text: id });
+    await call(client, "tab_type", { tabId: tabs[id], selector: "#marker", text: id, mode: "instant" });
     await call(client, "tab_click", { tabId: tabs[id], selector: "#save" });
     const snapshot = await call(client, "tab_snapshot", { tabId: tabs[id] });
     assert(String(snapshot.snapshot).includes(`Storage marker: ${id}`), "Storage marker is missing from the browser snapshot");
@@ -254,7 +255,7 @@ try {
     assert(pin(id) === pins[id as keyof typeof pins], "Restart changed a saved fingerprint"); await next.client.close();
   }
   report.push({ check: "Separate storage and saved fingerprints survive explicit stop and start", result: "passed" });
-  // The SDK, as a script uses it, with the SDK module of the same package as the CLI. It runs last. Its job navigates profile-01 and writes nothing that another check reads.
+  // Use the SDK from the same package as the CLI. The job leaves its tabs open. Typing, when selected, must preserve them.
   const sdkBefore = JSON.stringify(instance("profile-01"));
   await runBun(join(root, "tests/browser/sdk-job.ts"), join(dirname(cli), "../sdk/index.ts"), "profile-01", pageServer.url);
   const afterJob = await connect("profile-01", "after-sdk-job");
@@ -264,6 +265,18 @@ try {
   assert(JSON.stringify(instance("profile-01")) === sdkBefore, "The SDK job or its repeated start relaunched the browser");
   await afterJob.client.close();
   report.push({ check: "An SDK job starts a running profile again, acts, fails clearly, releases control, and leaves the browser and tabs open", result: "passed" });
+  if (process.argv.includes("--typing")) {
+    const config = readFileSync(join(home, "profiles.json"), "utf8");
+    const lifetime = JSON.stringify(instance("profile-01"));
+    await runTyping({ home, profileId: "profile-01", cli });
+    assert(readFileSync(join(home, "profiles.json"), "utf8") === config, "Typing changed the integration profile configuration");
+    assert(JSON.stringify(instance("profile-01")) === lifetime, "Typing replaced the integration browser");
+    const afterTyping = await connect("profile-01", "after-typing");
+    await call(afterTyping.client, "profile_acquire");
+    assert(JSON.stringify(await call(afterTyping.client, "tab_list")) === jobTabs, "Typing changed another test's tabs");
+    await afterTyping.client.close();
+    report.push({ check: "Typing reuses the integration browser, restores configuration, releases control, and closes only its fixture tab", result: "passed" });
+  }
   report.push({ check: "Handoff between two installed LLM harnesses", result: "unverified", reason: "SDK clients prove the protocol. Actual Codex, Claude Code and Hermes integration needs separate validation." });
   report.push({ check: "Supplied fixed-IP proxies and human takeover", result: "unverified", reason: "No proxy credentials or human action were supplied." });
 } catch (e) { report.push({ check: "Acceptance run", result: "failed", error: String(e) }); process.exitCode = 1; }
