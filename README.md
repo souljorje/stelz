@@ -1,17 +1,19 @@
 # <picture><source media="(prefers-color-scheme: dark)" srcset="assets/brand/stelz-logo-full-dark.svg"><source media="(prefers-color-scheme: light)" srcset="assets/brand/stelz-logo-full.svg"><img src="assets/brand/stelz-logo-full.svg" alt="stelz" height="30"></picture> [![npm version](https://img.shields.io/npm/v/stelz)](https://www.npmjs.com/package/stelz) [![CI](https://github.com/souljorje/stelz/actions/workflows/ci.yml/badge.svg)](https://github.com/souljorje/stelz/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**Stealth browser for AI agents**
+## Stealth browser for AI agents
 
 Give your agents a real antidetect browser with a persistent profile.  
 Runs on MCP. Powered by Camoufox.
+
+![Stelz demo: agents use separate browser profiles, then create a profile with a proxy](assets/screenshots/stelz-demo.gif)
+
+## Features
 
 - **Real browser** with human-like behavior: typing, scrolling, etc
 - **Persistent**: keep logins and saved device settings between browser runs
 - **Concurrent**: multiple profiles with own **unique fingerprint** and proxy
 - **Сontrolled**: pause your agent for manual work in the same window
 - **Token efficient**: agent reads accessibility snapshots, not screenshots
-
-![Stelz profile manager with disposable work and research profiles](assets/screenshots/stelz-overview.png)
 
 ## Quickstart
 
