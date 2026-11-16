@@ -11,6 +11,7 @@ import { createHash } from "node:crypto";
 import { freezeDevice, replayFingerprint, launchPreferences, applyProxyLocale } from "../../src/browser/fingerprint.ts";
 import { locationResult } from "../../src/browser/location.ts";
 import { register } from "../../src/browser/plugin.ts";
+import { uncertainClickError, UNCERTAIN_CLICK } from "../../src/browser/click-guard.ts";
 import { browserTools } from "../../src/browser/catalog.ts";
 import { commitFingerprint, readFingerprintJournal, stageFingerprint, writeInitialized } from "../../src/browser/fingerprint-transaction.ts";
 import { upstreamTyping } from "../helpers/upstream-typing.ts";
@@ -2192,15 +2193,39 @@ test("a slow read after an action that finishes within its limit is not cut shor
   } finally { await f.close(); }
 });
 
-test("a failed action returns its error and no observation, also an uncertain click", async () => {
+test("an uncertain click blocks the lifetime, further actions, and release/reacquire without retries", async () => {
   const f = await snapshotFixture();
   try {
     await f.start();
     payloadOf(await f.read("tab_snapshot"));
-    const uncertain = "The click may have reached the page, so Stelz did not try again. Read tab_snapshot, then decide whether to click again.";
-    f.state.act = path => path.endsWith("/click") ? { code: 409, payload: { error: uncertain } } : undefined;
+    const error = uncertainClickError(Error("locator.click: Timeout 23000ms exceeded. performing click action"));
+    f.state.act = path => path.endsWith("/click") ? { code: error.statusCode, payload: { error: error.message, retryable: false } } : undefined;
     const before = f.requests.length;
-    assert.match(errorOf(await f.read("tab_click", { selector: "#save" })), /The click may have reached the page/);
+    const response = await f.read("tab_click", { selector: "#save" });
+    assert.equal(response.code, 409);
+    assert.match(errorOf(response), /^409:/);
+    assert.ok(errorOf(response).includes(UNCERTAIN_CLICK));
+    assert.equal(f.h.state().phase, "blocked");
+    assert.equal(f.h.state().error, UNCERTAIN_CLICK);
+    // No retry or observation follows the uncertain action, including after a release.
+    assert.match(errorOf(await f.read("tab_click", { selector: "#save" })), /Profile is blocked/);
+    assert.match(errorOf(await f.read("tab_snapshot")), /Profile is blocked/);
+    assert.equal((await f.h.request("release", { controllerId: controller.id })).code, 200);
+    for (const id of [controller.id, "controller-after-uncertainty"])
+      assert.equal((await f.h.request("acquire", { ...controller, id })).code, 409);
+    assert.equal(f.h.state().phase, "blocked");
+    assert.deepEqual(f.requests.slice(before).map(route), ["POST /tabs/TAB/click"]);
+  } finally { await f.close(); }
+});
+
+test("a failed action returns its error and no observation", async () => {
+  const f = await snapshotFixture();
+  try {
+    await f.start();
+    payloadOf(await f.read("tab_snapshot"));
+    f.state.act = path => path.endsWith("/click") ? { code: 409, payload: { error: "Element is not visible" } } : undefined;
+    const before = f.requests.length;
+    assert.match(errorOf(await f.read("tab_click", { selector: "#save" })), /Element is not visible/);
     // No snapshot request followed the action.
     assert.deepEqual(f.requests.slice(before).map(route), ["POST /tabs/TAB/click"]);
     assert.equal(f.h.state().phase, "ready");

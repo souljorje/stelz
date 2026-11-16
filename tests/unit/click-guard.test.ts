@@ -22,7 +22,7 @@ test("only a DOM click that rejected the element before clicking may fall back t
 
 test("an uncertain click is a non-retryable conflict, not a timeout", () => {
   const cause = timeout("    - performing click action"), error = guard.uncertainClickError(cause);
-  expect(error.message).toContain("Read a fresh snapshot");
+  expect(error.message).toContain("Stop and start the profile");
   expect(error.cause).toBe(cause);
   expect(errors.browserErrorStatus(error)).toBe(409);
   expect(errors.isRetryableBrowserError(error)).toBe(false);
@@ -30,10 +30,22 @@ test("an uncertain click is a non-retryable conflict, not a timeout", () => {
   expect(errors.isElementInteractionError(error)).toBe(false);
 });
 
+test("uncertain click detection accepts only the shared diagnostic and its 409 HTTP wrapper", () => {
+  const diagnostic = guard.UNCERTAIN_CLICK;
+  for (const value of [diagnostic, `409: ${diagnostic}`, `409: ${JSON.stringify({ error: diagnostic, retryable: false })}`])
+    expect(guard.isUncertainClickError(Error(value))).toBe(true);
+  for (const value of [
+    `500: ${JSON.stringify({ error: diagnostic })}`, `Other failure: ${diagnostic}`, `${diagnostic} extra`,
+    `409: ${JSON.stringify({ error: "Other failure", snapshot: diagnostic })}`, "409: invalid JSON",
+    '409: null', `409: ${JSON.stringify(diagnostic)}`,
+  ]) expect(guard.isUncertainClickError(Error(value))).toBe(false);
+  expect(guard.isUncertainClickError(undefined)).toBe(false);
+});
+
 function flow() {
   const state = {
-    remaining: 28000, calls: [] as { timeout: number; force?: boolean }[], dom: 0, mouse: 0,
-    click: async (_options: { timeout: number; force?: boolean }) => {},
+    remaining: 28000, calls: [] as { timeout: number; delay: number; force?: boolean }[], dom: 0, mouse: 0,
+    click: async (_options: { timeout: number; delay: number; force?: boolean }) => {},
     domClick: async () => {}, mouseClick: async () => {},
   };
   return Object.assign(state, {
@@ -48,7 +60,7 @@ function flow() {
 
 test("normal success sends one click, with five seconds reserved for fallback", async () => {
   const f = flow(); await f.run();
-  expect(f.calls).toEqual([{ timeout: 23000 }]);
+  expect(f.calls).toEqual([{ timeout: 23000, delay: 1 }]);
   expect([f.dom, f.mouse]).toEqual([0, 0]);
 });
 
@@ -64,7 +76,7 @@ for (const reason of ["intercepts pointer events", "not visible", "Timeout 23000
     const f = flow();
     f.click = async options => { if (!options.force) { f.remaining = 5000; throw Error(reason); } };
     await f.run();
-    expect(f.calls).toEqual([{ timeout: 23000 }, { timeout: 5000, force: true }]);
+    expect(f.calls).toEqual([{ timeout: 23000, delay: 1 }, { timeout: 5000, delay: 1, force: true }]);
     expect([f.dom, f.mouse]).toEqual([0, 0]);
   });
 }
@@ -76,12 +88,18 @@ for (const forceFirst of [false, true]) test(`an uncertain force click never per
   expect(f.calls).toHaveLength(forceFirst ? 1 : 2); expect([f.dom, f.mouse]).toEqual([0, 0]);
 });
 
+test("a force-first click uses sequential native input within the unchanged budget", async () => {
+  const f = flow(); await f.run(true);
+  expect(f.calls).toEqual([{ timeout: 28000, delay: 1, force: true }]);
+  expect([f.dom, f.mouse]).toEqual([0, 0]);
+});
+
 test("a delayed normal completion never starts a second attempt", async () => {
   const f = flow(); let complete!: () => void;
   f.click = () => new Promise<void>(resolve => { complete = resolve; });
   const pending = f.run();
   f.remaining -= 4000; await Promise.resolve();
-  expect(f.calls).toEqual([{ timeout: 23000 }]);
+  expect(f.calls).toEqual([{ timeout: 23000, delay: 1 }]);
   complete(); await pending;
   expect(f.calls).toHaveLength(1); expect([f.dom, f.mouse]).toEqual([0, 0]);
 });

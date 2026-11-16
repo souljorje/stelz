@@ -12,15 +12,27 @@ export function domClickRejected(error: unknown) {
   return message(error).includes("Element is not an HTMLElement");
 }
 
-// A conflict without a recovery hint: the caller must observe the page before another action.
+export const UNCERTAIN_CLICK = "The click may have reached the page, so it was not repeated. Stop and start the profile before another browser action.";
+
+// Match only our diagnostic, including the upstream HTTP error wrapper.
+export function isUncertainClickError(error: unknown) {
+  const diagnostic = message(error);
+  if (diagnostic === UNCERTAIN_CLICK) return true;
+  const body = /^409:\s*([\s\S]*)$/.exec(diagnostic)?.[1];
+  if (!body) return false;
+  try { return (JSON.parse(body) as { error?: unknown } | null)?.error === UNCERTAIN_CLICK; }
+  catch { return body === UNCERTAIN_CLICK; }
+}
+
+// Keep the cause out of the diagnostic so upstream does not classify this conflict as a retryable timeout.
 export function uncertainClickError(cause: unknown) {
-  const error = new Error("The click may have reached the page, so it was not repeated. Read a fresh snapshot before the next action.") as Error & { statusCode: number };
+  const error = new Error(UNCERTAIN_CLICK) as Error & { statusCode: number };
   error.statusCode = 409;
   error.cause = cause;
   return error;
 }
 
-type ClickOptions = { timeout: number; force?: boolean };
+type ClickOptions = { timeout: number; delay: number; force?: boolean };
 
 export async function clickWithFallback({ click, domClick, mouseClick, remainingBudget, forceFirst = false }: {
   click: (options: ClickOptions) => Promise<unknown>;
@@ -37,7 +49,8 @@ export async function clickWithFallback({ click, domClick, mouseClick, remaining
   if (!forceFirst) {
     const timeout = Math.max(1, budget() - 5000);
     try {
-      await click({ timeout });
+      // A truthy delay makes Playwright await move, down, and up under the same deadline.
+      await click({ timeout, delay: 1 });
       return;
     } catch (error) {
       // A call log can contain both an earlier obstruction and a later native dispatch.
@@ -47,7 +60,7 @@ export async function clickWithFallback({ click, domClick, mouseClick, remaining
   }
   const timeout = budget();
   try {
-    await click({ timeout, force: true });
+    await click({ timeout, delay: 1, force: true });
     return;
   } catch (error) {
     if (clickReachedPage(error)) throw uncertainClickError(error);

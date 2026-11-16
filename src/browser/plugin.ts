@@ -20,6 +20,7 @@ import { addProfileExtension, createProfileWindows } from "./profile-windows.ts"
 import { activateProfileBrowser } from "./window-activation.ts";
 import { profileTypingMode } from "../profiles/typing-mode.ts";
 import { parseTypingMode } from "./typing.ts";
+import { isUncertainClickError, UNCERTAIN_CLICK } from "./click-guard.ts";
 import { OBSERVE_LIMIT_MS, SERVICE_DEADLINE_MS, WAIT_POLL_MS, serviceDeadline, waitDuration } from "./deadlines.ts";
 import { launchLocation, checkLaunchLocation, verifyLaunchLocation, saveLaunchLocation, type LocationPage } from "./location-launch.ts";
 import { LocationError, locationFailure, evidenceMessage } from "./location.ts";
@@ -405,7 +406,8 @@ export async function register(app: App, ctx: PluginContext, options: {
   }
   // What a failed browser call means for the lifetime. A network failure checks the exit again. A timeout can leave work in the browser, so it blocks the lifetime.
   async function afterFailure(error: unknown) {
-    if (isBrowserNetworkFailure(error)) await recheckAfterNetworkFailure(error);
+    if (isUncertainClickError(error)) invalidate(UNCERTAIN_CLICK);
+    else if (isBrowserNetworkFailure(error)) await recheckAfterNetworkFailure(error);
     else if (/timed out|timeout/i.test((error as Error).message)) invalidate("A browser action timed out. Stop the profile before another browser action.");
   }
 
