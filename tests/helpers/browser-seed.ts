@@ -6,11 +6,11 @@
 import { spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, renameSync, rmSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { replaceTestHome } from "./test-home.ts";
+import { SEED_CACHE, SEED_HOME, replaceTestHome } from "./test-home.ts";
 
 const root = resolve(import.meta.dir, "../..");
-const cache = join(root, ".state/seed-cache");
-const home = replaceTestHome(join(root, ".state/browser-seed"));
+const cache = SEED_CACHE;
+const home = replaceTestHome(SEED_HOME);
 const env: Record<string, string> = { STELZ_HOME: home };
 for (const key of ["PATH", "HOME", "LANG", "TMPDIR", "CAMOUFOX_EXECUTABLE"]) if (process.env[key]) env[key] = process.env[key]!;
 // A missing or broken cache gives setup nothing to reuse, so it downloads, as in a new home.

@@ -1,6 +1,7 @@
 // Opt-in live checks through the same MCP connection used by browser clients.
 import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { tmpdir } from "node:os";
 import { createInterface } from "node:readline/promises";
 import { dedicatedProxyInputs } from "../helpers/dedicated-proxy.ts";
 import { lockPublicProfile, PUBLIC_PROFILE } from "../helpers/public-profile.ts";
@@ -185,9 +186,7 @@ export async function runPublicSites(options: RunOptions): Promise<PublicReport>
   const timeout = options.timeoutMs ?? 120_000, poll = options.pollMs ?? 2_000;
   const wait = options.sleep ?? sleep, signal = options.signal, log = options.log ?? console.log;
   const home = assertTestHome(options.home);
-  const parent = join(ROOT, ".state/public-sites");
-  if (!options.outputDir) mkdirSync(parent, { recursive: true, mode: 0o700 });
-  const outputDir = resolve(options.outputDir ?? mkdtempSync(join(parent, stamp().replace(/[:.]/g, "-") + "-")));
+  const outputDir = resolve(options.outputDir ?? mkdtempSync(join(tmpdir(), "stelz-public-sites-")));
   mkdirSync(outputDir, { recursive: true, mode: 0o700 });
   const report: PublicReport = { browser: "Camoufox", profile: options.profile, serviceHome: home, outputDir,
     startedAt: stamp(), released: false, stopped: false, initialTabIds: [], errors: [],

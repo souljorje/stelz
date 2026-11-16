@@ -4,7 +4,7 @@ description: "Commands for routine checks, fixtures, CI, and diagnostics, to rea
 tags: [development, testing]
 sources: []
 created: 2026-11-06T13:49:16Z
-modified: 2026-11-15T17:14:33Z
+modified: 2026-11-16T10:19:11Z
 ---
 
 # Testing
@@ -36,27 +36,19 @@ Bun runs `tests/unit/` and `tests/integration/`. Node runs `tests/regression/`.
 ## Browser fixtures and cleanup
 
 - Build before any browser suite.
-- When selected suites need a source runtime, `bunx lefthook run browser` builds and prepares one in `.state/browser-seed`. Suites clone it into disposable homes. The next run replaces it.
+- When selected suites need a source runtime, `bunx lefthook run browser` builds and prepares one in `$TMPDIR/stelz-browser-seed`. Suites clone it into disposable homes. The next run replaces it.
 - When integration also selects typing or window controls, those checks reuse its browsers. They close only their fixture tabs and release control. Integration stops the browsers.
 - Shared checks must preserve the existing tabs, configuration, and browser lifetimes. Typing also restores its temporary configuration changes.
 - Integration alone adds neither check. Typing and window controls can still run alone with disposable browsers. Manual window-close, restart, and native stability checks remain unchanged.
-- Browser runs keep location data between runs in `.state/seed-cache`, and setup refreshes it when it is old ([rule](../configuration/network.md#managed-location-data)).
+- Browser runs keep location data between runs in `$TMPDIR/stelz-seed-cache`, and setup refreshes it when it is old ([rule](../configuration/network.md#managed-location-data)).
 - A suite that you run by hand prepares its own runtime.
 - Suites use independent MCP SDK clients and synthetic local pages. No model credentials.
 - Live checks use disposable profiles in separate service directories. They never select a saved profile. They stop their own browsers.
 - Proxy and public checks need declared test proxies. See [Proxy and human acceptance](acceptance.md#proxy-and-human-acceptance) and [Public fingerprint checks](public-site-checks.md).
 - Failed test state stays for inspection. Keep reports, snapshots, and proxy credentials outside Git. They can contain private data.
-
-| Suite | Report |
-| --- | --- |
-| Integration | `.state/standalone-acceptance-*/report.json`. `STELZ_TEST_HOME`, when set, must identify a directory from `tests/helpers/test-home.ts`. |
-| Native measurements | `.state/native-acceptance-*/report.json` |
-| Concurrency | `.state/concurrency-acceptance/report.json`. A pass removes the service directory. A failure keeps it. |
-| Profile windows | `.state/profile-windows-*/report.json` |
-| Window close | `.state/window-close-*/report.json` |
-| Typing | `.state/typing-acceptance-*/report.json` |
-| Human takeover | `.state/manual-acceptance-*/report.json` |
-| Package | `.state/package-test/report.json` |
+- Disposable test homes and reports go in the system temp directory (`$TMPDIR`). Each suite prints its report path.
+- `STELZ_TEST_HOME`, when set, must identify a directory from `tests/helpers/test-home.ts`.
+- Concurrency suite: a pass removes the service directory. A failure keeps it.
 
 ## Continuous integration
 

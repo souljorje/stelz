@@ -1,6 +1,5 @@
 node_modules/
 .runtime/
-.state/
 /.codex-worktrees/
 .taste-skill/
 .env.local

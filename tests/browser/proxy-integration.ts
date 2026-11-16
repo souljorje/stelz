@@ -162,7 +162,7 @@ try {
   report.push({ check: shared ? "Two relays to one HTTP proxy route" : "Two distinct HTTP proxy routes", endpointsSupplied: supplied.length, independentRelays: 2,
     profiles: ids.map((profile, index) => ({ profile, exitIp: expected[index], pinSource: endpoints[index]!.expectedIP ? "supplied" : "preflight" })) });
 
-  home = createTestHome("proxy-acceptance", join(root, ".state")); env.STELZ_HOME = home;
+  home = createTestHome("proxy-acceptance"); env.STELZ_HOME = home;
   console.log(redact(`Two-proxy acceptance. Evidence: ${home}`));
   const [firstPort, secondPort, fixturePort] = await unusedPorts(3);
   const configure = (mode: "direct" | "proxy", pins: Pair<string>) => {

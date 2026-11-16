@@ -1,7 +1,7 @@
 // Real Camoufox acceptance. Uses two isolated profiles and local fixture pages.
 import assert from "node:assert/strict";
 import { assertTestHome, createTestHome } from "../helpers/test-home.ts";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -12,8 +12,7 @@ const root = resolve(import.meta.dir, "../..");
 const args = process.argv.slice(2), shared = args[0] === "--reuse";
 if (shared ? args.length !== 4 : args.length > 0 && !(args.length === 1 && args[0] === "--inspect"))
   throw Error("Use test:windows [--inspect], or --reuse CLI PROFILE_1 PROFILE_2 in an owned test home.");
-mkdirSync(join(root, ".state"), { recursive: true });
-const home = shared ? assertTestHome(process.env.STELZ_HOME || "") : createTestHome("profile-windows", join(root, ".state"));
+const home = shared ? assertTestHome(process.env.STELZ_HOME || "") : createTestHome("profile-windows");
 process.env.STELZ_HOME = home;
 const { createWindowModel } = await import("../../src/api/window-model.ts");
 const windows = createWindowModel();

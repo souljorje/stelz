@@ -1,7 +1,7 @@
 // Live, explicit lifecycle experiment in a new test home. No model or harness is used.
 import { createHash } from "node:crypto";
 import { createTestHome } from "../helpers/test-home.ts";
-import { mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import { writeFileSync, readFileSync, existsSync } from "node:fs";
 import { arch, platform, release } from "node:os";
 import { join, resolve } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -14,8 +14,7 @@ import { STABLE_OBSERVATIONS, VARIABLE_OBSERVATIONS, summarizeStability, type Ob
 const LIFETIMES = 3, DOCUMENTS = 2, SAMPLES = 3;
 const policy = "direct:upstream-language-and-location:stelz-fixture-v2";
 const root = resolve(import.meta.dir, "../..");
-mkdirSync(join(root, ".state"), { recursive: true });
-const home = createTestHome("native-acceptance", join(root, ".state"));
+const home = createTestHome("native-acceptance");
 const cli = process.env.STELZ_TEST_CLI || join(root, "src/cli/cli.ts"), ids = ["profile-01", "profile-02", "profile-03"];
 const env: Record<string, string> = { STELZ_HOME: home };
 for (const key of ["PATH", "HOME", "LANG", "TMPDIR", "CAMOUFOX_EXECUTABLE"]) if (process.env[key]) env[key] = process.env[key]!;

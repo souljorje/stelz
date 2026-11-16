@@ -1,5 +1,6 @@
 // Explicit browser acceptance in a disposable home. Existing service profiles are never selected.
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { createTestHome } from "../helpers/test-home.ts";
 import { join, resolve } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -238,9 +239,10 @@ finally {
   }
   report.result = report.errors.length ? "failed" : "passed";
   report.completedAt = new Date().toISOString();
-  const output = join(root, ".state/concurrency-acceptance"); mkdirSync(output, { recursive: true });
+  const output = mkdtempSync(join(tmpdir(), "stelz-concurrency-acceptance-"));
   writeFileSync(join(output, "report.json"), JSON.stringify(report, null, 2), { mode: 0o600 });
-  console.log(`${report.result}: ${join(output, "report.json")}`);
+  console.log(report.result);
+  console.log("Report: " + join(output, "report.json"));
   for (const error of report.errors) console.error(error);
   if (report.errors.length) process.exitCode = 1;
 }

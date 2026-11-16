@@ -8,6 +8,10 @@ const markerName = ".stelz-test-home.json";
 const mark = (home: string) => writeFileSync(join(home, markerName), JSON.stringify({ kind: "stelz-test-home", version: 1 }) + "\n", { mode: 0o600, flag: "wx" });
 
 /** Create a new disposable service home. Never adopt an existing service directory. */
+// A browser run shares one prepared runtime, and the location data survives between runs. Both live in the system temp directory.
+export const SEED_HOME = join(tmpdir(), "stelz-browser-seed");
+export const SEED_CACHE = join(tmpdir(), "stelz-seed-cache");
+
 export function createTestHome(prefix: string, parent = tmpdir()): string {
   if (!/^[a-z][a-z0-9-]*$/.test(prefix)) throw Error("Use a simple test directory prefix.");
   mkdirSync(parent, { recursive: true, mode: 0o700 });

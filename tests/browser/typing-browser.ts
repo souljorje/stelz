@@ -11,7 +11,7 @@ import { parseToolText, routeProfileTools } from "../helpers/mcp-client.ts";
 export async function runTyping(shared?: { home: string; profileId: string; cli: string }) {
   const root = resolve(import.meta.dir, "../.."), cli = shared?.cli || process.env.STELZ_TEST_CLI || join(root, "src/cli/cli.ts");
   const profileId = shared?.profileId ?? "typing-check";
-  const home = shared ? assertTestHome(shared.home) : createTestHome("typing-acceptance", join(root, ".state"));
+  const home = shared ? assertTestHome(shared.home) : createTestHome("typing-acceptance");
   const configPath = join(home, "profiles.json");
   const originalConfig = shared ? readFileSync(configPath, "utf8") : undefined;
   const reportPath = join(home, shared ? "typing-report.json" : "report.json");

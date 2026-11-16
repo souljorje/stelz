@@ -10,6 +10,7 @@
 - For versioning or publication, read [Release Stelz](docs/development/releasing.md). Add Changesets for package changes and publish only the archive checked in CI.
 - Preserve global harness configuration and approval protections.
 - For short-lived subagents, use `fork_turns: "none"` where the host supports it. Use `fork_context: false` otherwise.
+- Put temporary files, disposable test homes, logs, and reports in the system temp directory (`$TMPDIR`). Never create `.state` or other scratch folders in the repository.
 
 # Service boundary
 

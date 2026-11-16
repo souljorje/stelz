@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { SEED_HOME } from "../tests/helpers/test-home.ts";
 
 const root = resolve(import.meta.dir, "..");
 type Suite = { name: string; glob: string[]; script: string; seed?: boolean; archive?: boolean };
@@ -32,7 +33,7 @@ if (import.meta.main) {
     const started = performance.now();
     const child = Bun.spawn([process.execPath, ...args], {
       cwd: root, stdin: "inherit", stdout: "inherit", stderr: "inherit",
-      env: { ...process.env, ...(check.seed ? { STELZ_TEST_SEED_HOME: resolve(root, ".state/browser-seed") } : {}) },
+      env: { ...process.env, ...(check.seed ? { STELZ_TEST_SEED_HOME: SEED_HOME } : {}) },
     });
     const code = await child.exited;
     console.log(`${check.script}: ${((performance.now() - started) / 1000).toFixed(1)}s, exit ${code}`);

@@ -8,9 +8,7 @@ import { STELZ_VERSION } from "../../src/versions.ts";
 import { createTestHome } from "../helpers/test-home.ts";
 import { pairedBrowser } from "../../src/browser/camoufox.ts";
 
-// Each run installs into a new prefix. The download cache persists, as in CI: npm verifies every package's integrity hash.
-export const NPM_CACHE = resolve(import.meta.dir, "../../.state/npm-cache");
-
+// Each run installs into a new prefix.
 export async function installPackage(archive: string, options: { native?: boolean; keep?: boolean } = {}) {
 const root = resolve(import.meta.dir, "../.."), temp = mkdtempSync(join(tmpdir(), "stelz-package-"));
 const input = { flags: new Set(options.native ? ["--native"] : []) };
@@ -18,7 +16,7 @@ const prefix = join(temp, "global"), cwd = join(temp, "empty"), home = createTes
 for (const path of [cwd, bin]) mkdirSync(path, { recursive: true });
 const npm = Bun.which("npm")!, node = Bun.which("node")!, bun = Bun.which("bun")!;
 symlinkSync(node, join(bin, "node")); symlinkSync(bun, join(bin, "bun"));
-const env: Record<string, string> = { PATH: process.env.PATH!, HOME: process.env.HOME!, npm_config_cache: NPM_CACHE };
+const env: Record<string, string> = { PATH: process.env.PATH!, HOME: process.env.HOME! };
 if (process.env.TMPDIR) env.TMPDIR = process.env.TMPDIR;
 async function run(args: string[], options: { cwd?: string; env?: Record<string, string>; inherit?: boolean } = {}) {
   const p = Bun.spawn(args, { cwd: options.cwd || root, env: options.env || env, stdout: options.inherit ? "inherit" : "pipe", stderr: options.inherit ? "inherit" : "pipe" });

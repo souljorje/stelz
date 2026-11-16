@@ -4,7 +4,7 @@ description: "Procedure, test home, and results of the public-site fingerprint c
 tags: [development, testing, acceptance]
 sources: []
 created: 2026-11-11T14:53:43Z
-modified: 2026-11-11T15:01:55Z
+modified: 2026-11-16T10:19:11Z
 ---
 
 # Public fingerprint checks
@@ -19,10 +19,10 @@ modified: 2026-11-11T15:01:55Z
 ## Procedure
 
 1. Create a private env file with `PROXY_TEST_USAGE=dedicated-public` and `PROXY_TEST_URL`. Add `PROXY_TEST_EXPECTED_IP` when an exit pin is necessary.
-2. From the repository root, create a test home once. Save the printed absolute path:
+2. From the repository root, create a persistent test home once. Use a directory outside the repository and `$TMPDIR`, because macOS removes old temp files. The command below uses `~/.local/share/stelz-public-test`. Save the printed absolute path:
 
    ```sh
-   bun --no-env-file -e 'import { createTestHome } from "./tests/helpers/test-home.ts"; console.log(createTestHome("public-profile", ".state"));'
+   bun --no-env-file -e 'import { createTestHome } from "./tests/helpers/test-home.ts"; console.log(createTestHome("public-profile", process.env.HOME + "/.local/share/stelz-public-test"));'
    ```
 
 3. Use that same path for every public check:
@@ -45,6 +45,6 @@ modified: 2026-11-11T15:01:55Z
 
 ## Result
 
-- Artifacts: `.state/public-sites/<run>/` with `report.json`, `report.md`, and for each site a PNG screenshot and a snapshot JSON file.
+- Artifacts: a new directory in the system temp directory (`$TMPDIR`). The run prints its path. It contains `report.json`, `report.md`, and for each site a PNG screenshot and a snapshot JSON file.
 - Site results: `PASS`, `FAIL`, `INCONCLUSIVE`, `UNSUPPORTED`, `ERROR`. Loading pages, missing signals, and unfamiliar results cannot pass.
 - Success: four passing site checks, four screenshots, successful shutdown. Advisory warnings do not fail the run.

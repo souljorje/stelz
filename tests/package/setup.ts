@@ -3,7 +3,7 @@
 import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
-import { installPackage, NPM_CACHE } from "./install.ts";
+import { installPackage } from "./install.ts";
 import { packageArguments, assertArchiveUnchanged } from "../../scripts/package-archive.ts";
 import { createTestHome } from "../helpers/test-home.ts";
 import { browserPackage, pairedBrowser } from "../../src/browser/camoufox.ts";
@@ -49,8 +49,7 @@ async function finish(child: Child): Promise<Run> {
 }
 const cli = (args: string[], env: Record<string, string>, file?: string) => finish(spawnCli(args, env, file));
 async function command(args: string[], env?: Record<string, string>) {
-  const child = Bun.spawn(args, { cwd, env: env ?? { PATH: process.env.PATH!, HOME: process.env.HOME!, TMPDIR: process.env.TMPDIR ?? "/tmp",
-    npm_config_cache: NPM_CACHE, COPYFILE_DISABLE: "1" }, stdout: "pipe", stderr: "pipe" });
+  const child = Bun.spawn(args, { cwd, env: env ?? { PATH: process.env.PATH!, HOME: process.env.HOME!, TMPDIR: process.env.TMPDIR ?? "/tmp", COPYFILE_DISABLE: "1" }, stdout: "pipe", stderr: "pipe" });
   const result = await finish(child);
   if (result.code) throw Error(`${args.join(" ")} failed: ${result.err || result.out}`);
 }
@@ -228,9 +227,10 @@ try {
   assertArchiveUnchanged(candidate);
   passed = true;
   const result = { result: "passed", archive, sha256: candidate.sha256, version: installed.version, cases: evidence };
-  mkdirSync(join(root, ".state/package-test"), { recursive: true, mode: 0o700 });
-  writeFileSync(join(root, ".state/package-test/setup-report.json"), JSON.stringify(result, null, 2), { mode: 0o600 });
+  const reportDir = mkdtempSync(join(tmpdir(), "stelz-package-test-"));
+  writeFileSync(join(reportDir, "setup-report.json"), JSON.stringify(result, null, 2), { mode: 0o600 });
   console.log(JSON.stringify(result, null, 2));
+  console.log("Report: " + join(reportDir, "setup-report.json"));
 } finally {
   // End only the setup commands that this script started. Stop the test profile through the CLI.
   for (const child of children) child.kill("SIGKILL");
