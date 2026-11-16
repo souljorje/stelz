@@ -71,6 +71,7 @@ test("live test entry points refuse operator profiles before any service operati
   const before = readdirSync(home);
   for (const [script, args] of [
     ["tests/browser/typing-browser.ts", ["--profile", "identity-01"]],
+    ["tests/browser/profile-windows-browser.ts", ["--reuse", join(root, "src/cli/cli.ts"), "identity-01", "identity-02"]],
     ["tests/qa/public-sites.ts", ["--profile", "identity-01"]],
     ["tests/browser/integration.ts", []],
   ] as const) {

@@ -17,10 +17,18 @@ describe("local browser selection", () => {
     expect(commands(...files)).toEqual(["test:seed", "test:integration --typing"]);
     expect(commands(...files.reverse())).toEqual(["test:seed", "test:integration --typing"]);
   });
-  test("core changes preserve all suites and combine only integration with typing", () => {
+  test("window-only checks stay standalone and the manual close check stays separate", () => {
+    expect(commands("tests/browser/profile-windows-browser.ts")).toEqual(["test:seed", "test:windows"]);
+    expect(commands("tests/browser/integration.ts", "tests/browser/profile-windows-browser.ts")).toEqual(["test:seed", "test:integration --windows"]);
+    expect(commands("tests/browser/integration.ts", "src/browser/window-activation.ts")).toEqual(["test:seed", "test:integration --windows", "test:window-close"]);
+  });
+  test("typing and windows without integration keep both standalone checks", () => {
+    expect(commands("tests/browser/typing-browser.ts", "tests/browser/profile-windows-browser.ts")).toEqual(["test:seed", "test:windows", "test:typing"]);
+  });
+  test("core changes preserve all suites and reuse integration browsers", () => {
     expect(commands("src/browser/catalog.ts")).toEqual([
-      "test:seed", "test:integration --typing", "test:concurrency", "test:native", "test:transfer",
-      "test:windows", "test:window-close", "test:proxy", "test:ui:browser", "pack", "test:setup", "pack", "test:location",
+      "test:seed", "test:integration --typing --windows", "test:concurrency", "test:native", "test:transfer",
+      "test:window-close", "test:proxy", "test:ui:browser", "pack", "test:setup", "pack", "test:location",
     ]);
   });
   test("new MCP paths are selected without requiring tracked files", () => {

@@ -23,7 +23,7 @@ pre-push:
     - name: check
       run: bun run check
 
-# Select changed files here. The runner shares a browser when integration and typing both run.
+# Select changed files here. Integration shares its browsers with selected typing and window checks.
 # BASE=HEAD~1 selects another base. --file PATH selects one path. --all-files selects all paths.
 # STELZ_DRY_RUN=echo prints the selected commands without starting a browser.
 browser:

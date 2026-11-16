@@ -277,6 +277,15 @@ try {
     await afterTyping.client.close();
     report.push({ check: "Typing reuses the integration browser, restores configuration, releases control, and closes only its fixture tab", result: "passed" });
   }
+  if (process.argv.includes("--windows")) {
+    const config = readFileSync(join(home, "profiles.json"), "utf8");
+    const lifetimes = ["profile-01", "profile-02"].map(id => JSON.stringify(instance(id)));
+    // A separate process loads the window model with this test home before any configuration import.
+    await runBun(join(root, "tests/browser/profile-windows-browser.ts"), "--reuse", cli, "profile-01", "profile-02");
+    assert(readFileSync(join(home, "profiles.json"), "utf8") === config, "Window checks changed profile configuration");
+    assert(["profile-01", "profile-02"].every((id, index) => JSON.stringify(instance(id)) === lifetimes[index]), "Window checks replaced an integration browser");
+    report.push({ check: "Window checks reuse both integration browsers, preserve their tabs and configuration, and release control", result: "passed" });
+  }
   report.push({ check: "Handoff between two installed LLM harnesses", result: "unverified", reason: "SDK clients prove the protocol. Actual Codex, Claude Code and Hermes integration needs separate validation." });
   report.push({ check: "Supplied fixed-IP proxies and human takeover", result: "unverified", reason: "No proxy credentials or human action were supplied." });
 } catch (e) { report.push({ check: "Acceptance run", result: "failed", error: String(e) }); process.exitCode = 1; }

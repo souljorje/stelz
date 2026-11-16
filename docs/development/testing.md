@@ -37,8 +37,9 @@ Bun runs `tests/unit/` and `tests/integration/`. Node runs `tests/regression/`.
 
 - Build before any browser suite.
 - When selected suites need a source runtime, `bunx lefthook run browser` builds and prepares one in `.state/browser-seed`. Suites clone it into disposable homes. The next run replaces it.
-- When integration and typing are both selected, typing reuses an integration browser. It restores configuration, closes its fixture tab, and releases control. Integration stops the browsers.
-- Integration alone does not add typing. Typing alone creates and stops its own browser. All restart and native stability checks remain unchanged.
+- When integration also selects typing or window controls, those checks reuse its browsers. They close only their fixture tabs and release control. Integration stops the browsers.
+- Shared checks must preserve the existing tabs, configuration, and browser lifetimes. Typing also restores its temporary configuration changes.
+- Integration alone adds neither check. Typing and window controls can still run alone with disposable browsers. Manual window-close, restart, and native stability checks remain unchanged.
 - Browser runs keep location data between runs in `.state/seed-cache`, and setup refreshes it when it is old ([rule](../configuration/network.md#managed-location-data)).
 - A suite that you run by hand prepares its own runtime.
 - Suites use independent MCP SDK clients and synthetic local pages. No model credentials.

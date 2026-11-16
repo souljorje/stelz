@@ -6,17 +6,18 @@ type Suite = { name: string; glob: string[]; script: string; seed?: boolean; arc
 const suites = Bun.YAML.parse(readFileSync(resolve(root, "tests/browser/suites.yml"), "utf8")) as Suite[];
 export type BrowserCheck = { script: string; args: string[]; seed?: boolean };
 
-/** Select once, then share the integration lifetime only when typing is also selected. */
+/** Share integration browsers with the selected typing and window checks. */
 export function browserPlan(files: string[]): BrowserCheck[] {
   const selected = suites.filter(suite => suite.glob.some(pattern => files.some(file => new Bun.Glob(pattern).match(file))));
-  const combined = selected.some(suite => suite.name === "integration") && selected.some(suite => suite.name === "typing");
+  const combined = selected.some(suite => suite.name === "integration")
+    ? ["typing", "windows"].filter(name => selected.some(suite => suite.name === name)) : [];
   const plan: BrowserCheck[] = [];
   if (selected.some(suite => suite.seed)) plan.push({ script: "test:seed", args: [] });
   else if (selected.some(suite => suite.name === "ui")) plan.push({ script: "build", args: [] });
   for (const suite of selected) {
-    if (combined && suite.name === "typing") continue;
+    if (combined.includes(suite.name)) continue;
     if (suite.archive) plan.push({ script: "pack", args: [] });
-    plan.push({ script: suite.script, args: combined && suite.name === "integration" ? ["--typing"] : [], seed: suite.seed });
+    plan.push({ script: suite.script, args: suite.name === "integration" ? combined.map(name => `--${name}`) : [], seed: suite.seed });
   }
   return plan;
 }
