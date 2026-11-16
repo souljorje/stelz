@@ -1,5 +1,72 @@
 # stelz
 
+## 0.6.0
+
+### Minor Changes
+
+- 5bbe1bc: Upgrade Camoufox to launcher 0.5.9 and browser 158.0.1-beta.41. Start uses the prepared model and derives display and GPU preferences from the saved identity.
+  
+  Use upstream canvas placeholders to prevent a separate GPU probe browser. Canvas/WebGL readback returns random data, and WebGPU cannot expose the host adapter.
+  
+  Existing profiles retain their engine checks. Profiles pinned to an earlier executable cannot start with the new engine.
+- 063c79c: Breaking change: the browser tools have new names. Each `camofox_*` tool is now a `tab_*` tool. `camofox_create_tab`, `camofox_list_tabs`, and `camofox_close_tab` are now `tab_create`, `tab_list`, and `tab_close`. For every other tool, replace the prefix. For example, `camofox_click` is now `tab_click`, and `camofox_snapshot` is now `tab_snapshot`. The `profile_*` tools keep their names.
+  
+  A permission list in your client names each tool, for example `mcp__stelz__camofox_click`. These entries no longer match. Replace them with the new names, for example `mcp__stelz__tab_click`. Install the browser skill again, because it uses the new names and needs this version.
+  
+  `stelz mcp --tools core|full|NAME,NAME` selects the tools of a connection. The default, `core`, lists the nine `profile_*` tools and 13 `tab_*` tools. Together they are 22 tools, and `tab_wait` is new in `core`. `full` also lists `tab_forward`, `tab_refresh`, `tab_mouse_wheel`, `tab_drag`, `tab_ax`, `tab_actionables`, `tab_table_rows`, `tab_links`, `tab_images`, and `tab_extract`. A name that is not a listed tool stops `stelz mcp` at startup. `tab_screenshot` accepts `fullPage`.
+  
+  `tab_evaluate` and `tab_init_script` run JavaScript in a page. They are off by default. A person turns them on for one profile with `stelz profile config ID --allow-scripts` or with **Allow scripts** in the UI. MCP cannot change this setting. A connection lists these tools only with `--tools full` or their names, and only when a profile allows scripts at the start of the connection. Turning the setting off keeps scripts that `tab_init_script` already registered until their tab closes. Profile archives do not carry the setting, so an imported profile starts with scripts off.
+  
+  `tab_snapshot` now returns one header line and then the page text as plain text. The header is JSON with `url`, `refsCount`, `truncated`, and `nextOffset`. `nextOffset` appears only when more text remains. The result no longer has `structure`, `totalChars`, or `hasMore`. Other tools return compact JSON.
+  
+  `tab_wait` and `tab_evaluate` use their own time limits, up to 60 seconds and 120 seconds. A `tab_evaluate` that passes its `timeoutMs` now returns an error that says the script can still run. It no longer blocks the browser. In the UI, **Recheck IP** is now **Recheck**.
+- 7740ed3: The npm package now holds only the runtime. Documentation and the browser skill are no longer in it.
+  
+  The browser skill is one self-contained file. Install it by saving `SKILL.md` into your client's skill folder. See [Connect your agent](https://github.com/souljorje/stelz/blob/main/docs/clients.md). A skill that you linked from the installed package stops working after this update. Install it again.
+  
+  Bun now runs the `stelz` command and the supervisor from source.
+- de7e54f: Add `stelz/sdk`, a script SDK for Bun. A script calls `start(profileId)` to start a browser, and `acquire(profileId, work)` to control a running profile. `acquire` never starts a browser and always releases control, and the browser and its tabs stay open.
+  
+  - `work` receives a `Browser` with `tabs()`, `page(tabId)`, `open(url)`, `pause()`, `resume()`, and `captureFailure(directory)`. A `Page` has `navigate`, `click`, `type`, `select`, `press`, `scroll`, `snapshot`, `expectElement`, `expectText`, and `evaluate`.
+  - The SDK calls the same code as the MCP tools, with the same names, rules, and role-and-name targets. It does not start a child `stelz mcp` process.
+  - A script runs with Bun, on the machine of the service. Select the service directory with `STELZ_HOME`.
+  - The SDK installs no signal handlers. The next `acquire` takes over from a script that died.
+  
+  The `package.json` file now has an `exports` field. It exports `stelz/sdk` only. See [Script SDK](https://github.com/souljorje/stelz/blob/main/docs/sdk.md).
+- 9702f89: Breaking change: `tab_snapshot` returns less text, and a tool refuses a ref that may have shifted.
+  
+  `tab_snapshot` returns no screenshot unless you pass `includeScreenshot: true`. Before, it always returned one. It collapses a run of at least three similar items into the first item and one line, `- … N more like this`. It cuts the text at 20000 characters. The header has two new fields: `viewId`, and `baseline` when its value is `true`. See [Shared MCP tools](https://github.com/souljorje/stelz/blob/main/docs/mcp.md#snapshots).
+  
+  New arguments of `tab_snapshot`:
+  
+  - `scope` reads the subtree of one element, by role and name. The element can be a container that has no ref. `contains` reads the lines that contain a text, and their ancestors.
+  - `diff` reads only the lines that changed since your last snapshot of the tab. A diff shows the current refs on new and changed lines only. If there is no earlier snapshot, or the diff is not smaller than the page, the reply is the full view and its header has `baseline: true`.
+  - `collapse` turns the collapsing off. `maxChars` sets the size of one reply, up to 80000 characters.
+  - `includeScreenshot` adds the screenshot. `includeStructure` adds the forms and tables of the page, with the table ids for `tab_table_rows`.
+  
+  `offset` now needs the `viewId` of the reply that gave you `nextOffset`. It reads the cached view and takes no new snapshot. A new snapshot replaces the cached view, and an old `viewId` fails with `Read a new tab_snapshot.` A client that pages with `offset` alone must pass the `viewId` now.
+  
+  A ref is a position, so it can name another element after the page changes. `tab_click`, `tab_type`, `tab_select`, and `tab_mouse_wheel` now check a `ref` before they call the browser. They refuse a ref that no reply of the connection showed, or that names another element now. The error is `ref eN may have shifted. Read tab_snapshot again, or target the element by role and name.` Selectors are not checked. Acquire, release, resume, and a closed tab clear the refs that a connection can use.
+  
+  A `tab_click` that fails its role or name check, and a failed `tab_extract`, no longer return the whole page. Their reply tells you to read `tab_snapshot`.
+- 2b472fc: Breaking change: `tab_click`, `tab_type`, `tab_select`, and `tab_press` now return the changed lines of the page after the action, and the first three need exactly one of `ref`, `selector`, and `target`.
+  
+  - `observe` is `"diff"` (the default) or `"none"`. With `diff`, the result is one line of JSON with the result of the action, then the snapshot header and the changed lines, as `tab_snapshot` returns them with `diff: true`. A client must not parse the whole text as one JSON value. Pass `observe: "none"` for the result of the action only. If the action succeeds and the read of the page fails, the call still succeeds and says `# The action completed. Read tab_snapshot to see the page.` Do not repeat the action.
+  - `target` is `{role, name, nth?}`. It is the preferred way to name an element on `tab_click`, `tab_type`, and `tab_select`. Stelz finds the element in a fresh snapshot in the same step. A call with two of `ref`, `selector`, and `target`, or with none, now fails.
+  - `tab_wait` takes `target` or `contains`. It waits until the element or the text is on the page. The result is `{found, waitedMs}`, with `reason` (`timeout`, `paused`, or `releasing`) when `found` is `false`. That is not an error.
+  
+  A `scope` or a `target` that matches no element no longer blocks the browser when its name contains the word `timeout`. See [Shared MCP tools](https://github.com/souljorje/stelz/blob/main/docs/mcp.md#targets).
+
+### Patch Changes
+
+- 0d89231: Camofox is now version 1.19.0.
+  
+  Camofox 1.19.0 can restart a browser that has a session, close a crashed tab, and resize a popup. Stelz keeps these actions off.
+- ba87838: Prevent repeated browser clicks after native input. Remove the trial click and stop fallback attempts when the click budget expires.
+- c5fb039: The server instructions of `stelz mcp` now match the new tools. They tell an agent to read the diff that each action returns. They also tell it to name elements by role and name, and to use `tab_wait` when the diff does not show an expected change yet. Before, they told an agent to read fresh snapshots. A client that gives the server instructions to its model shows the new text after the update.
+- 84ff904: Send native click events in sequence. After an uncertain click, block further browser actions until the profile stops and starts again.
+- 371b7e4: Keep proxy authentication credentials in memory during browser IP checks instead of writing them into the profile add-on.
+
 ## 0.5.0
 
 ### Minor Changes
