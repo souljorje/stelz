@@ -1,6 +1,6 @@
 // Real acceptance against one saved archive. Private proxy inputs never enter reports.
 import assert from "node:assert/strict";
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { dedicatedProxyInputs } from "../helpers/dedicated-proxy.ts";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -126,7 +126,13 @@ try {
   writeFileSync(join(installed.home, "location-acceptance-failure.json"), JSON.stringify({ error: redact(String(error)), strata, evidence, traffic, localRequests }, null, 2), { mode: 0o600 });
   console.error(redact(String(error))); process.exitCode = 1;
 } finally {
-  for (const client of clients) await client.close().catch(() => {});
-  for (const id of active) await command("stop", id).catch(error => console.error(redact(String(error))));
-  for (const relay of relays) await relay.stop(); site.stop(true);
+  const cleanup = async (operation: () => unknown) => {
+    try { await operation(); }
+    catch (error) { console.error(redact(String(error))); process.exitCode = 1; }
+  };
+  for (const client of clients) await cleanup(() => client.close());
+  for (const id of active) await cleanup(() => command("stop", id));
+  for (const relay of relays) await cleanup(() => relay.stop());
+  await cleanup(() => site.stop(true));
+  await cleanup(() => rmSync(join(installed.home, "secrets.env"), { force: true }));
 }
