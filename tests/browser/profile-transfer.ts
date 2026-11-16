@@ -1,5 +1,6 @@
 // Exercise ZIP portability with synthetic local data in a new, owned service home.
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -8,7 +9,7 @@ import { assertTestHome, createTestHome } from "../helpers/test-home.ts";
 import { unusedPorts } from "../helpers/ports.ts";
 import { routeProfileTools } from "../helpers/mcp-client.ts";
 
-const root = resolve(import.meta.dir, "../.."), home = createTestHome("transfer-native", join(root, ".state"));
+const root = resolve(import.meta.dir, "../.."), home = createTestHome("transfer-native");
 const cli = process.env.STELZ_TEST_CLI || join(root, "src/cli/cli.ts");
 const env: Record<string, string> = { STELZ_HOME: home };
 for (const key of ["PATH", "HOME", "LANG", "TMPDIR", "CAMOUFOX_EXECUTABLE"]) if (process.env[key]) env[key] = process.env[key]!;
@@ -108,9 +109,10 @@ try {
   passed = true;
   const report = { result: "passed", home, archive, source, imported: copied, importedCount: result.profiles.length,
     checks: ["batch copy", "stopped import", "cookie database bytes", "live cookies", "localStorage", "IndexedDB", "fingerprint bytes", "fresh access key", "copied window controls"] };
-  mkdirSync(join(root, ".state/profile-transfer"), { recursive: true, mode: 0o700 });
-  writeFileSync(join(root, ".state/profile-transfer/report.json"), JSON.stringify(report, null, 2) + "\n", { mode: 0o600 });
+  const reportDir = mkdtempSync(join(tmpdir(), "stelz-profile-transfer-"));
+  writeFileSync(join(reportDir, "report.json"), JSON.stringify(report, null, 2) + "\n", { mode: 0o600 });
   console.log(JSON.stringify(report));
+  console.log("Report: " + join(reportDir, "report.json"));
 } finally {
   for (const client of clients) { try { await client.close(); } catch {} }
   for (const id of active) { try { await command("stop", id); } catch {} }

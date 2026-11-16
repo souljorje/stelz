@@ -14,7 +14,7 @@ if (args.length === 1 && ["--help", "-h"].includes(args[0]!)) {
   process.exit(0);
 }
 if (args.length) throw Error("Use: bun run test:typing. Existing profiles are not supported.");
-const profileId = "typing-check", output = createTestHome("typing-acceptance", join(root, ".state")), home = output;
+const profileId = "typing-check", output = createTestHome("typing-acceptance"), home = output;
 const env: Record<string, string> = { STELZ_HOME: home };
 for (const name of ["PATH", "HOME", "USER", "LOGNAME", "LANG", "TMPDIR", "CAMOUFOX_EXECUTABLE"])
   if (process.env[name]) env[name] = process.env[name]!;

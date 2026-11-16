@@ -1,7 +1,7 @@
 // Real Camoufox acceptance. Uses two isolated profiles and local fixture pages.
 import assert from "node:assert/strict";
 import { createTestHome } from "../helpers/test-home.ts";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -9,8 +9,7 @@ import { profileAppearance, type ProfileWindows } from "../../src/api/contracts.
 import { routeProfileTools } from "../helpers/mcp-client.ts";
 
 const root = resolve(import.meta.dir, "../..");
-mkdirSync(join(root, ".state"), { recursive: true });
-const home = createTestHome("profile-windows", join(root, ".state"));
+const home = createTestHome("profile-windows");
 process.env.STELZ_HOME = home;
 const { createWindowModel } = await import("../../src/api/window-model.ts");
 const windows = createWindowModel();

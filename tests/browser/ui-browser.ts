@@ -20,8 +20,7 @@ Bun.plugin({ name: "fixed-public-ip", setup(build) { build.onLoad({ filter: /src
   contents: 'export async function publicIP(proxy: string, signal: AbortSignal) { return "198.51.100.10"; }' })); } });
 const { processStart } = await import("../../src/runtime/runtime.ts");
 const { createUiServer, createUiSessionState } = await import("../../src/api/ui-server.ts");
-const reports = join(root, ".state/ui-browser");
-mkdirSync(reports, { recursive: true });
+const reports = mkdtempSync(join(tmpdir(), "stelz-ui-browser-"));
 const commands: string[] = [];
 const windowSelections: { id: string; windowId?: number; tabId?: number }[] = [];
 const unavailableWindows = new Set<string>();
@@ -514,5 +513,6 @@ if (process.argv.includes("--serve")) {
     writeFileSync(join(reports, "report.json"), JSON.stringify({ result: "passed", browserErrors: errors, externalRequests: external, commands,
       checks: ["one-use session bootstrap", "fragment removed", "read-only initial observation", "offline bundled assets", "desktop/tablet/mobile layout", "mobile navigation with keyboard selection", "detail and settings responsive layouts", "state-specific lifecycle controls", "network save without credential echo", "dirty form survives polling", "explicit pause and resume", "stop confirmation", "read-only device", "redacted logs", "MCP service home", "diagnostics", "controller release preserves browser", "create direct and proxy profiles", "creation never starts browsers", "running profile deletion unavailable", "typed deletion confirmation", "deleted profiles archived", "create dialog desktop/mobile layout", "UI close preserves browser", "UI shutdown protects unsaved edits", "UI shutdown expires session", "UI shutdown stops polling and listener", "UI shutdown preserves running browsers", "ended session desktop/mobile layout"] }, null, 2));
     console.log(`UI browser checks passed. Screenshots: ${reports}`);
+    console.log("Report: " + join(reports, "report.json"));
   } finally { await browser.close(); close(); }
 }

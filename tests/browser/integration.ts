@@ -10,7 +10,7 @@ import { routeProfileTools } from "../helpers/mcp-client.ts";
 import { assertSingleStartupWindow } from "../helpers/startup-window.ts";
 const root = resolve(import.meta.dir, "../..");
 const home = process.env.STELZ_TEST_HOME ? assertTestHome(process.env.STELZ_TEST_HOME)
-  : createTestHome("standalone-acceptance", join(root, ".state"));
+  : createTestHome("standalone-acceptance");
 const cli = process.env.STELZ_TEST_CLI || join(root, "src/cli/cli.ts");
 // Child processes receive runtime paths and browser configuration, not model credentials.
 const env: Record<string, string> = { STELZ_HOME: home };

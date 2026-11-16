@@ -1,6 +1,7 @@
 import { installPackage } from "../package/install.ts";
 import { packageArguments, assertArchiveUnchanged } from "../../scripts/package-archive.ts";
-import { mkdirSync, readFileSync, writeFileSync, readdirSync, lstatSync, realpathSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync, readdirSync, lstatSync, realpathSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { STELZ_VERSION } from "../../src/versions.ts";
 import { dedicatedProxyInputs } from "../helpers/dedicated-proxy.ts";
@@ -57,6 +58,7 @@ function checkLinks(folder: string) {
 checkLinks(join(home, "runtime"));
 assertArchiveUnchanged(candidate);
 const evidence = { result: "passed", archive, sha256: candidate.sha256, version, acceptance, nativeCheck, globalPrefix: prefix, cwd, serviceHome: home, bundledUiChecked: uiChecked, harnessExecutablesRequired: false, llmCredentialsProvided: false, runtimeLinksReferToSourceCheckout: false, browserChecks: JSON.parse(readFileSync(join(home, "report.json"), "utf8")) };
-mkdirSync(join(root, ".state/package-test"), { recursive: true, mode: 0o700 });
-writeFileSync(join(root, ".state/package-test/report.json"), JSON.stringify(evidence, null, 2), { mode: 0o600 });
+const reportDir = mkdtempSync(join(tmpdir(), "stelz-package-test-"));
+writeFileSync(join(reportDir, "report.json"), JSON.stringify(evidence, null, 2), { mode: 0o600 });
 console.log(JSON.stringify({ result: evidence.result, archive, globalPrefix: prefix, serviceHome: home, cwd }, null, 2));
+console.log("Report: " + join(reportDir, "report.json"));

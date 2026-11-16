@@ -4,7 +4,7 @@ description: "Commands for routine checks, fixtures, CI, and diagnostics, to rea
 tags: [development, testing]
 sources: []
 created: 2026-11-06T13:49:16Z
-modified: 2026-11-11T14:55:54Z
+modified: 2026-11-16T10:19:11Z
 ---
 
 # Testing
@@ -39,17 +39,9 @@ Bun runs `tests/unit/` and `tests/integration/`. Node runs `tests/regression/`.
 - Live checks use disposable profiles in separate service directories. They never select a saved profile. They stop their own browsers.
 - Proxy and public checks need declared test proxies. See [Proxy and human acceptance](acceptance.md#proxy-and-human-acceptance) and [Public fingerprint checks](public-site-checks.md).
 - Failed test state stays for inspection. Keep reports, snapshots, and proxy credentials outside Git. They can contain private data.
-
-| Suite | Report |
-| --- | --- |
-| Integration | `.state/standalone-acceptance-*/report.json`. `STELZ_TEST_HOME`, when set, must identify a directory from `tests/helpers/test-home.ts`. |
-| Native measurements | `.state/native-acceptance-*/report.json` |
-| Concurrency | `.state/concurrency-acceptance/report.json`. A pass removes the service directory. A failure keeps it. |
-| Profile windows | `.state/profile-windows-*/report.json` |
-| Window close | `.state/window-close-*/report.json` |
-| Typing | `.state/typing-acceptance-*/report.json` |
-| Human takeover | `.state/manual-acceptance-*/report.json` |
-| Package | `.state/package-test/report.json` |
+- Disposable test homes and reports go in the system temp directory (`$TMPDIR`). Each suite prints its report path.
+- `STELZ_TEST_HOME`, when set, must identify a directory from `tests/helpers/test-home.ts`.
+- Concurrency suite: a pass removes the service directory. A failure keeps it.
 
 ## Continuous integration
 
