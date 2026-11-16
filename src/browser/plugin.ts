@@ -26,7 +26,7 @@ import { LocationError, locationFailure, evidenceMessage } from "./location.ts";
 export { prepareProfileLaunch } from "./location-launch.ts";
 export { typeIntoLocator } from "./typing.ts";
 export { initializedFingerprint } from "./fingerprint-transaction.ts";
-export { clickReachedPage, domClickRejected, uncertainClickError } from "./click-guard.ts";
+export { clickWithFallback } from "./click-guard.ts";
 export { ownPage, isOrphanPage } from "./page-ownership.ts";
 
 type Page = ProfilePage;

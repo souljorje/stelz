@@ -14,23 +14,30 @@ export function assertLocationPatches(upstream: string) {
     "const prepared = await (await import('./plugins/local-profile/index.js')).prepareProfileLaunch(baseOptions,");
 }
 
-// A fallback click runs only when the failed attempt sent no input. Otherwise one request could click twice.
-// Input gets the remaining budget, because the browser confirms each mouse event before a click completes.
+// The plugin owns click attempts and permits fallback only before input and within the budget.
 function assertClickPatches(upstream: string) {
-  const server = join(upstream, "server.js"), guard = "if (clickReachedPage(forceErr)) throw uncertainClickError(forceErr);\n";
-  const force = "            try {\n              await click({ timeout: inputTimeout(), force: true });\n            } catch (forceErr) {\n              " + guard;
-  check(server, "        } catch (domErr) {\n          log('warn', 'DOM click fallback failed",
-    "        } catch (domErr) {\n          // stelz: a DOM click can reach the page before it fails. Then the mouse sequence would repeat it.\n          if (!domClickRejected(domErr)) throw uncertainClickError(domErr);\n");
-  check(server, "          await click({ timeout: 3000 });\n        } catch (err) {",
-    "          await click({ timeout: 3000, trial: true });\n        } catch (err) {\n          // A trial sends no input, although Playwright still logs \"performing click action\" for it.\n");
-  check(server, "await click({ timeout: 3000 });\n",
-    "        // stelz: a failure after input started is uncertain. Never repeat it.\n        try {\n          await click({ timeout: inputTimeout() });\n" +
-    "        } catch (err) {\n          if (clickReachedPage(err)) throw uncertainClickError(err);\n          throw err;\n        }\n");
-  check(server, "          } catch (forceErr) {\n            log('warn', 'google force click failed",
-    "          } catch (forceErr) {\n            " + guard + "            log('warn', 'google force click failed");
-  check(server, "log('warn', 'click intercepted, retrying with force');\n            try {\n              await click({ timeout: 3000, force: true });",
-    "log('warn', 'click intercepted, retrying with force');\n" + force);
-  check(server, "remainingBudget())), force: true });", "log('warn', 'click timeout, retrying with force');\n" + force);
+  const server = join(upstream, "server.js");
+  check(server, "await click({ timeout:",
+    "        await clickWithFallback({\n" +
+    "          click,\n" +
+    "          domClick: () => dispatchDomClick(locator),\n" +
+    "          mouseClick: () => dispatchMouseSequence(locator),\n" +
+    "          remainingBudget,\n" +
+    "          forceFirst: onGoogleSerp,\n" +
+    "        });");
+  check(server, "const dispatchMouseSequence = async (locator) => {\n        // boundingBox()",
+    "const dispatchMouseSequence = async (locator) => {\n" +
+    "        const inputStep = (operation, label, maximum = Infinity) => {\n" +
+    "          const timeout = Math.min(maximum, remainingBudget());\n" +
+    "          if (timeout <= 0) throw new Error(\"Click budget exhausted before native input\");\n" +
+    "          return withTimeout(operation(timeout), timeout, label);\n" +
+    "        };");
+  check(server, "await inputStep(locator.boundingBox(",
+    'await inputStep(timeout => locator.boundingBox({ timeout }), "native bounding box", bboxTimeout);');
+  for (const [operation, label] of [["move(x, y)", "move"], ["down()", "down"], ["up()", "up"]]) {
+    check(server, `await inputStep(tabState.page.mouse.${operation},`,
+      `await inputStep(() => tabState.page.mouse.${operation}, 'native mouse ${label}');`);
+  }
 }
 
 // The orphan page reaper closes only pages that Camofox owned. Pages that a person or a website opens stay open.
@@ -56,7 +63,7 @@ function assertNativeWindowPatches(upstream: string) {
 export function assertBundledPatches(upstream: string) {
   // The click guard and the page ownership checks come from the plugin.
   check(join(upstream, "server.js"), "} from './lib/browser-errors.js';\n\nconst CONFIG",
-    "} from './lib/browser-errors.js';\nimport { clickReachedPage, domClickRejected, uncertainClickError, isOrphanPage, ownPage } from './plugins/local-profile/index.js';\n");
+    "} from './lib/browser-errors.js';\nimport { clickWithFallback, isOrphanPage, ownPage } from './plugins/local-profile/index.js';\n");
   assertLocationPatches(upstream);
   assertClickPatches(upstream);
   assertReaperPatches(upstream);

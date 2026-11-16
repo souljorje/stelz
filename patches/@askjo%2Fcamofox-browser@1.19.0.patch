@@ -43,7 +43,7 @@ diff --git a/postinstall.js b/postinstall.js
 deleted file mode 100644
 index 488077bfa09b23c4d6ad68a946a5a16be12d7c2d..0000000000000000000000000000000000000000
 diff --git a/server.js b/server.js
-index cc235fe718ffb68d4a462c9f9cb358994000aea1..5b9dcbda424648abc129d416e45feb4d79a8c700 100644
+index cc235fe718ffb68d4a462c9f9cb358994000aea1..b6e42f9679760ac77be54a2a2b8a2909abeebde8 100644
 --- a/server.js
 +++ b/server.js
 @@ -1,5 +1,4 @@
@@ -57,7 +57,7 @@ index cc235fe718ffb68d4a462c9f9cb358994000aea1..5b9dcbda424648abc129d416e45feb4d
    isTabLockQueueTimeout, isTabDestroyedError,
    browserErrorStatus, browserErrorCode, browserErrorRecovery, isRetryableBrowserError,
  } from './lib/browser-errors.js';
-+import { clickReachedPage, domClickRejected, uncertainClickError, isOrphanPage, ownPage } from './plugins/local-profile/index.js';
++import { clickWithFallback, isOrphanPage, ownPage } from './plugins/local-profile/index.js';
  
  const CONFIG = loadConfig();
  
@@ -237,76 +237,111 @@ index cc235fe718ffb68d4a462c9f9cb358994000aea1..5b9dcbda424648abc129d416e45feb4d
        releasePageLease(session, lease);
        attachPopupHandler(page, userId, resolvedSessionKey);
        refreshActiveTabsGauge();
-@@ -4859,6 +4849,8 @@ app.post('/tabs/:tabId/click', async (req, res) => {
+@@ -4821,6 +4811,11 @@ app.post('/tabs/:tabId/click', async (req, res) => {
+       };
+ 
+       const dispatchMouseSequence = async (locator) => {
++        const inputStep = (operation, label, maximum = Infinity) => {
++          const timeout = Math.min(maximum, remainingBudget());
++          if (timeout <= 0) throw new Error("Click budget exhausted before native input");
++          return withTimeout(operation(timeout), timeout, label);
++        };
+         // boundingBox() with no timeout inherits Playwright's 30s default, which
+         // silently eats the entire handler budget when the element detached after
+         // the failed click attempt (the page changed under us). Bound it to the
+@@ -4829,10 +4824,10 @@ app.post('/tabs/:tabId/click', async (req, res) => {
+         // NOTE: the message deliberately avoids the 'timed out after' phrase so
+         // isTimeoutError() doesn't classify a detached element as a navigation
+         // timeout and destroy the whole session in handleRouteError().
+-        const bboxTimeout = Math.max(500, Math.min(3000, remainingBudget()));
++        const bboxTimeout = Math.min(3000, remainingBudget());
+         let box;
          try {
-           await dispatchDomClick(locator);
-         } catch (domErr) {
-+          // stelz: a DOM click can reach the page before it fails. Then the mouse sequence would repeat it.
-+          if (!domClickRejected(domErr)) throw uncertainClickError(domErr);
-           log('warn', 'DOM click fallback failed, trying mouse sequence', { error: domErr.message });
-           await dispatchMouseSequence(locator);
-         }
-@@ -4884,10 +4876,13 @@ app.post('/tabs/:tabId/click', async (req, res) => {
+-          box = await locator.boundingBox({ timeout: bboxTimeout });
++          box = await inputStep(timeout => locator.boundingBox({ timeout }), "native bounding box", bboxTimeout);
+         } catch (e) {
+           const detachedErr = new Error(`Element not actionable: no bounding box within ${bboxTimeout}ms (element likely detached after page change). Call snapshot to refresh refs and retry.`);
+           detachedErr.statusCode = 422;
+@@ -4844,26 +4839,17 @@ app.post('/tabs/:tabId/click', async (req, res) => {
+         const y = box.y + box.height / 2;
+         
+         // Move mouse to element (triggers mouseover/mouseenter)
+-        await withTimeout(tabState.page.mouse.move(x, y), Math.max(1, remainingBudget()), 'native mouse move');
++        await inputStep(() => tabState.page.mouse.move(x, y), 'native mouse move');
+         await tabState.page.waitForTimeout(50);
+         
+         // Full click sequence
+-        await withTimeout(tabState.page.mouse.down(), Math.max(1, remainingBudget()), 'native mouse down');
++        await inputStep(() => tabState.page.mouse.down(), 'native mouse down');
+         await tabState.page.waitForTimeout(50);
+-        await withTimeout(tabState.page.mouse.up(), Math.max(1, remainingBudget()), 'native mouse up');
++        await inputStep(() => tabState.page.mouse.up(), 'native mouse up');
+         
+         log('info', 'mouse sequence dispatched', { x: x.toFixed(0), y: y.toFixed(0) });
+       };
+       
+-      const recoverForceClickFailure = async (locator) => {
+-        try {
+-          await dispatchDomClick(locator);
+-        } catch (domErr) {
+-          log('warn', 'DOM click fallback failed, trying mouse sequence', { error: domErr.message });
+-          await dispatchMouseSequence(locator);
+-        }
+-      };
+-
+       // On Google SERPs, skip the normal click attempt (always intercepted by overlays)
+       // and go directly to force click -- saves 5s timeout per click
+       const onGoogleSerp = isGoogleSerp(tabState.page.url());
+@@ -4884,41 +4870,13 @@ app.post('/tabs/:tabId/click', async (req, res) => {
          }
          const click = async (options) => clickWithDownloadGuard(tabState, () => locator.click(options));
          
-+        // stelz: input waits for the browser to confirm each mouse event, so input gets the remaining budget.
-+        const inputTimeout = () => Math.max(1, remainingBudget());
-         if (onGoogleSerp) {
-           try {
+-        if (onGoogleSerp) {
+-          try {
 -            await click({ timeout: 3000, force: true });
-+            await click({ timeout: inputTimeout(), force: true });
-           } catch (forceErr) {
-+            if (clickReachedPage(forceErr)) throw uncertainClickError(forceErr);
-             log('warn', 'google force click failed, trying DOM click fallback');
-             await recoverForceClickFailure(locator);
-           }
-@@ -4895,29 +4890,40 @@ app.post('/tabs/:tabId/click', async (req, res) => {
-         }
-         
-         try {
+-          } catch (forceErr) {
+-            log('warn', 'google force click failed, trying DOM click fallback');
+-            await recoverForceClickFailure(locator);
+-          }
+-          return;
+-        }
+-        
+-        try {
 -          // First try normal click (respects visibility, enabled, not-obscured)
 -          await click({ timeout: 3000 });
-+          // stelz: check visibility, enabled state, and obstruction without input. Only this check may fall back.
-+          await click({ timeout: 3000, trial: true });
-         } catch (err) {
-+          // A trial sends no input, although Playwright still logs "performing click action" for it.
-           // Fallback 1: If intercepted by overlay, retry with force
-           if (err.message.includes('intercepts pointer events')) {
-             log('warn', 'click intercepted, retrying with force');
-             try {
+-        } catch (err) {
+-          // Fallback 1: If intercepted by overlay, retry with force
+-          if (err.message.includes('intercepts pointer events')) {
+-            log('warn', 'click intercepted, retrying with force');
+-            try {
 -              await click({ timeout: 3000, force: true });
-+              await click({ timeout: inputTimeout(), force: true });
-             } catch (forceErr) {
-+              if (clickReachedPage(forceErr)) throw uncertainClickError(forceErr);
-               log('warn', 'force click failed, trying DOM click fallback');
-               await recoverForceClickFailure(locator);
-             }
-           } else if (err.message.includes('not visible') || err.message.toLowerCase().includes('timeout')) {
-             log('warn', 'click timeout, retrying with force');
-             try {
+-            } catch (forceErr) {
+-              log('warn', 'force click failed, trying DOM click fallback');
+-              await recoverForceClickFailure(locator);
+-            }
+-          } else if (err.message.includes('not visible') || err.message.toLowerCase().includes('timeout')) {
+-            log('warn', 'click timeout, retrying with force');
+-            try {
 -              await click({ timeout: Math.max(1, Math.min(3000, remainingBudget())), force: true });
-+              await click({ timeout: inputTimeout(), force: true });
-             } catch (forceErr) {
-+              if (clickReachedPage(forceErr)) throw uncertainClickError(forceErr);
-               log('warn', 'force click failed, trying DOM click fallback');
-               await recoverForceClickFailure(locator);
-             }
-           } else {
-             throw err;
-           }
-+          return;
-+        }
-+        // stelz: a failure after input started is uncertain. Never repeat it.
-+        try {
-+          await click({ timeout: inputTimeout() });
-+        } catch (err) {
-+          if (clickReachedPage(err)) throw uncertainClickError(err);
-+          throw err;
-         }
+-            } catch (forceErr) {
+-              log('warn', 'force click failed, trying DOM click fallback');
+-              await recoverForceClickFailure(locator);
+-            }
+-          } else {
+-            throw err;
+-          }
+-        }
++        await clickWithFallback({
++          click,
++          domClick: () => dispatchDomClick(locator),
++          mouseClick: () => dispatchMouseSequence(locator),
++          remainingBudget,
++          forceFirst: onGoogleSerp,
++        });
        };
        
-@@ -5481,7 +5487,7 @@ app.post('/tabs/:tabId/type', async (req, res) => {
+       if (hasCoordinates) {
+@@ -5481,7 +5439,7 @@ app.post('/tabs/:tabId/type', async (req, res) => {
    const tabId = req.params.tabId;
    
    try {
@@ -315,7 +350,7 @@ index cc235fe718ffb68d4a462c9f9cb358994000aea1..5b9dcbda424648abc129d416e45feb4d
      const session = sessions.get(normalizeUserId(userId));
      const found = session && findTab(session, tabId);
      if (!found) return tabNotFoundResponse(res, req.params.tabId || req.body?.tabId);
-@@ -5519,9 +5525,9 @@ app.post('/tabs/:tabId/type', async (req, res) => {
+@@ -5519,9 +5477,9 @@ app.post('/tabs/:tabId/type', async (req, res) => {
        
        if (mode === 'fill') {
          if (locator) {
@@ -327,7 +362,7 @@ index cc235fe718ffb68d4a462c9f9cb358994000aea1..5b9dcbda424648abc129d416e45feb4d
          }
        } else {
          // keyboard mode -- char-by-char real key events (required for Ember/contenteditable)
-@@ -5533,12 +5539,19 @@ app.post('/tabs/:tabId/type', async (req, res) => {
+@@ -5533,12 +5491,19 @@ app.post('/tabs/:tabId/type', async (req, res) => {
          await tabState.page.keyboard.type(text, { delay });
        }
        if (shouldSubmit) await tabState.page.keyboard.press('Enter');
@@ -348,7 +383,7 @@ index cc235fe718ffb68d4a462c9f9cb358994000aea1..5b9dcbda424648abc129d416e45feb4d
      if (err.message?.includes('timed out') || err.message?.includes('not an <input>')) {
        try {
          const session = sessions.get(normalizeUserId(req.body.userId));
-@@ -5780,6 +5793,10 @@ app.post('/tabs/:tabId/scroll', async (req, res) => {
+@@ -5780,6 +5745,10 @@ app.post('/tabs/:tabId/scroll', async (req, res) => {
      await withTabLock(req.params.tabId, async () => {
        const isVertical = direction === 'up' || direction === 'down';
        const delta = (direction === 'up' || direction === 'left') ? -amount : amount;
@@ -359,7 +394,7 @@ index cc235fe718ffb68d4a462c9f9cb358994000aea1..5b9dcbda424648abc129d416e45feb4d
        await tabState.page.mouse.wheel(isVertical ? 0 : delta, isVertical ? delta : 0);
        await tabState.page.waitForTimeout(300);
      });
-@@ -7720,7 +7737,8 @@ setInterval(() => {
+@@ -7720,7 +7689,8 @@ setInterval(() => {
            // the leak. Reap crashed tabs after a short quiet period instead —
            // long enough that an in-flight call which just surfaced the crash
            // (and will retry on a new tab) has time to finish.
@@ -369,7 +404,7 @@ index cc235fe718ffb68d4a462c9f9cb358994000aea1..5b9dcbda424648abc129d416e45feb4d
            if (idleMs >= reapAfterMs) {
              tabsReapedTotal.inc();
              log('info', 'tab reaped (inactive)', { userId, tabId, listItemId, idleMs, toolCalls: tabState.toolCalls, crashed: !!tabState.crashed });
-@@ -7768,7 +7786,8 @@ setInterval(() => {
+@@ -7768,7 +7738,8 @@ setInterval(() => {
        for (const tabState of group.values()) registered.add(tabState.page);
      }
      for (const page of contextPages) {
@@ -379,7 +414,7 @@ index cc235fe718ffb68d4a462c9f9cb358994000aea1..5b9dcbda424648abc129d416e45feb4d
          reaped++;
          page.removeAllListeners();
          page.close({ runBeforeUnload: false }).catch(() => {});
-@@ -8698,6 +8717,9 @@ setInterval(() => {
+@@ -8698,6 +8669,9 @@ setInterval(() => {
  
  // Active health probe -- detect hung browser even when isConnected() lies
  setInterval(async () => {

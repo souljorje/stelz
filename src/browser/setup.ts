@@ -156,7 +156,7 @@ function validate(upstream: string) {
       throw Error("Invalid Camofox tool contracts.");
     }
     for (const name of ["register", "launchProfileBrowser", "claimProfileContext", "protectProfileStartup", "prepareProfileLaunch", "typeIntoLocator",
-      "clickReachedPage", "domClickRejected", "uncertainClickError", "ownPage", "isOrphanPage"]) {
+      "clickWithFallback", "ownPage", "isOrphanPage"]) {
       if (typeof plugin[name] !== "function") throw Error("Missing local-profile export: " + name);
     }
   `;

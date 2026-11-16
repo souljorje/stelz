@@ -37,14 +37,14 @@ else if (process.argv[2] === "setup-unconfirmed") await setup({ confirm: async d
 else await start(process.argv[3]!);
 `);
   file(join(project, "package.json"), JSON.stringify({ type: "module", version: "0.2.0", dependencies: { "@askjo/camofox-browser": "1.18.1", "@modelcontextprotocol/sdk": "1.30.0", "better-sqlite3": "13.0.1", camoufox: "0.5.8", impit: "0.14.8" } }));
-  file(join(project, "dist/plugin.js"), "export function register() {}\nexport function launchProfileBrowser() {}\nexport function claimProfileContext() {}\nexport function protectProfileStartup() {}\nexport function prepareProfileLaunch() {}\nexport function typeIntoLocator() {}\nexport function clickReachedPage() {}\nexport function domClickRejected() {}\nexport function uncertainClickError() {}\nexport function ownPage() {}\nexport function isOrphanPage() {}\n");
+  file(join(project, "dist/plugin.js"), "export function register() {}\nexport function launchProfileBrowser() {}\nexport function claimProfileContext() {}\nexport function protectProfileStartup() {}\nexport function prepareProfileLaunch() {}\nexport function typeIntoLocator() {}\nexport function clickWithFallback() {}\nexport function ownPage() {}\nexport function isOrphanPage() {}\n");
   const upstream = join(project, "node_modules/@askjo/camofox-browser");
   file(join(upstream, "package.json"), JSON.stringify({ name: "@askjo/camofox-browser", version: "1.18.1", type: "module", dependencies: { camoufox: "0.5.8", "playwright-core": "1.62.1" } }));
   file(join(upstream, "server.js"), `import { Camoufox, launchOptions, VirtualDisplay } from 'camoufox';
 import {
   isTimeoutError,
 } from './lib/browser-errors.js';
-import { clickReachedPage, domClickRejected, uncertainClickError, isOrphanPage, ownPage } from './plugins/local-profile/index.js';
+import { clickWithFallback, isOrphanPage, ownPage } from './plugins/local-profile/index.js';
 async function safePageClose(page) {
   if (!page || page.isClosed()) return;
   ownPage(page);
@@ -68,55 +68,29 @@ function reapOrphans(session, contextPages, registered, isPageLeased) {
       }
   }
 }
-async function recoverForceClickFailure(dispatchDomClick, dispatchMouseSequence, log) {
-        try {
-          await dispatchDomClick();
-        } catch (domErr) {
-          // stelz: a DOM click can reach the page before it fails. Then the mouse sequence would repeat it.
-          if (!domClickRejected(domErr)) throw uncertainClickError(domErr);
-          log('warn', 'DOM click fallback failed, trying mouse sequence', { error: domErr.message });
-          await dispatchMouseSequence();
-        }
-}
-async function clickRoute(click, log, remainingBudget, onGoogleSerp) {
-        const inputTimeout = () => Math.max(1, remainingBudget());
-        if (onGoogleSerp) {
-          try {
-            await click({ timeout: inputTimeout(), force: true });
-          } catch (forceErr) {
-            if (clickReachedPage(forceErr)) throw uncertainClickError(forceErr);
-            log('warn', 'google force click failed, trying DOM click fallback');
-          }
-          return;
-        }
-        try {
-          await click({ timeout: 3000, trial: true });
-        } catch (err) {
-          // A trial sends no input, although Playwright still logs "performing click action" for it.
-          if (isTimeoutError(err)) {
-            log('warn', 'click intercepted, retrying with force');
-            try {
-              await click({ timeout: inputTimeout(), force: true });
-            } catch (forceErr) {
-              if (clickReachedPage(forceErr)) throw uncertainClickError(forceErr);
-            }
-          } else {
-            log('warn', 'click timeout, retrying with force');
-            try {
-              await click({ timeout: inputTimeout(), force: true });
-            } catch (forceErr) {
-              if (clickReachedPage(forceErr)) throw uncertainClickError(forceErr);
-            }
-          }
-          return;
-        }
-        // stelz: a failure after input started is uncertain. Never repeat it.
-        try {
-          await click({ timeout: inputTimeout() });
-        } catch (err) {
-          if (clickReachedPage(err)) throw uncertainClickError(err);
-          throw err;
-        }
+const dispatchMouseSequence = async (locator) => {
+        const inputStep = (operation, label, maximum = Infinity) => {
+          const timeout = Math.min(maximum, remainingBudget());
+          if (timeout <= 0) throw new Error("Click budget exhausted before native input");
+          return withTimeout(operation(timeout), timeout, label);
+        };
+        const bboxTimeout = Math.min(3000, remainingBudget());
+        const box = await inputStep(timeout => locator.boundingBox({ timeout }), "native bounding box", bboxTimeout);
+        const x = box.x + box.width / 2, y = box.y + box.height / 2;
+        await inputStep(() => tabState.page.mouse.move(x, y), 'native mouse move');
+        await tabState.page.waitForTimeout(50);
+        await inputStep(() => tabState.page.mouse.down(), 'native mouse down');
+        await tabState.page.waitForTimeout(50);
+        await inputStep(() => tabState.page.mouse.up(), 'native mouse up');
+};
+async function clickRoute(click, dispatchDomClick, dispatchMouseSequence, locator, remainingBudget, onGoogleSerp) {
+        await clickWithFallback({
+          click,
+          domClick: () => dispatchDomClick(locator),
+          mouseClick: () => dispatchMouseSequence(locator),
+          remainingBudget,
+          forceFirst: onGoogleSerp,
+        });
 }
 class DefaultVirtualDisplay extends VirtualDisplay { constructor() { super(false, DEFAULT_VIRTUAL_DISPLAY_RESOLUTION); } }
 async function fillLocator(locator, text, typingMode) {
@@ -291,7 +265,7 @@ test("activates a complete runtime generation, replacing the installed runtime, 
     expect(manifest.executableSha256).toHaveLength(64);
     const server = readFileSync(join(f.home, "runtime/camofox-1.18.1/server.js"), "utf8");
     expect(server).toContain("launchProfileBrowser");
-    expect(server).toContain("uncertainClickError, isOrphanPage, ownPage } from './plugins/local-profile/index.js';");
+    expect(server).toContain("clickWithFallback, isOrphanPage, ownPage } from './plugins/local-profile/index.js';");
     expect(server).toContain("typeIntoLocator(locator, text, typingMode)");
     // The native profile owns browser data, so Camofox loads only the local-profile plugin.
     expect(existsSync(join(f.home, "runtime/camofox-1.18.1/plugins/persistence"))).toBe(false);
@@ -354,7 +328,7 @@ test("a failed model preparation preserves the active model and permits retry", 
 test("missing contract modules or required exports cannot replace the runtime", async () => {
   const contractExports = ["TOOL_DEFS", "runTool", "adaptResponse"];
   const pluginExports = ["register", "launchProfileBrowser", "claimProfileContext", "protectProfileStartup", "prepareProfileLaunch", "typeIntoLocator",
-    "clickReachedPage", "domClickRejected", "uncertainClickError", "ownPage", "isOrphanPage"];
+    "clickWithFallback", "ownPage", "isOrphanPage"];
   const cases = ["missing-contract", ...contractExports.map(name => `contract:${name}`), ...pluginExports.map(name => `plugin:${name}`)];
   for (const item of cases) {
     const f = fixture();
@@ -408,7 +382,8 @@ test("interruption during old-runtime cleanup leaves the new runtime complete", 
   try {
     await until(() => existsSync(f.gate), "staged validation");
     releaseGate(f);
-    await until(() => !existsSync(join(f.home, "runtime/bulk")), "atomic activation");
+    // Retiring the old directory precedes activation. Interrupt only after the new link exists.
+    await until(() => lstatSync(join(f.home, "runtime"), { throwIfNoEntry: false })?.isSymbolicLink() === true, "new runtime activation");
     expect(child.exitCode).toBeNull();
     child.kill("SIGKILL"); await finish(child);
     const manifest = JSON.parse(readFileSync(join(f.home, "runtime/versions.json"), "utf8"));
@@ -540,5 +515,19 @@ test("unpatched dependencies are rejected without rewriting the installed packag
   expect(result.code).not.toBe(0);
   expect(result.stderr).toContain("missing a required Stelz patch");
   expect(readFileSync(path, "utf8")).toBe(before);
+  oldRuntime(f);
+});
+
+for (const [before, after] of [
+  ["await clickWithFallback({", "await oldClickFlow({"],
+  ['if (timeout <= 0) throw new Error("Click budget exhausted before native input");', "// missing budget check"],
+  ["inputStep(() => tabState.page.mouse.down(),", "inputStep(tabState.page.mouse.down(),"],
+]) test(`setup rejects a missing click guard: ${before}`, async () => {
+  const f = fixture(); installedRuntime(f);
+  const path = join(f.upstream, "server.js"), source = readFileSync(path, "utf8");
+  expect(source).toContain(before!);
+  writeFileSync(path, source.replace(before!, after!));
+  const result = await finish(launch(f));
+  expect(result.code).not.toBe(0); expect(result.stderr).toContain("missing a required Stelz patch");
   oldRuntime(f);
 });
