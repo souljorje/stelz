@@ -89,7 +89,10 @@ bun run test:package --archive /absolute/path/to/candidate.tgz --setup
 - Use the archive path that `pack` prints. Do not rebuild between checks.
 - `pack --destination DIRECTORY`: another output directory. Without `--archive`, local checks select the current manifest version under `release-artifacts/`.
 - `test:install`: no browser. `--native` adds ordinary npm lifecycle scripts and native dependency checks.
-- `test:package`: installs with lifecycle scripts. Always runs integration, native persistence, transfer, concurrency, and typing acceptance. Replaces `test:install --native` and the source-tree suites it repeats. Flags:
+- `test:package`: installs with lifecycle scripts. Always runs integration, native persistence, transfer, concurrency, and typing acceptance. Replaces `test:install --native` and the source-tree suites it repeats.
+- Typing and optional window checks reuse the integration browsers. Separate lifecycle, native, and transfer checks retain their own browsers.
+
+Flags:
 
 | Flag | Adds |
 | --- | --- |

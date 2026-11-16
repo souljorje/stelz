@@ -52,6 +52,23 @@ Bun runs `tests/unit/` and `tests/integration/`. Node runs `tests/regression/`.
 - `STELZ_TEST_HOME`, when set, must identify a directory from `tests/helpers/test-home.ts`.
 - Concurrency suite: a pass removes the service directory. A failure keeps it.
 
+## Coverage boundaries
+
+Keep browser checks together when they need the same starting state. Keep failure cases separate when they need controlled faults.
+
+| Suite | Responsibility |
+| --- | --- |
+| Integration | Browser actions, screenshots, complete snapshot pagination, SDK jobs, handoff, and restart through the CLI |
+| Concurrency | Multiple profiles on one connection, routing, acquisition races, stale handles, and process cleanup |
+| Native | Repeated device measurements and cookie, localStorage, and IndexedDB persistence across browser lifetimes |
+| Transfer | Archive round trip and native data in an imported browser |
+| Typing | Actual input events, field types, mode overrides, and live defaults |
+| Unit and integration without browsers | Exact boundaries, malformed inputs, controlled timeouts, and failure recovery |
+
+- Screenshot format and pagination checks belong to integration. Concurrency does not repeat them.
+- The typing threshold test also checks that bulk entry does not clear the field first. The browser suite checks long text.
+- Package acceptance shares integration browsers with typing and optional window checks, as the local runner does.
+
 ## Continuous integration
 
 - `.github/workflows/ci.yml` runs `bun run check` on Linux for pull requests, manual dispatch, and reusable workflow calls.

@@ -158,19 +158,6 @@ try {
   report.checks.push("Parallel profiles scroll their original tabs after opening another tab, with isolated page state");
 
   const first = ids[0]!, second = ids[1]!, competitor = await connect();
-  const page = tabs.get(first)!;
-  await call(client, "tab_scroll", { profileId: first, tabId: page, direction: "down", amount: 200 });
-  const screenshot = await client.callTool({ name: "tab_screenshot", arguments: { profileId: first, tabId: page } });
-  assert(!screenshot.isError && (screenshot.content as { type: string; mimeType?: string; data?: string }[])
-    .some(block => block.type === "image" && block.mimeType === "image/png" && (block.data?.length || 0) > 1000), "Screenshot response changed");
-  const disposable = await call(client, "tab_create", { profileId: first, url: `${site.url}/?pagination=1` });
-  const part = await call(client, "tab_snapshot", { profileId: first, tabId: disposable.tabId });
-  assert(typeof part.nextOffset === "number" && part.nextOffset > 0, "Snapshot pagination is missing");
-  const rest = await call(client, "tab_snapshot", { profileId: first, tabId: disposable.tabId, offset: part.nextOffset, viewId: part.viewId });
-  assert(typeof rest.snapshot === "string" && rest.snapshot !== part.snapshot, "Snapshot pagination repeated its first page");
-  await call(client, "tab_close", { profileId: first, tabId: disposable.tabId });
-  assert(!JSON.stringify(await call(client, "tab_list", { profileId: first })).includes(String(disposable.tabId)), "Tab close did not remove the selected tab");
-  report.checks.push("All nine canonical browser tools preserve responses, including image screenshots and snapshot pagination");
   for (const connection of [client, competitor])
     assert((await connection.callTool({ name: "profile_acquire", arguments: { profileId: first } })).isError, "Second acquisition acquired a held profile");
   for (const args of [

@@ -111,8 +111,13 @@ try {
       `Scroll ${direction} returned without moving the feed: ${x},${y}`);
     scrollX = x; scrollY = y;
   }
+  const screenshot = await a.client.callTool({ name: "tab_screenshot", arguments: { tabId: scrollTab.tabId } });
+  assert(!screenshot.isError && (screenshot.content as { type: string; mimeType?: string; data?: string }[])
+    .some(block => block.type === "image" && block.mimeType === "image/png" && (block.data?.length || 0) > 1000), "Screenshot response changed");
   await call(a.client, "tab_close", { tabId: scrollTab.tabId });
+  assert(!JSON.stringify(await call(a.client, "tab_list")).includes(String(scrollTab.tabId)), "Tab close did not remove the selected tab");
   report.push({ check: "Scroll moves a nested feed in all four directions after a header click", result: "passed" });
+  report.push({ check: "Explicit screenshots return PNG images and closing the fixture tab removes it from the tab list", result: "passed" });
   // Snapshot shaping on a real page. These checks do not write the storage marker: the profile keeps one marker for the origin of the fixture.
   const shaped = (await call(a.client, "tab_create", { url: `${pageServer.url}/?profile=snapshot-shapes` })).tabId as string;
   const first = await snapshot(a.client, { tabId: shaped });

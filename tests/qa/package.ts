@@ -21,23 +21,22 @@ async function run(args: string[], options: { cwd?: string; env?: Record<string,
 }
 await run([executable, "setup", "--yes"]);
 assertArchiveUnchanged(candidate);
-await run([bun, "--no-env-file", join(root, "tests/browser/integration.ts")], { env: { ...cleanEnv, STELZ_TEST_HOME: home, STELZ_TEST_CLI: installedCli }, inherit: true });
-const acceptance = { integration: true, native: false, transfer: false, concurrency: false, typing: false, setup: false, windows: false, proxy: false, location: false, manual: false };
+await run([bun, "--no-env-file", join(root, "tests/browser/integration.ts"), "--typing", ...(input.flags.has("--windows") ? ["--windows"] : [])],
+  { env: { ...cleanEnv, STELZ_TEST_HOME: home, STELZ_TEST_CLI: installedCli }, inherit: true });
+const acceptance = { integration: true, native: false, transfer: false, concurrency: false, typing: true, setup: false, windows: input.flags.has("--windows"), proxy: false, location: false, manual: false };
 const installation = join(home, "installation.json");
 writeFileSync(installation, JSON.stringify(installed), { mode: 0o600 });
 for (const [flag, script, suite] of [
   ["--native", "tests/browser/native-integration.ts", "native"],
   ["--transfer", "tests/browser/profile-transfer.ts", "transfer"],
   ["--concurrency", "tests/browser/concurrency.ts", "concurrency"],
-  ["--typing", "tests/browser/typing-browser.ts", "typing"],
   ["--setup", "tests/package/setup.ts", "setup"],
-  ["--windows", "tests/browser/profile-windows-browser.ts", "windows"],
   ["--proxy", "tests/browser/proxy-integration.ts", "proxy"],
   ["--proxy", "tests/package/location.ts", "location"],
   ["--manual", "tests/qa/manual-integration.ts", "manual"],
 ] as const) {
-  // Setup downloads the browser. Foreground window, proxy, and human checks also need their explicit opt-in flags.
-  if (["setup", "windows", "proxy", "location", "manual"].includes(suite) && !input.flags.has(flag)) continue;
+  // Setup, proxy, and human checks need their explicit opt-in flags.
+  if (["setup", "proxy", "location", "manual"].includes(suite) && !input.flags.has(flag)) continue;
   assertArchiveUnchanged(candidate);
   await run([bun, "--no-env-file", join(root, script), ...(["setup", "location"].includes(suite) ? ["--archive", archive] : [])], { cwd, env: { ...cleanEnv, STELZ_TEST_CLI: installedCli,
     ...(suite === "concurrency" ? { STELZ_CLI: installedCli } : {}),
