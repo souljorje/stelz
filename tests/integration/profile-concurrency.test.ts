@@ -33,7 +33,11 @@ fs.writeFileSync(path.join(dir, 'upstream-environment.json'), JSON.stringify(Obj
   ['CAMOUFOX_EXECUTABLE', 'CAMOUFOX_EXECUTABLE_PATH', 'CAMOFOX_EXECUTABLE_PATH', 'STELZ_CAMOUFOX_EXECUTABLE',
     'BROWSER_RSS_RESTART_THRESHOLD_MB', 'NATIVE_MEM_RESTART_THRESHOLD_MB'].filter(name => process.env[name] !== undefined).map(name => [name, process.env[name]]))));
 fs.appendFileSync(path.join(process.env.STELZ_HOME, 'launches.jsonl'), JSON.stringify({ id, server: process.pid, supervisor: process.ppid, instanceId: running.instanceId }) + '\\n');
-const save = () => fs.writeFileSync(path.join(dir, 'status.json'), JSON.stringify(state));
+const save = () => {
+  const file = path.join(dir, 'status.json'), stage = file + '.' + process.pid + '.tmp';
+  fs.writeFileSync(stage, JSON.stringify(state));
+  fs.renameSync(stage, file);
+};
 save();
 const server = http.createServer(async (req, res) => {
   res.setHeader('content-type', 'application/json');
