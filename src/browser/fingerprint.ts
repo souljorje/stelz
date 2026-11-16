@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { isDeepStrictEqual } from "node:util";
 import { stageFingerprint, type FingerprintOwner } from "./fingerprint-transaction.ts";
 import { validateFingerprint } from "./fingerprint-validation.ts";
-import { launcher } from "./camoufox.ts";
+import { hostRendering, launcher } from "./camoufox.ts";
 
 /** Device profile is persistent; location, session state and security policy are not. */
 export type Fingerprint = Record<string, unknown>;
@@ -89,6 +89,20 @@ export function launchPreferences(current: Fingerprint | undefined, proxied: boo
   const capabilities = "webGl:parameters" in device ? { "webgl.enable-webgl2": "webGl2:parameters" in device } : {};
   // Spoofed coordinates must not grant location access to every site.
   const { "permissions.default.geo": _geo, ...policy } = current || {};
+  // Recompute launcher-derived rendering preferences after the saved device replaces the fresh sample.
+  if ("window.devicePixelRatio" in device) {
+    delete policy["layout.css.devPixelsPerPx"];
+    const dpr = Number(device["window.devicePixelRatio"] || 1);
+    if (dpr !== 1) policy["layout.css.devPixelsPerPx"] = String(dpr);
+  }
+  const vendor = device["webGl:vendor"], renderer = device["webGl:renderer"];
+  if (typeof vendor === "string" && typeof renderer === "string") {
+    const { setWebgpu, WEBGPU_BLOCKLIST_PREF } = hostRendering();
+    delete policy["dom.webgpu.enabled"];
+    delete policy[WEBGPU_BLOCKLIST_PREF];
+    // prepareProfileLaunch uses canvas_noise:true, so upstream never selects a host adapter.
+    setWebgpu(policy, launcher().getTargetOs(device), [vendor, renderer], null);
+  }
   // Apply the mandatory rule last, including when a direct profile switches to a proxy.
   return { ...policy, ...capabilities, ...(proxied ? {
     "media.peerconnection.enabled": false,

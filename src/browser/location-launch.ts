@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { hash, readLocationFile, managedGeoip, validateLocationConfig, locationsMatch, resolveLocation, locationEvidence, assertCredibleLocation,
   locationFailure, LocationError, checkBrowserLocation, writeLocationRecord, type LocationRecord, type LocationResult } from "./location.ts";
 import { readLaunchConfig, type LaunchOptions, type Fingerprint } from "./fingerprint.ts";
-import { isPreparedModel, pairedBrowser } from "./camoufox.ts";
+import { fingerprintModel, isPreparedModel, launcher, pairedBrowser } from "./camoufox.ts";
 
 export function launchLocation(): LocationRecord | undefined {
   if (!process.env.PROXY_HOST) return;
@@ -36,15 +36,20 @@ export function engineVersion(executable: string) {
 async function launcherOptions(options: Record<string, unknown>) {
   const executable = process.env.STELZ_CAMOUFOX_EXECUTABLE, model = process.env.CAMOUFOX_FPGEN_DATA;
   if (!executable || !model || !isPreparedModel(model)) throw Error("Browser prerequisites are missing. Run stelz setup.");
+  const version = engineVersion(executable);
+  // Import the launcher first: its paths module sets a model directory during initialization.
+  launcher();
+  fingerprintModel().setModelDir(model);
   // On macOS the launcher reads the version of its active cache install, not of this bundle, so Stelz passes it.
   // The flag silences the launcher's warnings about that version and the location config. Stelz validates both.
-  return { ...options, executable_path: executable, ff_version: engineVersion(executable), i_know_what_im_doing: true };
+  return { ...options, executable_path: executable, ff_version: version, i_know_what_im_doing: true };
 }
 export async function prepareProfileLaunch(options: Record<string, unknown>, prepare: (options: Record<string, unknown>) => Promise<unknown>) {
   // Runtime geometry admission supports macOS only. Reject before upstream can create Linux home/cache files.
   if (process.platform !== "darwin") throw Error("Browser Start requires macOS. This platform has no supported startup geometry contract.");
   // Desktop window and screen bounds. A proxied browser never leaks its real address through WebRTC.
-  options = { ...options, window: [1200, 800], screen: { minWidth: 1280, minHeight: 900, maxWidth: 1920, maxHeight: 1200 },
+  // The canonical placeholder mode avoids an unowned browser launch to probe the host GPU.
+  options = { ...options, canvas_noise: true, window: [1200, 800], screen: { minWidth: 1280, minHeight: 900, maxWidth: 1920, maxHeight: 1200 },
     block_webrtc: !!options.proxy, config: { showcursor: true, ...options.config as Fingerprint | undefined } };
   if (!process.env.PROXY_HOST) return prepare(await launcherOptions(options));
   let record: LocationRecord | undefined;

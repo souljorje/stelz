@@ -84,7 +84,7 @@
   "dependencies": {
     "@askjo/camofox-browser": "1.19.0",
     "@modelcontextprotocol/sdk": "1.30.0",
-    "camoufox": "0.5.8",
+    "camoufox": "0.5.9",
     "hono": "4.13.16",
     "playwright-core": "1.62.1",
     "better-sqlite3": "13.0.1",

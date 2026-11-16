@@ -80,7 +80,10 @@ export async function launchProfileBrowser(
   // Context options (locale, timezone, viewport) must apply at launch,
   // not to a new incognito context after the native profile has already opened.
   // Like the official launcher, use the host media features instead of Playwright's emulation.
-  const effective = launcher().withStockMediaDefaults({ ...options, ...withoutPermissions(contextOptions) });
+  const effective = { ...options, ...withoutPermissions(contextOptions) };
+  for (const [key, value] of Object.entries(launcher().STOCK_MEDIA_DEFAULTS)) {
+    if (effective[key] === undefined) effective[key] = value;
+  }
   const context = await firefox.launchPersistentContext(directory, effective);
   try {
     const browser = context.browser();

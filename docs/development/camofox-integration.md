@@ -14,7 +14,7 @@ Camofox and Camoufox: see [Technology](architecture.md#technology). Request path
 ## Pinned dependencies and patches
 
 - Bun applies the committed patches in `patches/` during workspace installation.
-- Pins in the root `package.json`: Camofox (`@askjo/camofox-browser`) `1.19.0`, official `camoufox` launcher `0.5.8`.
+- Pins in the root `package.json`: Camofox (`@askjo/camofox-browser`) `1.19.0`, official `camoufox` launcher `0.5.9`.
 - The Camofox patch sets its launcher dependency to that version and its optional MCP SDK range to the Stelz SDK range. No override is necessary, and the archive holds one SDK copy.
 - `src/versions.ts` records the upstream source commit.
 - Setup checks each patched location in the prepared source (`src/browser/camofox-adapter.ts`). It fails when a patch is missing, duplicated, or changed.
@@ -41,6 +41,8 @@ Stelz does these without a patch:
 - Executable: the supervisor passes the browser path in `STELZ_CAMOUFOX_EXECUTABLE`. Camofox sees none of its own executable variables, so its executable shim stays off. The shim writes `version.json` into the shared Camoufox cache. The `CAMOUFOX_EXECUTABLE` override in `secrets.env` is unchanged.
 - Memory restart: the supervisor sets both memory limits (`NO_MEMORY_RESTART` in `src/profiles/config.ts`) to the largest safe integer. Camofox never restarts a browser for memory.
 - Window, screen, and WebRTC: `prepareProfileLaunch` sets the desktop window and screen bounds. It turns WebRTC off for proxied browsers. See [IP check policy](../configuration/network.md#ip-check-policy).
+- Rendering: `prepareProfileLaunch` sets upstream `canvas_noise: true` to prevent a separate browser launch for GPU detection. Camoufox 158 replaces canvas/WebGL readback with random data. WebGPU exposure follows the saved OS/GPU, but its adapter request returns null. This differs from launcher 0.5.8, which added no canvas noise. After device replay, Stelz derives DPR and WebGPU preferences again with upstream rules.
+- Model: Start binds `fpgen-js` to the validated model directory after launcher initialization. An inherited `FPGEN_DATA_DIR` cannot select another model. Missing or incomplete prepared files block Start.
 - Geolocation: `launchProfileBrowser` and `claimProfileContext` drop the context permissions. No website gets a permission.
 - New pages: `claimProfileContext` replaces `newPage()` on the claimed context. The first call returns the original blank page. Each Camofox route that creates a page uses it.
 - Click guard and page ownership: the patched server imports these functions from the built plugin.

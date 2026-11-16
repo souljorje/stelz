@@ -7,6 +7,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { createMockPackage } from "../helpers/mock-package.ts";
 import { fixtureLocation, fixtureModel, managedFixture, geoipFixture } from "../helpers/geoip-fixture.ts";
 import { UPSTREAM_VERSION } from "../../src/versions.ts";
+import { pairedBrowser } from "../../src/browser/camoufox.ts";
 
 const homes: string[] = [];
 afterEach(() => { for (const home of homes.splice(0)) rmSync(home, { recursive: true, force: true }); });
@@ -22,7 +23,7 @@ function fixture(ipCode?: string) {
   writeFileSync(join(upstream, "server.js"), "throw Error('A blocked preflight must never launch this server');");
   fixtureLocation(home, pkg.packageRoot, ipCode);
   writeFileSync(join(home, "browser"), "fixture executable");
-  writeFileSync(join(home, "application.ini"), "[App]\nVersion=156.0.1-beta.36\n");
+  writeFileSync(join(home, "application.ini"), `[App]\nVersion=${pairedBrowser()}\n`);
   fixtureModel(join(home, "runtime/fpgen"));
   writeFileSync(join(home, "runtime/versions.json"), "{}");
   writeFileSync(join(home, "profiles.json"), JSON.stringify({ profiles: [{ id: "test", port: 19378, proxyEnv: "TEST_PROXY" }] }));
@@ -178,7 +179,7 @@ test("the launch adapter applies checked options and closes a failed preparation
     try {await prepareProfileLaunch({proxy:{server:'http://proxy.test:8080'}},async()=>{throw Error('fixture-password')});}catch{}
     await Bun.sleep(40);
     return {options,terminated,result:JSON.parse(readFileSync(path,'utf8')).result};`);
-  expect(result.options).toMatchObject({ geoip: false, ff_version: "156", i_know_what_im_doing: true, timezoneId: "Europe/London", config: { timezone: "Europe/London" },
+  expect(result.options).toMatchObject({ geoip: false, ff_version: pairedBrowser().split(".")[0], i_know_what_im_doing: true, timezoneId: "Europe/London", config: { timezone: "Europe/London" },
     block_webrtc: true, window: [1200, 800], screen: { minWidth: 1280, minHeight: 900, maxWidth: 1920, maxHeight: 1200 } });
   expect(result).toMatchObject({ terminated: true, result: { code: "LOCATION_PREPARATION_FAILED", browserStarted: false, nextAction: { kind: "run_setup" } } });
   expect(JSON.stringify(result)).not.toContain("fixture-password");

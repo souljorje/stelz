@@ -2,7 +2,7 @@ diff --git a/lib/camoufox-download.js b/lib/camoufox-download.js
 deleted file mode 100644
 index 68d8da7c60fbe50bf33113ed619bcc1183e4ed3a..0000000000000000000000000000000000000000
 diff --git a/package.json b/package.json
-index e7062aab755e0f284c9ac1b7a7656bda2279e0cf..ce84f2803d456c98e9b5d89411d058770b7dc34d 100644
+index e7062aab755e0f284c9ac1b7a7656bda2279e0cf..dea432d7a3f3b7f1d1c2128108b7f80194dfb01d 100644
 --- a/package.json
 +++ b/package.json
 @@ -54,8 +54,7 @@
@@ -27,7 +27,7 @@ index e7062aab755e0f284c9ac1b7a7656bda2279e0cf..ce84f2803d456c98e9b5d89411d05877
    "dependencies": {
      "better-sqlite3": "13.0.1",
 -    "camoufox-js": "0.11.5",
-+    "camoufox": "0.5.8",
++    "camoufox": "0.5.9",
      "express": "^5.2.1",
      "playwright-core": "^1.58.0",
      "prom-client": "^15.1.3",

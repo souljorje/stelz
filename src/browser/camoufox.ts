@@ -12,7 +12,17 @@ import { validate } from "camoufox/dist/coherence.js";
 const load = createRequire(import.meta.url);
 export const coherenceViolations = validate;
 export const launcher = () => load("camoufox/dist/utils.js") as typeof import("camoufox/dist/utils.js");
-export const fingerprintModel = () => load("camoufox/dist/fpgen/index.js") as typeof import("camoufox/dist/fpgen/index.js");
+export const hostRendering = () => load("camoufox/dist/host_rendering.js") as typeof import("camoufox/dist/host_rendering.js");
+export const fingerprintModel = () => {
+  const model = createRequire(load.resolve("camoufox/package.json"))("fpgen-js") as typeof import("fpgen-js");
+  // fpgen-js exposes preparation publicly, but not its read-only installation check.
+  return { ...model, isModelInstalled(directory: string) {
+    try {
+      return readFileSync(join(directory, ".pinned-model"), "utf8").trim() === model.MODEL_PIN.sha256 &&
+        model.MODEL_PIN.files.every(file => statSync(join(directory, file)).isFile());
+    } catch { return false; }
+  } };
+};
 /** Upstream's installed check excludes values.dat. Check its indexed length without triggering decompression or downloads. */
 export function isPreparedModel(directory: string): boolean {
   if (!fingerprintModel().isModelInstalled(directory)) return false;
@@ -51,6 +61,6 @@ export const browserPackage = () => {
 };
 /** The executable inside a browser directory, by upstream's per-platform layout. Unlike `launchPath`, it does not require the file. */
 export function browserExecutable(directory: string) {
-  const { OS_NAME, LAUNCH_FILE } = pkgman();
+  const { OS_NAME, LAUNCH_FILE } = load("camoufox/dist/paths.js") as typeof import("camoufox/dist/paths.js");
   return OS_NAME === "mac" ? resolve(directory, "Camoufox.app/Contents/Resources", LAUNCH_FILE.mac) : join(directory, LAUNCH_FILE[OS_NAME]);
 }

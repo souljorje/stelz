@@ -36,13 +36,15 @@ test("a configured browser must be the paired build", async () => {
   const home = temp(), unpaired = browserFixture(join(home, "unpaired"), "152.0.4-beta.30");
   await expect(prepareBrowser(home, join(home, "missing"), { request: offline })).rejects.toThrow("Correct or remove CAMOUFOX_EXECUTABLE");
   await expect(prepareBrowser(home, unpaired, { request: offline })).rejects.toThrow("is not supported");
+  const previous = browserFixture(join(home, "previous"), "156.0.1-beta.36");
+  await expect(prepareBrowser(home, previous, { request: offline })).rejects.toThrow("is not supported");
   const configured = browserFixture(join(home, "configured"));
   expect(await prepareBrowser(home, configured, { request: offline, installed: () => { throw Error("No cache read"); } }))
     .toEqual({ executable: configured, source: "configured" });
 });
 
 test("setup reuses its copy, or clones the paired upstream install without a download", async () => {
-  const home = temp(), cache = join(home, "cache/156");
+  const home = temp(), cache = join(home, "cache/paired");
   browserFixture(join(home, "cache/152"), "152.0.4-beta.30"); browserFixture(cache);
   const installed = () => [{ version: "152.0.4-beta.30", path: join(home, "cache/152") }, { version: pairedBrowser(), path: cache }];
   // An interrupted setup left a stage behind.

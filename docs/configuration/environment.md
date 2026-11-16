@@ -39,7 +39,7 @@ modified: 2026-11-11T14:55:54Z
 
 ## Browser executable
 
-Supported build: only the one that the launcher pairs with, currently `156.0.1-beta.36`.
+Supported build: only the one that the launcher pairs with, currently `158.0.1-beta.41`.
 Setup uses the first available source:
 
 1. The executable in `CAMOUFOX_EXECUTABLE`, if set.

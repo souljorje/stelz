@@ -36,10 +36,10 @@ if (process.argv[2] === "setup") console.log(JSON.stringify(await setup({ yes: t
 else if (process.argv[2] === "setup-unconfirmed") await setup({ confirm: async downloads => { console.log(JSON.stringify(downloads)); return false; } });
 else await start(process.argv[3]!);
 `);
-  file(join(project, "package.json"), JSON.stringify({ type: "module", version: "0.2.0", dependencies: { "@askjo/camofox-browser": "1.18.1", "@modelcontextprotocol/sdk": "1.30.0", "better-sqlite3": "13.0.1", camoufox: "0.5.8", impit: "0.14.8" } }));
+  file(join(project, "package.json"), JSON.stringify({ type: "module", version: "0.2.0", dependencies: { "@askjo/camofox-browser": "1.18.1", "@modelcontextprotocol/sdk": "1.30.0", "better-sqlite3": "13.0.1", camoufox: "0.5.9", impit: "0.14.8" } }));
   file(join(project, "dist/plugin.js"), "export function register() {}\nexport function launchProfileBrowser() {}\nexport function claimProfileContext() {}\nexport function protectProfileStartup() {}\nexport function prepareProfileLaunch() {}\nexport function typeIntoLocator() {}\nexport function clickWithFallback() {}\nexport function ownPage() {}\nexport function isOrphanPage() {}\n");
   const upstream = join(project, "node_modules/@askjo/camofox-browser");
-  file(join(upstream, "package.json"), JSON.stringify({ name: "@askjo/camofox-browser", version: "1.18.1", type: "module", dependencies: { camoufox: "0.5.8", "playwright-core": "1.62.1" } }));
+  file(join(upstream, "package.json"), JSON.stringify({ name: "@askjo/camofox-browser", version: "1.18.1", type: "module", dependencies: { camoufox: "0.5.9", "playwright-core": "1.62.1" } }));
   file(join(upstream, "server.js"), `import { Camoufox, launchOptions, VirtualDisplay } from 'camoufox';
 import {
   isTimeoutError,
@@ -185,16 +185,18 @@ async function typeRoute(req, locator, tabState, selector, text, mode) {
   file(join(upstream, "mcp/lib/tool-contracts.mjs"), "export const TOOL_DEFS = [];\nexport function runTool() {}\nexport function adaptResponse() {}\n");
   file(join(upstream, "plugins/persistence/index.js"), "export async function register() {}\n");
   const camoufox = join(project, "node_modules/camoufox");
-  file(join(camoufox, "package.json"), JSON.stringify({ name: "camoufox", version: "0.5.8", type: "module" }));
+  file(join(camoufox, "package.json"), JSON.stringify({ name: "camoufox", version: "0.5.9", type: "module" }));
   file(join(camoufox, "dist/index.js"), "export {};\n");
   file(join(camoufox, "dist/coherence.js"), "export function validate() { return []; }\n");
-  file(join(camoufox, "dist/fpgen/index.js"), 'export function isModelInstalled() { return false; }\nexport const MODEL_PIN = { repo: "scrapfly/fingerprint-generator", tag: "model-2/2026", size: 1564571 };\n');
-  file(join(camoufox, "dist/data-files/browser-pin.json"), JSON.stringify({ version: "156.0.1", build: "beta.36" }));
+  const fpgen = join(camoufox, "node_modules/fpgen-js");
+  file(join(fpgen, "package.json"), JSON.stringify({ name: "fpgen-js", version: "1.3.0", type: "module", main: "index.js" }));
+  file(join(fpgen, "index.js"), 'export const MODEL_PIN = { repo: "scrapfly/fingerprint-generator", tag: "model-2/2026", size: 1564571 };\n');
+  file(join(camoufox, "dist/data-files/browser-pin.json"), JSON.stringify({ version: "158.0.1", build: "beta.41" }));
   for (const [name, version] of [["playwright-core", "1.62.1"], ["@modelcontextprotocol/sdk", "1.30.0"], ["better-sqlite3", "13.0.1"], ["impit", "0.14.8"]]) {
     file(join(project, "node_modules", name!, "package.json"), JSON.stringify({ name, version }));
   }
   file(browser, "browser executable fixture");
-  file(join(base, "application.ini"), "[App]\nVersion=156.0.1-beta.36\n");
+  file(join(base, "application.ini"), "[App]\nVersion=158.0.1-beta.41\n");
   file(join(base, "version.json"), JSON.stringify({ version: "browser-fixture" }));
   const bin = join(base, "bin"), wrapper = join(bin, "node");
   file(wrapper, `#!${process.execPath}

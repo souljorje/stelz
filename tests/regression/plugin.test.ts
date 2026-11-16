@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createHash } from "node:crypto";
-import { freezeDevice, replayFingerprint, launchPreferences, applyProxyLocale } from "../../src/browser/fingerprint.ts";
+import { freezeDevice, replayFingerprint, launchPreferences, applyProxyLocale, readChunks } from "../../src/browser/fingerprint.ts";
 import { locationResult } from "../../src/browser/location.ts";
 import { register } from "../../src/browser/plugin.ts";
 import { uncertainClickError, UNCERTAIN_CLICK } from "../../src/browser/click-guard.ts";
@@ -359,6 +359,39 @@ for (const enabled of [true, false]) {
       const effective = JSON.parse(options.env.CAMOU_CONFIG_1!);
       assert.deepEqual(effective["webGl2:supportedExtensions"], enabled ? ["saved extension"] : undefined);
       assert.equal("webGl2:parameters" in effective, enabled);
+    } finally { await h.close(); }
+  });
+}
+
+for (const savedApple of [true, false]) {
+  test(`the launch hook derives DPR and WebGPU from the saved ${savedApple ? "Apple" : "Intel"} device`, async () => {
+    const h = await harness("direct", undefined, { expected: "" });
+    try {
+      const device = (apple: boolean) => ({ ...generated,
+        "navigator.userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:158.0) Gecko/20100101 Firefox/158.0",
+        "navigator.platform": "MacIntel", "window.devicePixelRatio": apple ? 2 : 1,
+        "webGl:vendor": apple ? "Apple" : "Intel Inc.",
+        "webGl:renderer": apple ? "Apple M1" : "Intel Iris OpenGL Engine", "webGl:parameters": {} });
+      const before = JSON.stringify({ version: 2,
+        engineSha256: createHash("sha256").update(readFileSync(h.binary)).digest("hex"), config: freezeDevice(device(savedApple)) });
+      writeFileSync(join(h.stateDir, "fingerprint.json"), before);
+      const options = h.options();
+      options.env.CAMOU_CONFIG_1 = JSON.stringify(device(!savedApple));
+      Object.assign(options.firefoxUserPrefs, { "dom.webgpu.enabled": !savedApple, "gfx.blacklist.webgpu": 1,
+        "privacy.baselineFingerprintingProtection.overrides": "+CanvasImageExtractionPrompt", unrelated: true });
+      if (!savedApple) options.firefoxUserPrefs["layout.css.devPixelsPerPx"] = "2";
+      options.env.CAMOU_PREFS_1 = JSON.stringify(options.firefoxUserPrefs);
+      await h.emit("browser:launching", { options });
+      const effective = readChunks(options.env, "CAMOU_CONFIG") as Record<string, unknown>;
+      assert.equal(effective["window.devicePixelRatio"], savedApple ? 2 : 1);
+      assert.equal(effective["webGl:vendor"], savedApple ? "Apple" : "Intel Inc.");
+      assert.equal(options.firefoxUserPrefs["layout.css.devPixelsPerPx"], savedApple ? "2" : undefined);
+      assert.equal(options.firefoxUserPrefs["dom.webgpu.enabled"], savedApple);
+      assert.equal(options.firefoxUserPrefs["gfx.blacklist.webgpu"], savedApple ? 4 : undefined);
+      assert.equal(options.firefoxUserPrefs["privacy.baselineFingerprintingProtection.overrides"], "+CanvasImageExtractionPrompt");
+      assert.equal(options.firefoxUserPrefs.unrelated, true);
+      assert.deepEqual(readChunks(options.env, "CAMOU_PREFS"), options.firefoxUserPrefs);
+      assert.equal(readFileSync(join(h.stateDir, "fingerprint.json"), "utf8"), before);
     } finally { await h.close(); }
   });
 }
