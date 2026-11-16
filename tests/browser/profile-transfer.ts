@@ -61,7 +61,7 @@ try {
   const original = await connect(source);
   const tabId = String((await call(original, "tab_create", { url: site.url })).tabId);
   await call(original, "tab_snapshot", { tabId });
-  await call(original, "tab_type", { tabId, selector: "#marker", text: marker });
+  await call(original, "tab_type", { tabId, selector: "#marker", text: marker, mode: "instant" });
   await call(original, "tab_snapshot", { tabId });
   await call(original, "tab_click", { tabId, selector: "#save" });
   await requireMarker(original, tabId);

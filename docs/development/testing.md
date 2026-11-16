@@ -40,6 +40,8 @@ Bun runs `tests/unit/` and `tests/integration/`. Node runs `tests/regression/`.
 - When integration also selects typing or window controls, those checks reuse its browsers. They close only their fixture tabs and release control. Integration stops the browsers.
 - Shared checks must preserve the existing tabs, configuration, and browser lifetimes. Typing also restores its temporary configuration changes.
 - Integration alone adds neither check. Typing and window controls can still run alone with disposable browsers. Manual window-close, restart, and native stability checks remain unchanged.
+- Setup and location share one packed archive per run. Both receive its explicit path. The runner checks its hash before and after each suite.
+- Storage fixtures use instant typing. The typing suite still checks realistic keyboard events and pacing.
 - Browser runs keep location data between runs in `$TMPDIR/stelz-seed-cache`, and setup refreshes it when it is old ([rule](../configuration/network.md#managed-location-data)).
 - A suite that you run by hand prepares its own runtime.
 - Suites use independent MCP SDK clients and synthetic local pages. No model credentials.

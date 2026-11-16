@@ -122,7 +122,7 @@ try {
     const tabId = String((await call(client, "tab_create", { profileId: id, url: `${site.url}/?capture=empty-${id}` })).tabId);
     tabs.set(id, tabId); await call(client, "tab_snapshot", { profileId: id, tabId });
     await storage(`empty-${id}`, null);
-    await call(client, "tab_type", { profileId: id, tabId, selector: "#marker", text: id });
+    await call(client, "tab_type", { profileId: id, tabId, selector: "#marker", text: id, mode: "instant" });
     await call(client, "tab_snapshot", { profileId: id, tabId });
     await call(client, "tab_click", { profileId: id, tabId, selector: "#save" });
     let saved = false;

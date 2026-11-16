@@ -144,7 +144,7 @@ async function capture(profile: ProfileEvidence, client: Client, lifetime: Lifet
     profile.initialStorageProbe = await observation(capture);
     assert(storageMatches(profile.initialStorageProbe, null), `${id}: a new native profile contains another profile's storage`);
     await call(client, "tab_snapshot", { tabId });
-    await call(client, "tab_type", { tabId, selector: "#marker", text: id });
+    await call(client, "tab_type", { tabId, selector: "#marker", text: id, mode: "instant" });
     await call(client, "tab_snapshot", { tabId });
     await call(client, "tab_click", { tabId, selector: "#save" });
     await stored(client, tabId, id);

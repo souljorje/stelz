@@ -28,7 +28,7 @@ describe("local browser selection", () => {
   test("core changes preserve all suites and reuse integration browsers", () => {
     expect(commands("src/browser/catalog.ts")).toEqual([
       "test:seed", "test:integration --typing --windows", "test:concurrency", "test:native", "test:transfer",
-      "test:window-close", "test:proxy", "test:ui:browser", "pack", "test:setup", "pack", "test:location",
+      "test:window-close", "test:proxy", "test:ui:browser", "pack", "test:setup", "test:location",
     ]);
   });
   test("new MCP paths are selected without requiring tracked files", () => {
@@ -42,5 +42,11 @@ describe("local browser selection", () => {
   test("UI and archive-only checks do not prepare an unused source runtime", () => {
     expect(commands("ui/new-component.tsx")).toEqual(["build", "test:ui:browser"]);
     expect(commands("tests/package/setup.ts")).toEqual(["pack", "test:setup"]);
+  });
+  test("setup and location share one pack and both receive that archive", () => {
+    const files = ["tests/package/setup.ts", "tests/package/location.ts"];
+    expect(commands(...files)).toEqual(["pack", "test:setup", "test:location"]);
+    expect(browserPlan(files).filter(check => check.archive).map(check => check.script)).toEqual(["test:setup", "test:location"]);
+    expect(commands("tests/package/location.ts")).toEqual(["pack", "test:location"]);
   });
 });
