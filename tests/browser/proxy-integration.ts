@@ -1,5 +1,5 @@
 // Live acceptance only. The offline tests do not import or execute this file.
-import { readFileSync, writeFileSync, rmSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { dedicatedProxyInputs } from "../helpers/dedicated-proxy.ts";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -16,6 +16,7 @@ import { unusedPorts } from "../helpers/ports.ts";
 import { parseToolText, routeProfileTools } from "../helpers/mcp-client.ts";
 import { assertSingleStartupWindow } from "../helpers/startup-window.ts";
 import { createTestHome } from "../helpers/test-home.ts";
+import { cleanupProxyAcceptance } from "../helpers/proxy-acceptance-cleanup.ts";
 
 const root = resolve(import.meta.dir, "../.."), cli = process.env.STELZ_TEST_CLI || join(root, "src/cli/cli.ts");
 const CACHE_MS = 120_000;
@@ -281,7 +282,8 @@ try {
   // Two routes swap their known-good pins. A shared route uses a documentation address, which is never an exit.
   configure("proxy", shared ? ["203.0.113.1", "203.0.113.1"] : [expected[1], expected[0]]);
   for (const id of ids) {
-    const failure = await command("start", id).then(() => { owned.add(id); return ""; }, (error: unknown) => String(error));
+    owned.add(id);
+    const failure = await command("start", id).then(() => "", (error: unknown) => String(error));
     assert(failure.includes("does not match the configured expected IP"), "A mismatched expected IP did not block Start.");
     report.push({ check: shared ? "A wrong expected IP pin blocks Start" : "The other proxy's expected IP pin blocks Start", profile: id, result: "passed" });
   }
@@ -289,13 +291,13 @@ try {
   report.push({ check: "Two-proxy acceptance", result: "failed", error: redact(String(error)) }); process.exitCode = 1;
 } finally {
   await closeClients();
-  try { await stopProfiles(); } catch (error) {
+  try { if (home) await cleanupProxyAcceptance(home, owned, id => command("stop", id)); } catch (error) {
     report.push({ check: "Owned profile cleanup", result: "failed", error: redact(String(error)) }); process.exitCode = 1;
   }
-  try { probe?.stop(); site?.stop(); }
-  finally {
-    for (const relay of relays) await relay.stop().catch(() => {});
-    if (home) rmSync(join(home, "secrets.env"), { force: true });
+  for (const stop of [() => probe?.stop(), () => site?.stop(), ...relays.map(relay => () => relay.stop())]) {
+    try { await stop(); } catch (error) {
+      report.push({ check: "Network fixture cleanup", result: "failed", error: redact(String(error)) }); process.exitCode = 1;
+    }
   }
   const output = JSON.stringify(report, (_key, value: unknown) => typeof value === "string" ? redact(value) : value, 2);
   if (home) writeFileSync(join(home, "report.json"), output, { mode: 0o600 });
