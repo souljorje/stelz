@@ -15,19 +15,19 @@ export type StartupWindowObservation = { instanceId: string; windowId: number; t
 export function prepareProfileExtension(directory: string, config: ProfileExtensionConfig) {
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   if (lstatSync(directory).isSymbolicLink() || !lstatSync(directory).isDirectory()) throw Error("The profile add-on directory is unsafe.");
-  const { verifyNetwork, proxyAuth, ...windowConfig } = config;
+  const { verifyNetwork, proxyAuthentication, ...windowConfig } = config;
   const files = {
     "manifest.json": JSON.stringify({ manifest_version: 2, name: "stelz · " + config.id, version: "1.0.0",
       description: "Labels and locates this profile's browser windows.",
       browser_specific_settings: { gecko: { id: "profile-windows@stelz.local" } },
       permissions: ["tabs", "theme", "http://127.0.0.1/*", ...(verifyNetwork ? ["https://api.ipify.org/*", "https://www.cloudflare.com/*",
-        ...(proxyAuth ? ["webRequest", "webRequestBlocking"] : [])] : [])],
+        ...(proxyAuthentication ? ["webRequest", "webRequestBlocking"] : [])] : [])],
       background: { scripts: ["background.js"], persistent: true },
       browser_action: { default_title: "stelz · " + config.id, default_icon: "profile.svg", default_popup: "profile.html", default_area: "navbar" },
     }, null, 2),
     "background.js": "(" + profileExtensionMain.toString() + ")(" + JSON.stringify(windowConfig) + ");\n" + (verifyNetwork
       ? "(" + profileIpProbeMain.toString() + ")(" + JSON.stringify({ instanceId: config.instanceId, accessKey: config.accessKey,
-        endpoint: config.endpoint.replace(/\/window-bridge$/, "/network-bridge"), proxyAuth }) + ");\n" : ""),
+        endpoint: config.endpoint.replace(/\/window-bridge$/, "/network-bridge"), proxyAuthentication }) + ");\n" : ""),
     "profile.svg": '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="' + config.color + '"/><path d="M8 10h16M8 16h12M8 22h8" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"/></svg>',
     "profile.html": '<!doctype html><html lang="en"><meta charset="utf-8"><meta name="color-scheme" content="light dark"><title>stelz profile</title><style>body{font:14px system-ui;margin:18px;width:260px;color-scheme:light dark;color:CanvasText;background:Canvas}h1{font-size:17px;overflow-wrap:anywhere;margin:0 0 10px}h1:before{content:"";display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:8px;background:' + config.color + '}p{line-height:1.5;margin:0}</style><h1>' + config.id + '</h1><p>All browser windows with this color and title prefix belong to this profile.</p></html>',
   };
@@ -63,7 +63,8 @@ export function createProfileWindows(options: {
         username: String(proxy.username ?? ""), password: String(proxy.password ?? ""),
       } : undefined;
     prepareProfileExtension(extensionPath, { id, instanceId, endpoint: "http://127.0.0.1:" + options.port + "/local-profile/window-bridge",
-      accessKey: options.accessKey, verifyNetwork: options.verifyNetwork, proxyAuth, ...appearance });
+      accessKey: options.accessKey, verifyNetwork: options.verifyNetwork, proxyAuthentication: !!proxyAuth, ...appearance });
+    return proxyAuth;
   }
   prepare();
   let windows: ProfileWindow[] = [], updatedAt: number | undefined, error: string | null = null;

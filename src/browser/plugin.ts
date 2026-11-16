@@ -419,7 +419,7 @@ export async function register(app: App, ctx: PluginContext, options: {
     launchAdmitted = true;
     try {
       // Add the window extension first, so validation covers the complete launch config.
-      windows.prepare(launchOptions.proxy);
+      ipVerification.setProxyAuth(windows.prepare(launchOptions.proxy));
       addProfileExtension(launchOptions, windows.extensionPath);
       fingerprint = applyFingerprint(launchOptions, stateDir, process.env.STELZ_CAMOUFOX_EXECUTABLE!, proxied, owner);
       if (location) {

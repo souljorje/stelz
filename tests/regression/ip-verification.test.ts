@@ -46,6 +46,28 @@ test("fresh browser add-on checks need no visible page and use separate request 
   await h.verifier.close();
 });
 
+test("proxy credentials stay in pending instance-bound requests and are cleared on close", async () => {
+  const h = harness();
+  const auth = { host: "proxy.test", port: 3128, username: "test-user", password: "private-password" };
+  h.verifier.setProxyAuth(auth);
+  auth.password = "mutated";
+  assert.deepEqual(h.poll(), {});
+  const work = h.verifier.check();
+  assert.throws(() => h.verifier.exchange({ instanceId: "other" }), /Invalid browser network response/);
+  const request = h.poll().request!;
+  assert.equal(request.proxyAuth!.password, "private-password");
+  request.proxyAuth!.password = "response-mutation";
+  assert.equal(h.poll().request!.proxyAuth!.password, "private-password");
+  h.poll({ id: request.id, body: '{"ip":"198.51.100.10"}' });
+  await work;
+  assert.deepEqual(h.poll(), {});
+  const pending = h.verifier.check();
+  const cancelled = assert.rejects(pending, /stopped/);
+  await h.verifier.close(); await cancelled;
+  assert.deepEqual(h.poll(), {});
+  assert.throws(() => h.verifier.setProxyAuth(auth), /stopped/);
+});
+
 for (const response of [{ fail: true }, { body: "invalid" }, { body: "null" }, { body: '{"ip":123}' }]) {
   test(`a failed primary provider falls back to an independent browser request: ${JSON.stringify(response)}`, async () => {
     const h = harness("2001:db8::1");

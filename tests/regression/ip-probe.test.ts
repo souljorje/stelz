@@ -12,7 +12,7 @@ async function harness(probeOptions: { proxyAuth?: ProbeProxyAuth; challenge?: (
   const posts: Record<string, any>[] = [], network: { url: URL; options: RequestInit }[] = [];
   let auth: (details: Record<string, unknown>) => unknown;
   runInNewContext(`(${profileIpProbeMain.toString()})(config)`, {
-    config: { instanceId: "lifetime-a", endpoint, accessKey: "private-service-key", proxyAuth: probeOptions.proxyAuth }, URL, AbortSignal,
+    config: { instanceId: "lifetime-a", endpoint, accessKey: "private-service-key", proxyAuthentication: !!probeOptions.proxyAuth }, URL, AbortSignal,
     browser: new Proxy({ runtime: { getURL: () => "moz-extension://private-addon/" }, webRequest: { onAuthRequired: {
       addListener(fn: typeof auth, filter: unknown, extra: unknown) {
         auth = fn;
@@ -28,9 +28,11 @@ async function harness(probeOptions: { proxyAuth?: ProbeProxyAuth; challenge?: (
       if (String(url) === endpoint) {
         posts.push(JSON.parse(String(options.body)));
         assert.equal(options.redirect, "error");
+        assert.equal(options.cache, "no-store");
         assert.equal((options.headers as Record<string, string>).Authorization, "Bearer private-service-key");
         if (bridgeError) throw Error("private bridge error");
-        return { ok: true, json: async () => ({ request }) };
+        return { ok: true, json: async () => ({ request: request && typeof request === "object"
+          ? { ...request, proxyAuth: probeOptions.proxyAuth } : request }) };
       }
       network.push({ url: new URL(url), options });
       // Authentication occurs while the background fetch is still active.
@@ -40,7 +42,8 @@ async function harness(probeOptions: { proxyAuth?: ProbeProxyAuth; challenge?: (
     },
   });
   await setImmediate();
-  return { posts, network, async tick() { await tick!(); await setImmediate(); },
+  return { posts, network, authenticate(details: Record<string, unknown>) { return JSON.parse(JSON.stringify(auth(details))); },
+    async tick() { await tick!(); await setImmediate(); },
     command(value: unknown) { request = value; }, bridgeFailure(value: boolean) { bridgeError = value; },
     response(value: { status?: number; body?: string; failed?: boolean }) {
       status = value.status ?? 200; body = value.body ?? body; providerError = !!value.failed;
@@ -111,4 +114,7 @@ test("only the current private probe can authenticate to the configured proxy, o
   assert.equal(probes, 2);
   assert.ok(h.network.every(request => request.options.headers === undefined));
   assert.ok(!JSON.stringify(h.posts).includes("test-password"));
+  assert.deepEqual(h.authenticate({ requestId: "later", url: h.network.at(-1)!.url.href,
+    originUrl: "moz-extension://private-addon/_generated_background_page.html", tabId: -1,
+    isProxy: true, challenger: { host: "proxy.test", port: 3128 } }), {});
 });

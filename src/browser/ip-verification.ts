@@ -1,5 +1,6 @@
 import { isIP } from "node:net";
 import { randomUUID } from "node:crypto";
+import type { ProbeProxyAuth } from "./ip-probe.ts";
 
 export const DEFAULT_IP_CHECK_INTERVAL_MS = 120_000;
 
@@ -20,10 +21,12 @@ export function createIpVerification(instanceId: string, expected: string, timeo
   const providers: Provider[] = ["ipify", "cloudflare"];
   let provider = 0;
   let checking = false, closed = false;
+  let proxyAuth: ProbeProxyAuth | undefined;
   let pending: { id: string; provider: Provider; resolve(body: string): void; reject(error: Error): void } | undefined;
 
   async function close() {
     closed = true;
+    proxyAuth = undefined;
     pending?.reject(Error("Browser IP verification stopped."));
   }
 
@@ -42,7 +45,7 @@ export function createIpVerification(instanceId: string, expected: string, timeo
         else pending.resolve(result.body as string);
       }
     }
-    return !closed && pending ? { request: { id: pending.id, provider: pending.provider } } : {};
+    return !closed && pending ? { request: { id: pending.id, provider: pending.provider, ...(proxyAuth ? { proxyAuth: { ...proxyAuth } } : {}) } } : {};
   }
 
   function request(provider: Provider) {
@@ -82,5 +85,10 @@ export function createIpVerification(instanceId: string, expected: string, timeo
     } finally { checking = false; }
   }
 
-  return { check, close, exchange };
+  // Only the authenticated, instance-bound bridge receives these values while a probe is pending.
+  function setProxyAuth(value: ProbeProxyAuth | undefined) {
+    if (closed) throw Error("Browser IP verification stopped.");
+    proxyAuth = value ? { ...value } : undefined;
+  }
+  return { check, close, exchange, setProxyAuth };
 }
