@@ -170,6 +170,8 @@ test("changed engine, integration, dataset and expected IP invalidate old green 
 test("the launch adapter applies checked options and closes a failed preparation without disabled GeoIP", async () => {
   const f = fixture(); expect((await f.cli("recheck")).code).toBe(0);
   const result = await f.script(`
+    const {launcher}=await import(${JSON.stringify(join(f.packageRoot, "src/browser/camoufox.ts"))});
+    launcher(); // Load native dependencies for the actual host before simulating macOS admission.
     Object.defineProperty(process,'platform',{value:'darwin'});
     const {prepareProfileLaunch}=await import(${JSON.stringify(join(f.packageRoot, "src/browser/location-launch.ts"))});
     const path=config.dir('test')+'/location.json', record=JSON.parse(readFileSync(path,'utf8'));record.attemptId='attempt';
@@ -179,7 +181,7 @@ test("the launch adapter applies checked options and closes a failed preparation
     try {await prepareProfileLaunch({proxy:{server:'http://proxy.test:8080'}},async()=>{throw Error('fixture-password')});}catch{}
     await Bun.sleep(40);
     return {options,terminated,result:JSON.parse(readFileSync(path,'utf8')).result};`);
-  expect(result.options).toMatchObject({ geoip: false, ff_version: pairedBrowser().split(".")[0], i_know_what_im_doing: true, timezoneId: "Europe/London", config: { timezone: "Europe/London" },
+  expect(result.options, JSON.stringify(result)).toMatchObject({ geoip: false, ff_version: pairedBrowser().split(".")[0], i_know_what_im_doing: true, timezoneId: "Europe/London", config: { timezone: "Europe/London" },
     block_webrtc: true, window: [1200, 800], screen: { minWidth: 1280, minHeight: 900, maxWidth: 1920, maxHeight: 1200 } });
   expect(result).toMatchObject({ terminated: true, result: { code: "LOCATION_PREPARATION_FAILED", browserStarted: false, nextAction: { kind: "run_setup" } } });
   expect(JSON.stringify(result)).not.toContain("fixture-password");
