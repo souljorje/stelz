@@ -45,9 +45,11 @@ modified: 2026-11-17T08:36:53Z
 
 - `bun run test:browser` builds, then runs `tests/browser/smoke.ts`.
 - It needs desktop access and the paired Camoufox build. See [Browser executable](../configuration/environment.md#browser-executable).
-- Setup needs network access to GitHub. The first run downloads the browser (over 1 GB).
+- Install the paired browser once with `bun run setup`, or set `CAMOUFOX_EXECUTABLE` to an existing paired build.
+- Routine browser checks use the existing executable at its real path. They do not copy or install a browser.
+- Setup prepares the current plugin and dependencies in the disposable home. Missing or stale location data can require GitHub access.
 - It uses independent MCP SDK clients and direct profiles in one disposable home. No model credentials.
-- All checks use one local page, `tests/helpers/fixture.ts`. Each profile has its startup tab and one work tab at a time. The checks load the page again in turn.
+- All checks use one local page, `tests/helpers/fixture.ts`. Action checks reuse one work tab. Typing runs concurrently in a separate profile's startup tab.
 
 One run does these checks in the same browsers:
 
@@ -61,10 +63,12 @@ One run does these checks in the same browsers:
 | SDK | One job from `tests/browser/sdk-job.ts` |
 | Typing | Field types, bulk entry of long text, a mode override, and live defaults. Keyboard mode types real key events for more than 10 seconds, the budget of balanced mode. |
 
+- Restart and import checks compare stable device properties, including pixel ratio. Reports record changes in native window dimensions and rendered hashes.
 - `--windows` adds the window controls. They need visible desktop windows. A foreground restriction gives `incomplete` and a nonzero exit code.
-- To run one part alone: `bun tests/browser/typing.ts` or `bun tests/browser/windows.ts`. Each creates and stops its own profiles.
-- `bun tests/browser/windows.ts --inspect` prints a temporary UI URL for 45 seconds.
-- The browser and location data stay between runs in `$TMPDIR/stelz-seed-cache`. Setup refreshes old location data ([rule](../configuration/network.md#managed-location-data)).
+- Typing and window checks are parts of this suite. They do not run alone.
+- Location data and the fingerprint model stay in `$TMPDIR/stelz-seed-cache`. Setup refreshes old location data ([rule](../configuration/network.md#managed-location-data)).
+- The suite finds the browser in the test cache, upstream cache, or default Stelz installation. `CAMOUFOX_EXECUTABLE` overrides this selection.
+- `test:ui` can run concurrently with `test:browser`. It uses Chrome and a separate home.
 - The report gives the seconds from the start of the run for each check.
 - The suite prints its report. A pass removes its test home. A failure keeps it and prints the report path.
 - Keep reports, snapshots, and proxy credentials outside Git. They can contain private data.

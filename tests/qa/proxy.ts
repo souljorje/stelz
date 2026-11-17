@@ -16,6 +16,7 @@ import { unusedPorts } from "../helpers/ports.ts";
 import { parseToolText, routeProfileTools } from "../helpers/mcp-client.ts";
 import { assertSingleStartupWindow } from "../helpers/startup-window.ts";
 import { createTestHome } from "../helpers/test-home.ts";
+import { saveRuntimeCache, useRuntimeCache } from "../helpers/runtime-cache.ts";
 import { cleanupProxyAcceptance } from "../helpers/proxy-acceptance-cleanup.ts";
 
 const root = resolve(import.meta.dir, "../.."), cli = process.env.STELZ_TEST_CLI || join(root, "src/cli/cli.ts");
@@ -173,7 +174,10 @@ try {
     writeFileSync(join(home!, "profiles.json"), JSON.stringify(config.settings), { mode: 0o600 });
     writeFileSync(join(home!, "secrets.env"), config.secrets, { mode: 0o600 });
   };
-  configure("direct", ["", ""]); await command("setup", "--yes");
+  configure("direct", ["", ""]);
+  Object.assign(env, useRuntimeCache(home));
+  await command("setup", "--yes"); delete env.STELZ_RUNTIME;
+  if (!process.env.STELZ_TEST_SEED_HOME) saveRuntimeCache(home);
   site = await fixture(fixturePort!); probe = networkProbe();
   await startProfiles();
   const pins: Record<string, string> = {}, before: Record<string, Observation> = {}, proxied: Record<string, Observation> = {};

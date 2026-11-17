@@ -14,6 +14,7 @@ modified: 2026-11-17T08:36:53Z
 - Checks that start Camoufox need desktop access and the paired build. See [Browser executable](../configuration/environment.md#browser-executable).
 - Each check uses disposable profiles in its own service directory. It never selects a saved profile. It stops its own browsers.
 - Each check prints its report path. Reports go in the system temp directory (`$TMPDIR`).
+- Source proxy and human checks reuse the installed browser and cached data described in [Testing](testing.md#browser-suite).
 
 ## Built UI acceptance
 
@@ -64,6 +65,7 @@ bun run test:package --archive /absolute/path/to/candidate.tgz --setup
 - `pack --destination DIRECTORY`: another output directory. Without `--archive`, local checks select the current manifest version under `release-artifacts/`.
 - `test:install`: no browser. `--native` adds ordinary npm lifecycle scripts and native dependency checks.
 - `test:package`: installs with lifecycle scripts, then runs the [browser suite](testing.md#browser-suite) against the installed CLI. It includes the checks of `test:install --native`.
+- Package acceptance prepares its browser once. The browser, proxy, and human checks reuse it. `--setup` separately checks setup behavior.
 - Run the full archive checks once per candidate, not after each fix.
 
 Flags:
