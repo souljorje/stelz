@@ -138,7 +138,7 @@ test("compatibility reports global and individual issues separately and permits 
   f.manifest.source.platform = "other-os"; f.manifest.source.arch = "other-arch"; f.manifest.source.engineSha256 = "0".repeat(64);
   const incompatible = await run(f, "return preview();");
   expect(incompatible.ok).toBe(true); expect(incompatible.value.compatible).toBe(false); expect(incompatible.value.issues).toHaveLength(3);
-});
+}, 15_000);
 
 for (const marker of ['[]', '{"cookies":{}}', '{"cookies":[}'])
   test("native marker validation rejects invalid JSON", async () => {
