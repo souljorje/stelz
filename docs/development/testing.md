@@ -17,16 +17,31 @@ modified: 2026-11-17T08:36:53Z
 
 | Change | Run |
 | --- | --- |
-| Any change | `bun install --frozen-lockfile --ignore-scripts`, then `bun run check` |
+| Local change | `bun install --frozen-lockfile --ignore-scripts`, then `bun run check:changed` |
+| Full validation | `bun run check` |
 | One test file | `bun test FILE` |
 | Behavior that needs a browser | `bun run test:browser` |
 | Window controls | `bun run test:browser --windows` |
 | UI code | [`bun run test:ui`](acceptance.md#built-ui-acceptance) |
+| Browser and UI together | `bun run check:desktop` |
 | Release candidate | [Installed-package acceptance](acceptance.md#installed-package-acceptance) |
 
-- `check`: build, typecheck, `check:docs` (relative Markdown links, with linkinator), and `test`.
+- `check`: lint, typecheck, build, documentation links, and all unit tests run concurrently. Any failure fails the command.
+- `check:changed`: the same checks, with affected unit tests. Each selected test file runs once.
+- `lint`: pinned Oxlint with correctness checks. The policy is in `.oxlintrc.json`.
 - `test`: all files in `tests/unit/`. No browser needed.
 - After a fix to browser behavior, run `bun run test:browser` again.
+
+## Affected tests
+
+- `bun run test:changed` uses Bun's transitive import graph against `HEAD`, including staged, unstaged, and untracked files.
+- For a branch, run `bun run test:changed --base origin/main`. The selector uses the merge-base.
+- Set `STELZ_TEST_BASE=origin/main` with `check:changed` or `check:desktop` to use the same branch comparison.
+- Source changes also run the subprocess tests declared in `scripts/test-changed.ts`. Bun cannot trace modules loaded through command arguments or copied fixtures.
+- Add a dependency rule there when a test reads a new file or starts a new subprocess outside its import graph.
+- Package, lockfile, configuration, shared-helper, script, unknown-path, and deletion changes run all unit tests. Renames include the old path.
+- Changes to `docs/mcp.md` run its contract test. QA-script changes also run the dedicated-proxy input guard.
+- A missing Git reference fails the command. Fetch the base branch before using it.
 
 ## Layout
 
@@ -68,7 +83,10 @@ One run does these checks in the same browsers:
 - Typing and window checks are parts of this suite. They do not run alone.
 - Location data and the fingerprint model stay in `$TMPDIR/stelz-seed-cache`. Setup refreshes old location data ([rule](../configuration/network.md#managed-location-data)).
 - The suite finds the browser in the test cache, upstream cache, or default Stelz installation. `CAMOUFOX_EXECUTABLE` overrides this selection.
-- `test:ui` can run concurrently with `test:browser`. It uses Chrome and a separate home.
+- `test:desktop` builds once, then runs Camoufox and Chrome checks concurrently in separate homes.
+- `test:browser:built` and `test:ui:built` require a completed build. The wrappers call them automatically.
+- `check:desktop` also runs lint, typecheck, documentation links, and affected unit tests beside that build.
+- Do not run the standalone `test:browser` and `test:ui` wrappers concurrently. Each wrapper replaces `dist/` during its build.
 - The report gives the seconds from the start of the run for each check.
 - The suite prints its report. A pass removes its test home. A failure keeps it and prints the report path.
 - Keep reports, snapshots, and proxy credentials outside Git. They can contain private data.
@@ -76,7 +94,8 @@ One run does these checks in the same browsers:
 
 ## Continuous integration
 
-- `.github/workflows/ci.yml` runs `bun run check` on Linux for pull requests, manual dispatch, and reusable workflow calls.
+- `.github/workflows/ci.yml` fetches Git history and runs `check:changed` against the pull request's base SHA.
+- Main-branch pushes, manual dispatch, and release calls run `check` with all unit tests.
 - A parallel job packs the archive. It runs `test:install` with scripts disabled and with native installation.
 - No CI job starts a live browser.
 - CI runs on Ubuntu only while GitHub macOS runners are paused. The macOS matrix entries stay commented in both workflows.
