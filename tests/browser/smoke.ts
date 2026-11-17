@@ -7,7 +7,7 @@ import { resolve, join, dirname } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { fixture } from "../helpers/fixture.ts";
-import { unusedPorts } from "../helpers/ports.ts";
+import { unusedPorts, useEphemeralProfilePort } from "../helpers/ports.ts";
 import { assertTestHome, createTestHome } from "../helpers/test-home.ts";
 import { parseToolText, routeProfileTools } from "../helpers/mcp-client.ts";
 import { assertSingleStartupWindow } from "../helpers/startup-window.ts";
@@ -106,6 +106,7 @@ try {
   // The CLI starts the profile from the catalog. MCP creates and starts the other one.
   const creator = await connect("profile-02", "creating-client");
   await call(creator.client, "profile_create");
+  await useEphemeralProfilePort(home, "profile-02");
   // Create the action profiles before typing changes its own defaults in the shared catalog.
   typing = runTyping({ home, cli, site: pageServer, env }); typing.catch(() => {});
   assert(JSON.stringify((await call(creator.client, "profile_list")).profiles).includes("profile-02"), "The open connection does not list the profile that it created");
