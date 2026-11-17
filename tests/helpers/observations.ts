@@ -36,7 +36,10 @@ export function compareObservations(before: Observation, after: Observation) {
     if (problem) throw Error(`Incomplete browser observation: ${key} (${problem})`);
   }
   return {
-    stableDifferences: STABLE_OBSERVATIONS.filter(key => !isDeepStrictEqual(before[key], after[key])),
-    variableDifferences: VARIABLE_OBSERVATIONS.filter(key => !isDeepStrictEqual(before[key], after[key])),
+    // Window dimensions follow native geometry, not the saved device. Pixel ratio remains a device property.
+    stableDifferences: STABLE_OBSERVATIONS.filter(key => key === "window"
+      ? (before.window as Record<string, unknown>).devicePixelRatio !== (after.window as Record<string, unknown>).devicePixelRatio
+      : !isDeepStrictEqual(before[key], after[key])),
+    variableDifferences: [...VARIABLE_OBSERVATIONS, "window"].filter(key => !isDeepStrictEqual(before[key], after[key])),
   };
 }

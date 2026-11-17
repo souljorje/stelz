@@ -1,54 +1,31 @@
-// Headed input acceptance through tab_type in a disposable profile.
-import { readFileSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+// Real key events through tab_type, in a profile and browser of its own. tests/browser/smoke.ts runs it beside its other checks.
+import { readFileSync, renameSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import type { TypingMode } from "../../src/browser/typing.ts";
-import { assertTestHome, createTestHome } from "../helpers/test-home.ts";
-import { fixture, type InputSample } from "../helpers/fixture.ts";
+import { assertTestHome } from "../helpers/test-home.ts";
+import type { fixture, InputSample } from "../helpers/fixture.ts";
 import { parseToolText, routeProfileTools } from "../helpers/mcp-client.ts";
-import { useRuntimeCache } from "../helpers/runtime-cache.ts";
 
-/** The smoke suite lends one disposable profile and retains lifecycle ownership. A direct run creates and stops its own profile. */
-export async function runTyping(shared?: { home: string; profileId: string; cli: string; site: Awaited<ReturnType<typeof fixture>> }) {
-  const root = resolve(import.meta.dir, "../.."), cli = shared?.cli || process.env.STELZ_TEST_CLI || join(root, "src/cli/cli.ts");
-  const profileId = shared?.profileId ?? "typing-check";
-  const home = shared ? assertTestHome(shared.home) : createTestHome("typing-acceptance");
-  const configPath = join(home, "profiles.json");
-  const originalConfig = shared ? readFileSync(configPath, "utf8") : undefined;
-  const reportPath = join(home, shared ? "typing-report.json" : "report.json");
-  let failure: unknown, tabId: string | undefined;
-  const env: Record<string, string> = { STELZ_HOME: home };
-  for (const name of ["PATH", "HOME", "USER", "LOGNAME", "LANG", "TMPDIR", "CAMOUFOX_EXECUTABLE"])
-    if (process.env[name]) env[name] = process.env[name]!;
+/** Create, start, and stop the typing profile in a test home that setup prepared. The typing fields are on the fixture page. */
+export async function runTyping({ home, cli, site, env }: { home: string; cli: string; site: Awaited<ReturnType<typeof fixture>>; env: Record<string, string> }) {
+  const profileId = "typing-check", configPath = join(assertTestHome(home), "profiles.json");
+  let failure: unknown, client: Client | undefined, started = false;
+  // Each page load has its own input key, so a check reads the reports of its own document.
+  let key = "", loads = 0;
   type Sample = InputSample;
-  let client: Client | undefined, started = false;
-  // The typing fields are on the fixture page. The page reports their state after each input.
-  const site = shared?.site ?? await fixture(0);
   const began = performance.now(), checks: Array<{ check: string; [key: string]: unknown }> = [], push = checks.push.bind(checks);
   checks.push = entry => push({ ...entry, atSeconds: Math.round((performance.now() - began) / 1000) });
   function assert(value: unknown, message: string): asserts value { if (!value) throw Error(message); }
-  const reservation = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() });
-  const port = reservation.port;
-  reservation.stop(true);
   async function command(...args: string[]) {
-    assertTestHome(home);
     const child = Bun.spawn([process.execPath, "--no-env-file", cli, ...args], { env, stdout: "pipe", stderr: "pipe" });
     const [out, err, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
     if (code) throw Error(`${args[0]}: ${err || out}`);
     return out;
   }
-  async function connect() {
-    client = routeProfileTools(new Client({ name: "typing-acceptance", version: "1.0.0" }), profileId);
-    await client.connect(new StdioClientTransport({ command: process.execPath,
-      args: ["--no-env-file", cli, "mcp"], env, stderr: "inherit" }));
-    await call("profile_status"); await call("profile_acquire");
-  }
-  async function result(name: string, args: Record<string, unknown> = {}) {
-    return client!.callTool({ name, arguments: args }, undefined, { timeout: 65_000 });
-  }
   async function call(name: string, args: Record<string, unknown> = {}) {
-    const response = await result(name, args);
+    const response = await client!.callTool({ name, arguments: args }, undefined, { timeout: 65_000 });
     const text = (response.content as Array<{ type: string; text?: string }>).filter(block => block.type === "text").map(block => block.text).join("\n");
     if (response.isError) throw Error(`${name}: ${text}`);
     return parseToolText(text) as Record<string, unknown>;
@@ -56,7 +33,8 @@ export async function runTyping(shared?: { home: string; profileId: string; cli:
   async function observed(predicate: (value: Sample) => boolean) {
     const deadline = Date.now() + 3000;
     while (Date.now() < deadline) {
-      if (site.input.sample && predicate(site.input.sample)) return site.input.sample;
+      const sample = site.input.get(key);
+      if (sample && predicate(sample)) return sample;
       await Bun.sleep(20);
     }
     throw Error("The browser did not report the expected input state.");
@@ -84,33 +62,30 @@ export async function runTyping(shared?: { home: string; profileId: string; cli:
     assert(events.filter(event => event.type === "keydown" && event.key === "Enter").length === 1, "Enter was not pressed exactly once.");
   }
   try {
-    if (!shared) {
-      writeFileSync(configPath, JSON.stringify({ profiles: [{ id: profileId, port, storage: "native" }] }), { mode: 0o600 });
-      // A direct run takes the browser and location data from the cache of the smoke suite.
-      Object.assign(env, useRuntimeCache(home)); await command("setup", "--yes"); delete env.STELZ_RUNTIME;
-      started = true;
-      await command("start", profileId);
-    }
-    await connect();
-    const tools = await client!.listTools();
-    const schema = tools.tools.find(tool => tool.name === "tab_type")!.inputSchema;
+    await command("profile", "create", profileId, "--direct", "--json");
+    started = true;
+    await command("start", profileId);
+    client = routeProfileTools(new Client({ name: "typing-acceptance", version: "1.0.0" }), profileId);
+    await client.connect(new StdioClientTransport({ command: process.execPath, args: ["--no-env-file", cli, "mcp"], env, stderr: "inherit" }));
+    await call("profile_acquire");
+    const schema = (await client.listTools()).tools.find(tool => tool.name === "tab_type")!.inputSchema;
     assert(JSON.stringify((schema.properties!.mode as { enum: string[] }).enum) === JSON.stringify(["balanced", "keyboard", "instant"]), "The typing mode overrides are missing.");
-    site.input.sample = undefined;
-    tabId = String((await call("tab_create", { url: site.url })).tabId);
-    const instanceId = (await call("profile_status")).instanceId;
+    const tabId = ((await call("tab_list")).tabs as { tabId: string }[])[0]!.tabId, instanceId = (await call("profile_status")).instanceId;
     async function reset() {
-      site.input.sample = undefined;
-      await call("tab_navigate", { tabId, url: site.url });
+      key = `typing-${++loads}`;
+      await call("tab_navigate", { tabId, url: `${site.url}/?input=${key}` });
       await observed(value => value.values.message === "old value");
     }
-    async function setDefault(mode: TypingMode) {
-      assertTestHome(home);
+    /** Change the typing mode of this profile only. The rename replaces the catalog at once, beside the other checks that read it. */
+    function setDefault(mode: TypingMode) {
       const config = JSON.parse(readFileSync(configPath, "utf8")) as { profiles: Array<{ id: string; typingMode?: TypingMode }> };
       const profile = config.profiles.find(value => value.id === profileId);
       assert(profile, "The typing test profile is missing from its disposable home.");
       profile.typingMode = mode;
-      writeFileSync(configPath, JSON.stringify(config), { mode: 0o600 });
+      writeFileSync(`${configPath}.typing`, JSON.stringify(config), { mode: 0o600 });
+      renameSync(`${configPath}.typing`, configPath);
     }
+    await reset();
     for (const [id, value, expected] of [
       ["message", "e\u0301 👨‍👩‍👧‍👦 ქ", "e\u0301 👨‍👩‍👧‍👦 ქ"],
       ["message", "a\nb", "ab"],
@@ -133,7 +108,7 @@ export async function runTyping(shared?: { home: string; profileId: string; cli:
     await reset();
     // Keyboard mode must pace past the 10-second budget of balanced mode. This text takes about 15 seconds.
     const keys = "typing with variable gaps ".repeat(5);
-    await setDefault("instant");
+    setDefault("instant");
     await type(tabId, "#message", keys, { mode: "keyboard", pressEnter: true });
     const keyboard = await observed(value => value.values.message === keys && value.submits === 1);
     keyboardEvents(keyboard, keys);
@@ -149,7 +124,7 @@ export async function runTyping(shared?: { home: string; profileId: string; cli:
       minIntervalMs: Math.round(Math.min(...gaps)), maxIntervalMs: Math.round(Math.max(...gaps)) });
 
     for (const mode of ["instant", "balanced"] as const) {
-      await setDefault(mode); await reset();
+      setDefault(mode); await reset();
       await type(tabId, "#message", "Live", { pressEnter: true });
       const state = await observed(value => value.values.message === "Live" && value.submits === 1);
       const count = state.events.filter(event => event.type === "input" && event.target === "message").length;
@@ -159,7 +134,6 @@ export async function runTyping(shared?: { home: string; profileId: string; cli:
     const final = await call("profile_status");
     assert(final.phase === "ready" && final.instanceId === instanceId, "Typing mode changes replaced or blocked the running browser.");
     checks.push({ check: "same browser, tab, MCP connection, and controller remain usable without restart" });
-
   } catch (error) {
     failure = error;
     checks.push({ check: "typing acceptance", error: String(error) });
@@ -167,27 +141,10 @@ export async function runTyping(shared?: { home: string; profileId: string; cli:
     const cleanup = async (check: string, action: () => unknown) => {
       try { await action(); } catch (error) { failure ??= error; checks.push({ check, error: String(error) }); }
     };
-    if (originalConfig !== undefined) await cleanup("restore profile configuration", () => writeFileSync(configPath, originalConfig, { mode: 0o600 }));
-    if (client) {
-      if (tabId) await cleanup("close typing fixture tab", () => call("tab_close", { tabId }));
-      await cleanup("release typing control", () => call("profile_release"));
-      await cleanup("disconnect typing client", () => client!.close());
-    }
+    if (client) await cleanup("disconnect typing client", () => client!.close());
     if (started) await cleanup("explicit stop", () => command("stop", profileId));
-    if (!shared) site.stop();
-    writeFileSync(reportPath, JSON.stringify({ result: failure ? "failed" : "passed", profileId, shared: !!shared, checks }, null, 2), { mode: 0o600 });
+    writeFileSync(join(home, "typing-report.json"), JSON.stringify({ result: failure ? "failed" : "passed", profileId, checks }, null, 2), { mode: 0o600 });
   }
   if (failure) throw failure;
-  console.log(JSON.stringify({ result: "passed", profileId, shared: !!shared, report: reportPath }));
   return checks;
-}
-
-if (import.meta.main) {
-  const args = process.argv.slice(2);
-  if (args.length === 1 && ["--help", "-h"].includes(args[0]!)) {
-    console.log("Use: bun tests/browser/typing.ts\nThe check creates and stops its own temporary profile.");
-  } else {
-    if (args.length) throw Error("Use: bun tests/browser/typing.ts. Existing profiles are not supported.");
-    await runTyping();
-  }
 }

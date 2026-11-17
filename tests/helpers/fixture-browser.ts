@@ -1,5 +1,4 @@
 const el = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
-const challenge = el("challenge").textContent!;
 const db = () => new Promise<IDBDatabase>((resolve, reject) => {
   const request = indexedDB.open("stelz-fixture", 1);
   request.onupgradeneeded = () => request.result.createObjectStore("markers");
@@ -24,11 +23,8 @@ async function refresh() {
   const values = await storage(), value = values.indexedDB;
   el("marker-status").textContent = value && localStorage.getItem("profile") === value && document.cookie.includes(`profile=${encodeURIComponent(value)}`) ? `Storage marker: ${value}` : "Storage marker is incomplete";
 }
-el("begin").onclick = () => { el("task").hidden = false; el<HTMLInputElement>("answer").focus(); };
-el("submit").onclick = () => {
-  const answer = el<HTMLInputElement>("answer").value;
-  el("result").textContent = answer.endsWith(challenge) ? `Verified: ${answer}` : "Answer must end with the displayed challenge";
-};
+// The task section appears above the storage form, so the controls below it move.
+el("begin").onclick = () => { el("task").hidden = false; };
 el<HTMLFormElement>("marker-form").onsubmit = async event => {
   event.preventDefault();
   const value = el<HTMLInputElement>("marker").value;
@@ -44,10 +40,9 @@ el("human").onclick = async event => {
 };
 const digest = async (value: BufferSource) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", value))).map(v => v.toString(16).padStart(2, "0")).join("");
 const query = new URL(location.href).searchParams;
-const requestedSamples = Number(query.get("samples") ?? 1);
-const sampleCount = Number.isInteger(requestedSamples) && requestedSamples >= 1 && requestedSamples <= 8 ? requestedSamples : 1;
-const documentId = crypto.randomUUID();
-async function observe(index: number) {
+/** Post what the page can read of its device, with the storage markers. */
+async function observe(id: string) {
+  await document.fonts.ready;
   const errors: Record<string, string> = {};
   const webgl = (kind: "webgl" | "webgl2") => {
     let gl: WebGLRenderingContext | WebGL2RenderingContext | null = null;
@@ -81,8 +76,6 @@ async function observe(index: number) {
   // A proxied profile has a configured location. The page must still ask before it can read it.
   let geolocation = "unavailable";
   try { geolocation = (await navigator.permissions.query({ name: "geolocation" })).state; } catch (error) { errors.geolocation = String(error); }
-  const id = query.get("capture");
-  const captureId = id && sampleCount > 1 ? `${id}-${index}` : id;
   const value = {
     userAgent: navigator.userAgent, platform: navigator.platform, hardwareConcurrency: navigator.hardwareConcurrency,
     languages: navigator.languages, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -90,23 +83,9 @@ async function observe(index: number) {
     window: { innerWidth, innerHeight, outerWidth, outerHeight, devicePixelRatio }, webdriver: navigator.webdriver,
     webgl: webgl("webgl"), webgl2: webgl("webgl2"), canvas: canvasHash, audio,
     geolocation, storage: markers, errors,
-    measurement: { recipe: "stelz-fixture-v2", captureId, documentId, sampleIndex: index, sampleCount,
-      capturedAt: new Date().toISOString(), timeOrigin: performance.timeOrigin, elapsedMs: performance.now(),
-      origin: location.origin, documentURL: location.href, visibility: document.visibilityState,
-      fonts: document.fonts.status, secureContext: isSecureContext },
-    ...(query.has("network") ? {
-      exitIp: (await (await fetch("https://api.ipify.org?format=json", { cache: "no-store" })).json() as { ip: string }).ip,
-      webRTCEnabled: typeof RTCPeerConnection !== "undefined",
-    } : {}),
   };
-  if (captureId) {
-    const response = await fetch("/observations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: captureId, value }) });
-    if (!response.ok) throw Error(`Observation upload failed: ${response.status}`);
-  }
-}
-async function observations() {
-  await document.fonts.ready;
-  for (let index = 1; index <= sampleCount; index++) await observe(index);
+  const response = await fetch("/observations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, value }) });
+  if (!response.ok) throw Error(`Observation upload failed: ${response.status}`);
 }
 // The feed reports its scroll position in the fixed header.
 const feed = document.querySelector("main")!;
@@ -116,22 +95,25 @@ document.querySelectorAll<HTMLElement>(".add").forEach((button, index) => { butt
 el("mark").onclick = () => { el("status").textContent = "Marked"; };
 el("note").oninput = () => { el("echo").textContent = `Echo: ${el<HTMLInputElement>("note").value}`; };
 el("reveal").onclick = () => setTimeout(() => { const late = document.createElement("button"); late.textContent = "Late button"; el("targets").append(late); }, 1200);
-// Typing. The page reports the field values, every input event, and the submissions after each change.
-const generation = Number(document.documentElement.dataset.generation);
+// Typing. With an input key, the page reports the field values, every input event, and the submissions after each change.
+const inputKey = query.get("input");
 const events: { type: string; target: string; key: string; trusted: boolean; at: number }[] = [];
 let submits = 0, sequence = 0, timer: ReturnType<typeof setTimeout> | undefined;
 function publish() {
   const values = Object.fromEntries(["message", "multiline", "editable", "number", "date"].map(id => {
     const field = el<HTMLInputElement>(id); return [id, field.value === undefined ? field.textContent : field.value];
   }));
-  el("submissions").textContent = `Submissions: ${submits}`;
-  void fetch("/sample", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ generation, sequence: ++sequence, values, events, submits }) });
+  void fetch("/sample", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: inputKey, sequence: ++sequence, values, events, submits }) });
 }
-for (const type of ["input", "beforeinput", "keydown", "keypress", "keyup"]) document.addEventListener(type, event => {
-  events.push({ type, target: (event.target as HTMLElement).id, key: (event as KeyboardEvent).key || "", trusted: event.isTrusted, at: performance.now() });
-  clearTimeout(timer); timer = setTimeout(publish, 50);
-});
-el<HTMLFormElement>("typing-form").onsubmit = event => { event.preventDefault(); submits++; publish(); };
-publish();
+if (inputKey) {
+  for (const type of ["input", "beforeinput", "keydown", "keypress", "keyup"]) document.addEventListener(type, event => {
+    events.push({ type, target: (event.target as HTMLElement).id, key: (event as KeyboardEvent).key || "", trusted: event.isTrusted, at: performance.now() });
+    clearTimeout(timer); timer = setTimeout(publish, 50);
+  });
+  publish();
+}
+// Enter in the message field submits this form. The page counts the submission and stays.
+el<HTMLFormElement>("typing-form").onsubmit = event => { event.preventDefault(); submits++; if (inputKey) publish(); };
 // The device probes run only for a capture.
-void refresh(); if (query.get("capture")) void observations();
+const capture = query.get("capture");
+void refresh(); if (capture) void observe(capture);

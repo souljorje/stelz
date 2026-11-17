@@ -1,5 +1,6 @@
 // The one real-browser suite. It needs Camoufox and a desktop, and no model credentials or harness.
-// Two direct profiles share one run: MCP actions and snapshots, control and handoff, restart, ZIP transfer, an SDK job, and typing.
+// Two direct profiles share one run: MCP actions and snapshots, control and handoff, restart, ZIP transfer, and an SDK job.
+// Typing runs beside them in a third profile.
 // --windows adds the window controls, which need visible desktop windows.
 import { rmSync, writeFileSync, readFileSync } from "node:fs";
 import { resolve, join, dirname } from "node:path";
@@ -90,20 +91,23 @@ async function observed(id: string) {
   for (let n = 0; n < 200; n++) { const value = pageServer?.observations.get(id); if (value) return value; await Bun.sleep(50); }
   throw Error(`Browser observation is missing: ${id}`);
 }
-let pageServer: Awaited<ReturnType<typeof fixture>> | undefined;
+let pageServer: Awaited<ReturnType<typeof fixture>> | undefined, typing: ReturnType<typeof runTyping> | undefined;
 try {
   console.log("Explicit direct-development test. No LLM credentials or harness commands are used.");
   const ports = await unusedPorts(2);
   writeFileSync(join(home, "profiles.json"), JSON.stringify({ profiles: [{ id: "profile-01", port: ports[0]! }] }), { mode: 0o600 });
   // A source run keeps the browser and location data between runs.
   if (!lent) Object.assign(env, useRuntimeCache(home));
-  await command("setup", "--yes"); delete env.STELZ_RUNTIME;
+  if (!lent) await command("setup", "--yes");
+  delete env.STELZ_RUNTIME;
   if (!lent) saveRuntimeCache(home);
   pageServer = await fixture(ports[1]!);
   report.push({ check: "Setup prepares the runtime", result: "passed" });
   // The CLI starts the profile from the catalog. MCP creates and starts the other one.
   const creator = await connect("profile-02", "creating-client");
   await call(creator.client, "profile_create");
+  // Create the action profiles before typing changes its own defaults in the shared catalog.
+  typing = runTyping({ home, cli, site: pageServer, env }); typing.catch(() => {});
   assert(JSON.stringify((await call(creator.client, "profile_list")).profiles).includes("profile-02"), "The open connection does not list the profile that it created");
   await rejection(creator.client, "profile_acquire");
   await Promise.all([command("start", "profile-01"), call(creator.client, "profile_start")]); await creator.client.close();
@@ -136,10 +140,10 @@ try {
   // One work tab serves the next checks in turn. Each check loads the page again, so it starts from a new document.
   const work = (await call(a.client, "tab_create", { url: `${pageServer.url}/?profile=scroll` })).tabId as string;
   let scrollX = 0, scrollY = 0;
+  // The click leaves the pointer on the header. Each scroll must still move the feed below it.
+  await call(a.client, "tab_snapshot", { tabId: work });
+  await call(a.client, "tab_click", { tabId: work, selector: "#header" });
   for (const direction of ["down", "up", "right", "left"]) {
-    await call(a.client, "tab_snapshot", { tabId: work });
-    await call(a.client, "tab_click", { tabId: work, selector: "#header" });
-    await call(a.client, "tab_snapshot", { tabId: work });
     await call(a.client, "tab_scroll", { tabId: work, direction, amount: 500 });
     const snapshot = await call(a.client, "tab_snapshot", { tabId: work });
     const match = /Scroll position: x=(\d+) y=(\d+)/.exec(String(snapshot.snapshot));
@@ -180,8 +184,8 @@ try {
   await refused(a.client, "tab_click", { tabId: shaped, ref: "e999" }, "may have shifted");
   const diff = await snapshot(a.client, { tabId: shaped, diff: true, collapse: false });
   assert(diff.header.baseline === undefined && diff.text.startsWith("# Diff from your last snapshot"), `A snapshot after a change is not a diff: ${diff.text.slice(0, 200)}`);
-  const check = refOf(diff.text, 'button "Check answer"');
-  assert(check && diff.text.includes('textbox "Answer"') && diff.text.length < base.text.length, "The diff has no new controls, or it is not smaller than the page");
+  const check = refOf(diff.text, 'button "Extra action"');
+  assert(check && diff.text.includes('textbox "Extra field"') && diff.text.length < base.text.length, "The diff has no new controls, or it is not smaller than the page");
   report.push({ check: "Snapshots have no screenshot by default, and scope, contains, and diff shape the reply", result: "passed", evidence: { fullChars: base.text.length, diffChars: diff.text.length } });
   await call(a.client, "tab_click", { tabId: shaped, ref: check, observe: "none" });
   const moved = refOf((await snapshot(a.client, { tabId: shaped, collapse: false })).text, 'button "Save profile marker"');
@@ -297,7 +301,8 @@ try {
   // The connection that controls profile-02 stays open across the restart.
   const processes = ["profile-01", "profile-02"].flatMap(id => processTree(instance(id).serverPid));
   assert(processes.length > 2, "The browser servers have no browser processes");
-  await command("stop", "all");
+  report.push({ check: "Typing in a profile of its own, beside the other checks", result: "passed", evidence: await typing });
+  await Promise.all(["profile-01", "profile-02"].map(id => command("stop", id)));
   for (const id of ["profile-01", "profile-02"])
     assert(JSON.parse(readFileSync(join(profileDir(id), "stopped.json"), "utf8")).instanceId === instance(id).instanceId, `${id}: the stop left no clean-stop receipt`);
   for (let n = 0; processes.some(alive); n++) {
@@ -311,7 +316,7 @@ try {
   const copy = JSON.parse(await command("profile", "import", archive, "--json")).profiles.find((p: { sourceId: string }) => p.sourceId === "profile-02").id as string;
   assert(copy !== "profile-02" && JSON.parse(await command("status", copy)).phase === "stopped", "The import replaced its source or started a browser");
   assert(pin(copy) === pins["profile-02"], "The import changed the saved fingerprint");
-  await command("start", "all");
+  await Promise.all(["profile-01", "profile-02", copy].map(id => command("start", id)));
   assert(accessKey(copy) !== accessKey("profile-02"), "The imported copy reused the access key of its source");
   await refused(second.client, "tab_list", {}, "The recorded browser service changed");
   assert((await call(second.client, "profile_acquire")).controlHandle !== handles.second, "A new browser lifetime reused a control handle");
@@ -324,11 +329,11 @@ try {
     const snapshot = await call(next.client, "tab_snapshot", { tabId });
     assert(String(snapshot.snapshot).includes(`Storage marker: ${source}`), `${id}: cookie, localStorage, and IndexedDB data did not survive`);
     assert(pin(id) === pins[source], `${id}: the saved fingerprint changed`);
-    // A restart keeps what the browser shows of its device. The copy opens another window, so its window size can differ.
-    if (id === source) {
-      const was = await observed(`before-${id}`), now = await observed(`after-${id}`), drift = compareObservations(was, now).stableDifferences;
-      assert(!drift.length, `${id}: device observations changed: ${drift.map(key => `${key} ${JSON.stringify(was[key])} -> ${JSON.stringify(now[key])}`).join(", ")}`);
-    }
+    // Device properties survive restart and import. Native window dimensions and rendered hashes can vary.
+    const was = await observed(`before-${source}`), now = await observed(`after-${id}`), differences = compareObservations(was, now);
+    assert(!differences.stableDifferences.length, `${id}: device observations changed: ${differences.stableDifferences.map(key => `${key} ${JSON.stringify(was[key])} -> ${JSON.stringify(now[key])}`).join(", ")}`);
+    if (differences.variableDifferences.length) report.push({ check: "Variable browser observations", profileId: id,
+      result: "observed", differences: Object.fromEntries(differences.variableDifferences.map(key => [key, { before: was[key], after: now[key] }])) });
     await next.client.close();
     // The copy has no later check. Its browser stops here.
     if (id !== source) await command("stop", id);
@@ -339,43 +344,29 @@ try {
   await runBun(join(import.meta.dir, "sdk-job.ts"), join(dirname(cli), "../sdk/index.ts"), "profile-01", pageServer.url);
   const afterJob = await connect("profile-01", "after-sdk-job");
   await call(afterJob.client, "profile_acquire");
-  const jobTab = ((await call(afterJob.client, "tab_list")).tabs as { tabId: string; url: string }[]).find(tab => tab.url.includes("pagination"));
+  const jobTab = ((await call(afterJob.client, "tab_list")).tabs as { tabId: string; url: string }[]).find(tab => tab.url.includes("profile=sdk-job"));
   assert(jobTab, "The SDK job did not leave its tab open");
   assert(JSON.stringify(instance("profile-01")) === sdkBefore, "The SDK job or its repeated start relaunched the browser");
   await call(afterJob.client, "tab_close", { tabId: jobTab.tabId });
-  const openTabs = JSON.stringify(await call(afterJob.client, "tab_list"));
   await afterJob.client.close();
   report.push({ check: "An SDK job starts a running profile again, acts, fails clearly, releases control, and leaves the browser and its tab open", result: "passed" });
-  {
-    const config = readFileSync(join(home, "profiles.json"), "utf8");
-    const lifetime = JSON.stringify(instance("profile-01"));
-    const typing = await runTyping({ home, profileId: "profile-01", cli, site: pageServer });
-    assert(readFileSync(join(home, "profiles.json"), "utf8") === config, "Typing changed the profile configuration");
-    assert(JSON.stringify(instance("profile-01")) === lifetime, "Typing replaced the browser");
-    const afterTyping = await connect("profile-01", "after-typing");
-    await call(afterTyping.client, "profile_acquire");
-    assert(JSON.stringify(await call(afterTyping.client, "tab_list")) === openTabs, "Typing changed another tab");
-    await afterTyping.client.close();
-    report.push({ check: "Typing reuses the browser, restores configuration, releases control, and closes only its fixture tab", result: "passed", evidence: typing });
-  }
   if (process.argv.includes("--windows")) {
     const config = readFileSync(join(home, "profiles.json"), "utf8");
     const lifetimes = ["profile-01", "profile-02"].map(id => JSON.stringify(instance(id)));
     // A separate process loads the window model with this test home before any configuration import.
-    await runBun(join(import.meta.dir, "windows.ts"), "--reuse", cli, pageServer.url, "profile-01", "profile-02");
+    await runBun(join(import.meta.dir, "windows.ts"), cli, pageServer.url, "profile-01", "profile-02");
     assert(readFileSync(join(home, "profiles.json"), "utf8") === config, "Window checks changed profile configuration");
     assert(["profile-01", "profile-02"].every((id, index) => JSON.stringify(instance(id)) === lifetimes[index]), "Window checks replaced a browser");
     report.push({ check: "Window checks reuse both browsers, preserve their tabs and configuration, and release control", result: "passed" });
   }
-  report.push({ check: "Handoff between two installed LLM harnesses", result: "unverified", reason: "SDK clients prove the protocol. Actual Codex, Claude Code and Hermes integration needs separate validation." });
-  report.push({ check: "Supplied fixed-IP proxies and human takeover", result: "unverified", reason: "No proxy credentials or human action were supplied." });
 } catch (e) { report.push({ check: "Acceptance run", result: "failed", error: String(e) }); process.exitCode = 1; }
 finally {
   for (const client of clients) await client.close().catch(() => {});
+  await typing?.catch(() => {});
   await command("stop", "all").catch(() => {}); pageServer?.stop();
   writeFileSync(join(home, "report.json"), JSON.stringify(report, null, 2), { mode: 0o600 });
   console.log(JSON.stringify(report, null, 2));
-  // A pass removes its own home, which holds a copy of the browser. A failure keeps it for inspection.
+  // A pass removes its own home. The shared browser stays installed.
   if (!lent && !process.exitCode) rmSync(assertTestHome(home), { recursive: true, force: true });
   else console.log("Report: " + join(home, "report.json"));
 }
