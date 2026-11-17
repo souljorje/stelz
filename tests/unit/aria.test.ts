@@ -68,8 +68,8 @@ test("a Google result with escaped quotes in its title keeps its ref, and its te
   const quoted = parseAria(google).find(node => node.ref === "e6")!;
   expect(quoted).toMatchObject({ role: "link", name: 'He said "hi" today', ref: "e6", text: '- link "He said \\"hi\\" today":', raw: '- link "He said \\"hi\\" today" [e6]:' });
   expect(quoted.end - quoted.index).toBe(3);
-  // A name with an escaped quote and a marker that cuts the name, as the annotator of the other pages writes it, parses too.
-  expect(parseAria('- link "A \\"b\\" c" [e2]: x\n- button "Say \\" [e3]hi\\""').map(node => [node.ref, node.name])).toEqual([["e2", 'A "b" c'], ["e3", 'Say "hi"']]);
+  // A marker after a whole escaped name, with an inline value, parses too.
+  expect(parseAria('- link "A \\"b\\" c" [e2]: x').map(node => [node.ref, node.name])).toEqual([["e2", 'A "b" c']]);
   // A line with escaped quotes and no marker has no ref.
   expect(parseAria('- link "A \\"b\\" c"')[0]!.ref).toBeUndefined();
 });

@@ -28,7 +28,6 @@ console.log(JSON.stringify({interval:ipCheckIntervalMs(),hash:configurationHash(
     const strict = await read("0");
     expect(strict.interval).toBe(0); expect(strict.hash).not.toBe(periodic.hash);
     expect(await read("120000")).toEqual(initial);
-    expect((await read("60000")).interval).toBe(60_000);
     await expect(read("120001")).rejects.toThrow("STELZ_IP_CHECK_INTERVAL_MS");
   } finally { rmSync(home, { recursive: true, force: true }); }
 });

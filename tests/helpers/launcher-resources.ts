@@ -1,13 +1,13 @@
-import { before, after } from "node:test";
+import { afterAll, beforeAll } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { launcher } from "../../src/browser/camoufox.ts";
 
-/** Node regression workers use local launcher resources, never an installed browser or the user's cache. */
+/** Tests use local launcher resources, never an installed browser or the user's cache. */
 export function mockLauncherResources() {
   let restore: (() => void) | undefined;
-  before(() => {
+  beforeAll(() => {
     const directory = mkdtempSync(join(tmpdir(), "stelz-launcher-resources-"));
     const deps = launcher().utilsDeps;
     const original = { getPath: deps.getPath, installDir: deps.installDir, osName: deps.osName };
@@ -21,5 +21,5 @@ export function mockLauncherResources() {
     // Cover the Linux-only fontconfig path on every test host.
     deps.osName = () => "lin";
   });
-  after(() => restore?.());
+  afterAll(() => restore?.());
 }

@@ -11,12 +11,12 @@ New code: TypeScript and Bun. Preserve other contributors' edits and client appr
    bunx lefthook install   # once per clone
    ```
 
-   - Pre-commit: typecheck, regression tests, and the Bun tests that import changed files. Misses tests that reach a change only through a CLI subprocess.
+   - Pre-commit: typecheck and the tests that import changed files. Misses tests that reach a change only through a CLI subprocess.
    - Pre-push: `bun run check`.
 2. Make the change. Run `bun run check`. See [Choose a check](docs/development/testing.md#choose-a-check).
 3. Run more tests from [Testing](docs/development/testing.md) and [Acceptance](docs/development/acceptance.md).
-   - Browser suites: see [Choose a check](docs/development/testing.md#choose-a-check).
-   - Browser, proxy, UI, transfer, and package changes: the matching acceptance checks.
+   - Browser behavior: `bun run test:browser`. See [Browser suite](docs/development/testing.md#browser-suite).
+   - Proxy, UI, and package changes: the matching acceptance checks.
    - Keep credentials and private browser data outside Git.
 4. Package change: add a Changeset. See [Add a Changeset](docs/development/releasing.md#add-a-changeset).
 5. Open a pull request: problem, new behavior, checks, acceptance results, and remaining limits.

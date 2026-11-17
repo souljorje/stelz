@@ -49,7 +49,7 @@ Stelz does these without a patch:
 
 - Click retry guard: a trial click sends no input. Forced, DOM, or mouse fallback runs only when the trial fails. A failure after input returns a non-retryable conflict that asks for a fresh snapshot.
 - Typing keeps the tab lock until input finishes. Timeout effects: [Typing](../configuration/typing.md).
-- Remove a patch only when upstream provides the same behavior and the replacement passes regression tests and browser acceptance.
+- Remove a patch only when upstream provides the same behavior and the replacement passes `bun run test` and the browser suite.
 
 ## Change a dependency patch
 
@@ -79,7 +79,7 @@ Stelz does these without a patch:
 - The plugin loads `normalizedAccessibleName` and `SKIP_PATTERNS` from `lib/aria-annotate.js`, and `INTERACTIVE_ROLES` from `lib/interactive-roles.js`. It loads them by path from `STELZ_UPSTREAM`, as it loads the tool contracts. A static import cannot work: the plugin runs from `plugins/local-profile/` inside the Camofox tree, and `src/` has no path to that tree.
 - The plugin drops the embedded `snapshot` from a click reply with `semantic_target_mismatch` and from the 409 and 422 replies of `extract`. It adds a hint to read `tab_snapshot`.
 - A role/name `target`, the observation after an action, and the polls of `tab_wait` use the same snapshot route and the same tab-state read, in the same queued action. Only `tab_snapshot` and the observation give the page to a controller, so only they update its baseline, latest view, and reliable refs. The read for a target and the polls do not. They still rebuild the refs of the tab, and the stale-ref guard sees that.
-- After an upgrade, run `bun run test:regression` and `bun run test:integration`. Check each item in this list against `server.js`.
+- After an upgrade, run `bun run test` and `bun run test:browser`. Check each item in this list against `server.js`.
 
 ## Location preparation
 

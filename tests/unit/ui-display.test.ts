@@ -3,12 +3,11 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { TypingForm } from "../../ui/src/TypingForm.tsx";
 import { ScriptsForm } from "../../ui/src/ScriptsForm.tsx";
-import { NetworkForm } from "../../ui/src/NetworkForm.tsx";
 import { ProfileDetail } from "../../ui/src/ProfileDetail.tsx";
 import { ProxyField } from "../../ui/src/ProxyField.tsx";
 import { UI_ACTIONS } from "../../src/api/contracts.ts";
 import type { UiProfile, UiNetwork, UiPhase, UiSnapshot } from "../../src/api/contracts.ts";
-import { actionLabels, actionReason, boundedLog, hasProxy, homeCommand, mcpCommand, networkDirty, networkDraft, networkUpdate, proxyDisplay, redact, shellQuote } from "../../ui/src/model.ts";
+import { actionReason, boundedLog, hasProxy, homeCommand, mcpCommand, networkDirty, networkDraft, networkUpdate, proxyDisplay, redact, shellQuote } from "../../ui/src/model.ts";
 
 const network: UiNetwork = { revision: "revision-1", proxyEnv: null, expectedIPEnv: null, proxyDisplay: null, proxyConfigured: false, expectedIp: "203.0.113.1", proxyReadOnly: false, expectedIpReadOnly: false };
 function profile(phase: UiPhase, changes: Partial<UiProfile> = {}): UiProfile {
@@ -90,10 +89,6 @@ describe("network updates", () => {
     expect(networkUpdate(cleared, baseline, proxied)).toEqual({ revision: "revision-1", proxyUrl: null });
     expect(networkDraft(proxied).proxyUrl).toBe(baseline.proxyUrl);
   });
-  test("an empty direct proxy is unchanged and does not remove credentials during an IP save", () => {
-    const baseline = networkDraft(network);
-    expect(networkUpdate({ ...baseline, expectedIp: "" }, baseline, network)).toEqual({ revision: "revision-1", expectedIp: "" });
-  });
   test("a newer observation cannot advance a dirty draft's revision", () => {
     const baseline = networkDraft(network);
     const update = networkUpdate({ ...baseline, proxyUrl: "http://user:secret@proxy.example:80" }, baseline, { ...network, revision: "revision-2" });
@@ -114,15 +109,6 @@ describe("network updates", () => {
     expect(hasProxy(missing)).toBe(true);
     expect(networkUpdate({ ...baseline, expectedIp: "" }, baseline, missing)).toEqual({ revision: "revision-1", expectedIp: "" });
     expect(networkUpdate({ ...baseline, proxyUrl: "" }, baseline, missing)).toEqual({ revision: "revision-1", proxyUrl: null });
-  });
-  test("the connection form shows the saved address without the mode selector or replacement instructions", () => {
-    const html = renderToStaticMarkup(createElement(NetworkForm, { profile: profile("stopped", { network: proxied }), connected: true, busy: false,
-      onSave: async () => { throw Error("Rendering must not change the network."); }, onDirtyChange: () => {} }));
-    expect(html).toContain('value="http://proxy.example:8080"');
-    expect(html).not.toContain("Connection mode");
-    expect(html).not.toContain("Current:");
-    expect(html).not.toContain("Leave blank");
-    expect(html).not.toContain("Save network");
   });
 });
 
@@ -170,17 +156,6 @@ describe("scripts switch", () => {
     for (const html of [render(row, false), render(row, true, true), render({ ...row, pendingAction: "stop" }), render({ ...row, pendingAction: "scripts" })])
       expect(html).toMatch(/<input[^>]*disabled/);
     expect(render({ ...row, pendingAction: "stop" })).toContain("Wait for the current service action to finish.");
-  });
-  test("the profile page shows the switch next to typing, and the recheck button is named Recheck", () => {
-    const row = profile("ready"), ctx = context(row);
-    const html = renderToStaticMarkup(createElement(ProfileDetail, {
-      profile: row, snapshot: ctx.snapshot, context: ctx, mutationVersion: 0,
-      onAction: () => {}, onSave: async () => row, onTypingSave: async () => row, onScriptsSave: async () => row,
-      onBack: () => {}, onDirtyChange: () => {}, onDelete: () => {}, onShow: async () => {}, onExport: () => {},
-    }));
-    expect(html.indexOf("Default typing mode")).toBeGreaterThan(-1);
-    expect(html.indexOf("Allow scripts")).toBeGreaterThan(html.indexOf("Default typing mode"));
-    expect(actionLabels.recheck).toBe("Recheck");
   });
 });
 

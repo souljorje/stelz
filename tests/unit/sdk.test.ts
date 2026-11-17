@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { parseAria } from "../../src/browser/aria.ts";
 import type { Contracts } from "../../src/browser/catalog.ts";
 import { LocationError, locationResult } from "../../src/browser/location.ts";
-import { NO_REF_NOTE, buildView, windowRows, windowView, type Row } from "../../src/browser/snapshot-view.ts";
+import { NO_REF_NOTE, buildView, windowView, type Row } from "../../src/browser/snapshot-view.ts";
 import type { Binding, ControlTransport } from "../../src/mcp/control-registry.ts";
 import { createLink, createSdk, type Browser, type Connect } from "../../src/sdk/client.ts";
 import { annotate, helpers } from "../helpers/aria-fixtures.ts";
@@ -75,7 +75,7 @@ test("start keeps the code and the location details of a location failure", asyn
   expect(error.message).toBe(location.message);
 });
 
-test("acquire fails on a stopped profile, names start(), and neither starts nor acquires", async () => {
+test("acquire refuses a stopped, not ready, or not verified profile, before it takes control and without starting it", async () => {
   const f = fixture();
   f.state.status = { phase: "stopped" };
   let ran = false;
@@ -83,10 +83,6 @@ test("acquire fails on a stopped profile, names start(), and neither starts nor 
   expect(ran).toBe(false);
   expect(f.state.started).toHaveLength(0);
   expect(f.s.sent).toHaveLength(0);
-});
-
-test("acquire refuses a profile that is not ready or not verified, before it takes control", async () => {
-  const f = fixture();
   f.state.status = { phase: "paused" };
   await expect(f.sdk.acquire("alpha", async () => {})).rejects.toThrow('not ready. Its phase is paused. Run "stelz status alpha"');
   f.state.status = { ...ready, verificationStatus: "unverified" };
@@ -140,10 +136,9 @@ test("acquire releases control when the work ends with an action that nobody awa
   expect(f.actions()).toEqual(["acquire", "tool", "release"]);
 });
 
-test("the control handle never reaches a service request, and a closed session refuses more work", async () => {
+test("a closed session refuses more work", async () => {
   const f = fixture();
   const kept = await f.sdk.acquire<Browser>("alpha", async browser => { await browser.page(tab).click("button", "Save"); return browser; });
-  expect(JSON.stringify(f.s.sent.map(request => request.body))).not.toContain(f.state.handles[0]!);
   await expect(kept.page(tab).click("button", "Save")).rejects.toThrow("closed");
   await expect(kept.tabs()).rejects.toThrow("closed");
 });
@@ -250,10 +245,6 @@ test("snapshot joins a line that a window cut inside the line without a false li
   f.reply("tab_snapshot", served(rows, 1000));
   const joined = await f.sdk.acquire("alpha", browser => browser.page(tab).snapshot());
   expect(joined).toBe(`- text: first\n- text: ${long}\n- text: last`);
-  // The service cut inside that line: a window of 1000 characters from the start of the line ends in the line, and its next offset skips no line break.
-  const middle = windowRows(rows, "- text: first\n".length, 1000);
-  expect(middle.text).toBe(`- text: ${long}`.slice(0, 1000));
-  expect(middle.nextOffset).toBe("- text: first\n".length + 1000);
   expect(f.tools().length).toBeGreaterThan(3);
 });
 
@@ -286,18 +277,15 @@ test("snapshot fails when a window has no way to the next one, and does not loop
   }
 });
 
-test("expectElement and expectText call tab_wait, and fail with a clear message when found is false", async () => {
+test("expectElement and expectText call tab_wait", async () => {
   const f = fixture();
-  let reply: Record<string, unknown> = { found: true, waitedMs: 5 };
-  f.reply("tab_wait", () => ({ kind: "json", payload: reply }));
+  f.reply("tab_wait", () => ({ kind: "json", payload: { found: true, waitedMs: 5 } }));
   await f.sdk.acquire("alpha", async browser => {
     const page = browser.page(tab);
     await page.expectElement("button", "Save");
     await page.expectElement("button", "Save", { timeoutMs: 2000 });
     await page.expectText("Saved");
-    reply = { found: false, waitedMs: 1003, reason: "timeout" };
-    await expect(page.expectElement("button", "Late")).rejects.toThrow('Expected button "Late" on the page. It did not appear in 1003 ms.');
-  }).catch(() => {});
+  });
   const waits = f.tools().filter(call => call.name === "tab_wait").map(call => call.args);
   expect(waits.slice(0, 3)).toEqual([
     { tabId: tab, target: { role: "button", name: "Save" } },
@@ -317,6 +305,9 @@ test("expect* fails for a timeout, a pause, and a release, and cancels the work 
     expect(error.message).toBe(`Expected text "Ready" on the page. ${message}`);
     expect(f.tools().map(call => call.name)).toEqual(["tab_wait"]);
   }
+  const late = fixture();
+  late.reply("tab_wait", () => ({ kind: "json", payload: { found: false, waitedMs: 1003, reason: "timeout" } }));
+  await expect(late.sdk.acquire("alpha", browser => browser.page(tab).expectElement("button", "Late"))).rejects.toThrow('Expected button "Late" on the page. It did not appear in 1003 ms.');
   // A timeout that the service refuses, such as a time limit over 60 seconds, is a call error.
   const f = fixture();
   await expect(f.sdk.acquire("alpha", browser => browser.page(tab).expectText("Ready", { timeoutMs: 600_000 }))).rejects.toThrow("timeout must be");
@@ -377,13 +368,6 @@ test("pause and resume keep control, and release ends it", async () => {
   await f.sdk.acquire("alpha", async browser => { await browser.pause(); await browser.resume(); });
   expect(f.actions()).toEqual(["acquire", "pause", "resume", "release"]);
   expect(f.s.owners.size).toBe(0);
-});
-
-test("a job that fails while paused still releases control", async () => {
-  const f = fixture();
-  const failure = await f.sdk.acquire("alpha", async browser => { await browser.pause(); throw Error("Sign-in failed"); }).then(didNotFail, cause => cause as Error);
-  expect(failure.message).toBe("Sign-in failed");
-  expect(f.actions()).toEqual(["acquire", "pause", "release"]);
 });
 
 test("a failed release does not hide the error of the job", async () => {

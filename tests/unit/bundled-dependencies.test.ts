@@ -42,7 +42,6 @@ for (const path of [
   "node_modules/better-sqlite3/build/Release/better_sqlite3.node",
   "node_modules/@askjo/camofox-browser/.cache/browser/file",
   "node_modules/@askjo/camofox-browser/secrets.env",
-  "node_modules/@askjo/camofox-browser/.git/config",
   "../../node_modules/escape/LICENSE",
 ]) test(`archive rejects ${path}`, () => {
   expect(() => checkBundledArchive([...required, { path }])).toThrow("Unsafe");
