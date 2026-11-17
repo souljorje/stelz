@@ -6,16 +6,18 @@ glob_matcher: doublestar
 pre-commit:
   parallel: true
   jobs:
+    - name: lint
+      glob: ["**/*.{ts,tsx}", "package.json", ".oxlintrc.json"]
+      run: bun run lint
     - name: typecheck
       glob: ["**/*.{ts,tsx}", "{tsconfig,package}.json"]
       run: bun run typecheck
-    # Import-graph selection. It misses code that tests reach only through a CLI
-    # subprocess, so pre-push runs the full suite.
     - name: affected tests
-      glob: ["**/*.{ts,tsx}", "package.json"]
-      run: bun test --parallel --changed=HEAD ./tests/unit
+      run: bun run test:changed
 
 pre-push:
   jobs:
     - name: check
-      run: bun run check
+      env:
+        STELZ_TEST_BASE: origin/main
+      run: bun run check:changed

@@ -1,0 +1,16 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  // Keep adoption limited to correctness checks; defer intentional validation,
+  // cleanup control flow, unused bindings, and existing test assertion patterns.
+  "plugins": ["eslint", "typescript"],
+  "categories": {
+    "correctness": "error"
+  },
+  "rules": {
+    "eslint/no-control-regex": "off",
+    "eslint/no-unsafe-finally": "off",
+    "eslint/no-unused-vars": "off",
+    "eslint/no-useless-escape": "off",
+    "eslint/no-unused-expressions": "off"
+  }
+}
