@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { geoipFixture, managedFixture, fixtureLocation } from "../helpers/geoip-fixture.ts";
-import { validateGeoip, managedGeoip, resolveLocation, countryLocale, checkBrowserLocation, locationsMatch, hash,
+import { validateGeoip, managedGeoip, resolveLocation, checkBrowserLocation, locationsMatch, hash,
   GEOIP_SOURCES, locationEvidence, parseLocationPolicy, type GeoipRole } from "../../src/browser/location.ts";
 import { geoipPlan, prepareGeoip } from "../../src/browser/geoip-setup.ts";
 import { verifyLaunchLocation } from "../../src/browser/location-launch.ts";
@@ -33,11 +33,10 @@ test("missing, corrupt, incompatible and incomplete databases are distinct block
   writeFileSync(file, geoipFixture({ longitude: 0, latitude: 0 }));
   expect(thrown(() => validateGeoip(file, "comparison"))).toMatchObject({ code: "GEOIP_DATA_INVALID" });
 });
-test("cached readers invalidate after corruption and policy follows the configured country default", async () => {
+test("cached readers invalidate after corruption", async () => {
   const home = temp(); managedFixture(home); await managedGeoip(home);
   writeFileSync(join(home, "geoip/GeoLite2-City.mmdb"), "broken");
   await expect(managedGeoip(home)).rejects.toMatchObject({ location: { code: "GEOIP_DATA_INVALID" } });
-  expect(countryLocale("GE")["locale:language"]).toBe("ka");
 });
 test("browser observations require compatible timezone, locale and navigator language", () => {
   const config = { timezone: "US/Eastern", "locale:language": "en", "locale:region": "US", "geolocation:latitude": 0, "geolocation:longitude": 0 };

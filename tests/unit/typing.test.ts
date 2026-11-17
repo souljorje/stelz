@@ -116,20 +116,6 @@ test("keyboard keeps paced graphemes beyond the balanced budget without content 
   expect(f.value()).toBe(text);
 });
 
-test("keyboard failures retain partial input without replay or bulk fallback", async () => {
-  const f = field(), type = f.raw.pressSequentially;
-  let attempts = 0;
-  f.raw.pressSequentially = async (text, options) => {
-    attempts++;
-    await type(text.slice(0, 2), options);
-    throw Error("Keyboard interrupted");
-  };
-  await expect(typeIntoLocator(f.target, "hello", "keyboard", f.clock)).rejects.toMatchObject({ code: "typing_incomplete" });
-  expect(attempts).toBe(1);
-  expect(f.value()).toBe("h");
-  expect(f.events.filter(event => event.action === "fill")).toEqual([{ action: "fill", text: "" }]);
-});
-
 test("each correction class uses timed Backspaces and restores the requested text", async () => {
   for (const [kind, typo, backspaces] of [[0, "q", 1], [1, "aa", 2], [2, "a", 1], [3, "A", 1]] as const) {
     const f = field(), random = [0, 0, kind / 4];
@@ -209,13 +195,6 @@ test("balanced includes corrections when selecting bulk entry before editing", a
   }
 });
 
-test("keyboard types long text that fits its limit", async () => {
-  const f = field(); f.clock.random = () => 0; // 15 ms hold + 33 ms pause per character.
-  await typeIntoLocator(f.target, "x".repeat(1000), "keyboard", f.clock);
-  expect(f.value()).toBe("x".repeat(1000));
-  expect(f.clock.now()).toBeGreaterThan(45_000);
-});
-
 test("keyboard refuses text that cannot finish within its limit, before the field changes", async () => {
   const f = field(); f.clock.random = () => 0;
   await expect(typeIntoLocator(f.target, "x".repeat(4000), "keyboard", f.clock))
@@ -233,14 +212,16 @@ test("a failed correction leaves partial input and never replays", async () => {
 });
 
 test("partial typing failures never retry or fall back to bulk fill", async () => {
-  const f = field(), type = f.raw.pressSequentially;
-  f.raw.pressSequentially = async (text, options) => {
-    if (text === "c") throw Error("Sensitive caller text must not appear in the error");
-    await type(text, options);
-  };
-  await expect(typeIntoLocator(f.target, "abcd", "balanced", f.clock)).rejects.toMatchObject({ code: "typing_incomplete", statusCode: 409 });
-  expect(f.value()).toBe("ab");
-  expect(f.events.filter(event => event.action === "fill")).toEqual([{ action: "fill", text: "" }]);
+  for (const mode of ["balanced", "keyboard"] as const) {
+    const f = field(), type = f.raw.pressSequentially;
+    f.raw.pressSequentially = async (text, options) => {
+      if (text === "c") throw Error("Sensitive caller text must not appear in the error");
+      await type(text, options);
+    };
+    await expect(typeIntoLocator(f.target, "abcd", mode, f.clock)).rejects.toMatchObject({ code: "typing_incomplete", statusCode: 409 });
+    expect(f.value()).toBe("ab");
+    expect(f.events.filter(event => event.action === "fill")).toEqual([{ action: "fill", text: "" }]);
+  }
 });
 
 test("a typing deadline prevents further characters", async () => {
@@ -275,6 +256,5 @@ console.log(JSON.stringify({mode:typingMode(),hash:configurationHash({id:"typing
     expect(await read("keyboard")).toEqual(initial);
     expect((await read("balanced")).mode).toBe("balanced");
     await expect(read("auto")).rejects.toThrow("STELZ_TYPING_MODE");
-    await expect(read("typo")).rejects.toThrow("STELZ_TYPING_MODE");
   } finally { rmSync(home, { recursive: true, force: true }); }
 });

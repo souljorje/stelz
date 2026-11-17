@@ -50,11 +50,6 @@ test("a snapshot without a screenshot has no image block, and an empty page keep
   expect(formatResult({ kind: "snapshot", payload: { ...snapshot, screenshot: {} } })).toHaveLength(1);
 });
 
-test("images stay image blocks", () => {
-  const image = { type: "image" as const, data: "aW1hZ2U=", mimeType: "image/png" };
-  expect(formatResult({ kind: "image", payload: image })).toEqual([image]);
-});
-
 test("JSON results are compact and one block, with no structured content", () => {
   const payload = { tabs: [{ tabId: "a", url: "https://example.test/" }], nested: { ok: true, list: [1, 2] } };
   const content = formatResult({ kind: "json", payload });
@@ -93,11 +88,11 @@ test("a failed read after a successful action is a note under the action result,
   expect(parseToolText((content[0] as { text: string }).text)).toMatchObject({ ok: true });
 });
 
-test("a result without an observation keeps its format", () => {
-  expect(formatResult({ kind: "json", payload: { ok: true } })).toEqual([{ type: "text", text: '{"ok":true}' }]);
+test("a result without an observation keeps its format, and images stay image blocks", () => {
   expect(formatResult({ kind: "json", payload: { ok: true }, observation: undefined })).toEqual([{ type: "text", text: '{"ok":true}' }]);
-  // An image is never followed by an observation.
+  // Images stay image blocks, and an image is never followed by an observation.
   const image = { type: "image" as const, data: "aW1h", mimeType: "image/png" };
+  expect(formatResult({ kind: "image", payload: image })).toEqual([image]);
   expect(formatResult({ kind: "image", payload: image, observation: { error: "x" } })).toEqual([image]);
 });
 

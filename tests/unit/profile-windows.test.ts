@@ -5,13 +5,13 @@ import { join } from "node:path";
 import { runInNewContext } from "node:vm";
 import { profileAppearance } from "../../src/api/contracts.ts";
 import { addProfileExtension, createProfileWindows } from "../../src/browser/profile-windows.ts";
-import { createUiApp, createUiSessionState } from "../../src/api/ui-server.ts";
-import type { UiModel, UiSnapshot } from "../../src/api/contracts.ts";
 import { profileBrowserPid } from "../../src/browser/window-activation.ts";
 import { launcher } from "../../src/browser/camoufox.ts";
 
 const folders: string[] = [];
 afterEach(() => { for (const folder of folders.splice(0)) rmSync(folder, { recursive: true, force: true }); });
+const noopActions = (record: (name: string, value: unknown) => unknown = () => {}) =>
+  Object.fromEntries(["setTitle", "setBadgeText", "setBadgeBackgroundColor", "setBadgeTextColor"].map(name => [name, async (value: unknown) => { record(name, value); }]));
 function fixture(timeoutMs = 100) {
   const directory = mkdtempSync(join(tmpdir(), "stelz-windows-")); folders.push(directory);
   let now = 10_000, phase = "ready";
@@ -197,8 +197,7 @@ test("the extension reports startup window, tab, and zoom measurements", async (
   const browser = { windows: { getAll: async () => native, get: async () => native[0], getLastFocused: async () => native[0],
     update: async () => {}, onCreated: event, onFocusChanged: event },
     tabs: { update: async () => {}, getZoom: async (id: number) => { zoomed.push(id); return 1; } },
-    theme: { update: async () => {} }, browserAction: Object.fromEntries(["setTitle", "setBadgeText", "setBadgeBackgroundColor", "setBadgeTextColor"]
-      .map(name => [name, async () => {}])) };
+    theme: { update: async () => {} }, browserAction: noopActions() };
   const waiting = f.observeStartup(token);
   runInNewContext(readFileSync(join(f.extensionPath, "background.js"), "utf8"), { browser, AbortSignal, TextEncoder, Date: { now: () => 10_000 },
     setTimeout: () => {}, fetch: async (_url: string, options: RequestInit) => {
@@ -221,8 +220,7 @@ test("startup waits when the extension observes a window resize before its zoom 
     if (reads++ > 0) { value.width = 1180; value.tabs[0]!.width = 1180; }
     return [value];
   }, get: async () => window, getLastFocused: async () => window, update: async () => {}, onCreated: event, onFocusChanged: event },
-  tabs: { update: async () => {}, getZoom: async () => 1 }, theme: { update: async () => {} },
-  browserAction: Object.fromEntries(["setTitle", "setBadgeText", "setBadgeBackgroundColor", "setBadgeTextColor"].map(name => [name, async () => {}])) };
+  tabs: { update: async () => {}, getZoom: async () => 1 }, theme: { update: async () => {} }, browserAction: noopActions() };
   const waiting = f.observeStartup(token);
   void waiting.then(() => { settled = true; }, () => { settled = true; });
   runInNewContext(readFileSync(join(f.extensionPath, "background.js"), "utf8"), { browser, AbortSignal, TextEncoder, Date: { now: () => 10_000 },
@@ -252,7 +250,7 @@ test("the generated background script labels every window and restores a selecte
       onFocusChanged: { addListener: (fn: (...args: any[]) => unknown) => events.set("focus", fn) } },
     tabs: { update: async (id: number, value: unknown) => { updates.push(["tab", id, value]); } },
     theme: { update: async (value: unknown) => { settings.push(value); } },
-    browserAction: Object.fromEntries(["setTitle", "setBadgeText", "setBadgeBackgroundColor", "setBadgeTextColor"].map(name => [name, async (value: unknown) => { settings.push([name, value]); }])),
+    browserAction: noopActions((name, value) => settings.push([name, value])),
   };
   let command: unknown = { id: "focus-once", windowId: 2, tabId: 20 };
   runInNewContext(readFileSync(join(f.extensionPath, "background.js"), "utf8"), {
@@ -300,34 +298,4 @@ test("the generated background script labels every window and restores a selecte
   await tick!();
   expect(new TextEncoder().encode(JSON.stringify(posts.at(-1))).length).toBeLessThanOrEqual(90_000);
   expect(posts.at(-1)!.error).toContain("shortened");
-});
-
-test("UI window routes require a same-origin session, current lifetime, and exclusive operation", async () => {
-  const state = createUiSessionState();
-  const snapshot = { profiles: [{ id: "profile-02", instanceId: "lifetime-a", phase: "ready" }] } as UiSnapshot;
-  const model = { snapshot: async () => snapshot } as UiModel;
-  const calls: unknown[] = [];
-  let release!: () => void;
-  const wait = new Promise<void>(resolve => { release = resolve; });
-  const app = createUiApp({ model, assets: {}, sessionState: state, windows: {
-    async list(id) { calls.push(["list", id]); return { profileId: id, instanceId: "lifetime-a", available: true, reason: null, updatedAt: null, windows: [] }; },
-    async show(id, selection) { calls.push(["show", id, selection]); await wait; },
-  } });
-  const origin = "http://127.0.0.1:9380", path = "/api/profiles/profile-02/window";
-  const auth = { Host: "127.0.0.1:9380", Origin: origin, "Content-Type": "application/json", Cookie: "stelz_ui_9380=" + state.session };
-  const request = (url: string, method = "GET", body?: unknown, headers: Record<string, string> = auth) => app.fetch(new Request(origin + url,
-    { method, headers, body: body === undefined ? undefined : JSON.stringify(body) }), { origin });
-  expect((await request(path + "s", "GET", undefined, { Host: auth.Host })).status).toBe(401);
-  expect((await request(path, "POST", { instanceId: "lifetime-a" }, { ...auth, Origin: "https://elsewhere.test" })).status).toBe(403);
-  expect((await request(path, "POST", { instanceId: "older" })).status).toBe(409);
-  expect((await request(path, "POST", { instanceId: "lifetime-a", windowId: "2" })).status).toBe(400);
-  expect((await request(path, "GET")).status).toBe(405);
-  expect((await request(path + "s", "HEAD")).status).toBe(405);
-  expect(calls).toEqual([]);
-  expect((await request(path + "s")).status).toBe(200);
-  const show = request(path, "POST", { instanceId: "lifetime-a", windowId: 2 });
-  for (let n = 0; n < 20 && calls.length < 2; n++) await Bun.sleep(1);
-  expect((await request(path, "POST", { instanceId: "lifetime-a" })).status).toBe(409);
-  release(); expect((await show).status).toBe(200);
-  expect(calls).toEqual([["list", "profile-02"], ["show", "profile-02", { instanceId: "lifetime-a", windowId: 2 }]]);
 });

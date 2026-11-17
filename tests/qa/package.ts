@@ -1,4 +1,4 @@
-import { installPackage } from "../package/install.ts";
+import { installPackage } from "./install.ts";
 import { packageArguments, assertArchiveUnchanged } from "../../scripts/package-archive.ts";
 import { mkdtempSync, readFileSync, writeFileSync, readdirSync, lstatSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -6,7 +6,7 @@ import { join, resolve } from "node:path";
 import { STELZ_VERSION } from "../../src/versions.ts";
 import { dedicatedProxyInputs } from "../helpers/dedicated-proxy.ts";
 const root = resolve(import.meta.dir, "../..");
-const input = packageArguments(process.argv.slice(2), ["--native", "--setup", "--proxy", "--manual", "--windows"]);
+const input = packageArguments(process.argv.slice(2), ["--setup", "--proxy", "--human", "--windows"]);
 if (input.flags.has("--proxy")) dedicatedProxyInputs(process.env.PROXY_TEST_ENV, "acceptance");
 const archive = input.archive ?? join(root, "release-artifacts", `stelz-${STELZ_VERSION}.tgz`);
 const installed = await installPackage(archive, { native: true, keep: true });
@@ -21,29 +21,23 @@ async function run(args: string[], options: { cwd?: string; env?: Record<string,
 }
 await run([executable, "setup", "--yes"]);
 assertArchiveUnchanged(candidate);
-await run([bun, "--no-env-file", join(root, "tests/browser/integration.ts"), "--typing", ...(input.flags.has("--windows") ? ["--windows"] : [])],
+await run([bun, "--no-env-file", join(root, "tests/browser/smoke.ts"), ...(input.flags.has("--windows") ? ["--windows"] : [])],
   { env: { ...cleanEnv, STELZ_TEST_HOME: home, STELZ_TEST_CLI: installedCli }, inherit: true });
-const acceptance = { integration: true, native: false, transfer: false, concurrency: false, typing: true, setup: false, windows: input.flags.has("--windows"), proxy: false, location: false, manual: false };
+const acceptance = { browser: true, setup: false, windows: input.flags.has("--windows"), proxy: false, human: false };
 const installation = join(home, "installation.json");
 writeFileSync(installation, JSON.stringify(installed), { mode: 0o600 });
 for (const [flag, script, suite] of [
-  ["--native", "tests/browser/native-integration.ts", "native"],
-  ["--transfer", "tests/browser/profile-transfer.ts", "transfer"],
-  ["--concurrency", "tests/browser/concurrency.ts", "concurrency"],
-  ["--setup", "tests/package/setup.ts", "setup"],
-  ["--proxy", "tests/browser/proxy-integration.ts", "proxy"],
-  ["--proxy", "tests/package/location.ts", "location"],
-  ["--manual", "tests/qa/manual-integration.ts", "manual"],
+  ["--setup", "tests/qa/setup.ts", "setup"],
+  ["--proxy", "tests/qa/proxy.ts", "proxy"],
+  ["--human", "tests/qa/human.ts", "human"],
 ] as const) {
   // Setup, proxy, and human checks need their explicit opt-in flags.
-  if (["setup", "proxy", "location", "manual"].includes(suite) && !input.flags.has(flag)) continue;
+  if (!input.flags.has(flag)) continue;
   assertArchiveUnchanged(candidate);
-  await run([bun, "--no-env-file", join(root, script), ...(["setup", "location"].includes(suite) ? ["--archive", archive] : [])], { cwd, env: { ...cleanEnv, STELZ_TEST_CLI: installedCli,
-    ...(suite === "concurrency" ? { STELZ_CLI: installedCli } : {}),
+  await run([bun, "--no-env-file", join(root, script), ...(suite === "setup" ? ["--archive", archive] : [])], { cwd, env: { ...cleanEnv, STELZ_TEST_CLI: installedCli,
     // Suites reuse the prepared runtime. The setup suite must prepare its own.
-    ...(suite === "setup" ? {} : { STELZ_TEST_SEED_HOME: home }),
-    ...(["setup", "location"].includes(suite) ? { STELZ_TEST_INSTALLATION: installation } : {}),
-    ...(["proxy", "location"].includes(suite) && process.env.PROXY_TEST_ENV ? { PROXY_TEST_ENV: process.env.PROXY_TEST_ENV } : {}) }, inherit: true });
+    ...(suite === "setup" ? { STELZ_TEST_INSTALLATION: installation } : { STELZ_TEST_SEED_HOME: home }),
+    ...(suite === "proxy" && process.env.PROXY_TEST_ENV ? { PROXY_TEST_ENV: process.env.PROXY_TEST_ENV } : {}) }, inherit: true });
   acceptance[suite] = true;
 }
 // Setup must resolve every dependency from the installed archive, not the source checkout.

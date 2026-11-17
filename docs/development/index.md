@@ -15,8 +15,8 @@ For people who change Stelz. Read [Contributing](../../CONTRIBUTING.md) first.
 - [Transactions](transactions.md) — locks and journals for catalog, network, and transfer changes.
 - [UI session](ui-session.md) — local UI server session, origin, and credential rules.
 - [Source layout](source-layout.md) — source directories and runtime generations.
-- [Testing](testing.md) — standard checks, tests without browsers, and CI.
-- [Acceptance](acceptance.md) — browser, package, proxy, and human acceptance suites.
+- [Testing](testing.md) — standard checks, test layout, the browser suite, and CI.
+- [Acceptance](acceptance.md) — built UI, package, proxy, and human acceptance checks.
 - [Public site checks](public-site-checks.md) — occasional public fingerprint checks.
 - [Agent onboarding](agent-onboarding.md) — real-agent acceptance of setup and connection.
 - [Camofox integration](camofox-integration.md) — dependency patches and compatibility checks.

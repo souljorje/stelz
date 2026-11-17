@@ -15,7 +15,7 @@ export function packageArguments(args: string[], allowed: readonly string[] = []
   return { archive, flags };
 }
 
-export function archiveSha256(archive: string) {
+function archiveSha256(archive: string) {
   return createHash("sha256").update(readFileSync(archive)).digest("hex");
 }
 

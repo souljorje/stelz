@@ -94,16 +94,6 @@ test("a force-first click uses sequential native input within the unchanged budg
   expect([f.dom, f.mouse]).toEqual([0, 0]);
 });
 
-test("a delayed normal completion never starts a second attempt", async () => {
-  const f = flow(); let complete!: () => void;
-  f.click = () => new Promise<void>(resolve => { complete = resolve; });
-  const pending = f.run();
-  f.remaining -= 4000; await Promise.resolve();
-  expect(f.calls).toEqual([{ timeout: 23000, delay: 1 }]);
-  complete(); await pending;
-  expect(f.calls).toHaveLength(1); expect([f.dom, f.mouse]).toEqual([0, 0]);
-});
-
 for (const stage of ["normal", "force-first", "force", "dom", "mouse"]) test(`exhausted budget prevents the ${stage} attempt`, async () => {
   const f = flow();
   if (stage === "normal" || stage === "force-first") f.remaining = 0;

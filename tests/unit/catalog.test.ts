@@ -140,8 +140,9 @@ test("the service accepts only exposed properties, and only Stelz sets the inter
     ["tab_wait", { tabId, dismissConsent: true }]] as const)
     expect(() => toolArguments(tool(name), args), name).toThrow("Unknown tool argument");
   for (const name of ["userId", "sessionKey"]) expect(() => toolArguments(tool("tab_snapshot"), { tabId, [name]: "other" })).toThrow("Routing fields");
-  expect(() => toolArguments(tool("tab_type"), { tabId, text: "x", mode: "auto" })).toThrow("Typing mode");
-  for (const invalid of ["../x", `${tabId}/evaluate`, "", undefined, null, 1, [tabId]]) expect(() => toolArguments(tool("tab_click"), { tabId: invalid })).toThrow("tabId");
+  for (const mode of ["auto", "paced", "fill", null, false, 1]) expect(() => toolArguments(tool("tab_type"), { tabId, text: "x", mode })).toThrow("Typing mode");
+  for (const invalid of ["../x", `${tabId}/evaluate`, `${tabId}/evaluate?ignored=`, "%2e%2e/local-profile/stop?ignored=", "..\\local-profile\\stop", `${tabId}%2fevaluate`,
+    `${tabId}?userId=another`, `${tabId}#ignored`, `${tabId}\n`, `\t${tabId}`, ".", "..", "", undefined, null, 1, [tabId], { tabId }]) expect(() => toolArguments(tool("tab_click"), { tabId: invalid })).toThrow("tabId");
   for (const args of [null, false, 1, [], "invalid"]) expect(() => toolArguments(tool("tab_click"), args)).toThrow("must be an object");
 });
 

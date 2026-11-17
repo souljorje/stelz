@@ -22,7 +22,6 @@ async function storage() {
 }
 async function refresh() {
   const values = await storage(), value = values.indexedDB;
-  el("markers").textContent = JSON.stringify(values, null, 2);
   el("marker-status").textContent = value && localStorage.getItem("profile") === value && document.cookie.includes(`profile=${encodeURIComponent(value)}`) ? `Storage marker: ${value}` : "Storage marker is incomplete";
 }
 el("begin").onclick = () => { el("task").hidden = false; el<HTMLInputElement>("answer").focus(); };
@@ -79,6 +78,9 @@ async function observe(index: number) {
   } catch (error) { errors.audio = String(error); }
   let markers = null;
   try { markers = await storage(); } catch (error) { errors.storage = String(error); }
+  // A proxied profile has a configured location. The page must still ask before it can read it.
+  let geolocation = "unavailable";
+  try { geolocation = (await navigator.permissions.query({ name: "geolocation" })).state; } catch (error) { errors.geolocation = String(error); }
   const id = query.get("capture");
   const captureId = id && sampleCount > 1 ? `${id}-${index}` : id;
   const value = {
@@ -87,7 +89,7 @@ async function observe(index: number) {
     screen: { width: screen.width, height: screen.height, availWidth: screen.availWidth, availHeight: screen.availHeight, colorDepth: screen.colorDepth },
     window: { innerWidth, innerHeight, outerWidth, outerHeight, devicePixelRatio }, webdriver: navigator.webdriver,
     webgl: webgl("webgl"), webgl2: webgl("webgl2"), canvas: canvasHash, audio,
-    storage: markers, errors,
+    geolocation, storage: markers, errors,
     measurement: { recipe: "stelz-fixture-v2", captureId, documentId, sampleIndex: index, sampleCount,
       capturedAt: new Date().toISOString(), timeOrigin: performance.timeOrigin, elapsedMs: performance.now(),
       origin: location.origin, documentURL: location.href, visibility: document.visibilityState,
@@ -97,7 +99,6 @@ async function observe(index: number) {
       webRTCEnabled: typeof RTCPeerConnection !== "undefined",
     } : {}),
   };
-  el("observations").textContent = JSON.stringify(value, null, 2);
   if (captureId) {
     const response = await fetch("/observations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: captureId, value }) });
     if (!response.ok) throw Error(`Observation upload failed: ${response.status}`);
@@ -107,4 +108,30 @@ async function observations() {
   await document.fonts.ready;
   for (let index = 1; index <= sampleCount; index++) await observe(index);
 }
-void refresh(); void observations();
+// The feed reports its scroll position in the fixed header.
+const feed = document.querySelector("main")!;
+feed.addEventListener("scroll", () => { el("position").textContent = `Scroll position: x=${Math.round(feed.scrollLeft)} y=${Math.round(feed.scrollTop)}`; });
+// Targets. These controls change only the DOM.
+document.querySelectorAll<HTMLElement>(".add").forEach((button, index) => { button.onclick = () => { el("status").textContent = `Added by button ${index}`; }; });
+el("mark").onclick = () => { el("status").textContent = "Marked"; };
+el("note").oninput = () => { el("echo").textContent = `Echo: ${el<HTMLInputElement>("note").value}`; };
+el("reveal").onclick = () => setTimeout(() => { const late = document.createElement("button"); late.textContent = "Late button"; el("targets").append(late); }, 1200);
+// Typing. The page reports the field values, every input event, and the submissions after each change.
+const generation = Number(document.documentElement.dataset.generation);
+const events: { type: string; target: string; key: string; trusted: boolean; at: number }[] = [];
+let submits = 0, sequence = 0, timer: ReturnType<typeof setTimeout> | undefined;
+function publish() {
+  const values = Object.fromEntries(["message", "multiline", "editable", "number", "date"].map(id => {
+    const field = el<HTMLInputElement>(id); return [id, field.value === undefined ? field.textContent : field.value];
+  }));
+  el("submissions").textContent = `Submissions: ${submits}`;
+  void fetch("/sample", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ generation, sequence: ++sequence, values, events, submits }) });
+}
+for (const type of ["input", "beforeinput", "keydown", "keypress", "keyup"]) document.addEventListener(type, event => {
+  events.push({ type, target: (event.target as HTMLElement).id, key: (event as KeyboardEvent).key || "", trusted: event.isTrusted, at: performance.now() });
+  clearTimeout(timer); timer = setTimeout(publish, 50);
+});
+el<HTMLFormElement>("typing-form").onsubmit = event => { event.preventDefault(); submits++; publish(); };
+publish();
+// The device probes run only for a capture.
+void refresh(); if (query.get("capture")) void observations();

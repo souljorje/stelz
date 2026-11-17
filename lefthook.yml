@@ -9,28 +9,13 @@ pre-commit:
     - name: typecheck
       glob: ["**/*.{ts,tsx}", "{tsconfig,package}.json"]
       run: bun run typecheck
-    - name: regression
-      glob: "{src,tests/regression,tests/helpers}/**"
-      run: bun run test:regression
     # Import-graph selection. It misses code that tests reach only through a CLI
     # subprocess, so pre-push runs the full suite.
     - name: affected tests
       glob: ["**/*.{ts,tsx}", "package.json"]
-      run: bun test --parallel --changed=HEAD ./tests/unit ./tests/integration
+      run: bun test --parallel --changed=HEAD ./tests/unit
 
 pre-push:
   jobs:
     - name: check
       run: bun run check
-
-# Select changed files here. Integration shares its browsers with selected typing and window checks.
-# BASE=HEAD~1 selects another base. --file PATH selects one path. --all-files selects all paths.
-# STELZ_DRY_RUN=echo prints the selected commands without starting a browser.
-browser:
-  files: >-
-    base=$(git merge-base "${BASE:-origin/main}" HEAD) &&
-    git diff --name-only "$base" &&
-    git ls-files --others --exclude-standard
-  jobs:
-    - name: browser suites
-      run: bun scripts/browser-tests.ts {files}

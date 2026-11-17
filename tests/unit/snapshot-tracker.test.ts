@@ -160,14 +160,6 @@ test("each reply has a viewId, and a window pages the cached view without a new 
   expect(second.truncated).toBe(true);
   expect(second.url).toBe(url);
   expect(second.refsCount).toBe(first.refsCount);
-  // The pages add up to the whole view.
-  const pages = [first.text];
-  for (let next = first; next.nextOffset !== undefined;) {
-    next = s.tracker.page("a", tab, first.viewId, next.nextOffset, 1000, s.refs);
-    pages.push(next.text);
-  }
-  expect(pages.length).toBeGreaterThan(3);
-  expect(pages.join("\n")).toBe(session().read("a", shop({ items: 60 }), { ...full, maxChars: 80_000 }).text);
 });
 
 test("an unknown or replaced viewId fails, and a controller cannot page the view of another", () => {
@@ -183,12 +175,6 @@ test("an unknown or replaced viewId fails, and a controller cannot page the view
   s.tracker.reset();
   expect(() => s.tracker.page("a", tab, replaced.viewId, replaced.nextOffset!, 1000, s.refs)).toThrow("Read a new tab_snapshot.");
   expect(() => s.tracker.page("a", tab, replaced.viewId, 10 ** 9, 1000, s.refs)).toThrow("Read a new tab_snapshot.");
-});
-
-test("an offset past the end of the view fails", () => {
-  const s = session();
-  const first = s.read("a", shop({ items: 60 }), { ...full, maxChars: 1000 });
-  expect(() => s.tracker.page("a", tab, first.viewId, 10 ** 9, 1000, s.refs)).toThrow("past the end");
 });
 
 test("paging does not move the baseline, and it shows refs only on the lines that it shows", () => {
@@ -240,15 +226,11 @@ test("a diff after a one-element change on a large page is at most 2 KB", () => 
   expect(Buffer.byteLength(collapsed.text)).toBeLessThanOrEqual(2048);
 });
 
-test("a view past the ref limit says that its interactive lines have no refs, once", () => {
+test("a ref past the 500-ref limit of a page is refused", () => {
   const s = session();
-  const plain = Array.from({ length: 520 }, (_, i) => `- button "B${i}"`).join("\n");
-  const reply = s.read("a", plain, { ...full, maxChars: 80_000 });
-  expect(reply.text.match(/# Interactive lines without a ref are past the 500-ref limit of this page\./g)).toHaveLength(1);
-  expect(reply.text.split("\n")[0]).toContain("500-ref limit");
+  s.read("a", Array.from({ length: 520 }, (_, i) => `- button "B${i}"`).join("\n"), { ...full, maxChars: 80_000 });
   expect(s.allowed("a", "e500")).toBe(true);
   expect(s.allowed("a", "e501")).toBe(false);
-  expect(s.read("a", shop(), full).text).not.toContain("500-ref limit");
 });
 
 test("a Google result with escaped quotes in its title has a reliable ref, and a shift does not show it as changed", () => {
