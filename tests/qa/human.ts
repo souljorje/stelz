@@ -32,7 +32,7 @@ try {
   writeFileSync(join(home, "profiles.json"), JSON.stringify({ profiles: [{ id, port: ports[0]!, storage: "native" }] }), { mode: 0o600 });
   // A package run seeds the home from its installation. A source run keeps the browser and location data between runs.
   const seeded = !!process.env.STELZ_TEST_SEED_HOME;
-  if (!seeded) Object.assign(env, useRuntimeCache(home));
+  Object.assign(env, useRuntimeCache(home));
   await command("setup", "--yes"); delete env.STELZ_RUNTIME;
   if (!seeded) saveRuntimeCache(home);
   site = await fixture(ports[1]!); await command("start", id);
