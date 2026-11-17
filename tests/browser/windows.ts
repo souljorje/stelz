@@ -1,38 +1,27 @@
-// Real Camoufox acceptance. Uses two isolated profiles and local fixture pages.
+// Window controls of two running profiles. tests/browser/smoke.ts runs it with --windows.
+// It is a separate process, because the window model reads STELZ_HOME when it loads.
 import assert from "node:assert/strict";
-import { assertTestHome, createTestHome } from "../helpers/test-home.ts";
+import { assertTestHome } from "../helpers/test-home.ts";
 import { readFileSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { profileAppearance, type ProfileWindows } from "../../src/api/contracts.ts";
 import { parseToolText, routeProfileTools } from "../helpers/mcp-client.ts";
-import { useRuntimeCache } from "../helpers/runtime-cache.ts";
 
-const root = resolve(import.meta.dir, "../..");
-const args = process.argv.slice(2), shared = args[0] === "--reuse";
-if (shared ? args.length !== 5 : args.length > 0 && !(args.length === 1 && args[0] === "--inspect"))
-  throw Error("Use bun tests/browser/windows.ts [--inspect], or --reuse CLI FIXTURE_ORIGIN PROFILE_1 PROFILE_2 in an owned test home.");
-const home = shared ? assertTestHome(process.env.STELZ_HOME || "") : createTestHome("profile-windows");
-process.env.STELZ_HOME = home;
+const [cli, origin, ...ids] = process.argv.slice(2);
+if (!cli || !origin || ids.length !== 2) throw Error("Use: bun tests/browser/windows.ts CLI FIXTURE_ORIGIN PROFILE_1 PROFILE_2, with STELZ_HOME set to an owned test home.");
+const home = assertTestHome(process.env.STELZ_HOME || "");
 const { createWindowModel } = await import("../../src/api/window-model.ts");
 const windows = createWindowModel();
-const cli = (shared ? args[1] : process.env.STELZ_TEST_CLI) || join(root, "src/cli/cli.ts"), bun = Bun.which("bun")!;
+const bun = Bun.which("bun")!;
 const env: Record<string, string> = { STELZ_HOME: home };
 for (const key of ["PATH", "HOME", "LANG", "TMPDIR", "CAMOUFOX_EXECUTABLE"]) if (process.env[key]) env[key] = process.env[key]!;
-const ids = shared ? args.slice(3) : ["window-check-01", "window-check-02"];
 const clients: Client[] = [];
-let ui: { stop(): void } | undefined;
-const report: Record<string, unknown> = { home, shared, checks: [] };
+const report: Record<string, unknown> = { home, checks: [] };
 const foregroundLimits: string[] = [];
-// Two pages of the fixture with different titles. The smoke suite lends its fixture server.
-const site = shared ? undefined : await (await import("../helpers/fixture.ts")).fixture(0);
-const page = (name: string) => `${shared ? args[2] : site!.url}/?profile=${name}`, title = (name: string) => `Camoufox acceptance fixture — ${name}`;
-async function command(...args: string[]) {
-  const child = Bun.spawn([bun, "--no-env-file", cli, ...args], { env, stdout: "pipe", stderr: "pipe" });
-  const [code, out, err] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
-  if (code) throw Error(args.join(" ") + ": " + (err || out));
-}
+// Two loads of the fixture page with different titles.
+const page = (name: string) => `${origin}/?profile=${name}`, title = (name: string) => `Camoufox acceptance fixture — ${name}`;
 async function call(client: Client, name: string, args: Record<string, unknown> = {}) {
   const result = await client.callTool({ name, arguments: args }, undefined, { timeout: 90_000 });
   const text = (result.content as { type: string; text?: string }[]).filter(item => item.type === "text").map(item => item.text).join("\n");
@@ -55,22 +44,10 @@ async function waitFor(id: string, predicate: (value: ProfileWindows) => boolean
   } while (Date.now() < deadline);
   throw Error("Window inventory did not arrive for " + id + ": " + JSON.stringify(value!));
 }
-function freePort() {
-  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() });
-  const port = server.port!; server.stop(true); return port;
-}
 try {
   console.log("Profile window acceptance: " + home);
-  if (!shared) {
-    writeFileSync(join(home, "profiles.json"), JSON.stringify({ profiles: ids.map(id => ({
-      id, port: freePort(), storage: "native",
-    })) }), { mode: 0o600 });
-    // A direct run takes the browser and location data from the cache of the smoke suite.
-    Object.assign(env, useRuntimeCache(home)); await command("setup", "--yes"); delete env.STELZ_RUNTIME;
-  }
   assert.notEqual(profileAppearance(ids[0]!).color, profileAppearance(ids[1]!).color);
   for (const id of ids) {
-    if (!shared) await command("start", id);
     const client = await connect(id);
     const initialStatus = await call(client, "profile_status"), initialTabs = await call(client, "tab_list");
     const ownedTabs: string[] = [];
@@ -119,31 +96,22 @@ try {
       const released = await windows.list(id);
       assert(released.available && released.windows.length === changed.windows.length, "Release and disconnect must keep the windows");
     } finally {
-      if (shared) {
-        // Disconnect first, including on a failed assertion, before acquiring a fresh handle for cleanup.
-        await client.close();
-        const cleanup = await connect(id);
-        try {
-          for (const tabId of ownedTabs) await call(cleanup, "tab_close", { tabId });
-          assert.deepEqual(await call(cleanup, "tab_list"), initialTabs, "Window checks changed another test's tabs");
-          assert.equal((await call(cleanup, "profile_status")).instanceId, initialStatus.instanceId, "Window checks replaced the browser");
-          await call(cleanup, "profile_release");
-        } finally { await cleanup.close(); }
-      }
+      // Disconnect first, including on a failed assertion, before acquiring a fresh handle for cleanup.
+      await client.close();
+      const cleanup = await connect(id);
+      try {
+        for (const tabId of ownedTabs) await call(cleanup, "tab_close", { tabId });
+        assert.deepEqual(await call(cleanup, "tab_list"), initialTabs, "Window checks changed another tab");
+        assert.equal((await call(cleanup, "profile_status")).instanceId, initialStatus.instanceId, "Window checks replaced the browser");
+        await call(cleanup, "profile_release");
+      } finally { await cleanup.close(); }
     }
   }
   report.result = foregroundLimits.length ? "incomplete" : "passed";
   if (foregroundLimits.length) { report.foregroundLimits = foregroundLimits; process.exitCode = 1; }
-  if (process.argv.includes("--inspect")) {
-    const { createUiServer } = await import("../../src/api/ui-server.ts");
-    const preview = createUiServer({ port: 0 }); ui = preview;
-    console.log("Review the running profiles for 45 seconds: " + preview.launchUrl);
-    await Bun.sleep(45_000);
-  }
 } catch (error) { report.result = "failed"; report.error = String(error); process.exitCode = 1; }
 finally {
   for (const client of clients) await client.close().catch(() => {});
-  ui?.stop(); if (!shared) await command("stop", "all").catch(() => {}); site?.stop();
-  writeFileSync(join(home, shared ? "windows-report.json" : "report.json"), JSON.stringify(report, null, 2), { mode: 0o600 });
+  writeFileSync(join(home, "windows-report.json"), JSON.stringify(report, null, 2), { mode: 0o600 });
   console.log(JSON.stringify(report, null, 2));
 }
