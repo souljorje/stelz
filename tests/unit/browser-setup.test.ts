@@ -35,7 +35,9 @@ function zipFixture() {
 test("a configured browser must be the paired build", async () => {
   const home = temp(), unpaired = browserFixture(join(home, "unpaired"), "152.0.4-beta.30");
   await expect(prepareBrowser(home, join(home, "missing"), { request: offline })).rejects.toThrow("Correct or remove CAMOUFOX_EXECUTABLE");
-  await expect(prepareBrowser(home, unpaired, { request: offline })).rejects.toThrow("is not supported");
+  // The error names the setting and its location, and it does not ask for another setup first.
+  await expect(prepareBrowser(home, unpaired, { request: offline })).rejects.toThrow(
+    `is not supported. Stelz requires Camoufox ${pairedBrowser()}. CAMOUFOX_EXECUTABLE in ${join(home, "secrets.env")} selects this file. Remove the setting`);
   const configured = browserFixture(join(home, "configured"));
   expect(await prepareBrowser(home, configured, { request: offline, installed: () => { throw Error("No cache read"); } }))
     .toEqual({ executable: configured, source: "configured" });
