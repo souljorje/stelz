@@ -83,6 +83,7 @@ One run does these checks in the same browsers:
 - No CI job starts a live browser.
 - CI runs on Ubuntu only while GitHub macOS runners are paused. The macOS matrix entries stay commented in both workflows.
 - Release workflow: see [Releasing](releasing.md).
+- Baseline, measurements, and limits: [CI audit](ci-audit.md).
 
 ## Diagnostics
 
