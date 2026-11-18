@@ -113,8 +113,8 @@ function splitField(text: string, labels: string[], spaceSeparator = true): { la
   for (const label of labels) {
     const name = label.toLowerCase();
     const rest = lower.slice(name.length);
-    if (lower === name || (lower.startsWith(name) && (spaceSeparator ? /^[\s:|\-]/ : /^\s*[:|]/).test(rest))) {
-      return { label, value: normalized.slice(name.length).replace(/^[\s:|\-]+/, "").trim() };
+    if (lower === name || (lower.startsWith(name) && (spaceSeparator ? /^[\s:|-]/ : /^\s*[:|]/).test(rest))) {
+      return { label, value: normalized.slice(name.length).replace(/^[\s:|-]+/, "").trim() };
     }
   }
 }

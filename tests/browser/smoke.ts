@@ -7,7 +7,7 @@ import { resolve, join, dirname } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { fixture } from "../helpers/fixture.ts";
-import { unusedPorts, useEphemeralProfilePort } from "../helpers/ports.ts";
+import { unusedPorts } from "../helpers/ports.ts";
 import { assertTestHome, createTestHome } from "../helpers/test-home.ts";
 import { parseToolText, routeProfileTools } from "../helpers/mcp-client.ts";
 import { assertSingleStartupWindow } from "../helpers/startup-window.ts";
@@ -97,7 +97,7 @@ try {
   const ports = await unusedPorts(2);
   writeFileSync(join(home, "profiles.json"), JSON.stringify({ profiles: [{ id: "profile-01", port: ports[0]! }] }), { mode: 0o600 });
   // A source run keeps the browser and location data between runs.
-  if (!lent) Object.assign(env, useRuntimeCache(home));
+  if (!lent) Object.assign(env, await useRuntimeCache(home));
   if (!lent) await command("setup", "--yes");
   delete env.STELZ_RUNTIME;
   if (!lent) saveRuntimeCache(home);
@@ -106,7 +106,6 @@ try {
   // The CLI starts the profile from the catalog. MCP creates and starts the other one.
   const creator = await connect("profile-02", "creating-client");
   await call(creator.client, "profile_create");
-  await useEphemeralProfilePort(home, "profile-02");
   // Create the action profiles before typing changes its own defaults in the shared catalog.
   typing = runTyping({ home, cli, site: pageServer, env }); typing.catch(() => {});
   assert(JSON.stringify((await call(creator.client, "profile_list")).profiles).includes("profile-02"), "The open connection does not list the profile that it created");
@@ -330,11 +329,14 @@ try {
     const snapshot = await call(next.client, "tab_snapshot", { tabId });
     assert(String(snapshot.snapshot).includes(`Storage marker: ${source}`), `${id}: cookie, localStorage, and IndexedDB data did not survive`);
     assert(pin(id) === pins[source], `${id}: the saved fingerprint changed`);
-    // Device properties survive restart and import. Native window dimensions and rendered hashes can vary.
-    const was = await observed(`before-${source}`), now = await observed(`after-${id}`), differences = compareObservations(was, now);
-    assert(!differences.stableDifferences.length, `${id}: device observations changed: ${differences.stableDifferences.map(key => `${key} ${JSON.stringify(was[key])} -> ${JSON.stringify(now[key])}`).join(", ")}`);
-    if (differences.variableDifferences.length) report.push({ check: "Variable browser observations", profileId: id,
-      result: "observed", differences: Object.fromEntries(differences.variableDifferences.map(key => [key, { before: was[key], after: now[key] }])) });
+    // A restart keeps what the browser shows of its device, and so does an imported copy.
+    // A restart also keeps the window size. The inner height is not compared: browser chrome that shows for a moment after a start changes it.
+    // The copy opens another native window, so only the pixel ratio of its window must match.
+    const was = await observed(`before-${source}`), now = await observed(`after-${id}`);
+    const sameWindow = (id === source ? ["outerWidth", "outerHeight", "innerWidth", "devicePixelRatio"] : ["devicePixelRatio"])
+      .every(name => (was.window as Record<string, number>)[name] === (now.window as Record<string, number>)[name]);
+    const drift = compareObservations(was, now).stableDifferences.filter(key => key !== "window" || !sameWindow);
+    assert(!drift.length, `${id}: device observations changed: ${drift.map(key => `${key} ${JSON.stringify(was[key])} -> ${JSON.stringify(now[key])}`).join(", ")}`);
     await next.client.close();
     // The copy has no later check. Its browser stops here.
     if (id !== source) await command("stop", id);

@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { geoipFixture, managedFixture, fixtureLocation } from "../helpers/geoip-fixture.ts";
@@ -131,5 +131,5 @@ test("a rotated browser exit must resolve to compatible settings and gets its ow
     record.prepared!.policy = "warn";
     record.prepared!.config = { ...config, timezone: "America/New_York" };
     await expect(verifyLaunchLocation(record, "198.51.100.11", page)).rejects.toMatchObject({ location: { code: "BROWSER_LOCATION_MISMATCH" } });
-  } finally { for (const [key, value] of Object.entries(previous)) value === undefined ? delete process.env[key] : process.env[key] = value; }
+  } finally { for (const [key, value] of Object.entries(previous)) if (value === undefined) delete process.env[key]; else process.env[key] = value; }
 });

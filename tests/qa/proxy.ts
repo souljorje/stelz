@@ -175,7 +175,7 @@ try {
     writeFileSync(join(home!, "secrets.env"), config.secrets, { mode: 0o600 });
   };
   configure("direct", ["", ""]);
-  Object.assign(env, useRuntimeCache(home));
+  Object.assign(env, await useRuntimeCache(home));
   await command("setup", "--yes"); delete env.STELZ_RUNTIME;
   if (!process.env.STELZ_TEST_SEED_HOME) saveRuntimeCache(home);
   site = await fixture(fixturePort!); probe = networkProbe();

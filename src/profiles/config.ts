@@ -1,7 +1,6 @@
 import { readFileSync, mkdirSync, writeFileSync, renameSync, existsSync, lstatSync, realpathSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { homedir } from "node:os";
-import { ROOT, entry } from "../paths.ts";
 export { ROOT, entry } from "../paths.ts";
 import { parseEnv } from "node:util";
 import { createHash } from "node:crypto";

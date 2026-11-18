@@ -5,7 +5,6 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import type { TypingMode } from "../../src/browser/typing.ts";
 import { assertTestHome } from "../helpers/test-home.ts";
-import { useEphemeralProfilePort } from "../helpers/ports.ts";
 import type { fixture, InputSample } from "../helpers/fixture.ts";
 import { parseToolText, routeProfileTools } from "../helpers/mcp-client.ts";
 
@@ -64,10 +63,9 @@ export async function runTyping({ home, cli, site, env }: { home: string; cli: s
   }
   try {
     await command("profile", "create", profileId, "--direct", "--json");
-    await useEphemeralProfilePort(home, profileId);
     started = true;
     await command("start", profileId);
-    client = routeProfileTools(new Client({ name: "typing-acceptance", version: "1.0.0" }), profileId);
+    client = routeProfileTools(new Client({ name: "typing-check", version: "1.0.0" }), profileId);
     await client.connect(new StdioClientTransport({ command: process.execPath, args: ["--no-env-file", cli, "mcp"], env, stderr: "inherit" }));
     await call("profile_acquire");
     const schema = (await client.listTools()).tools.find(tool => tool.name === "tab_type")!.inputSchema;

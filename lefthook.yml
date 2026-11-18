@@ -12,12 +12,13 @@ pre-commit:
     - name: typecheck
       glob: ["**/*.{ts,tsx}", "{tsconfig,package}.json"]
       run: bun run typecheck
+    # Import-graph selection. It misses code that tests reach only through a CLI
+    # subprocess, so pre-push runs the full suite.
     - name: affected tests
-      run: bun run test:changed
+      glob: ["**/*.{ts,tsx}", "package.json"]
+      run: bun test --parallel --changed=HEAD ./tests/unit
 
 pre-push:
   jobs:
     - name: check
-      env:
-        STELZ_TEST_BASE: origin/main
-      run: bun run check:changed
+      run: bun run check

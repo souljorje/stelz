@@ -1,7 +1,7 @@
 import { lstatSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { profileAppearance, type ProfileWindow, type ProfileWindows, type ShowProfileWindow } from "./profile-appearance.ts";
+import { profileAppearance, type ProfileWindow, type ProfileWindows } from "./profile-appearance.ts";
 import { profileExtensionMain, type ProfileExtensionConfig } from "./profile-extension.ts";
 import { profileIpProbeMain } from "./ip-probe.ts";
 import { readLaunchConfig, writeLaunchConfig, type LaunchOptions } from "./fingerprint.ts";

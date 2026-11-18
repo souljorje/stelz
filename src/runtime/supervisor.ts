@@ -305,7 +305,7 @@ const initialize = async () => {
           return;
         }
       }
-    } catch (e) {
+    } catch {
       if (stopping) return;
     }
     await Bun.sleep(250);
