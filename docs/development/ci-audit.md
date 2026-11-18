@@ -77,7 +77,9 @@ The observed rate-limit failure makes verified prerequisite reuse worth a separa
 It replaces both build scripts. The plugin keeps its single ESM file, runtime dependencies, and exports. The theme script stays blocking and external.
 Dependency validation, archive packaging, and Changesets remain unchanged. No dependency is added.
 The configuration uses Vite's experimental multi-environment builder API. Vite remains pinned to 8.3.6.
+Vite's built-in license report replaces manual copying. Archive checks require the report and license text for React, React DOM, Scheduler, and both font packages.
 
 Three warm local builds before this change took 193/194/193 ms; afterward, 236/233/237 ms.
 The CLI adds about 42 ms locally. This change consolidates build tooling; it does not establish a speedup or lower CI compute use.
-These local measurements compare the build follow-up with `54b38e5`; the CI installation comparison above uses its stated revisions.
+These local measurements compare `4f35c0e` with `54b38e5`; the CI installation comparison above uses its stated revisions.
+The license-report follow-up took 251/269/231 ms in three warm builds. It reduces custom code without an observed build speedup.

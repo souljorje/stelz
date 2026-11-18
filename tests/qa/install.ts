@@ -34,13 +34,15 @@ for (const file of candidate.files) if (/^(test|\.git|\.codex|\.state|sessions)\
 const uiFiles = candidate.files.filter(file => file.path.startsWith("dist/ui/"));
 if (!uiFiles.some(file => file.path === "dist/ui/index.html") || !uiFiles.some(file => file.path.endsWith(".js")) || !uiFiles.some(file => file.path.endsWith(".woff2"))) throw Error("The archive is missing built UI assets.");
 const paths = candidate.files.map(file => file.path).sort();
-for (const path of ["src/cli/cli.ts", "src/sdk/index.ts", "src/runtime/supervisor.ts", "dist/plugin.js", "dist/ui/index.html", "README.md", "LICENSE",
-  ...["react", "react-dom", "scheduler", "ibm-plex-mono", "ibm-plex-sans"].map(name => "dist/ui/licenses/" + name + ".txt")])
+for (const path of ["src/cli/cli.ts", "src/sdk/index.ts", "src/runtime/supervisor.ts", "dist/plugin.js", "dist/ui/index.html", "dist/ui/licenses.json", "README.md", "LICENSE"])
   if (!paths.includes(path)) throw Error("Archive is missing " + path);
 // The package holds the runtime only. Documentation and the browser skill stay in the repository.
 for (const path of paths) if (!/^(?:node_modules\/|src\/|dist\/|package.json$|README.md$|LICENSE$)/.test(path)) throw Error("Unexpected archive path: " + path);
 await run([npm, "install", "--global", ...(input.flags.has("--native") ? [] : ["--ignore-scripts"]), "--no-audit", "--no-fund", "--prefer-offline", "--prefix", prefix, archive]);
 const installed = join(prefix, "lib/node_modules/stelz");
+const licenses = JSON.parse(readFileSync(join(installed, "dist/ui/licenses.json"), "utf8")) as { name: string; text?: string }[];
+for (const name of ["react", "react-dom", "scheduler", "@fontsource/ibm-plex-mono", "@fontsource/ibm-plex-sans"])
+  if (!licenses.some(license => license.name === name && license.text?.trim())) throw Error("UI license report is missing the license text for " + name);
 const installedDependencies = inspectBundledDependencies(installed);
 if (JSON.stringify(installedDependencies) !== JSON.stringify(preparedDependencies))
   throw Error("The installed archive changed the patched dependency files.");
