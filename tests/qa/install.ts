@@ -162,6 +162,13 @@ return { candidate, env: cleanEnv, cwd, home, prefix, node, bun, npm, executable
 }
 
 if (import.meta.main) {
-  const input = packageArguments(process.argv.slice(2), ["--native"]);
-  await installPackage(input.archive ?? resolve(import.meta.dir, "../../release-artifacts", `stelz-${STELZ_VERSION}.tgz`), { native: input.flags.has("--native") });
+  const input = packageArguments(process.argv.slice(2), ["--native", "--both"]);
+  const archive = input.archive ?? resolve(import.meta.dir, "../../release-artifacts", `stelz-${STELZ_VERSION}.tgz`);
+  if (input.flags.has("--both")) {
+    if (input.flags.has("--native")) throw Error("Use --both or --native, not both flags.");
+    // Each mode creates its own prefix and service home. Wait for both before failing.
+    const results = await Promise.allSettled([false, true].map(native => installPackage(archive, { native })));
+    const failures = results.filter(result => result.status === "rejected");
+    if (failures.length) throw new AggregateError(failures.map(result => result.reason), "Package installation checks failed.");
+  } else await installPackage(archive, { native: input.flags.has("--native") });
 }

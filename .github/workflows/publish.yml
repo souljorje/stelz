@@ -125,8 +125,7 @@ jobs:
           artifact-ids: ${{ needs.pack.outputs.artifact_id }}
           merge-multiple: true
           path: release-artifacts
-      - run: bun run test:install --archive release-artifacts/packages/*.tgz
-      - run: bun run test:install --archive release-artifacts/packages/*.tgz --native
+      - run: bun run test:install --archive release-artifacts/packages/*.tgz --both
 
   publish:
     needs: [pack, installation]

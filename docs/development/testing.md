@@ -79,7 +79,7 @@ One run does these checks in the same browsers:
 ## Continuous integration
 
 - `.github/workflows/ci.yml` runs `bun run check` on Linux for pull requests, manual dispatch, and reusable workflow calls.
-- A parallel job packs the archive. It runs `test:install` with scripts disabled and with native installation.
+- A parallel job packs the archive. `test:install --both` runs isolated installations with scripts disabled and with native scripts concurrently.
 - No CI job starts a live browser.
 - CI runs on Ubuntu only while GitHub macOS runners are paused. The macOS matrix entries stay commented in both workflows.
 - Release workflow: see [Releasing](releasing.md).

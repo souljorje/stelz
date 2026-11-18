@@ -64,6 +64,7 @@ bun run test:package --archive /absolute/path/to/candidate.tgz --setup
 - Use the archive path that `pack` prints. Do not rebuild between checks.
 - `pack --destination DIRECTORY`: another output directory. Without `--archive`, local checks select the current manifest version under `release-artifacts/`.
 - `test:install`: no browser. `--native` adds ordinary npm lifecycle scripts and native dependency checks.
+- `test:install --both`: runs both installation modes concurrently against one archive. Each mode uses a separate prefix and service home. Either failure fails the command after both finish.
 - `test:package`: installs with lifecycle scripts, then runs the [browser suite](testing.md#browser-suite) against the installed CLI. It includes the checks of `test:install --native`.
 - Package acceptance prepares its browser once. The browser, proxy, and human checks reuse it. `--setup` separately checks setup behavior.
 - Run the full archive checks once per candidate, not after each fix.

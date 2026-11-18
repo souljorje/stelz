@@ -54,5 +54,4 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/setup
       - run: bun run pack
-      - run: bun run test:install
-      - run: bun run test:install --native
+      - run: bun run test:install --both
