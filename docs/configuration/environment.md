@@ -48,6 +48,6 @@ Setup uses the first available source:
 4. A download of the paired release. Setup verifies the published SHA-256 digest.
 
 - Another installation of the paired build: set `CAMOUFOX_EXECUTABLE` to the absolute path of the executable inside `Camoufox.app/Contents/MacOS/`, not the `camoufox` command on PATH. Otherwise leave it unset.
-- `CAMOUFOX_EXECUTABLE` in `secrets.env` selects a missing file or another build: setup offers to remove the setting and to use its own copy.
-- The same setting in the process environment: setup fails, because it cannot change it. Remove the setting, or point it to the paired build.
+- `CAMOUFOX_EXECUTABLE` in `secrets.env` selects a missing file or another build: setup names the installed and the required version and asks. After a yes, it installs the paired build and removes the setting.
+- The same setting in the process environment: setup fails, because it cannot change it. Unset it, or point it to the paired build.
 - Start rejects other builds. Stelz does not upgrade a profile's browser.

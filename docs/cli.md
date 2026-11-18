@@ -33,8 +33,8 @@ Setup:
 - Creates missing service files.
 - Prepares the browser, fingerprint model, location data, and runtime.
 - Prints a summary and the next step.
-- Asks once in a terminal before it downloads, or before it removes a `CAMOUFOX_EXECUTABLE` setting that selects no usable file. `--yes` skips the question.
-- No terminal and no `--yes`: a setup that needs consent fails with `confirmation_required`, a `downloads` list, and a `removal` text when it applies.
+- Asks once in a terminal before it downloads, or before it replaces a configured browser that is not the paired build. `--yes` skips the question.
+- No terminal and no `--yes`: a setup that needs consent fails with `confirmation_required`, a `downloads` list, and an `unsupported` text when it replaces a browser.
 - Each `downloads` entry has `name`, `size`, `purpose`, and `source`.
 - `setup --json` never prompts.
 - `setup --json` stdout: one JSON report with `browser` (with `source`), `locationData` for each dataset, `fingerprintModel`, and `runtime`.

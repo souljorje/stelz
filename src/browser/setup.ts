@@ -275,10 +275,10 @@ export const downloadList = (downloads: PlannedDownload[]) =>
   downloads.map(item => `- ${item.name} (${item.size}): ${item.purpose}\n  ${item.source}`).join("\n");
 export class SetupConfirmationError extends Error {
   readonly code = "confirmation_required";
-  /** `removal` describes a browser setting that setup removes before it continues. */
-  constructor(readonly downloads: PlannedDownload[], readonly removal?: string) {
-    super((removal ? `${removal}\n` : "") + (downloads.length ? `Setup needs these downloads:\n${downloadList(downloads)}\n` : "") +
-      `Run stelz setup --yes to allow ${downloads.length ? "them" : "it"}.`);
+  /** `unsupported` names an installed browser that setup replaces with the paired build. */
+  constructor(readonly downloads: PlannedDownload[], readonly unsupported?: string) {
+    super((unsupported ? `${unsupported}\n` : "") + (downloads.length ? `Setup needs these downloads:\n${downloadList(downloads)}\n` : "") +
+      (downloads.length ? "Run stelz setup --yes to allow them." : "Run stelz setup --yes to install the required version."));
   }
 }
 const locationPurpose: Record<GeoipRole, Pick<PlannedDownload, "size" | "purpose">> = {
@@ -304,12 +304,12 @@ async function plannedDownloads(configured?: string): Promise<PlannedDownload[]>
 }
 
 type SetupOptions = {
-  yes?: boolean; confirm?: (downloads: PlannedDownload[], removal?: string) => Promise<boolean>; progress?: Progress;
+  yes?: boolean; confirm?: (downloads: PlannedDownload[], unsupported?: string) => Promise<boolean>; progress?: Progress;
   prepareGeoip?: typeof prepareGeoip; prepareModel?: typeof prepareModel; prepareBrowser?: typeof prepareBrowser;
 };
 /**
  * Prepare everything that Start needs, and create missing service files.
- * Downloads, and the removal of a browser setting that selects no usable file, require `yes` or a positive `confirm`.
+ * Downloads, and the replacement of a configured browser that is not the paired build, require `yes` or a positive `confirm`.
  */
 export async function setup(options: SetupOptions = {}): Promise<SetupReport> {
   directory(HOME_DIR);
@@ -329,23 +329,23 @@ export async function setup(options: SetupOptions = {}): Promise<SetupReport> {
 async function prepare(admission: string, options: SetupOptions): Promise<SetupReport> {
   await lock(admission, async () => { initialize(); });
   let configured = secret("CAMOUFOX_EXECUTABLE") || undefined;
-  // A setting in the secrets file that selects a missing file or another build: setup offers to remove it and to use its own copy.
+  // The secrets file selects another build, or a file that is gone: setup offers to install the paired build in its place.
   // Setup cannot change the process environment, so that setting fails in the browser plan below.
   const problem = configured ? configuredBrowserProblem(HOME_DIR, configured) : undefined;
-  const removal = problem?.file ? `${problem.reason} CAMOUFOX_EXECUTABLE in ${problem.file} selects this file. ` +
-    `Setup removes that setting and uses its own copy of Camoufox ${pairedBrowser()}.` : undefined;
-  if (removal) configured = undefined;
-  // `yes` authorizes the removal and every planned download, so only an unconfirmed setup needs the plan.
+  const unsupported = problem?.file ? `${problem.reason} Stelz requires Camoufox ${pairedBrowser()}.` : undefined;
+  if (unsupported) configured = undefined;
+  // `yes` authorizes the replacement and every planned download, so only an unconfirmed setup needs the plan.
   if (!options.yes) {
     const downloads = await plannedDownloads(configured);
-    if ((downloads.length || removal) && !(await options.confirm?.(downloads, removal))) throw new SetupConfirmationError(downloads, removal);
+    if ((downloads.length || unsupported) && !(await options.confirm?.(downloads, unsupported))) throw new SetupConfirmationError(downloads, unsupported);
   }
   const progress = options.progress ?? console.error;
-  if (removal) {
-    await removeSecret("CAMOUFOX_EXECUTABLE");
-    progress(`${problem!.reason} Removed CAMOUFOX_EXECUTABLE from ${problem!.file}.`);
-  }
   const browser = await (options.prepareBrowser ?? prepareBrowser)(HOME_DIR, configured, { progress });
+  // The paired build is in place. Without the old setting, Stelz uses it now and after later browser updates.
+  if (unsupported) {
+    await removeSecret("CAMOUFOX_EXECUTABLE");
+    progress(`Removed the old CAMOUFOX_EXECUTABLE setting from ${problem!.file}.`);
+  }
 
   const source = packagePath(CAMOFOX, ROOT);
   if (JSON.parse(readFileSync(join(source, "package.json"), "utf8")).version !== UPSTREAM_VERSION) {
