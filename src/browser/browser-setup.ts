@@ -3,7 +3,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, renameSync, rm
 import { join } from "node:path";
 import { browserAssetPattern, browserExecutable, browserPackage, browserPin, pairedBrowser } from "./camoufox.ts";
 import { browserDirectory } from "../profiles/config.ts";
-import { engineVersion } from "./location-launch.ts";
+import { browserVersion, engineVersion } from "./location-launch.ts";
 import { downloadReleaseAsset, type ReleaseAssetRequest } from "./release-asset.ts";
 
 export type BrowserSource = "configured" | "managed" | "upstream-cache" | "downloaded";
@@ -31,23 +31,25 @@ export function browserRelease(): ReleaseAssetRequest {
 }
 
 /**
- * Why a configured executable cannot run: the file is missing, or it is not the paired build.
+ * Why the executable in CAMOUFOX_EXECUTABLE cannot run, in one sentence: it is another build, or the file is missing or incomplete.
  * `file` is the secrets file when the setting is there. Setup can remove it from that file, and not from the process environment.
  */
 export function configuredBrowserProblem(home: string, configured: string): { reason: string; file?: string } | undefined {
   const file = process.env.CAMOUFOX_EXECUTABLE === configured ? undefined : join(home, "secrets.env");
-  if (!existsSync(configured) || !statSync(configured).isFile()) return { reason: `Camoufox is missing at ${configured}.`, file };
-  try { engineVersion(configured, ""); return undefined; }
-  catch (error) { return { reason: (error as Error).message.trim(), file }; }
+  if (!existsSync(configured) || !statSync(configured).isFile()) return { reason: `The configured Camoufox is missing: ${configured}.`, file };
+  const version = browserVersion(configured);
+  if (!version) return { reason: `The configured Camoufox is incomplete: ${configured}.`, file };
+  return version === pairedBrowser() ? undefined : { reason: `Camoufox ${version} is installed, but it is not supported.`, file };
 }
 
 type BrowserDependencies = { request?: typeof fetch; installed?: () => Installed[]; progress?: (message: string) => void };
 /** Decide which browser setup uses, without changes. A configured executable must be the paired build. */
 export function browserPlan(home: string, configured?: string, { installed = upstreamInstalls }: BrowserDependencies = {}) {
   if (configured) {
+    // Setup replaces a setting in the secrets file before it makes this plan. It cannot change the process environment.
     const problem = configuredBrowserProblem(home, configured);
-    if (problem) throw Error(`${problem.reason} CAMOUFOX_EXECUTABLE in ${problem.file ?? "the process environment"} selects this file. ` +
-      `Remove the setting to let setup install Camoufox ${pairedBrowser()}, or point it to that build. Then run stelz setup again.`);
+    if (problem) throw Error(`${problem.reason} Stelz requires Camoufox ${pairedBrowser()}. ` +
+      (problem.file ? "Run stelz setup to install it." : "Unset CAMOUFOX_EXECUTABLE, then run stelz setup again."));
     return { source: "configured" as const, executable: configured };
   }
   const executable = browserExecutable(browserDirectory(home));

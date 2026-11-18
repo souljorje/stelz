@@ -2,6 +2,6 @@
 "stelz": patch
 ---
 
-Setup offers to remove a `CAMOUFOX_EXECUTABLE` setting in `secrets.env` that selects a missing file or another build, and then uses its own copy of the paired browser. `--yes` accepts the offer. Before, setup failed with advice to run setup again.
+Setup replaces a configured browser that is not the paired build. When `CAMOUFOX_EXECUTABLE` in `secrets.env` selects another build or a missing file, setup names the installed and the required version and asks. After a yes, or with `--yes`, it installs the paired build and removes the setting. Before, setup failed with advice to run setup again.
 
-The same setting in the process environment still fails. The error names the place of the setting and the two ways to continue.
+The same setting in the process environment still fails. The error tells you to unset it.

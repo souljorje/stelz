@@ -297,7 +297,7 @@ test("setup without consent lists its downloads and changes nothing", async () =
   expect(existsSync(join(f.home, "runtime"))).toBe(false);
 });
 
-test("a browser setting in the secrets file that selects another build: setup asks, then removes it and prepares its own copy", async () => {
+test("the secrets file selects another browser build: setup asks, then installs the paired build and removes the setting", async () => {
   const f = fixture(), secrets = join(f.home, "secrets.env"), stale = join(f.base, "old/camoufox");
   file(stale, "old browser"); file(join(f.base, "old/application.ini"), "[App]\nVersion=156.0.1-beta.36\n");
   // Without the setting, setup looks for its own copy. The fixture package needs the upstream path names for that.
@@ -306,19 +306,18 @@ test("a browser setting in the secrets file that selects another build: setup as
   writeFileSync(secrets, text, { mode: 0o600 });
   const refused = await finish(launch(f, "setup-unconfirmed", { CAMOUFOX_EXECUTABLE: "" }));
   expect(refused.code).not.toBe(0);
-  expect(refused.stderr).toContain(`Camoufox 156.0.1-beta.36 at ${stale} is not supported. Stelz requires Camoufox 158.0.1-beta.41. CAMOUFOX_EXECUTABLE in `);
-  expect(refused.stderr).toContain("Setup removes that setting and uses its own copy of Camoufox 158.0.1-beta.41.");
+  expect(refused.stderr).toContain("Camoufox 156.0.1-beta.36 is installed, but it is not supported. Stelz requires Camoufox 158.0.1-beta.41.\n");
   expect(readFileSync(secrets, "utf8")).toBe(text);
   // Consent removes only that line. The other secrets stay as they are.
   const done = await finish(launch(f, "setup", { CAMOUFOX_EXECUTABLE: "", SETUP_TEST_BROWSER: f.browser }));
   expect(done.code, done.stderr).toBe(0);
   expect(readFileSync(secrets, "utf8")).toBe('KEEP=1\nOTHER="two words"\n');
-  expect(done.stderr).toContain("Removed CAMOUFOX_EXECUTABLE from ");
+  expect(done.stderr).toContain("Removed the old CAMOUFOX_EXECUTABLE setting from ");
   expect(JSON.parse(done.stdout.trim().split("\n").at(-1)!).browser).toEqual({ source: "downloaded", executable: f.browser });
   // A setting in the process environment stays an error: setup cannot change it.
   const environment = await finish(launch(f, "setup", { CAMOUFOX_EXECUTABLE: stale }));
   expect(environment.code).not.toBe(0);
-  expect(environment.stderr).toContain("CAMOUFOX_EXECUTABLE in the process environment selects this file.");
+  expect(environment.stderr).toContain("Camoufox 156.0.1-beta.36 is installed, but it is not supported. Stelz requires Camoufox 158.0.1-beta.41. Unset CAMOUFOX_EXECUTABLE, then run stelz setup again.");
 }, 30000);
 
 test("validation failure preserves the previous runtime and manifest", async () => {

@@ -10,18 +10,18 @@ const jsonMode = rootJsonMode || command === "profile" && rawArgs.includes("--js
 const args = rootJsonMode ? rawArgs.filter(arg => arg !== "--json") : rawArgs;
 function diagnostic(error: unknown) {
   const message = (error as Error).message;
-  const { downloads, removal } = error as { downloads?: string[]; removal?: string };
+  const { downloads, unsupported } = error as { downloads?: string[]; unsupported?: string };
   const code = error instanceof LocationError ? error.location.code : downloads ? "confirmation_required" : command === "setup" ? "setup_failed" : "service_unavailable";
-  return jsonMode ? JSON.stringify({ ok: false, error: { code, message, ...(downloads ? { downloads } : {}), ...(removal ? { removal } : {}) },
+  return jsonMode ? JSON.stringify({ ok: false, error: { code, message, ...(downloads ? { downloads } : {}), ...(unsupported ? { unsupported } : {}) },
     ...(error instanceof LocationError ? { location: error.location } : {}) }) : message;
 }
-/** Ask once in a terminal before setup downloads anything or removes a browser setting. */
-async function confirmDownloads(downloads: PlannedDownload[], removal?: string) {
+/** Ask once in a terminal before setup downloads anything or replaces an unsupported browser. */
+async function confirmDownloads(downloads: PlannedDownload[], unsupported?: string) {
   const { createInterface } = await import("node:readline/promises");
   const { downloadList } = await import("../browser/setup.ts");
   const prompt = createInterface({ input: process.stdin, output: process.stdout });
-  const question = (removal ? `${removal}\n` : "") + (downloads.length ? `Setup will download:\n${downloadList(downloads)}\n` : "") +
-    `${removal ? "Continue" : "Download now"}? [y/N] `;
+  const question = (unsupported ? `${unsupported}\n` : "") + (downloads.length ? `Setup will download:\n${downloadList(downloads)}\n` : "") +
+    `${unsupported ? "Install the required version now" : "Download now"}? [y/N] `;
   try { return /^y(es)?$/i.test((await prompt.question(question)).trim()); }
   finally { prompt.close(); }
 }
