@@ -13,7 +13,8 @@ for (let index = 0; index < args.length; index += 2) {
 }
 const destination = resolve(flags.get("--destination") || join(root, "release-artifacts"));
 mkdirSync(destination, { recursive: true });
-await import("./build.ts");
+const build = Bun.spawn([process.execPath, "run", "build"], { cwd: root, stdout: "inherit", stderr: "inherit" });
+if (await build.exited) throw Error("Build failed.");
 const result = await packPackage(root, destination, { publishPlan: flags.get("--publish-plan") });
 const candidate = inspectPackageArchive(join(destination, result.filename));
 writeFileSync(`${candidate.archive}.sha256`, `${candidate.sha256}  ${basename(result.filename)}\n`);

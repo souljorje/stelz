@@ -45,7 +45,7 @@
   "scripts": {
     "changeset": "changeset",
     "version:packages": "changeset version && bun install --lockfile-only --ignore-scripts",
-    "build": "bun scripts/build.ts",
+    "build": "vite build",
     "pack": "bun scripts/pack.ts",
     "setup": "bun src/cli/cli.ts setup",
     "start": "bun src/cli/cli.ts start",
@@ -56,7 +56,7 @@
     "mcp": "bun src/cli/cli.ts mcp",
     "ui": "bun --no-env-file src/cli/cli.ts ui",
     "browser": "bun scripts/call.ts",
-    "lint": "oxlint src ui scripts tests",
+    "lint": "oxlint src ui scripts tests vite.config.ts",
     "typecheck": "tsc --noEmit",
     "check": "bun run --parallel --no-exit-on-error lint typecheck build check:docs test",
     "check:docs": "linkinator README.md CONTRIBUTING.md AGENTS.md 'docs/**/*.md' 'skills/**/*.md' --markdown --skip '^https:'",
