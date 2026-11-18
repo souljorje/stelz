@@ -354,12 +354,14 @@ export async function runPublicSites(options: RunOptions): Promise<PublicReport>
           report.finalInstanceId = typeof current.instanceId === "string" ? current.instanceId : undefined;
           if (current.profileId !== options.profile || report.finalInstanceId !== report.initialInstanceId || current.controlError
             || !["ready", "paused", "blocked", "verification_failed", "stopping", "stopped"].includes(String(current.phase))) {
+            // oxlint-disable-next-line no-unsafe-finally -- The nested try catches this throw. It does not leave the finally block.
             throw Error("The original Camoufox browser lifetime cannot be verified. No stop was requested.");
           }
           // Retain the controller until shutdown so another client cannot acquire it between release and stop.
           if (current.phase !== "stopped") await (options.stop ?? stopProfile)(options.profile, home);
           const stopped = textResult(await connection.call("profile_status", {}));
           if (stopped.profileId !== options.profile || stopped.instanceId !== report.initialInstanceId || stopped.phase !== "stopped" || stopped.controlError) {
+            // oxlint-disable-next-line no-unsafe-finally -- The nested try catches this throw. It does not leave the finally block.
             throw Error("The selected Camoufox browser did not confirm shutdown.");
           }
           report.stopped = true;
@@ -370,6 +372,7 @@ export async function runPublicSites(options: RunOptions): Promise<PublicReport>
         if (!report.stopped) {
           try {
             const release = textResult(await connection.call("profile_release", {}));
+            // oxlint-disable-next-line no-unsafe-finally -- The nested try catches this throw. It does not leave the finally block.
             if (release.released !== true) throw Error("The profile did not acknowledge controller release.");
             report.released = true;
           } catch (error) { report.errors.push("Release: " + message(error)); }
