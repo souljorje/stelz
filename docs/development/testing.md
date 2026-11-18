@@ -65,7 +65,7 @@ One run does these checks in the same browsers:
 | SDK | One job from `tests/browser/sdk-job.ts` |
 | Typing | Field types, bulk entry of long text, a mode override, and live defaults. Keyboard mode types real key events for more than 10 seconds, the budget of balanced mode. |
 
-- A restart must keep the device properties that a page can read, and the outer window size. The inner height can change with browser chrome, so the suite does not compare it.
+- A restart must keep the device properties that a page can read, with the inner and outer window size.
 - An imported copy opens another window, so only the pixel ratio of its window must match.
 - `--windows` adds the window controls. They need visible desktop windows. A foreground restriction gives `incomplete` and a nonzero exit code.
 - Typing and window checks are parts of this suite. They do not run alone.
