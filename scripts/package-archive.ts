@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { checkBundledArchive } from "./bundled-dependencies.ts";
+import { checkBundledArchive, inspectBundledDependencies } from "./bundled-dependencies.ts";
 
 export function packageArguments(args: string[], allowed: readonly string[] = []) {
   let archive: string | undefined;
@@ -32,12 +32,13 @@ export function inspectPackageArchive(file: string) {
     throw Error("The release archive contains unsafe or duplicate paths.");
   const files = entries.filter(path => !path.endsWith("/")).map(path => ({ path: path.slice("package/".length) }));
   checkBundledArchive(files);
-  const manifest = JSON.parse(tar(["-xOf", archive, "package/package.json"])) as { name: string; version: string; license: string };
-  if (manifest.name !== "stelz" || !/^\d+\.\d+\.\d+(?:-[\da-z.-]+)?$/i.test(manifest.version) || manifest.license !== "MIT")
-    throw Error("The release archive has an invalid package name, version, or license.");
-  if (!tar(["-xOf", archive, "package/LICENSE"]).startsWith("MIT License\n")) throw Error("The release archive is missing its MIT license.");
+  // Publint checks package metadata. These checks protect the patched Camofox payload.
+  for (const [path, source] of Object.entries(inspectBundledDependencies(resolve(import.meta.dir, "..")))) {
+    if (tar(["-xOf", archive, `package/node_modules/${path}`]) !== source)
+      throw Error("The release archive changed a patched dependency: " + path);
+  }
   if (archiveSha256(archive) !== sha256) throw Error("The release archive changed during inspection.");
-  return { archive, sha256, files, manifest };
+  return { archive, sha256, files };
 }
 
 export function assertArchiveUnchanged(candidate: { archive: string; sha256: string }) {
