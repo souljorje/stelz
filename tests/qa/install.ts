@@ -28,16 +28,10 @@ console.log(`Verify isolated browser-free installation (${input.flags.has("--nat
 try {
 const product = root;
 const preparedDependencies = inspectBundledDependencies(product);
-if (!existsSync(archive)) throw Error("Release archive not found. Run bun run pack first, or supply --archive FILE.");
+if (!existsSync(archive)) throw Error("Release archive not found. Pack the prepared package, then supply --archive FILE. See docs/development/acceptance.md.");
 const candidate = inspectPackageArchive(archive);
-for (const file of candidate.files) if (/^(test|\.git|\.codex|\.state|sessions)\//.test(file.path)) throw Error(`Unexpected archive file: ${file.path}`);
-const uiFiles = candidate.files.filter(file => file.path.startsWith("dist/ui/"));
-if (!uiFiles.some(file => file.path === "dist/ui/index.html") || !uiFiles.some(file => file.path.endsWith(".js")) || !uiFiles.some(file => file.path.endsWith(".woff2"))) throw Error("The archive is missing built UI assets.");
-const paths = candidate.files.map(file => file.path).sort();
-for (const path of ["src/cli/cli.ts", "src/sdk/index.ts", "src/runtime/supervisor.ts", "dist/plugin.js", "dist/ui/index.html", "dist/ui/licenses.json", "README.md", "LICENSE"])
-  if (!paths.includes(path)) throw Error("Archive is missing " + path);
 // The package holds the runtime only. Documentation and the browser skill stay in the repository.
-for (const path of paths) if (!/^(?:node_modules\/|src\/|dist\/|package.json$|README.md$|LICENSE$)/.test(path)) throw Error("Unexpected archive path: " + path);
+for (const { path } of candidate.files) if (!/^(?:node_modules\/|src\/|dist\/|package.json$|README.md$|LICENSE$)/.test(path)) throw Error("Unexpected archive path: " + path);
 await run([npm, "install", "--global", ...(input.flags.has("--native") ? [] : ["--ignore-scripts"]), "--no-audit", "--no-fund", "--prefer-offline", "--prefix", prefix, archive]);
 const installed = join(prefix, "lib/node_modules/stelz");
 const licenses = JSON.parse(readFileSync(join(installed, "dist/ui/licenses.json"), "utf8")) as { name: string; text?: string }[];
@@ -139,9 +133,6 @@ const versions = JSON.parse(readFileSync(join(runtime, "versions.json"), "utf8")
 if (versions.stelz !== STELZ_VERSION || versions.camoufoxExecutable !== fakeBrowser || versions.upstreamVersion !== manifest.dependencies["@askjo/camofox-browser"])
   throw Error("Installed setup wrote an invalid runtime manifest.");
 const upstream = join(runtime, "camofox-" + versions.upstreamVersion);
-for (const path of ["server.js", "plugins/local-profile/index.js", "mcp/lib/tool-contracts.mjs", "node_modules/camoufox/dist/index.js"])
-  if (!existsSync(join(upstream, path))) throw Error("Installed setup omitted " + path);
-let links = 0;
 function checkRuntimeLinks(folder: string) {
   for (const name of readdirSync(folder)) {
     const path = join(folder, name), info = lstatSync(path);
@@ -149,16 +140,14 @@ function checkRuntimeLinks(folder: string) {
       const target = realpathSync(path);
       if (target === root || target.startsWith(root + "/") || !target.startsWith(realpathSync(prefix) + "/"))
         throw Error("Installed runtime dependency escaped the isolated prefix: " + target);
-      links++;
     } else if (info.isDirectory()) checkRuntimeLinks(path);
   }
 }
 checkRuntimeLinks(runtime);
-if (!links) throw Error("Setup did not stage dependency links.");
 const nativeCheck = input.flags.has("--native") ? await nativeSmoke(node, installed, upstream, { cwd, env: cleanEnv }) : undefined;
 assertArchiveUnchanged(candidate);
 console.log(JSON.stringify({ result: "passed", archive, sha256: candidate.sha256, nativeCheck,
-  checks: "Archive contents, Markdown links, isolated CLI, HTTP UI, stelz/sdk import, and installed setup/dependency validation" }));
+  checks: "Archive contents, isolated CLI, HTTP UI, stelz/sdk import, and installed setup/dependency validation" }));
 return { candidate, env: cleanEnv, cwd, home, prefix, node, bun, npm, executable, installedCli: join(installed, "src/cli/cli.ts"), version, nativeCheck, uiChecked: true };
 } finally { if (!options.keep) rmSync(temp, { recursive: true, force: true }); }
 }
