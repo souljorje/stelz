@@ -103,8 +103,10 @@ export function launchPreferences(current: Fingerprint | undefined, proxied: boo
     // prepareProfileLaunch uses canvas_noise:true, so upstream never selects a host adapter.
     setWebgpu(policy, launcher().getTargetOs(device), [vendor, renderer], null);
   }
-  // Apply the mandatory rule last, including when a direct profile switches to a proxy.
-  return { ...policy, ...capabilities, ...(proxied ? {
+  // Firefox offers once, on the second start of a profile, to restore the last session. The bar makes the page 39 px shorter for that session.
+  // Start opens one blank window, so the offer never shows. -1 is the value that Firefox uses to disable it.
+  // Apply the mandatory rules last, including when a direct profile switches to a proxy.
+  return { ...policy, ...capabilities, "browser.startup.couldRestoreSession.count": -1, ...(proxied ? {
     "media.peerconnection.enabled": false,
     "network.proxy.failover_direct": false,
     "network.proxy.socks_remote_dns": true,

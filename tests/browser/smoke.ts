@@ -329,13 +329,11 @@ try {
     const snapshot = await call(next.client, "tab_snapshot", { tabId });
     assert(String(snapshot.snapshot).includes(`Storage marker: ${source}`), `${id}: cookie, localStorage, and IndexedDB data did not survive`);
     assert(pin(id) === pins[source], `${id}: the saved fingerprint changed`);
-    // A restart keeps what the browser shows of its device, and so does an imported copy.
-    // A restart also keeps the window size. The inner height is not compared: browser chrome that shows for a moment after a start changes it.
+    // A restart keeps what the browser shows of its device, with the inner and outer window size. An imported copy keeps the device.
     // The copy opens another native window, so only the pixel ratio of its window must match.
     const was = await observed(`before-${source}`), now = await observed(`after-${id}`);
-    const sameWindow = (id === source ? ["outerWidth", "outerHeight", "innerWidth", "devicePixelRatio"] : ["devicePixelRatio"])
-      .every(name => (was.window as Record<string, number>)[name] === (now.window as Record<string, number>)[name]);
-    const drift = compareObservations(was, now).stableDifferences.filter(key => key !== "window" || !sameWindow);
+    const drift = compareObservations(was, now).stableDifferences.filter(key => id === source || key !== "window"
+      || (was.window as { devicePixelRatio: number }).devicePixelRatio !== (now.window as { devicePixelRatio: number }).devicePixelRatio);
     assert(!drift.length, `${id}: device observations changed: ${drift.map(key => `${key} ${JSON.stringify(was[key])} -> ${JSON.stringify(now[key])}`).join(", ")}`);
     await next.client.close();
     // The copy has no later check. Its browser stops here.
