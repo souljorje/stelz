@@ -32,7 +32,6 @@ import {
   dir,
   initDir,
   save,
-  json,
   base,
   configurationHash,
   entry,
@@ -135,7 +134,8 @@ export async function start(id: string, signal?: AbortSignal) {
   if (running(id)) return startPrepared(id);
   return lock(join(dir(id), "location.lock"), async () => {
     const active = await prepareProfileConfiguration(async () => {
-      const p = profile(id), o = observe(id);
+      profile(id);
+      const o = observe(id);
       if (running(id)) return true;
       if (o.record && !o.clean) throw Error(`${id}: previous stop was not clean. Run stelz recover ${id} after inspecting its processes.`);
       if (!existsSync(join(runtimeDir(), "versions.json"))) throw Error("Run stelz setup first.");

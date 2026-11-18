@@ -87,7 +87,7 @@ test("the launcher reads the paired engine version from a macOS bundle and requi
   } finally {
     fingerprintModel().setModelDir(previousModel);
     Object.defineProperty(process, "platform", platform);
-    for (const [key, value] of Object.entries(previous)) value === undefined ? delete process.env[key] : process.env[key] = value;
+    for (const [key, value] of Object.entries(previous)) if (value === undefined) delete process.env[key]; else process.env[key] = value;
     rmSync(home, { recursive: true, force: true });
   }
 });

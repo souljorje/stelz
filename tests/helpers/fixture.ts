@@ -53,7 +53,7 @@ section{margin:30px 0}button,input,textarea{font:inherit;margin:6px;padding:8px}
 <button id="begin">Reveal controls</button><section id="task" hidden><label>Extra field <input></label><button>Extra action</button></section>
 <section><h2>Profile storage</h2><form id="marker-form"><label>Profile marker <input id="marker" required></label><button id="save" type="submit">Save profile marker</button></form><p id="marker-status">Storage marker is incomplete</p></section>
 <section><h2>Manual intervention</h2><button id="human">Human confirmation</button><p id="human-result">Waiting for human</p></section>
-<section id="targets"><h2>Targets</h2><nav>${Array.from({ length: 12 }, (_, index) => `<a href="#link-${index}">Link number ${index}</a>`).join(" ")}</nav>
+<section id="targets"><h2>Targets</h2>
 <button class="add">Add item</button><button class="add">Add item</button><button disabled>Disabled action</button>
 <button id="mark">Mark done</button><p id="status" role="status">Waiting</p>
 <label>Note <input id="note"></label><p id="echo">Echo: none</p><button id="reveal">Reveal later</button></section>

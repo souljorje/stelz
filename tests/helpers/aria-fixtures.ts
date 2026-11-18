@@ -4,13 +4,13 @@ import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import { loadAriaHelpers } from "../../src/browser/aria.ts";
 
-export const upstreamDir = dirname(createRequire(import.meta.url).resolve("@askjo/camofox-browser/package.json"));
+const upstreamDir = dirname(createRequire(import.meta.url).resolve("@askjo/camofox-browser/package.json"));
 export const helpers = await loadAriaHelpers(upstreamDir);
 const lib = (file: string) => import(pathToFileURL(join(upstreamDir, "lib", file)).href) as Promise<Record<string, any>>;
 const { annotateAriaSnapshotRefs } = await lib("aria-annotate.js");
 const { INTERACTIVE_ROLES } = await lib("interactive-roles.js");
 
-export type RefEntry = { role: string; name: string; nth: number };
+type RefEntry = { role: string; name: string; nth: number };
 const LIMIT = 500;
 
 /** The refs that buildRefs of Camofox assigns to a plain YAML page, and the annotated YAML. */

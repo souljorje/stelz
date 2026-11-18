@@ -1,5 +1,5 @@
 // Opt-in live checks through the same MCP connection used by browser clients.
-import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { createInterface } from "node:readline/promises";

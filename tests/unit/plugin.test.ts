@@ -129,7 +129,7 @@ type Handler = Parameters<App["post"]>[1];
 async function harness(mode: "direct" | "proxy" = "direct", waitForIP?: Promise<void>,
   fixture: { expected?: string; timeout?: number; ipError?: string; canonical?: boolean; port?: number;
     interval?: number; now?: () => number; observedTimezone?: string; fingerprintError?: string; observeTimeout?: number } = {}) {
-  const root = mkdtempSync(join(tmpdir(), "stelz-regression-")), id = "profile-01";
+  const root = mkdtempSync(join(tmpdir(), "stelz-plugin-")), id = "profile-01";
   const stateDir = join(root, id), upstream = join(root, "upstream"), binary = join(root, "browser");
   mkdirSync(stateDir); mkdirSync(join(upstream, "mcp/lib"), { recursive: true });
   // The plugin loads the ARIA helpers from the Camofox tree.

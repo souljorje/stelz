@@ -2,7 +2,7 @@ import { isIP } from "node:net";
 
 export type Pair<T> = readonly [T, T];
 export const PROXY_PROFILE_IDS = ["profile-01", "profile-02"] as const;
-export type ProxyEndpoint = { url: URL; expectedIP?: string };
+type ProxyEndpoint = { url: URL; expectedIP?: string };
 
 export function assert(value: unknown, message: string): asserts value {
   if (!value) throw Error(message);
@@ -24,7 +24,7 @@ function proxyEndpoint(env: Record<string, string | undefined>, urlName: string,
   return { url, expectedIP };
 }
 
-export function proxyEndpoints(env: Record<string, string | undefined>): Pair<ProxyEndpoint> {
+function proxyEndpoints(env: Record<string, string | undefined>): Pair<ProxyEndpoint> {
   const endpoints = [proxyEndpoint(env, "PROXY_TEST_URL", "PROXY_TEST_EXPECTED_IP"),
     proxyEndpoint(env, "PROXY_TEST_SECOND_URL", "PROXY_TEST_SECOND_EXPECTED_IP")] as const;
   const identity = ({ url }: ProxyEndpoint) => JSON.stringify([
