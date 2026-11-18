@@ -60,4 +60,5 @@ jobs:
           trap 'rm -rf "$stage"' EXIT
           cd "$stage"
           npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP"
+      - run: bun run lint:package "$RUNNER_TEMP"/stelz-*.tgz
       - run: bun run test:install --archive "$RUNNER_TEMP"/stelz-*.tgz --both

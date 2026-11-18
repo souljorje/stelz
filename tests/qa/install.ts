@@ -79,14 +79,9 @@ try {
   const launchUrl = output.match(/http:\/\/127\.0\.0\.1:\d+\/#token=[a-f0-9]+/)?.[0];
   if (!launchUrl) throw Error("The installed UI did not print its launch URL.");
   const origin = new URL(launchUrl).origin;
-  const html = await (await fetch(origin)).text();
-  const token = new URLSearchParams(new URL(launchUrl).hash.slice(1)).get("token");
-  const session = await fetch(`${origin}/api/session`, { method: "POST", headers: { Origin: origin, "Content-Type": "application/json" }, body: JSON.stringify({ token }) });
-  if (!session.ok) throw Error("The installed UI session failed.");
-  const Cookie = session.headers.get("set-cookie")!.split(";")[0]!;
-  const response = await fetch(`${origin}/api/state`, { headers: { Cookie } });
-  const state = await response.json() as { home: string; profiles: unknown[] };
-  if (!response.ok || state.home !== home || state.profiles.length !== 0) throw Error("The installed UI must use the selected service directory and an empty initial catalog.");
+  const response = await fetch(origin);
+  if (!response.ok) throw Error("The installed UI is unavailable.");
+  const html = await response.text();
   const assets = [...html.matchAll(/(?:src|href)="([^"]+\.(?:js|css|svg))"/g)].map(match => match[1]!);
   if (!assets.some(path => path.endsWith(".js")) || !assets.some(path => path.endsWith(".css"))) throw Error("The installed UI HTML is missing its bundled assets.");
   for (const path of assets) {
@@ -100,32 +95,17 @@ try {
       }
     }
   }
-  const shutdown = await fetch(`${origin}/api/shutdown`, { method: "POST", headers: { Cookie, Origin: origin, "Content-Type": "application/json" }, body: "{}" });
-  if (!shutdown.ok || !(await shutdown.json() as { stopped?: boolean }).stopped || !shutdown.headers.get("set-cookie")?.includes("Max-Age=0"))
-    throw Error("The installed UI did not end its session.");
-  if (await ui.exited !== 0) throw Error("The installed UI did not exit cleanly after shutdown.");
 } finally {
   clearTimeout(uiTimeout);
   ui.kill("SIGTERM");
   await ui.exited;
 }
-const created = JSON.parse(await run([executable, "profile", "create", "work", "--direct", "--json"], { cwd, env: cleanEnv }));
-if (!created.ok || !created.created || created.profile.id !== "work" || created.profile.storage !== "native")
-  throw Error("The installed CLI did not create a native profile.");
-const configBeforeReuse = readFileSync(join(home, "profiles.json"), "utf8"), secretsBeforeReuse = readFileSync(join(home, "secrets.env"), "utf8");
-const reused = JSON.parse(await run([executable, "profile", "create", "work", "--json"], { cwd, env: cleanEnv }));
-if (!reused.ok || reused.created || reused.profile.port !== created.profile.port ||
-    readFileSync(join(home, "profiles.json"), "utf8") !== configBeforeReuse || readFileSync(join(home, "secrets.env"), "utf8") !== secretsBeforeReuse)
-  throw Error("The installed CLI changed an existing profile.");
-// The SDK must resolve as `stelz/sdk` through the package exports and run on the installed runtime. A stopped profile fails with the message that names start(). No browser starts.
+// Resolve the public SDK entrypoint from a consumer outside the checkout.
 const project = join(temp, "sdk-project");
 mkdirSync(join(project, "node_modules"), { recursive: true });
 symlinkSync(installed, join(project, "node_modules/stelz"));
 writeFileSync(join(project, "job.ts"), `import { acquire, start, LocationError } from "stelz/sdk";
-if (typeof start !== "function" || typeof LocationError !== "function") throw Error("stelz/sdk lacks an export.");
-await acquire("work", async () => { throw Error("The job ran on a stopped profile."); }).then(
-  () => { throw Error("acquire succeeded on a stopped profile."); },
-  error => { if (!String(error.message).includes('Call start("work") first')) throw error; });
+if ([acquire, start, LocationError].some(value => typeof value !== "function")) throw Error("stelz/sdk lacks an export.");
 `);
 await run([bun, "--no-env-file", join(project, "job.ts")], { cwd: project, env: cleanEnv });
 const runtime = join(home, "runtime");

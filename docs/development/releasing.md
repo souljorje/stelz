@@ -44,7 +44,7 @@ Publish mode starts after the merged version PR:
 2. Download the Changesets publish plan.
 3. Build with `bun run build`. Run `bun run prepare:package`, then run `changeset pack --from-publish-plan FILE --out-dir DIRECTORY` from the prepared directory. Remove that directory after packing.
 4. Upload `release-artifacts/` as the `stelz-package` artifact.
-5. In `installation`, download the artifact and run `bun run test:install --archive release-artifacts/packages/*.tgz --both`. Both isolated installation modes must pass.
+5. In `installation`, download the artifact. Run `bun run lint:package release-artifacts/packages/*.tgz`, then `bun run test:install --archive release-artifacts/packages/*.tgz --both`. Package lint and both isolated installation modes must pass.
 6. In the `publish` job, download the same artifact after the installation job succeeds. Verify `checksums.sha256`, generated with `sha256sum` in the pack job.
 7. Run `bun run release`: `changeset publish --from-pack-dir release-artifacts` with npm provenance and OIDC.
 8. Create the Git tag and GitHub release through the Changesets action.

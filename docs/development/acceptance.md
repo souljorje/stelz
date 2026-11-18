@@ -60,6 +60,7 @@ bun run build
 stage=$(bun run prepare:package)
 (cd "$stage" && npm pack --ignore-scripts --pack-destination "$TMPDIR")
 rm -rf "$stage"
+bun run lint:package /absolute/path/to/candidate.tgz
 bun run test:install --archive /absolute/path/to/candidate.tgz
 bun run test:package --archive /absolute/path/to/candidate.tgz --setup
 ```
@@ -67,7 +68,8 @@ bun run test:package --archive /absolute/path/to/candidate.tgz --setup
 - Use the archive that npm writes under `$TMPDIR`. Do not rebuild between checks.
 - `prepare:package` prints an isolated staging directory. It prepares patched Camofox but does not build the sources or create the final archive. Remove the staging directory after packing.
 - npm's `--pack-destination DIRECTORY` selects the output directory. Without `--archive`, local checks select the current manifest version under `release-artifacts/`.
-- `test:install`: no browser. `--native` adds ordinary npm lifecycle scripts and native dependency checks.
+- `lint:package`: publint checks the exact archive. Warnings and errors fail the command.
+- `test:install`: checks installed CLI and SDK entrypoints, UI assets, setup, patched dependencies, and runtime isolation. No browser. `--native` adds ordinary npm lifecycle scripts and native dependency checks.
 - `test:install --both`: runs both installation modes concurrently against one archive. Each mode uses a separate prefix and service home. Either failure fails the command after both finish.
 - `test:package`: installs with lifecycle scripts, then runs the [browser suite](testing.md#browser-suite) against the installed CLI. It includes the checks of `test:install --native`.
 - Package acceptance prepares its browser once. The browser, proxy, and human checks reuse it. `--setup` separately checks setup behavior.
