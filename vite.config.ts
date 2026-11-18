@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { defineConfig } from "vite";
 import { inspectBundledDependencies } from "./scripts/bundled-dependencies.ts";
@@ -26,7 +26,7 @@ export default defineConfig({
       build: {
         ssr: false,
         lib: { entry: join(root, "ui/src/theme-init.ts"), formats: ["iife"], name: "StelzTheme" },
-        rolldownOptions: { output: { entryFileNames: "theme-[hash].js" } },
+        rolldownOptions: { output: { entryFileNames: "theme.js" } },
       },
     },
   },
@@ -37,12 +37,6 @@ export default defineConfig({
       // These builds share dist/, so clear it once before starting them.
       rmSync(dist, { recursive: true, force: true });
       await Promise.all(Object.values(builder.environments).map(environment => builder.build(environment)));
-
-      // Keep the theme script blocking and external for the UI's CSP and first paint.
-      const theme = readdirSync(ui).find(name => /^theme-.*\.js$/.test(name));
-      if (!theme) throw Error("The UI theme bootstrap was not built.");
-      const htmlPath = join(ui, "index.html");
-      writeFileSync(htmlPath, readFileSync(htmlPath, "utf8").replace("</title>", `</title><script src="./${theme}"></script>`));
     },
   },
 });
