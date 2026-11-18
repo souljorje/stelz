@@ -1,13 +1,13 @@
-import { randomUUID } from "node:crypto";
 import {
   closeSync, constants, fstatSync, fsyncSync, lstatSync, mkdirSync,
-  openSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync,
+  openSync, readFileSync, readdirSync, renameSync, unlinkSync,
 } from "node:fs";
 import { isIP } from "node:net";
 import { join } from "node:path";
 import { isDeepStrictEqual, parseEnv } from "node:util";
 import { CONFIG_FILE, HOME_DIR, STATE, dir, validateProxy, validateSettings, type Settings } from "./config.ts";
 import { assertStoppedProfile, lock } from "../runtime/profile-process.ts";
+import { replaceFile } from "./replace-file.ts";
 
 export const CATALOG_JOURNAL = join(HOME_DIR, ".profile-transaction.json");
 const configFile = CONFIG_FILE, secretsFile = join(HOME_DIR, "secrets.env");
@@ -57,18 +57,7 @@ function sync(path: string) {
   finally { closeSync(fd); }
 }
 function replace(path: string, value: string, check: () => void) {
-  const temp = `${path}.${randomUUID()}.tmp`;
-  let fd: number | undefined;
-  try {
-    fd = openSync(temp, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, 0o600);
-    writeFileSync(fd, value); fsyncSync(fd); closeSync(fd); fd = undefined;
-    check(); renameSync(temp, path); sync(HOME_DIR);
-  } finally {
-    if (fd !== undefined) closeSync(fd);
-    // A temporary file that cannot be removed must fail the write, even after another error.
-    // oxlint-disable-next-line no-unsafe-finally
-    try { unlinkSync(temp); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
-  }
+  replaceFile(path, value, check); sync(HOME_DIR);
 }
 function files(): Files {
   directory(HOME_DIR);
