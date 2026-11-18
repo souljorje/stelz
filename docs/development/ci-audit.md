@@ -7,7 +7,7 @@ The baseline already runs the full suite in CI and pre-push checks. Keep that po
 
 [Vincent Koc's article](https://vincent.build/openclaw-ci-cost-reduction/) distinguishes feedback time from compute use and warns against incomplete dependency evidence.
 The [linked OpenClaw implementation](https://github.com/openclaw/openclaw/blob/a7d05c7af04aa17ac57c994da238d0c60f058ca6/.github/workflows/ci.yml) includes scope planning, cache trust, and a large runner matrix.
-Stelz has two short Linux jobs. Its measured workload does not justify that orchestration, learned selection, a compiler migration, or more shards.
+Stelz has two short Linux jobs. Its measured workload does not justify that orchestration, learned selection, a typechecker migration, or more shards.
 
 The archive job runs two independent installations sequentially. Each installation already has its own prefix and service home.
 `test:install --both` runs them concurrently against the same archive and waits for both. Either failure fails the command.
@@ -70,3 +70,14 @@ Storage and other services are outside this measurement. Do not report the artic
 
 Keep the small installation change. Defer broader caches and job suppression until they have measured benefits and explicit dependency boundaries.
 The observed rate-limit failure makes verified prerequisite reuse worth a separate experiment. Preserve freshness, integrity, and isolated-install coverage before adopting it.
+
+## Vite build follow-up
+
+`vite build` reads `vite.config.ts` and builds the Node plugin, UI, and theme bootstrap concurrently after `dist/` is cleared once.
+It replaces both build scripts. The plugin keeps its single ESM file, runtime dependencies, and exports. The theme script stays blocking and external.
+Dependency validation, archive packaging, and Changesets remain unchanged. No dependency is added.
+The configuration uses Vite's experimental multi-environment builder API. Vite remains pinned to 8.3.6.
+
+Three warm local builds before this change took 193/194/193 ms; afterward, 236/233/237 ms.
+The CLI adds about 42 ms locally. This change consolidates build tooling; it does not establish a speedup or lower CI compute use.
+These local measurements compare the build follow-up with `54b38e5`; the CI installation comparison above uses its stated revisions.
