@@ -17,20 +17,23 @@ export function launchLocation(): LocationRecord | undefined {
 export function saveLaunchLocation(record: LocationRecord, result: LocationResult) {
   writeLocationRecord(process.env.STELZ_PROFILE_DIR!, { ...record, result });
 }
-/** Return the engine major version. Stelz supports only the paired build. macOS bundles keep application.ini under Resources. */
-export function engineVersion(executable: string) {
+/**
+ * Return the engine major version. Stelz supports only the paired build. macOS bundles keep application.ini under Resources.
+ * `advice` replaces the general instruction when the caller knows where the executable comes from.
+ */
+export function engineVersion(executable: string, advice?: string) {
   const paired = pairedBrowser();
   for (const file of [join(dirname(executable), "application.ini"), join(dirname(executable), "../Resources/application.ini")]) {
     let text: string;
     try { text = readFileSync(file, "utf8"); } catch { continue; }
     const version = /^Version=(.+)$/m.exec(text)?.[1]?.trim();
     if (!version) continue;
-    if (version !== paired) throw Error(`Camoufox ${version} at ${executable} is not supported. Stelz requires Camoufox ${paired}. ` +
-      "Run stelz setup to prepare it. If CAMOUFOX_EXECUTABLE is set in the process environment or STELZ_HOME/secrets.env, remove it or point it to that build.");
+    if (version !== paired) throw Error(`Camoufox ${version} at ${executable} is not supported. Stelz requires Camoufox ${paired}. ` + (advice ??
+      "Run stelz setup to prepare it. If CAMOUFOX_EXECUTABLE is set in the process environment or STELZ_HOME/secrets.env, remove it or point it to that build."));
     return version.split(".")[0]!;
   }
-  throw Error(`Cannot read the Camoufox version at ${executable}. Run stelz setup to prepare Camoufox ${paired}. ` +
-    "If CAMOUFOX_EXECUTABLE is set, remove it or point it to a complete installation of that build.");
+  throw Error(`Cannot read the Camoufox version at ${executable}. ` + (advice ?? `Run stelz setup to prepare Camoufox ${paired}. ` +
+    "If CAMOUFOX_EXECUTABLE is set, remove it or point it to a complete installation of that build."));
 }
 /** Launch uses prepared files only. A missing prerequisite fails instead of downloading. */
 async function launcherOptions(options: Record<string, unknown>) {

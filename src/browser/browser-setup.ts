@@ -34,9 +34,12 @@ type BrowserDependencies = { request?: typeof fetch; installed?: () => Installed
 /** Decide which browser setup uses, without changes. A configured executable must be the paired build. */
 export function browserPlan(home: string, configured?: string, { installed = upstreamInstalls }: BrowserDependencies = {}) {
   if (configured) {
+    // Setup already runs, so the error names the setting, its location, and the two ways to continue.
+    const where = process.env.CAMOUFOX_EXECUTABLE === configured ? "the process environment" : join(home, "secrets.env");
     if (!existsSync(configured) || !statSync(configured).isFile())
-      throw Error(`Camoufox is missing at ${configured}. Correct or remove CAMOUFOX_EXECUTABLE, then run stelz setup.`);
-    engineVersion(configured);
+      throw Error(`Camoufox is missing at ${configured}. Correct or remove CAMOUFOX_EXECUTABLE in ${where}, then run stelz setup.`);
+    engineVersion(configured, `CAMOUFOX_EXECUTABLE in ${where} selects this file. ` +
+      `Remove the setting to let setup install Camoufox ${pairedBrowser()}, or point it to that build. Then run stelz setup again.`);
     return { source: "configured" as const, executable: configured };
   }
   const executable = browserExecutable(browserDirectory(home));
