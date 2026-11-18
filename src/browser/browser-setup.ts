@@ -30,15 +30,23 @@ export function browserRelease(): ReleaseAssetRequest {
     match: name => { const groups = pattern.exec(name)?.groups; return groups?.version === pin.version && groups?.build === pin.build; } };
 }
 
+/**
+ * Why a configured executable cannot run: the file is missing, or it is not the paired build.
+ * `file` is the secrets file when the setting is there. Setup can remove it from that file, and not from the process environment.
+ */
+export function configuredBrowserProblem(home: string, configured: string): { reason: string; file?: string } | undefined {
+  const file = process.env.CAMOUFOX_EXECUTABLE === configured ? undefined : join(home, "secrets.env");
+  if (!existsSync(configured) || !statSync(configured).isFile()) return { reason: `Camoufox is missing at ${configured}.`, file };
+  try { engineVersion(configured, ""); return undefined; }
+  catch (error) { return { reason: (error as Error).message.trim(), file }; }
+}
+
 type BrowserDependencies = { request?: typeof fetch; installed?: () => Installed[]; progress?: (message: string) => void };
 /** Decide which browser setup uses, without changes. A configured executable must be the paired build. */
 export function browserPlan(home: string, configured?: string, { installed = upstreamInstalls }: BrowserDependencies = {}) {
   if (configured) {
-    // Setup already runs, so the error names the setting, its location, and the two ways to continue.
-    const where = process.env.CAMOUFOX_EXECUTABLE === configured ? "the process environment" : join(home, "secrets.env");
-    if (!existsSync(configured) || !statSync(configured).isFile())
-      throw Error(`Camoufox is missing at ${configured}. Correct or remove CAMOUFOX_EXECUTABLE in ${where}, then run stelz setup.`);
-    engineVersion(configured, `CAMOUFOX_EXECUTABLE in ${where} selects this file. ` +
+    const problem = configuredBrowserProblem(home, configured);
+    if (problem) throw Error(`${problem.reason} CAMOUFOX_EXECUTABLE in ${problem.file ?? "the process environment"} selects this file. ` +
       `Remove the setting to let setup install Camoufox ${pairedBrowser()}, or point it to that build. Then run stelz setup again.`);
     return { source: "configured" as const, executable: configured };
   }
