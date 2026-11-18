@@ -4,7 +4,7 @@ description: "Service directory, environment variables, their precedence, and ho
 tags: [configuration, reference, setup]
 sources: []
 created: 2026-11-06T13:49:16Z
-modified: 2026-11-11T14:55:54Z
+modified: 2026-11-18T13:52:49Z
 ---
 
 # Environment and service directory
@@ -48,4 +48,6 @@ Setup uses the first available source:
 4. A download of the paired release. Setup verifies the published SHA-256 digest.
 
 - Another installation of the paired build: set `CAMOUFOX_EXECUTABLE` to the absolute path of the executable inside `Camoufox.app/Contents/MacOS/`, not the `camoufox` command on PATH. Otherwise leave it unset.
-- A file that is not the paired build: setup fails and tries no other source. Start also rejects other builds. Stelz does not upgrade a profile's browser.
+- `CAMOUFOX_EXECUTABLE` in `secrets.env` selects a missing file or another build: setup offers to remove the setting and to use its own copy.
+- The same setting in the process environment: setup fails, because it cannot change it. Remove the setting, or point it to the paired build.
+- Start rejects other builds. Stelz does not upgrade a profile's browser.

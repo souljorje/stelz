@@ -23,7 +23,8 @@ function fixture() {
 import {mkdirSync,writeFileSync} from 'node:fs';
 import {join} from 'node:path';
 import { start } from "./runtime/runtime.ts";
-if (process.argv[2] === "setup") console.log(JSON.stringify(await setup({ yes: true, prepareModel: async stage => {
+const prepareBrowser = process.env.SETUP_TEST_BROWSER ? async () => ({ executable: process.env.SETUP_TEST_BROWSER!, source: "downloaded" as const }) : undefined;
+if (process.argv[2] === "setup") console.log(JSON.stringify(await setup({ yes: true, prepareBrowser, prepareModel: async stage => {
   if(process.env.SETUP_TEST_MODEL_FAIL) {
     mkdirSync(join(stage,'fpgen'));writeFileSync(join(stage,'fpgen/values.dat'),'incomplete model');
     throw Error('Fingerprint model preparation failed');
@@ -224,9 +225,10 @@ function installedRuntime(f: Fixture) {
   file(join(f.home, "runtime/versions.json"), JSON.stringify({ old: "successful manifest" }));
 }
 function launch(f: Fixture, command = "setup", extra: Record<string, string> = {}) {
-  return Bun.spawn([process.execPath, "--no-env-file", join(f.project, "src/setup-driver.ts"), ...command.split(" ")], {
-    cwd: f.project, env: { ...process.env, STELZ_HOME: f.home, CAMOUFOX_EXECUTABLE: f.browser, PATH: `${f.bin}:${process.env.PATH}`, SETUP_TEST_REAL_NODE: realNode, ...extra }, stdout: "pipe", stderr: "pipe",
-  });
+  // An empty CAMOUFOX_EXECUTABLE in `extra` removes the variable, so the secrets file decides.
+  const env: Record<string, string | undefined> = { ...process.env, STELZ_HOME: f.home, CAMOUFOX_EXECUTABLE: f.browser, PATH: `${f.bin}:${process.env.PATH}`, SETUP_TEST_REAL_NODE: realNode, ...extra };
+  if (!env.CAMOUFOX_EXECUTABLE) delete env.CAMOUFOX_EXECUTABLE;
+  return Bun.spawn([process.execPath, "--no-env-file", join(f.project, "src/setup-driver.ts"), ...command.split(" ")], { cwd: f.project, env, stdout: "pipe", stderr: "pipe" });
 }
 async function finish(child: ReturnType<typeof launch>) {
   const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
@@ -294,6 +296,30 @@ test("setup without consent lists its downloads and changes nothing", async () =
   expect(result.stderr).toContain("Run stelz setup --yes to allow them.");
   expect(existsSync(join(f.home, "runtime"))).toBe(false);
 });
+
+test("a browser setting in the secrets file that selects another build: setup asks, then removes it and prepares its own copy", async () => {
+  const f = fixture(), secrets = join(f.home, "secrets.env"), stale = join(f.base, "old/camoufox");
+  file(stale, "old browser"); file(join(f.base, "old/application.ini"), "[App]\nVersion=156.0.1-beta.36\n");
+  // Without the setting, setup looks for its own copy. The fixture package needs the upstream path names for that.
+  file(join(f.project, "node_modules/camoufox/dist/paths.js"), 'export const OS_NAME = "lin";\nexport const LAUNCH_FILE = { lin: "camoufox" };\n');
+  const text = `KEEP=1\nCAMOUFOX_EXECUTABLE=${stale}\nOTHER="two words"\n`;
+  writeFileSync(secrets, text, { mode: 0o600 });
+  const refused = await finish(launch(f, "setup-unconfirmed", { CAMOUFOX_EXECUTABLE: "" }));
+  expect(refused.code).not.toBe(0);
+  expect(refused.stderr).toContain(`Camoufox 156.0.1-beta.36 at ${stale} is not supported. Stelz requires Camoufox 158.0.1-beta.41. CAMOUFOX_EXECUTABLE in `);
+  expect(refused.stderr).toContain("Setup removes that setting and uses its own copy of Camoufox 158.0.1-beta.41.");
+  expect(readFileSync(secrets, "utf8")).toBe(text);
+  // Consent removes only that line. The other secrets stay as they are.
+  const done = await finish(launch(f, "setup", { CAMOUFOX_EXECUTABLE: "", SETUP_TEST_BROWSER: f.browser }));
+  expect(done.code, done.stderr).toBe(0);
+  expect(readFileSync(secrets, "utf8")).toBe('KEEP=1\nOTHER="two words"\n');
+  expect(done.stderr).toContain("Removed CAMOUFOX_EXECUTABLE from ");
+  expect(JSON.parse(done.stdout.trim().split("\n").at(-1)!).browser).toEqual({ source: "downloaded", executable: f.browser });
+  // A setting in the process environment stays an error: setup cannot change it.
+  const environment = await finish(launch(f, "setup", { CAMOUFOX_EXECUTABLE: stale }));
+  expect(environment.code).not.toBe(0);
+  expect(environment.stderr).toContain("CAMOUFOX_EXECUTABLE in the process environment selects this file.");
+}, 30000);
 
 test("validation failure preserves the previous runtime and manifest", async () => {
   const f = fixture(); installedRuntime(f);
