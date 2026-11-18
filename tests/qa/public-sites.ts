@@ -210,6 +210,54 @@ export async function runPublicSites(options: RunOptions): Promise<PublicReport>
   };
   persist(report);
   log("Camoufox profile: " + options.profile + ". Report: " + join(outputDir, "report.md"));
+  /** Save the report, stop the browser of the check, release control, and disconnect. Each failure goes in the report. */
+  async function finish() {
+    if (signal?.aborted) report.interrupted = message(signal.reason);
+    // Save every artifact before the explicit lifecycle command closes the browser.
+    report.finishedAt = stamp();
+    try { persist(report); } catch (error) { report.errors.push("Report: " + message(error)); }
+    if (connection) {
+      if (acquired) {
+        try {
+          const current = textResult(await connection.call("profile_status", {}));
+          report.finalInstanceId = typeof current.instanceId === "string" ? current.instanceId : undefined;
+          if (current.profileId !== options.profile || report.finalInstanceId !== report.initialInstanceId || current.controlError
+            || !["ready", "paused", "blocked", "verification_failed", "stopping", "stopped"].includes(String(current.phase))) {
+            throw Error("The original Camoufox browser lifetime cannot be verified. No stop was requested.");
+          }
+          // Retain the controller until shutdown so another client cannot acquire it between release and stop.
+          if (current.phase !== "stopped") await (options.stop ?? stopProfile)(options.profile, home);
+          const stopped = textResult(await connection.call("profile_status", {}));
+          if (stopped.profileId !== options.profile || stopped.instanceId !== report.initialInstanceId || stopped.phase !== "stopped" || stopped.controlError) {
+            throw Error("The selected Camoufox browser did not confirm shutdown.");
+          }
+          report.stopped = true;
+          // Shutdown ends the service's controller lease. A release RPC would target a stopped service.
+          report.released = true;
+          log("Stopped Camoufox profile: " + options.profile + ".");
+        } catch (error) { report.errors.push("Stop: " + message(error)); }
+        if (!report.stopped) {
+          try {
+            const release = textResult(await connection.call("profile_release", {}));
+            if (release.released !== true) throw Error("The profile did not acknowledge controller release.");
+            report.released = true;
+          } catch (error) { report.errors.push("Release: " + message(error)); }
+        }
+      } else if (report.initialInstanceId) {
+        try {
+          const status = textResult(await connection.call("profile_status", {}));
+          report.finalInstanceId = typeof status.instanceId === "string" ? status.instanceId : undefined;
+          if (status.profileId !== options.profile || report.finalInstanceId !== report.initialInstanceId || !["ready", "paused", "blocked", "verification_failed"].includes(String(status.phase))) {
+            report.errors.push("The original Camoufox browser lifetime was not preserved.");
+          }
+        } catch (error) { report.errors.push("Final status: " + message(error)); }
+      }
+      try { await connection.close(); } catch (error) { report.errors.push("Disconnect: " + message(error)); }
+    }
+    if (signal?.aborted) report.interrupted = message(signal.reason);
+    report.finishedAt = stamp();
+    try { persist(report); } catch (error) { report.errors.push("Report: " + message(error)); }
+  }
   try {
     checkAbort(); connection = await (options.connect ?? (() => connectMcp(options.profile, home)))();
     report.initialInstanceId = String((await checkReady()).instanceId);
@@ -342,56 +390,7 @@ export async function runPublicSites(options: RunOptions): Promise<PublicReport>
       if (required.some(id => !report.finalTabIds!.includes(id))) report.errors.push("A pre-existing tab or suite tab disappeared during the run.");
     }
   } catch (error) { report.errors.push(message(error)); }
-  finally {
-    if (signal?.aborted) report.interrupted = message(signal.reason);
-    // Save every artifact before the explicit lifecycle command closes the browser.
-    report.finishedAt = stamp();
-    try { persist(report); } catch (error) { report.errors.push("Report: " + message(error)); }
-    if (connection) {
-      if (acquired) {
-        try {
-          const current = textResult(await connection.call("profile_status", {}));
-          report.finalInstanceId = typeof current.instanceId === "string" ? current.instanceId : undefined;
-          if (current.profileId !== options.profile || report.finalInstanceId !== report.initialInstanceId || current.controlError
-            || !["ready", "paused", "blocked", "verification_failed", "stopping", "stopped"].includes(String(current.phase))) {
-            // oxlint-disable-next-line no-unsafe-finally -- The nested try catches this throw. It does not leave the finally block.
-            throw Error("The original Camoufox browser lifetime cannot be verified. No stop was requested.");
-          }
-          // Retain the controller until shutdown so another client cannot acquire it between release and stop.
-          if (current.phase !== "stopped") await (options.stop ?? stopProfile)(options.profile, home);
-          const stopped = textResult(await connection.call("profile_status", {}));
-          if (stopped.profileId !== options.profile || stopped.instanceId !== report.initialInstanceId || stopped.phase !== "stopped" || stopped.controlError) {
-            // oxlint-disable-next-line no-unsafe-finally -- The nested try catches this throw. It does not leave the finally block.
-            throw Error("The selected Camoufox browser did not confirm shutdown.");
-          }
-          report.stopped = true;
-          // Shutdown ends the service's controller lease. A release RPC would target a stopped service.
-          report.released = true;
-          log("Stopped Camoufox profile: " + options.profile + ".");
-        } catch (error) { report.errors.push("Stop: " + message(error)); }
-        if (!report.stopped) {
-          try {
-            const release = textResult(await connection.call("profile_release", {}));
-            // oxlint-disable-next-line no-unsafe-finally -- The nested try catches this throw. It does not leave the finally block.
-            if (release.released !== true) throw Error("The profile did not acknowledge controller release.");
-            report.released = true;
-          } catch (error) { report.errors.push("Release: " + message(error)); }
-        }
-      } else if (report.initialInstanceId) {
-        try {
-          const status = textResult(await connection.call("profile_status", {}));
-          report.finalInstanceId = typeof status.instanceId === "string" ? status.instanceId : undefined;
-          if (status.profileId !== options.profile || report.finalInstanceId !== report.initialInstanceId || !["ready", "paused", "blocked", "verification_failed"].includes(String(status.phase))) {
-            report.errors.push("The original Camoufox browser lifetime was not preserved.");
-          }
-        } catch (error) { report.errors.push("Final status: " + message(error)); }
-      }
-      try { await connection.close(); } catch (error) { report.errors.push("Disconnect: " + message(error)); }
-    }
-    if (signal?.aborted) report.interrupted = message(signal.reason);
-    report.finishedAt = stamp();
-    try { persist(report); } catch (error) { report.errors.push("Report: " + message(error)); }
-  }
+  finally { await finish(); }
   return report;
 }
 
