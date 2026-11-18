@@ -5,9 +5,7 @@
     "correctness": "error"
   },
   "rules": {
-    // Input validation rejects control characters with these expressions.
-    "eslint/no-control-regex": "off",
-    // Transaction cleanup and the public-site check return from finally on purpose.
-    "eslint/no-unsafe-finally": "off"
+    // Input validation rejects control characters with these expressions, in 11 places.
+    "eslint/no-control-regex": "off"
   }
 }

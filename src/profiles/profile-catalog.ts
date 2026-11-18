@@ -65,6 +65,8 @@ function replace(path: string, value: string, check: () => void) {
     check(); renameSync(temp, path); sync(HOME_DIR);
   } finally {
     if (fd !== undefined) closeSync(fd);
+    // A temporary file that cannot be removed must fail the write, even after another error.
+    // oxlint-disable-next-line no-unsafe-finally
     try { unlinkSync(temp); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
   }
 }
