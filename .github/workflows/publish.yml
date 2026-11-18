@@ -94,7 +94,17 @@ jobs:
           artifact-ids: ${{ needs.plan.outputs.artifact_id }}
           merge-multiple: true
           path: ${{ runner.temp }}/publish-plan
-      - run: bun run pack --publish-plan ${{ runner.temp }}/publish-plan/publish-plan.json
+      - run: bun run build
+      - name: Pack release with Changesets
+        env:
+          npm_config_ignore_scripts: "true"
+        run: |
+          stage=$(bun run prepare:package)
+          trap 'rm -rf "$stage"' EXIT
+          cd "$stage"
+          "$GITHUB_WORKSPACE/node_modules/.bin/changeset" pack --from-publish-plan "$RUNNER_TEMP/publish-plan/publish-plan.json" --out-dir "$GITHUB_WORKSPACE/release-artifacts"
+          cd "$GITHUB_WORKSPACE/release-artifacts/packages"
+          sha256sum *.tgz > checksums.sha256
       - uses: actions/upload-artifact@v7
         id: archive
         with:

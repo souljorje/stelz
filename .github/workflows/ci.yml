@@ -53,5 +53,11 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup
-      - run: bun run pack
-      - run: bun run test:install --both
+      - run: bun run build
+      - name: Pack candidate
+        run: |
+          stage=$(bun run prepare:package)
+          trap 'rm -rf "$stage"' EXIT
+          cd "$stage"
+          npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP"
+      - run: bun run test:install --archive "$RUNNER_TEMP"/stelz-*.tgz --both

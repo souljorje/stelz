@@ -1,11 +1,10 @@
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync, readdirSync, rmSync, lstatSync } from "node:fs";
+import { $ } from "bun";
+import { copyFileSync, existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync, readdirSync, rmSync, lstatSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { checkBundledArchive } from "./bundled-dependencies.ts";
-import { inspectPackageArchive } from "./package-archive.ts";
+import { inspectBundledDependencies } from "./bundled-dependencies.ts";
 import { NATIVE_DEPENDENCIES } from "../src/browser/native-dependencies.ts";
 
-type PackResult = { filename: string; files: Array<{ path: string }> };
 const nativePackages = NATIVE_DEPENDENCIES;
 const preparedPackages = ["@askjo/camofox-browser", "camoufox"] as const;
 
@@ -82,44 +81,26 @@ export function pruneUnreachableDependencies(product: string) {
   prune(join(product, "node_modules"));
 }
 
-// Bun resolves dependency links. npm packs the prepared physical release tree.
-export async function packPackage(product: string, destination: string, options: {
-  env?: Record<string, string>;
-  publishPlan?: string;
-} = {}): Promise<PackResult> {
-  const temporary = mkdtempSync(join(tmpdir(), "stelz-release-tree-"));
-  const env = { ...(options.env ?? process.env), npm_config_cache: join(temporary, "npm-cache"), npm_config_ignore_scripts: "true" };
-  async function run(command: string[], cwd: string) {
-    const child = Bun.spawn(command, { cwd, env, stdout: "pipe", stderr: "pipe" });
-    const [out, err, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
-    if (code) throw Error(err || out || `${command[0]} failed.`);
-    return out;
-  }
+// Materialize Bun's dependency links in an isolated tree. The caller packs it with npm or Changesets.
+if (import.meta.main) {
+  const product = resolve(import.meta.dir, "..");
+  inspectBundledDependencies(product);
+  const stage = mkdtempSync(join(tmpdir(), "stelz-release-tree-"));
   try {
-    await run([process.execPath, "pm", "pack", "--quiet", "--destination", temporary, "--ignore-scripts"], product);
-    const archive = join(temporary, readdirSync(temporary).find(name => name.endsWith(".tgz"))!);
-    const paths = (await run(["tar", "-tzf", archive], product)).split("\n").filter(Boolean);
+    await $`${process.execPath} pm pack --quiet --destination ${stage} --ignore-scripts`.cwd(product).quiet();
+    const archive = join(stage, readdirSync(stage).find(name => name.endsWith(".tgz"))!);
+    const paths = (await $`tar -tzf ${archive}`.text()).split("\n").filter(Boolean);
     if (paths.some(path => !path.startsWith("package/") || path.split("/").includes("..") || path.includes("\\")))
       throw Error("The release archive contains a path outside its package.");
-    await run(["tar", "-xzf", archive, "-C", temporary], product);
-    const prepared = join(temporary, "package");
-    externalizeNativeDependencies(prepared);
-    pruneUnreachableDependencies(prepared);
-    if (options.publishPlan) {
-      mkdirSync(join(prepared, ".changeset"));
-      writeFileSync(join(prepared, ".changeset/config.json"), readFileSync(join(product, ".changeset/config.json")));
-      await run([Bun.which("node")!, join(product, "node_modules/@changesets/cli/bin.js"), "pack",
-        "--from-publish-plan", resolve(options.publishPlan), "--out-dir", resolve(destination)], prepared);
-      const plan = JSON.parse(readFileSync(join(destination, "publish-plan.json"), "utf8"));
-      const releases = plan.plan.flat().filter((item: { kind: string }) => item.kind === "publish");
-      if (releases.length !== 1 || releases[0].name !== "stelz") throw Error("Expected one Stelz release.");
-      const filename = releases[0].tarball.path;
-      const candidate = inspectPackageArchive(join(destination, filename));
-      return { filename, files: candidate.files };
-    }
-    const result = JSON.parse(await run([Bun.which("npm")!, "pack", "--ignore-scripts", "--json", "--pack-destination", destination], prepared)) as PackResult[];
-    if (result.length !== 1) throw Error("Expected one release archive.");
-    checkBundledArchive(result[0]!.files);
-    return result[0]!;
-  } finally { rmSync(temporary, { recursive: true, force: true }); }
+    await $`tar -xzf ${archive} --strip-components=1 -C ${stage}`.quiet();
+    rmSync(archive);
+    externalizeNativeDependencies(stage);
+    pruneUnreachableDependencies(stage);
+    mkdirSync(join(stage, ".changeset"));
+    copyFileSync(join(product, ".changeset/config.json"), join(stage, ".changeset/config.json"));
+    console.log(stage);
+  } catch (error) {
+    rmSync(stage, { recursive: true, force: true });
+    throw error;
+  }
 }

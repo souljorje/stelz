@@ -83,3 +83,10 @@ Three warm local builds before this change took 193/194/193 ms; afterward, 236/2
 The CLI adds about 42 ms locally. This change consolidates build tooling; it does not establish a speedup or lower CI compute use.
 These local measurements compare `4f35c0e` with `54b38e5`; the CI installation comparison above uses its stated revisions.
 The license-report follow-up took 251/269/231 ms in three warm builds. It reduces custom code without an observed build speedup.
+
+## Packaging follow-up
+
+Vite builds the outputs. `prepare:package` stages patched Camofox in a temporary directory; npm packs PR candidates and Changesets packs releases.
+The custom pack wrapper, packer selection, and checksum-writing code are removed. Release CI uses `sha256sum` and publishes the tested archive.
+Installation smoke tests run the CLI, import the SDK, serve UI assets, and check native dependencies. Redundant file-presence lists are removed.
+The npm and Changesets commands produced identical candidate archives locally. No packaging speedup is claimed.

@@ -46,7 +46,7 @@
     "changeset": "changeset",
     "version:packages": "changeset version && bun install --lockfile-only --ignore-scripts",
     "build": "vite build",
-    "pack": "bun scripts/pack.ts",
+    "prepare:package": "bun scripts/prepare-package.ts",
     "setup": "bun src/cli/cli.ts setup",
     "start": "bun src/cli/cli.ts start",
     "status": "bun src/cli/cli.ts status",

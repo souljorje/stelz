@@ -42,10 +42,10 @@ Publish mode starts after the merged version PR:
 
 1. Make sure that CI passed.
 2. Download the Changesets publish plan.
-3. Run `bun run pack --publish-plan FILE` once in the `pack` job.
+3. Build with `bun run build`. Run `bun run prepare:package`, then run `changeset pack --from-publish-plan FILE --out-dir DIRECTORY` from the prepared directory. Remove that directory after packing.
 4. Upload `release-artifacts/` as the `stelz-package` artifact.
 5. In `installation`, download the artifact and run `bun run test:install --archive release-artifacts/packages/*.tgz --both`. Both isolated installation modes must pass.
-6. In the `publish` job, download the same artifact after the installation job succeeds. Check its SHA-256 file.
+6. In the `publish` job, download the same artifact after the installation job succeeds. Verify `checksums.sha256`, generated with `sha256sum` in the pack job.
 7. Run `bun run release`: `changeset publish --from-pack-dir release-artifacts` with npm provenance and OIDC.
 8. Create the Git tag and GitHub release through the Changesets action.
 9. Attach the tarball and checksum to the GitHub release.
@@ -58,7 +58,7 @@ Publish mode starts after the merged version PR:
 ## Archive contents
 
 - The root manifest defines package contents: the built runtime, README, and LICENSE. Documentation and the browser skill stay in the repository.
-- Only prepared Camofox is bundled. Packing removes packages that no manifest reaches (such as `camoufox-js`), and bundled native packages and platform binaries.
+- Only prepared Camofox is bundled. Preparation removes packages that no manifest reaches (such as `camoufox-js`), and bundled native packages and platform binaries. npm packs PR candidates; Changesets packs releases.
 - `test:install` checks the archive. See [Native dependencies](camofox-integration.md#native-dependencies).
 
 ## Repository configuration
