@@ -1,0 +1,35 @@
+{
+  "browser": {
+    "build": "158.0.1-beta.41",
+    "sources": [
+      "https://github.com/daijro/camoufox/releases/tag/v158.0.1-beta.41",
+      "https://github.com/CamoufoxCloud/camoufox/releases/tag/v158.0.1-beta.41",
+      "https://github.com/jo-inc/camofox-browser/releases/tag/camoufox-backup-428447379"
+    ],
+    "sha256": {
+      "camoufox-158.0.1-beta.41-lin.arm64.zip": "60e25f6eb95e13d9ec655bc02913d51057e669cb31542e6ace9d2190ab5380af",
+      "camoufox-158.0.1-beta.41-lin.x86_64.zip": "3f2eb1d0451fa58e45e43e55f5e6181565069791ae60c0574f0ceb1f01341c33",
+      "camoufox-158.0.1-beta.41-mac.arm64.zip": "9038f86d666c9780b6fff199d488737b8596c01f24e3e517845a0ecfb0cf8add",
+      "camoufox-158.0.1-beta.41-mac.x86_64.zip": "1afd6caa1e82caa41a4f56d8519f673e36b0835700b1c9c904e78a84c5711f3a",
+      "camoufox-158.0.1-beta.41-win.i686.zip": "5c6b4e57764ff6caa568c6ce77a01c03c7ad5da560c3e22097def2c28235f09d",
+      "camoufox-158.0.1-beta.41-win.x86_64.zip": "2644bd14f1cc345c768f6a70b576bcc87eb3d0bf0df54856d6fe0bbc3027515f"
+    }
+  },
+  "geoip": {
+    "selection": {
+      "name": "GeoIP AIO",
+      "sources": [
+        "https://github.com/daijro/geoip-all-in-one/releases/latest",
+        "https://github.com/CamoufoxCloud/geoip-all-in-one/releases/latest"
+      ],
+      "asset": "geoip-aio-all.mmdb",
+      "databaseType": "GeoIP2-City"
+    },
+    "comparison": {
+      "name": "GeoLite2 City",
+      "sources": ["https://github.com/P3TERX/GeoLite.mmdb/releases/latest"],
+      "asset": "GeoLite2-City.mmdb",
+      "databaseType": "GeoLite2-City"
+    }
+  }
+}

@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 import { isIP } from "node:net";
 import { join, dirname } from "node:path";
 import { applyProxyLocale, type Fingerprint } from "./fingerprint.ts";
+import releaseSources from "./release-sources.json" with { type: "json" };
 
 export type LocationStatus = "not_applicable" | "not_checked" | "checking" | "ready" | "blocked";
 export type LocationResult = {
@@ -121,14 +122,11 @@ export function validateLocationConfig(config: Fingerprint) {
 }
 // Upstream Camoufox selects GeoIP AIO and deprecates GeoLite2. GeoLite2 remains a comparison:
 // only it records city and accuracy radius. Setup downloads both into the runtime.
-export const GEOIP_SOURCES = {
-  selection: { name: "GeoIP AIO", repository: "daijro/geoip-all-in-one", asset: "geoip-aio-all.mmdb", databaseType: "GeoIP2-City" },
-  comparison: { name: "GeoLite2 City", repository: "P3TERX/GeoLite.mmdb", asset: "GeoLite2-City.mmdb", databaseType: "GeoLite2-City" },
-} as const;
+export const GEOIP_SOURCES = releaseSources.geoip;
 export type GeoipRole = keyof typeof GEOIP_SOURCES;
 // Upstream freshness: refresh a build older than 8 days, and treat one older than 30 days as stale.
 export const GEOIP_REFRESH_DAYS = 8, GEOIP_STALE_DAYS = 30;
-export type GeoipDataset = { source: string; sha256: string; release: string; acquiredAt: string; databaseType: string; buildEpoch: string };
+export type GeoipDataset = { source: string; origin?: string; sha256: string; release: string; acquiredAt: string; databaseType: string; buildEpoch: string };
 export type GeoipManifest = { version: 2; datasets: Record<GeoipRole, GeoipDataset> };
 export type GeoipData = { reader: Reader; comparison: Reader; sha256: string; manifest: GeoipManifest };
 const datasets = new Map<string, { stamp: string; pending: Promise<GeoipData> }>();

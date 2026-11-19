@@ -1,7 +1,8 @@
 import { assertBundledPatches } from "./camofox-adapter.ts";
 import { geoipPlan, prepareGeoip, type GeoipStatus } from "./geoip-setup.ts";
-import { browserPin, fingerprintModel, isPreparedModel, pairedBrowser } from "./camoufox.ts";
-import { browserPlan, configuredBrowserProblem, prepareBrowser, type BrowserSource } from "./browser-setup.ts";
+import { fingerprintModel, isPreparedModel, pairedBrowser } from "./camoufox.ts";
+import { browserPlan, browserReleaseSources, configuredBrowserProblem, prepareBrowser, type BrowserSource } from "./browser-setup.ts";
+import { githubReleaseUrl } from "./release-asset.ts";
 import { GEOIP_SOURCES, type GeoipRole } from "./location.ts";
 import {
   copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync,
@@ -269,10 +270,11 @@ export type SetupReport = {
 /** Setup progress for a person or, with `--json`, for stderr. */
 export type Progress = (message: string) => void;
 /** One download that needs consent. */
-export type PlannedDownload = { name: string; size: string; purpose: string; source: string };
+export type PlannedDownload = { name: string; size: string; purpose: string; source: string; fallbackSources?: string[] };
 /** Each download with its size, purpose, and source. */
 export const downloadList = (downloads: PlannedDownload[]) =>
-  downloads.map(item => `- ${item.name} (${item.size}): ${item.purpose}\n  ${item.source}`).join("\n");
+  downloads.map(item => [`- ${item.name} (${item.size}): ${item.purpose}`, `  ${item.source}`,
+    ...(item.fallbackSources ?? []).map(source => `  Fallback: ${source}`)].join("\n")).join("\n");
 export class SetupConfirmationError extends Error {
   readonly code = "confirmation_required";
   /** `unsupported` names an installed browser that setup replaces with the paired build. */
@@ -285,20 +287,22 @@ const locationPurpose: Record<GeoipRole, Pick<PlannedDownload, "size" | "purpose
   selection: { size: "about 120 MB", purpose: "Matches the timezone and language of a proxied browser to its exit IP." },
   comparison: { size: "about 50 MB", purpose: "A second database that cross-checks that location." },
 };
+function downloadSources([source, ...fallbackSources]: readonly string[]) {
+  return { source: source!, ...(fallbackSources.length ? { fallbackSources } : {}) };
+}
 /** What setup would download now. A setup that needs none never asks. */
 async function plannedDownloads(configured?: string): Promise<PlannedDownload[]> {
   const current = runtimeDir(), downloads: PlannedDownload[] = [];
   if (browserPlan(HOME_DIR, configured).source === "downloaded") {
-    const { repo, tag } = browserPin();
     downloads.push({ name: `Camoufox ${pairedBrowser()}`, size: "over 1 GB", purpose: "The browser build that every profile runs.",
-      source: `https://github.com/${repo}/releases/tag/${tag}` });
+      ...downloadSources(browserReleaseSources()) });
   }
   for (const role of await geoipPlan(current)) downloads.push({ name: `${GEOIP_SOURCES[role].name} location data`, ...locationPurpose[role],
-    source: `https://github.com/${GEOIP_SOURCES[role].repository}/releases/latest` });
+    ...downloadSources(GEOIP_SOURCES[role].sources) });
   if (!isPreparedModel(join(current, "fpgen"))) {
     const { repo, tag, size } = fingerprintModel().MODEL_PIN;
     downloads.push({ name: "Fingerprint model", size: `about ${Math.ceil(size / 1e6)} MB`, purpose: "Generates the fingerprint of each new profile.",
-      source: `https://github.com/${repo}/releases/tag/${tag}` });
+      source: githubReleaseUrl(repo, tag) });
   }
   return downloads;
 }
