@@ -1,13 +1,14 @@
 import { randomUUID } from "node:crypto";
 import {
   closeSync, constants, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync,
-  readFileSync, readdirSync, renameSync, rmdirSync, unlinkSync, writeFileSync,
+  readFileSync, readdirSync, rmdirSync, unlinkSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
 import { isIP } from "node:net";
 import { isDeepStrictEqual, parseEnv } from "node:util";
 import { dlopen, FFIType, ptr } from "bun:ffi";
 import { CONFIG_FILE, HOME_DIR, STATE, dir, validateProxy, validateSettings } from "./config.ts";
+import { replaceFile } from "./replace-file.ts";
 
 export const PROFILE_IMPORT_JOURNAL = join(HOME_DIR, ".profile-import-transaction.json");
 const secretsFile = join(HOME_DIR, "secrets.env"), LIMIT = 1024 * 1024;
@@ -78,19 +79,7 @@ function sync(path: string) {
   finally { closeSync(fd); }
 }
 function replace(path: string, value: string, check: () => void, exclusive = false) {
-  const temp = `${path}.${randomUUID()}.tmp`;
-  let fd: number | undefined;
-  try {
-    fd = openSync(temp, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, 0o600);
-    writeFileSync(fd, value); fsyncSync(fd); closeSync(fd); fd = undefined;
-    check();
-    if (exclusive) renameExclusive(temp, path);
-    else renameSync(temp, path);
-    sync(dirname(path));
-  } finally {
-    if (fd !== undefined) closeSync(fd);
-    try { unlinkSync(temp); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
-  }
+  replaceFile(path, value, check, exclusive ? temp => renameExclusive(temp, path) : undefined); sync(dirname(path));
 }
 function portablePath(path: unknown): path is string {
   return typeof path === "string" && !path.includes("\\") && !/[\x00-\x1f\x7f]/.test(path) &&

@@ -17,6 +17,7 @@ import {
 } from "./network-transaction.ts";
 import type { ProfileCreate, ProfileRename, NetworkUpdate, TypingUpdate, ScriptsUpdate } from "./profile-configuration-types.ts";
 import { recoverProfileImportTransaction } from "./profile-import-transaction.ts";
+import { replaceFile } from "./replace-file.ts";
 export type { ProfileCreate, ProfileRename, NetworkUpdate } from "./profile-configuration-types.ts";
 export { ProfileCatalogError, recoverProfileCatalog } from "./profile-catalog.ts";
 
@@ -95,7 +96,8 @@ function validateUpdate(value: NetworkUpdate): NetworkUpdate {
 }
 
 // Replace only selected assignment values. Preserve comments, duplicate keys, and unrelated multiline values.
-function editSecrets(text: string, updates: Map<string, string>): string {
+/** Change the values of assignments, or add them. A null value removes every assignment of that name with its line. */
+function editSecrets(text: string, updates: Map<string, string | null>): string {
   const edits: { start: number; end: number; value: string }[] = [], found = new Set<string>();
   for (let start = 0; start < text.length;) {
     const newline = text.indexOf("\n", start), lineEnd = newline < 0 ? text.length : newline;
@@ -116,7 +118,8 @@ function editSecrets(text: string, updates: Map<string, string>): string {
         while (valueEnd > valueStart && /[ \t\r]/.test(text[valueEnd - 1]!)) valueEnd--;
       }
       if (updates.has(match[1]!)) {
-        edits.push({ start: valueStart, end: valueEnd, value: updates.get(match[1]!) || '""' });
+        const value = updates.get(match[1]!);
+        edits.push(value === null ? { start, end: Math.min(end + 1, text.length), value: "" } : { start: valueStart, end: valueEnd, value: value || '""' });
         found.add(match[1]!);
       }
     }
@@ -125,13 +128,13 @@ function editSecrets(text: string, updates: Map<string, string>): string {
   let result = text;
   for (const edit of edits.reverse()) result = result.slice(0, edit.start) + edit.value + result.slice(edit.end);
   const newline = text.includes("\r\n") ? "\r\n" : "\n";
-  for (const [name, value] of updates) if (!found.has(name)) {
+  for (const [name, value] of updates) if (!found.has(name) && value !== null) {
     if (result && !result.endsWith("\n")) result += newline;
     result += `${name}=${value || '""'}${newline}`;
   }
   const before = parseEnv(text), after = parseEnv(result);
   for (const name of new Set([...Object.keys(before), ...Object.keys(after), ...updates.keys()])) {
-    if (after[name] !== (updates.has(name) ? updates.get(name) : before[name]))
+    if (after[name] !== (updates.has(name) ? updates.get(name) ?? undefined : before[name]))
       throw new ProfileConfigurationError(409, "The secrets file cannot be edited safely. Inspect its assignment syntax.");
   }
   return result;
@@ -191,6 +194,17 @@ export async function prepareProfileConfiguration<T>(action: () => Promise<T>) {
     await recoverProfileCatalog();
     await recoverNetworkConfiguration();
     return action();
+  });
+}
+/** Remove one setting from the secrets file. All other text stays. Return false when the file does not assign it. */
+export function removeSecret(name: string): Promise<boolean> {
+  return prepareProfileConfiguration(async () => {
+    const { text } = readSecrets(), next = editSecrets(text, new Map([[name, null]]));
+    if (next === text) return false;
+    replaceFile(secretsFile, next, () => {
+      if (readSecrets().text !== text) throw new ProfileConfigurationError(409, "The secrets file changed. Run the command again.");
+    });
+    return true;
   });
 }
 function portAvailable(port: number): Promise<boolean> {

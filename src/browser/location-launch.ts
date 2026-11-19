@@ -17,20 +17,21 @@ export function launchLocation(): LocationRecord | undefined {
 export function saveLaunchLocation(record: LocationRecord, result: LocationResult) {
   writeLocationRecord(process.env.STELZ_PROFILE_DIR!, { ...record, result });
 }
-/** Return the engine major version. Stelz supports only the paired build. macOS bundles keep application.ini under Resources. */
-export function engineVersion(executable: string) {
-  const paired = pairedBrowser();
+/** The version of an installed Camoufox, or undefined when it has none to read. macOS bundles keep application.ini under Resources. */
+export function browserVersion(executable: string): string | undefined {
   for (const file of [join(dirname(executable), "application.ini"), join(dirname(executable), "../Resources/application.ini")]) {
     let text: string;
     try { text = readFileSync(file, "utf8"); } catch { continue; }
     const version = /^Version=(.+)$/m.exec(text)?.[1]?.trim();
-    if (!version) continue;
-    if (version !== paired) throw Error(`Camoufox ${version} at ${executable} is not supported. Stelz requires Camoufox ${paired}. ` +
-      "Run stelz setup to prepare it. If CAMOUFOX_EXECUTABLE is set in the process environment or STELZ_HOME/secrets.env, remove it or point it to that build.");
-    return version.split(".")[0]!;
+    if (version) return version;
   }
-  throw Error(`Cannot read the Camoufox version at ${executable}. Run stelz setup to prepare Camoufox ${paired}. ` +
-    "If CAMOUFOX_EXECUTABLE is set, remove it or point it to a complete installation of that build.");
+}
+/** Return the engine major version. Stelz supports only the paired build. Setup installs it. */
+export function engineVersion(executable: string) {
+  const paired = pairedBrowser(), version = browserVersion(executable);
+  if (!version) throw Error(`Cannot read the Camoufox version at ${executable}. Stelz requires Camoufox ${paired}. Run stelz setup.`);
+  if (version !== paired) throw Error(`Camoufox ${version} at ${executable} is not supported. Stelz requires Camoufox ${paired}. Run stelz setup.`);
+  return version.split(".")[0]!;
 }
 /** Launch uses prepared files only. A missing prerequisite fails instead of downloading. */
 async function launcherOptions(options: Record<string, unknown>) {

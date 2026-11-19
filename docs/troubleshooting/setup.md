@@ -4,7 +4,7 @@ description: "Recovery when installation, the runtime, or setup fails, and how t
 tags: [troubleshooting, setup]
 sources: []
 created: 2026-11-06T13:49:16Z
-modified: 2026-11-11T15:01:55Z
+modified: 2026-11-18T13:52:49Z
 ---
 
 # Installation and setup problems
@@ -19,7 +19,7 @@ modified: 2026-11-11T15:01:55Z
 
 - Setup does not recover profiles in another service directory.
 - Do not remove profiles or reinstall Camoufox to repair a missing Bun command.
-- Unsupported Camoufox build: check `CAMOUFOX_EXECUTABLE` in the process environment and in `STELZ_HOME/secrets.env`. Remove it or point it to the paired build, then run `stelz setup`. See [Browser executable](../configuration/environment.md#browser-executable).
+- Unsupported or missing Camoufox build: `stelz setup` asks, then installs the paired build. When `CAMOUFOX_EXECUTABLE` is in the process environment, unset it first. See [Browser executable](../configuration/environment.md#browser-executable).
 
 ## Setup fails
 

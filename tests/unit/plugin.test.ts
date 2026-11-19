@@ -61,12 +61,13 @@ test("device replay preserves hardware, refreshes runtime settings, and leaves n
   assert.equal(fresh["window.outerHeight"], 790);
 });
 
-test("proxy policy wins and unrelated fresh preferences survive", () => {
+test("proxy policy wins, the restore-session offer is off, and unrelated fresh preferences survive", () => {
+  const noRestoreOffer = { "browser.startup.couldRestoreSession.count": -1 };
   assert.deepEqual(launchPreferences({ "media.peerconnection.enabled": true, "network.proxy.failover_direct": true,
     "network.proxy.socks_remote_dns": false, "network.proxy.socks5_remote_dns": false, "network.test": true, fresh: 1 }, true),
     { "media.peerconnection.enabled": false, "network.proxy.failover_direct": false,
-      "network.proxy.socks_remote_dns": true, "network.proxy.socks5_remote_dns": true, "network.test": true, fresh: 1 });
-  assert.deepEqual(launchPreferences({ fresh: 1 }, false), { fresh: 1 });
+      "network.proxy.socks_remote_dns": true, "network.proxy.socks5_remote_dns": true, "network.test": true, fresh: 1, ...noRestoreOffer });
+  assert.deepEqual(launchPreferences({ fresh: 1, "browser.startup.couldRestoreSession.count": 0 }, false), { fresh: 1, ...noRestoreOffer });
 });
 
 test("proxy host controls verification and security policy independently of ambient routing", async () => {

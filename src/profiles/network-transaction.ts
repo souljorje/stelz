@@ -1,12 +1,13 @@
 import { randomUUID } from "node:crypto";
 import {
   closeSync, constants, fstatSync, fsyncSync, lstatSync, openSync, readFileSync,
-  renameSync, unlinkSync, writeFileSync,
+  unlinkSync,
 } from "node:fs";
 import { isIP } from "node:net";
 import { join } from "node:path";
 import { isDeepStrictEqual, parseEnv } from "node:util";
 import { CONFIG_FILE, HOME_DIR, STATE, dir, validateProxy, validateSettings, type Settings } from "./config.ts";
+import { replaceFile } from "./replace-file.ts";
 
 export const NETWORK_JOURNAL = join(HOME_DIR, ".network-transaction.json");
 const configFile = CONFIG_FILE, secretsFile = join(HOME_DIR, "secrets.env");
@@ -145,20 +146,7 @@ function unchanged(transaction: Transaction) {
   return current;
 }
 function replace(file: string, value: string, check: () => void) {
-  const temp = `${file}.${randomUUID()}.tmp`;
-  let fd: number | undefined;
-  try {
-    fd = openSync(temp, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, 0o600);
-    writeFileSync(fd, value);
-    fsyncSync(fd);
-    closeSync(fd); fd = undefined;
-    check();
-    renameSync(temp, file);
-    syncHome();
-  } finally {
-    if (fd !== undefined) closeSync(fd);
-    try { unlinkSync(temp); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
-  }
+  replaceFile(file, value, check); syncHome();
 }
 function journal(transaction: Transaction, previous?: Transaction) {
   replace(NETWORK_JOURNAL, JSON.stringify(transaction) + "\n", () => {

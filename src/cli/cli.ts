@@ -10,17 +10,19 @@ const jsonMode = rootJsonMode || command === "profile" && rawArgs.includes("--js
 const args = rootJsonMode ? rawArgs.filter(arg => arg !== "--json") : rawArgs;
 function diagnostic(error: unknown) {
   const message = (error as Error).message;
-  const downloads = (error as { downloads?: string[] }).downloads;
+  const { downloads, unsupported } = error as { downloads?: string[]; unsupported?: string };
   const code = error instanceof LocationError ? error.location.code : downloads ? "confirmation_required" : command === "setup" ? "setup_failed" : "service_unavailable";
-  return jsonMode ? JSON.stringify({ ok: false, error: { code, message, ...(downloads ? { downloads } : {}) },
+  return jsonMode ? JSON.stringify({ ok: false, error: { code, message, ...(downloads ? { downloads } : {}), ...(unsupported ? { unsupported } : {}) },
     ...(error instanceof LocationError ? { location: error.location } : {}) }) : message;
 }
-/** Ask once in a terminal before setup downloads anything. */
-async function confirmDownloads(downloads: PlannedDownload[]) {
+/** Ask once in a terminal before setup downloads anything or replaces an unsupported browser. */
+async function confirmDownloads(downloads: PlannedDownload[], unsupported?: string) {
   const { createInterface } = await import("node:readline/promises");
   const { downloadList } = await import("../browser/setup.ts");
   const prompt = createInterface({ input: process.stdin, output: process.stdout });
-  try { return /^y(es)?$/i.test((await prompt.question(`Setup will download:\n${downloadList(downloads)}\nDownload now? [y/N] `)).trim()); }
+  const question = (unsupported ? `${unsupported}\n` : "") + (downloads.length ? `Setup will download:\n${downloadList(downloads)}\n` : "") +
+    `${unsupported ? "Install the required version now" : "Download now"}? [y/N] `;
+  try { return /^y(es)?$/i.test((await prompt.question(question)).trim()); }
   finally { prompt.close(); }
 }
 try {

@@ -4,7 +4,7 @@ description: "Commands, options, outputs, and exit status of the installed stelz
 tags: [cli, reference]
 sources: []
 created: 2026-11-06T13:49:16Z
-modified: 2026-11-11T15:01:55Z
+modified: 2026-11-18T13:52:49Z
 ---
 
 # CLI reference
@@ -33,8 +33,8 @@ Setup:
 - Creates missing service files.
 - Prepares the browser, fingerprint model, location data, and runtime.
 - Prints a summary and the next step.
-- Asks once in a terminal before it downloads. `--yes` skips the question.
-- No terminal and no `--yes`: a setup that needs downloads fails with `confirmation_required` and a `downloads` list.
+- Asks once in a terminal before it downloads, or before it replaces a configured browser that is not the paired build. `--yes` skips the question.
+- No terminal and no `--yes`: a setup that needs consent fails with `confirmation_required`, a `downloads` list, and an `unsupported` text when it replaces a browser.
 - Each `downloads` entry has `name`, `size`, `purpose`, and `source`.
 - `setup --json` never prompts.
 - `setup --json` stdout: one JSON report with `browser` (with `source`), `locationData` for each dataset, `fingerprintModel`, and `runtime`.

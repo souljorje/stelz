@@ -1,7 +1,7 @@
 import { assertBundledPatches } from "./camofox-adapter.ts";
 import { geoipPlan, prepareGeoip, type GeoipStatus } from "./geoip-setup.ts";
 import { browserPin, fingerprintModel, isPreparedModel, pairedBrowser } from "./camoufox.ts";
-import { browserPlan, prepareBrowser, type BrowserSource } from "./browser-setup.ts";
+import { browserPlan, configuredBrowserProblem, prepareBrowser, type BrowserSource } from "./browser-setup.ts";
 import { GEOIP_SOURCES, type GeoipRole } from "./location.ts";
 import {
   copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync,
@@ -16,6 +16,7 @@ import {
   ROOT, HOME_DIR, STATE, RUNTIME, RUNTIME_GENERATIONS, COMMIT, UPSTREAM_VERSION, currentRuntimeId, initialize, isRuntimeId, runtimeDir, secret,
 } from "../profiles/config.ts";
 import { STELZ_VERSION } from "../versions.ts";
+import { removeSecret } from "../profiles/profile-configuration.ts";
 import { lock, running, type Running } from "../runtime/runtime.ts";
 
 const CAMOFOX = "@askjo/camofox-browser";
@@ -274,8 +275,10 @@ export const downloadList = (downloads: PlannedDownload[]) =>
   downloads.map(item => `- ${item.name} (${item.size}): ${item.purpose}\n  ${item.source}`).join("\n");
 export class SetupConfirmationError extends Error {
   readonly code = "confirmation_required";
-  constructor(readonly downloads: PlannedDownload[]) {
-    super(`Setup needs these downloads:\n${downloadList(downloads)}\nRun stelz setup --yes to allow them.`);
+  /** `unsupported` names an installed browser that setup replaces with the paired build. */
+  constructor(readonly downloads: PlannedDownload[], readonly unsupported?: string) {
+    super((unsupported ? `${unsupported}\n` : "") + (downloads.length ? `Setup needs these downloads:\n${downloadList(downloads)}\n` : "") +
+      (downloads.length ? "Run stelz setup --yes to allow them." : "Run stelz setup --yes to install the required version."));
   }
 }
 const locationPurpose: Record<GeoipRole, Pick<PlannedDownload, "size" | "purpose">> = {
@@ -301,10 +304,13 @@ async function plannedDownloads(configured?: string): Promise<PlannedDownload[]>
 }
 
 type SetupOptions = {
-  yes?: boolean; confirm?: (downloads: PlannedDownload[]) => Promise<boolean>; progress?: Progress;
+  yes?: boolean; confirm?: (downloads: PlannedDownload[], unsupported?: string) => Promise<boolean>; progress?: Progress;
   prepareGeoip?: typeof prepareGeoip; prepareModel?: typeof prepareModel; prepareBrowser?: typeof prepareBrowser;
 };
-/** Prepare everything that Start needs, and create missing service files. Downloads require `yes` or a positive `confirm`. */
+/**
+ * Prepare everything that Start needs, and create missing service files.
+ * Downloads, and the replacement of a configured browser that is not the paired build, require `yes` or a positive `confirm`.
+ */
 export async function setup(options: SetupOptions = {}): Promise<SetupReport> {
   directory(HOME_DIR);
   directory(STATE);
@@ -322,14 +328,24 @@ export async function setup(options: SetupOptions = {}): Promise<SetupReport> {
 // The caller holds the setup lock. Running services keep their generations, so only activation needs the admission lock.
 async function prepare(admission: string, options: SetupOptions): Promise<SetupReport> {
   await lock(admission, async () => { initialize(); });
-  const configured = secret("CAMOUFOX_EXECUTABLE") || undefined;
-  // `yes` authorizes every planned download, so only an unconfirmed setup needs the plan.
+  let configured = secret("CAMOUFOX_EXECUTABLE") || undefined;
+  // The secrets file selects another build, or a file that is gone: setup offers to install the paired build in its place.
+  // Setup cannot change the process environment, so that setting fails in the browser plan below.
+  const problem = configured ? configuredBrowserProblem(HOME_DIR, configured) : undefined;
+  const unsupported = problem?.file ? `${problem.reason} Stelz requires Camoufox ${pairedBrowser()}.` : undefined;
+  if (unsupported) configured = undefined;
+  // `yes` authorizes the replacement and every planned download, so only an unconfirmed setup needs the plan.
   if (!options.yes) {
     const downloads = await plannedDownloads(configured);
-    if (downloads.length && !(await options.confirm?.(downloads))) throw new SetupConfirmationError(downloads);
+    if ((downloads.length || unsupported) && !(await options.confirm?.(downloads, unsupported))) throw new SetupConfirmationError(downloads, unsupported);
   }
   const progress = options.progress ?? console.error;
   const browser = await (options.prepareBrowser ?? prepareBrowser)(HOME_DIR, configured, { progress });
+  // The paired build is in place. Without the old setting, Stelz uses it now and after later browser updates.
+  if (unsupported) {
+    await removeSecret("CAMOUFOX_EXECUTABLE");
+    progress(`Removed the old CAMOUFOX_EXECUTABLE setting from ${problem!.file}.`);
+  }
 
   const source = packagePath(CAMOFOX, ROOT);
   if (JSON.parse(readFileSync(join(source, "package.json"), "utf8")).version !== UPSTREAM_VERSION) {
