@@ -56,15 +56,20 @@ modified: 2026-11-17T08:36:53Z
 ## Installed-package acceptance
 
 ```sh
-bun run pack
-bun run test:install --archive /absolute/path/to/candidate.tgz
+bun run build
+bun run check:archive
 bun run test:package --archive /absolute/path/to/candidate.tgz --setup
 ```
 
-- Use the archive path that `pack` prints. Do not rebuild between checks.
-- `pack --destination DIRECTORY`: another output directory. Without `--archive`, local checks select the current manifest version under `release-artifacts/`.
-- `test:install`: no browser. `--native` adds ordinary npm lifecycle scripts and native dependency checks.
-- `test:package`: installs with lifecycle scripts, then runs the [browser suite](testing.md#browser-suite) against the installed CLI. It includes the checks of `test:install --native`.
+- Use the archive path that `check:archive` prints. It prepares, packs, lints, and checks both installation modes. Do not rebuild between checks.
+- `check:archive --out-dir DIRECTORY` selects the output directory. `check:archive --archive FILE` checks an existing archive without packing it again.
+- `prepare:package` prints an isolated staging directory. It prepares patched Camofox but does not build the sources or create the final archive. Remove the staging directory after packing.
+- `test:install`, `test:package`, and `test:setup` require `--archive FILE`.
+- `lint:package`: publint checks the exact archive. Warnings and errors fail the command.
+- `test:install`: installs the archive, runs the CLI version command, imports the SDK, and serves UI assets. Setup stages the installed runtime with synthetic location data, a model fixture, and a fake paired browser. This setup needs no network. A separate home keeps these fixtures out of browser acceptance. `--native` adds ordinary npm lifecycle scripts and native dependency checks. It starts no browser.
+- `test:install --both`: runs both installation modes concurrently against one archive. Each mode uses a separate prefix and service home. Either failure fails the command after both finish.
+- Archive validation separately checks Camofox patches, bundled dependency constraints, and unchanged archive bytes.
+- `test:package`: includes `test:install --native`, runs setup, checks native dependencies in the staged runtime, then runs the [browser suite](testing.md#browser-suite) against the installed CLI.
 - Package acceptance prepares its browser once. The browser, proxy, and human checks reuse it. `--setup` separately checks setup behavior.
 - Run the full archive checks once per candidate, not after each fix.
 

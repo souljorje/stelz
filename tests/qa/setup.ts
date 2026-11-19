@@ -2,21 +2,19 @@
 // It downloads no browser. It reads the paired build from the upstream cache and checks the release metadata.
 import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { installPackage } from "./install.ts";
 import { packageArguments, assertArchiveUnchanged } from "../../scripts/package-archive.ts";
 import { createTestHome } from "../helpers/test-home.ts";
 import { browserPackage, pairedBrowser } from "../../src/browser/camoufox.ts";
 import { readBrowserRelease } from "../../src/browser/browser-setup.ts";
-import { STELZ_VERSION } from "../../src/versions.ts";
 
 type Run = { code: number; out: string; err: string };
 type Report = { home: string; browser: { source: string; executable: string }; fingerprintModel: string; runtime: { id: string; status: string };
   locationData: Record<string, { source: string; release: string; builtAt: string; status: string }> };
 type Child = Bun.Subprocess<"ignore", "pipe", "pipe">;
 
-const root = resolve(import.meta.dir, "../..");
-const archive = packageArguments(process.argv.slice(2)).archive ?? join(root, "release-artifacts", `stelz-${STELZ_VERSION}.tgz`);
+const archive = packageArguments(process.argv.slice(2)).archive;
 const paired = pairedBrowser();
 // The clone case needs the paired build in the upstream cache. Check it before the installation.
 const cached = browserPackage().listInstalled().find(entry => entry.version.fullString === paired);

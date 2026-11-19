@@ -23,6 +23,7 @@
     "ui/**/*.ts",
     "ui/**/*.tsx",
     "tests/**/*.ts",
-    "scripts/**/*.ts"
+    "scripts/**/*.ts",
+    "vite.config.ts"
   ]
 }

@@ -94,7 +94,12 @@ jobs:
           artifact-ids: ${{ needs.plan.outputs.artifact_id }}
           merge-multiple: true
           path: ${{ runner.temp }}/publish-plan
-      - run: bun run pack --publish-plan ${{ runner.temp }}/publish-plan/publish-plan.json
+      - run: bun run build
+      - name: Pack release with Changesets
+        run: |
+          bun run check:archive --from-publish-plan "$RUNNER_TEMP/publish-plan/publish-plan.json" --out-dir release-artifacts --pack-only
+          cd release-artifacts/packages
+          sha256sum *.tgz > checksums.sha256
       - uses: actions/upload-artifact@v7
         id: archive
         with:
@@ -111,8 +116,7 @@ jobs:
       matrix:
         os:
           - ubuntu-latest
-          # Temporarily disabled while GitHub macOS runners have capacity issues.
-          # - macos-latest
+          - macos-latest
     permissions:
       contents: read
     steps:
@@ -125,8 +129,7 @@ jobs:
           artifact-ids: ${{ needs.pack.outputs.artifact_id }}
           merge-multiple: true
           path: release-artifacts
-      - run: bun run test:install --archive release-artifacts/packages/*.tgz
-      - run: bun run test:install --archive release-artifacts/packages/*.tgz --native
+      - run: bun run check:archive --archive release-artifacts/packages/*.tgz
 
   publish:
     needs: [pack, installation]

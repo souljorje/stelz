@@ -74,7 +74,7 @@ test("public checks refuse unowned homes, existing test profiles, and edited con
 
 test("live entrypoints fail before network or browser work when only an ambient proxy is supplied", async () => {
   for (const script of ["tests/qa/proxy.ts", "tests/qa/public-sites.ts", "tests/qa/package.ts"]) {
-    const child = Bun.spawn([process.execPath, "--no-env-file", script, ...(script.endsWith("package.ts") ? ["--proxy"] : [])], {
+    const child = Bun.spawn([process.execPath, "--no-env-file", script, ...(script.endsWith("package.ts") ? ["--archive", "unused.tgz", "--proxy"] : [])], {
       env: { PATH: process.env.PATH, HOME: process.env.HOME, PROXY_TEST_URL: proxy }, stdout: "pipe", stderr: "pipe",
     });
     const [code, out, err] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
