@@ -31,7 +31,7 @@ modified: 2026-11-11T15:05:26Z
 ## Workflow
 
 - Runs on pushes to `main` and manual dispatch. Restricted to `souljorje/stelz` on `main`. Publishes through npm trusted publishing.
-- Release installation checks run on the same platforms as [Continuous integration](testing.md#continuous-integration).
+- Release installation checks run on Ubuntu and macOS. [PR checks](testing.md#continuous-integration) run on Ubuntu.
 - The `plan` job selects version, publish, or none mode. It changes publish mode to none when the tag `vVERSION` already exists.
 - The `checks` job calls `.github/workflows/ci.yml` with `skip-package: true`.
 - Version mode runs `bun run version:packages`. It creates or updates the version PR on `changeset-release/main`, updates `package.json`, `bun.lock`, and `CHANGELOG.md`, and consumes the pending Changesets.
@@ -42,9 +42,9 @@ Publish mode starts after the merged version PR:
 
 1. Make sure that CI passed.
 2. Download the Changesets publish plan.
-3. Build with `bun run build`. Run `bun run prepare:package`, then run `changeset pack --from-publish-plan FILE --out-dir DIRECTORY` from the prepared directory. Remove that directory after packing.
+3. Build with `bun run build`. Run `bun run check:archive --from-publish-plan FILE --out-dir release-artifacts --pack-only`. This prepares Camofox and passes the plan to Changesets. Installation jobs check the archive after upload.
 4. Upload `release-artifacts/` as the `stelz-package` artifact.
-5. In `installation`, download the artifact. Run `bun run lint:package release-artifacts/packages/*.tgz`, then `bun run test:install --archive release-artifacts/packages/*.tgz --both`. Package lint and both isolated installation modes must pass.
+5. In `installation`, download the artifact. Run `bun run check:archive --archive release-artifacts/packages/*.tgz` on both platforms. Package lint and both isolated installation modes must pass.
 6. In the `publish` job, download the same artifact after the installation job succeeds. Verify `checksums.sha256`, generated with `sha256sum` in the pack job.
 7. Run `bun run release`: `changeset publish --from-pack-dir release-artifacts` with npm provenance and OIDC.
 8. Create the Git tag and GitHub release through the Changesets action.

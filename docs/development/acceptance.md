@@ -57,19 +57,16 @@ modified: 2026-11-17T08:36:53Z
 
 ```sh
 bun run build
-stage=$(bun run prepare:package)
-(cd "$stage" && npm pack --ignore-scripts --pack-destination "$TMPDIR")
-rm -rf "$stage"
-bun run lint:package /absolute/path/to/candidate.tgz
-bun run test:install --archive /absolute/path/to/candidate.tgz
+bun run check:archive
 bun run test:package --archive /absolute/path/to/candidate.tgz --setup
 ```
 
-- Use the archive that npm writes under `$TMPDIR`. Do not rebuild between checks.
+- Use the archive path that `check:archive` prints. It prepares, packs, lints, and checks both installation modes. Do not rebuild between checks.
+- `check:archive --out-dir DIRECTORY` selects the output directory. `check:archive --archive FILE` checks an existing archive without packing it again.
 - `prepare:package` prints an isolated staging directory. It prepares patched Camofox but does not build the sources or create the final archive. Remove the staging directory after packing.
-- npm's `--pack-destination DIRECTORY` selects the output directory. Without `--archive`, local checks select the current manifest version under `release-artifacts/`.
+- `test:install`, `test:package`, and `test:setup` require `--archive FILE`.
 - `lint:package`: publint checks the exact archive. Warnings and errors fail the command.
-- `test:install`: installs the archive in a disposable directory, runs the CLI version command, imports the SDK, and serves UI assets. `--native` adds ordinary npm lifecycle scripts and native dependency checks. It runs no setup and starts no browser.
+- `test:install`: installs the archive, runs the CLI version command, imports the SDK, and serves UI assets. Setup stages the installed runtime with synthetic location data, a model fixture, and a fake paired browser. This setup needs no network. A separate home keeps these fixtures out of browser acceptance. `--native` adds ordinary npm lifecycle scripts and native dependency checks. It starts no browser.
 - `test:install --both`: runs both installation modes concurrently against one archive. Each mode uses a separate prefix and service home. Either failure fails the command after both finish.
 - Archive validation separately checks Camofox patches, bundled dependency constraints, and unchanged archive bytes.
 - `test:package`: includes `test:install --native`, runs setup, checks native dependencies in the staged runtime, then runs the [browser suite](testing.md#browser-suite) against the installed CLI.

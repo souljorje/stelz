@@ -27,8 +27,6 @@ jobs:
       matrix:
         os:
           - ubuntu-latest
-          # Temporarily disabled while GitHub macOS runners have capacity issues.
-          # - macos-latest
     steps:
       - uses: actions/checkout@v7
         with:
@@ -46,19 +44,10 @@ jobs:
       matrix:
         os:
           - ubuntu-latest
-          # Temporarily disabled while GitHub macOS runners have capacity issues.
-          # - macos-latest
     steps:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup
       - run: bun run build
-      - name: Pack candidate
-        run: |
-          stage=$(bun run prepare:package)
-          trap 'rm -rf "$stage"' EXIT
-          cd "$stage"
-          npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP"
-      - run: bun run lint:package "$RUNNER_TEMP"/stelz-*.tgz
-      - run: bun run test:install --archive "$RUNNER_TEMP"/stelz-*.tgz --both
+      - run: bun run check:archive
