@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { browserAssetPattern, browserExecutable, browserPackage, browserPin, pairedBrowser } from "./camoufox.ts";
 import { browserDirectory } from "../profiles/config.ts";
 import { browserVersion, engineVersion } from "./location-launch.ts";
-import { downloadReleaseAsset, type ReleaseAssetRequest } from "./release-asset.ts";
+import { downloadReleaseAsset, githubReleaseUrl, readRelease, withReleaseFallback, type ReleaseAssetRequest } from "./release-asset.ts";
+import releaseSources from "./release-sources.json" with { type: "json" };
 
 export type BrowserSource = "configured" | "managed" | "upstream-cache" | "downloaded";
 type Installed = { version: string; path: string };
@@ -23,12 +24,23 @@ function clone(source: string, target: string) {
   cpSync(source, target, { recursive: true, verbatimSymlinks: true });
 }
 
-/** The pinned Camoufox release and its single asset for this platform. */
-export function browserRelease(): ReleaseAssetRequest {
-  const pin = browserPin(), pattern = browserAssetPattern();
-  return { label: "Camoufox", repository: pin.repo, tag: pin.tag, maxBytes: 2 * 1024 ** 3, timeoutMs: 3_600_000,
-    match: name => { const groups = pattern.exec(name)?.groups; return groups?.version === pin.version && groups?.build === pin.build; } };
+export function browserReleaseSources(pin = browserPin()) {
+  const { build, sources } = releaseSources.browser;
+  return build === `${pin.version}-${pin.build}` ? sources : [githubReleaseUrl(pin.repo, pin.tag)];
 }
+
+/** The release sources for the paired Camoufox asset on this platform. */
+function browserReleases(): ReleaseAssetRequest[] {
+  const pin = browserPin(), pattern = browserAssetPattern(), { build, sha256 } = releaseSources.browser;
+  // Every source of the pinned build must match these digests, also the upstream release: an account name can get another owner.
+  // The digests are from Jo's SHA256SUMS. A build that the launcher pins later has none yet.
+  const pinned = build === `${pin.version}-${pin.build}` ? sha256 : undefined;
+  return browserReleaseSources(pin).map(url => ({ url, label: "Camoufox", maxBytes: 2 * 1024 ** 3, timeoutMs: 3_600_000,
+    sha256: pinned,
+    match: name => { const groups = pattern.exec(name)?.groups; return groups?.version === pin.version && groups?.build === pin.build; } }));
+}
+export const readBrowserRelease = (request: typeof fetch = fetch) =>
+  withReleaseFallback(browserReleases(), source => readRelease(source, request));
 
 /**
  * Why the executable in CAMOUFOX_EXECUTABLE cannot run, in one sentence: it is another build, or the file is missing or incomplete.
@@ -78,12 +90,17 @@ export async function prepareBrowser(home: string, configured?: string, dependen
       clone(plan.cached, install);
     } else {
       const pin = browserPin(), zip = join(stage, "browser.zip");
-      progress(`Downloading Camoufox ${pairedBrowser()} (over 1 GB). This can take several minutes…`);
-      const asset = await downloadReleaseAsset(browserRelease(), zip, dependencies.request ?? fetch);
+      const asset = await withReleaseFallback(browserReleases(), async source => {
+        const request = dependencies.request ?? fetch, release = await readRelease(source, request);
+        progress(`Downloading Camoufox ${pairedBrowser()} from ${release.origin} (over 1 GB). This can take several minutes…`);
+        return downloadReleaseAsset(source, release, zip, request);
+      });
       unzip(zip, install, "", false);
       makeExecutable(install);
       rmSync(zip);
-      writeFileSync(join(install, "version.json"), JSON.stringify({ version: pin.version, build: pin.build, release: asset.release, asset: asset.name, sha256: asset.sha256 }, null, 2));
+      writeFileSync(join(install, "version.json"), JSON.stringify({
+        version: pin.version, build: pin.build, origin: asset.origin, release: asset.release, asset: asset.name, sha256: asset.sha256,
+      }, null, 2));
     }
     if (!paired(browserExecutable(install))) throw Error("The prepared Camoufox is incomplete. Run stelz setup again.");
     // An unusable earlier copy cannot run, so no browser depends on it.

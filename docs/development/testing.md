@@ -26,7 +26,7 @@ modified: 2026-11-18T08:35:49Z
 
 - `check`: lint, typecheck, build, documentation links, and all unit tests run concurrently. Any failure fails the command.
 - `lint`: pinned Oxlint with correctness checks. The policy is in `.oxlintrc.json`.
-- `test`: all files in `tests/unit/`. No browser needed.
+- `test`: all files in `tests/unit/`. No browser needed. Each test has 15 seconds: many tests start subprocesses, and a shared CI runner is slower than a laptop.
 - After a fix to browser behavior, run `bun run test:browser` again.
 
 ## Layout
