@@ -5,6 +5,8 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { STELZ_VERSION } from "../../src/versions.ts";
 import { createTestHome } from "../helpers/test-home.ts";
+import { pairedBrowser } from "../../src/browser/camoufox.ts";
+import { fixtureModel, managedFixture } from "../helpers/geoip-fixture.ts";
 
 // Each run installs into a new prefix.
 export async function installPackage(archive: string, options: { native?: boolean; keep?: boolean } = {}) {
@@ -30,6 +32,20 @@ if (env.TMPDIR) cleanEnv.TMPDIR = env.TMPDIR;
 const executable = join(prefix, "bin/stelz");
 const version = (await run([executable, "--version"], { cwd, env: cleanEnv })).trim();
 if (version !== STELZ_VERSION) throw Error("Global command version does not match.");
+// Use a separate home so acceptance can later prepare a real browser in the returned home.
+const runtime = join(temp, "runtime"), browser = join(temp, "browser");
+mkdirSync(browser);
+writeFileSync(join(browser, "camoufox"), "#!/bin/sh\nexit 1\n", { mode: 0o700 });
+writeFileSync(join(browser, "application.ini"), `Version=${pairedBrowser()}\n`);
+managedFixture(runtime, undefined, undefined, new Date().toISOString());
+fixtureModel(join(runtime, "fpgen"));
+const setup = JSON.parse(await run([executable, "setup", "--json"], { cwd, env: {
+  ...cleanEnv, STELZ_HOME: createTestHome("setup", temp), STELZ_RUNTIME: runtime,
+  CAMOUFOX_EXECUTABLE: join(browser, "camoufox"),
+} }));
+if (setup.runtime?.status !== "prepared" || setup.fingerprintModel !== "reused" ||
+  ["selection", "comparison"].some(role => setup.locationData?.[role]?.status !== "reused"))
+  throw Error("Installed setup must stage its runtime and reuse the offline fixtures.");
 // The installed UI must serve without source files, dev dependencies, or a build server.
 const reservation = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() });
 const uiPort = reservation.port;
@@ -79,14 +95,14 @@ await run([bun, "--no-env-file", join(project, "job.ts")], { cwd: project, env: 
 const nativeCheck = options.native ? await nativeSmoke(node, installed, { cwd, env: cleanEnv }) : undefined;
 assertArchiveUnchanged(candidate);
 console.log(JSON.stringify({ result: "passed", archive, sha256: candidate.sha256, nativeCheck,
-  checks: "Isolated CLI, HTTP UI assets, stelz/sdk import, and native dependencies" }));
+  checks: "Isolated CLI, offline setup, HTTP UI assets, stelz/sdk import, and native dependencies" }));
 return { candidate, env: cleanEnv, cwd, home, prefix, node, bun, npm, executable, installedCli: join(installed, "src/cli/cli.ts"), version, nativeCheck, uiChecked: true };
 } finally { if (!options.keep) rmSync(temp, { recursive: true, force: true }); }
 }
 
 if (import.meta.main) {
   const input = packageArguments(process.argv.slice(2), ["--native", "--both"]);
-  const archive = input.archive ?? resolve(import.meta.dir, "../../release-artifacts", `stelz-${STELZ_VERSION}.tgz`);
+  const archive = input.archive;
   if (input.flags.has("--both")) {
     if (input.flags.has("--native")) throw Error("Use --both or --native, not both flags.");
     // Each mode creates its own prefix and service home. Wait for both before failing.

@@ -7,7 +7,7 @@ import { inspectBundledDependencies } from "../../scripts/bundled-dependencies.t
 
 test("package installation accepts an explicit archive and rejects ambiguous arguments", () => {
   expect(packageArguments(["--archive", "candidate.tgz", "--native"], ["--native"]).flags.has("--native")).toBe(true);
-  for (const args of [["--archive"], ["--native", "--native"], ["--other"], ["--archive", "a", "--archive", "b"]])
+  for (const args of [[], ["--native"], ["--archive"], ["--native", "--native"], ["--other"], ["--archive", "a", "--archive", "b"]])
     expect(() => packageArguments(args, ["--native"])).toThrow();
 });
 

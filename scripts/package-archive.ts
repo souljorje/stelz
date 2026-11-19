@@ -12,6 +12,7 @@ export function packageArguments(args: string[], allowed: readonly string[] = []
     else if (allowed.includes(argument) && !flags.has(argument)) flags.add(argument);
     else throw Error("Use --archive FILE and the documented acceptance flags.");
   }
+  if (!archive) throw Error("An archive is required. Use --archive FILE.");
   return { archive, flags };
 }
 

@@ -4,12 +4,11 @@ import { packageArguments, assertArchiveUnchanged } from "../../scripts/package-
 import { mkdtempSync, readFileSync, writeFileSync, readdirSync, lstatSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { STELZ_VERSION } from "../../src/versions.ts";
 import { dedicatedProxyInputs } from "../helpers/dedicated-proxy.ts";
 const root = resolve(import.meta.dir, "../..");
 const input = packageArguments(process.argv.slice(2), ["--setup", "--proxy", "--human", "--windows"]);
 if (input.flags.has("--proxy")) dedicatedProxyInputs(process.env.PROXY_TEST_ENV, "acceptance");
-const archive = input.archive ?? join(root, "release-artifacts", `stelz-${STELZ_VERSION}.tgz`);
+const archive = input.archive;
 const installed = await installPackage(archive, { native: true, keep: true });
 const { candidate, env: installedEnv, cwd, home, prefix, bun, executable, installedCli, version, nativeCheck, uiChecked } = installed;
 // The official CLI installs the browser in a versioned directory, not at the default path.
