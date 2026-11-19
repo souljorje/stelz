@@ -1,5 +1,16 @@
 # stelz
 
+## 0.6.1
+
+### Patch Changes
+
+- 89b1beb: Turn off the Firefox offer to restore the last session. It showed once, on the second start of a profile, and made pages 39 px shorter for that session.
+- 19c4894: Use verified Camoufox and GeoIP AIO backups when the upstream downloads are unavailable.
+  Setup can read release manifests from any HTTPS host.
+- f9ba27c: Setup replaces a configured browser that is not the paired build. When `CAMOUFOX_EXECUTABLE` in `secrets.env` selects another build or a missing file, setup names the installed and the required version and asks. After a yes, or with `--yes`, it installs the paired build and removes the setting. Before, setup failed with advice to run setup again.
+  
+  The same setting in the process environment still fails. The error tells you to unset it.
+
 ## 0.6.0
 
 ### Minor Changes
