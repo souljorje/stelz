@@ -93,6 +93,10 @@ Stelz does these without a patch:
 
 ## Runtime setup
 
+- [Release sources](../../src/browser/release-sources.json) lists browser and GeoIP download sources in priority order.
+- Use a GitHub release page URL or a direct HTTPS URL to a JSON manifest.
+- Set `tag` and `assets` in the manifest. Each asset needs `name`, `size` in bytes, an HTTPS `url`, and a lowercase hex `sha256`.
+- The launcher selects the browser build. The source list applies to the specified `build`. Every browser source must match the configured SHA-256 digests.
 - Other dependency links resolve to the supplying package installation. Keep that installation available while the runtime uses it.
 - Symlinks in copied source block setup.
 - Staging checks: prepared patch matches, exported contracts, plugin functions, Node syntax. Setup checks the complete runtime before activation.

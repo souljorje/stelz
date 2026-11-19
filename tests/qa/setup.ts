@@ -7,8 +7,7 @@ import { installPackage } from "./install.ts";
 import { packageArguments, assertArchiveUnchanged } from "../../scripts/package-archive.ts";
 import { createTestHome } from "../helpers/test-home.ts";
 import { browserPackage, pairedBrowser } from "../../src/browser/camoufox.ts";
-import { browserRelease } from "../../src/browser/browser-setup.ts";
-import { readRelease } from "../../src/browser/release-asset.ts";
+import { readBrowserRelease } from "../../src/browser/browser-setup.ts";
 import { STELZ_VERSION } from "../../src/versions.ts";
 
 type Run = { code: number; out: string; err: string };
@@ -215,8 +214,8 @@ try {
   evidence.offlineControl = control.message;
 
   // 4. The pinned release has one asset for this platform and a published SHA-256. Unit tests cover the download itself.
-  const release = await readRelease(browserRelease());
-  evidence.release = { tag: release.tag, asset: release.asset.name, size: release.asset.size, sha256: release.asset.digest.slice(7) };
+  const release = await readBrowserRelease();
+  evidence.release = { origin: release.origin, tag: release.tag, asset: release.asset.name, size: release.asset.size, sha256: release.asset.sha256 };
 
   // Both groups run in their own service homes and finish before cleanup, so no case runs after the test profile stops.
   const cacheBefore = snapshot(cache);

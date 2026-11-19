@@ -46,6 +46,7 @@ A stopped profile can keep old fields. Check `phase` first.
 `stelz setup` prepares two databases under `runtime/geoip/` for all profiles.
 
 - GeoIP AIO selects the location. No city or accuracy.
+- If GeoIP AIO is unavailable, setup tries [CamoufoxCloud](https://github.com/CamoufoxCloud/geoip-all-in-one/releases/latest). Setup keeps a validated newer build.
 - GeoLite2 City is the comparison. City and accuracy radius for many addresses.
 - Build at most 8 days old: setup reuses it without contacting its download service. Older build: setup downloads the latest release only when it differs. Offline, setup keeps the validated older build.
 - An interrupted download preserves the active databases.

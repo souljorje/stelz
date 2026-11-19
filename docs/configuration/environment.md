@@ -47,6 +47,7 @@ Setup uses the first available source:
 3. The paired build in the upstream Camoufox cache. Setup copies it into `STELZ_HOME/browsers/` and does not change the cache.
 4. A download of the paired release. Setup verifies the published SHA-256 digest.
 
+- If the upstream release or platform archive is unavailable, setup tries [CamoufoxCloud](https://github.com/CamoufoxCloud/camoufox/releases/tag/v158.0.1-beta.41), then the [Camofox archive](https://github.com/jo-inc/camofox-browser/releases/tag/camoufox-backup-428447379). Every source, also the upstream release, must match Stelz's pinned SHA-256 digest.
 - Another installation of the paired build: set `CAMOUFOX_EXECUTABLE` to the absolute path of the executable inside `Camoufox.app/Contents/MacOS/`, not the `camoufox` command on PATH. Otherwise leave it unset.
 - `CAMOUFOX_EXECUTABLE` in `secrets.env` selects a missing file or another build: setup names the installed and the required version and asks. After a yes, it installs the paired build and removes the setting.
 - The same setting in the process environment: setup fails, because it cannot change it. Unset it, or point it to the paired build.

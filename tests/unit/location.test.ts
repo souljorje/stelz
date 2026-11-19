@@ -3,13 +3,14 @@ import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { geoipFixture, managedFixture, fixtureLocation } from "../helpers/geoip-fixture.ts";
-import { validateGeoip, managedGeoip, resolveLocation, checkBrowserLocation, locationsMatch, hash,
+import { validateGeoip, managedGeoip, resolveLocation, checkBrowserLocation, locationsMatch, hash, geoipFile,
   GEOIP_SOURCES, locationEvidence, parseLocationPolicy, type GeoipRole } from "../../src/browser/location.ts";
 import { geoipPlan, prepareGeoip } from "../../src/browser/geoip-setup.ts";
 import { verifyLaunchLocation } from "../../src/browser/location-launch.ts";
 import { locationResult, type LocationRecord } from "../../src/browser/location.ts";
 
 const homes: string[] = [];
+const repositories = { selection: "daijro/geoip-all-in-one", comparison: "P3TERX/GeoLite.mmdb" };
 const temp = () => { const home = mkdtempSync(join(tmpdir(), "stelz-location-")); homes.push(home); return home; };
 afterEach(() => { for (const home of homes.splice(0)) rmSync(home, { recursive: true, force: true }); });
 function thrown(work: () => unknown) { try { work(); } catch (error) { return (error as { location?: unknown }).location; } }
@@ -48,7 +49,7 @@ test("browser observations require compatible timezone, locale and navigator lan
   expect(locationsMatch(config, { ...config, "geolocation:latitude": 1 })).toBe(false);
 });
 test("setup reuses a recent build without a request and keeps older data when offline", async () => {
-  for (const [build, requests] of [[new Date().toISOString(), 0], ["2023-11-14T22:13:20.000Z", 2]] as const) {
+  for (const [build, requests] of [[new Date().toISOString(), 0], ["2023-11-14T22:13:20.000Z", 3]] as const) {
     const current = temp(), stage = temp(); managedFixture(current, undefined, undefined, build); let calls = 0;
     const original = readFileSync(join(current, "geoip/manifest.json"), "utf8");
     await prepareGeoip(stage, current, { request: (() => { calls++; throw Error("offline"); }) as unknown as typeof fetch });
@@ -57,15 +58,16 @@ test("setup reuses a recent build without a request and keeps older data when of
   }
 });
 test("an older build that is still the latest release needs only a release request", async () => {
+  const current = temp(), urls: string[] = []; managedFixture(current);
   const latest = (tag: string, urls: string[] = []) => (async (url: string) => {
     urls.push(url);
-    const role = (["selection", "comparison"] as const).find(role => url === `https://api.github.com/repos/${GEOIP_SOURCES[role].repository}/releases/latest`);
+    const role = (["selection", "comparison"] as const).find(role => url === `https://api.github.com/repos/${repositories[role]}/releases/latest`);
     if (!role) throw Error("Unexpected request");
-    const { repository, asset } = GEOIP_SOURCES[role];
-    return Response.json({ tag_name: tag, assets: [{ name: asset, digest: `sha256:${"0".repeat(64)}`, size: 1,
+    const { asset } = GEOIP_SOURCES[role], repository = repositories[role];
+    const digest = tag === "fixture" ? hash(readFileSync(geoipFile(current, role))) : "0".repeat(64);
+    return Response.json({ tag_name: tag, assets: [{ name: asset, digest: `sha256:${digest}`, size: 1,
       browser_download_url: `https://github.com/${repository}/releases/download/${tag}/${asset}` }] });
   }) as unknown as typeof fetch;
-  const current = temp(), urls: string[] = []; managedFixture(current);
   expect(await geoipPlan(current, Date.now(), latest("fixture"))).toEqual([]);
   expect((await prepareGeoip(temp(), current, { request: latest("fixture", urls) })).status).toEqual({ selection: "reused", comparison: "reused" });
   expect(urls).toHaveLength(2);
@@ -77,7 +79,7 @@ test("setup validates release integrity for both datasets before retaining them"
   const current = temp(), bytes = { selection: geoipFixture(undefined, "GeoIP2-City"), comparison: geoipFixture() };
   const request = (digests: Partial<Record<GeoipRole, string>> = {}) => (async (url: string) => {
     for (const role of ["selection", "comparison"] as const) {
-      const { repository, asset } = GEOIP_SOURCES[role];
+      const { asset } = GEOIP_SOURCES[role], repository = repositories[role];
       if (url === `https://api.github.com/repos/${repository}/releases/latest`) return Response.json({ tag_name: "test", assets: [{ name: asset,
         digest: `sha256:${digests[role] ?? hash(bytes[role])}`, size: bytes[role].length, browser_download_url: `https://github.com/${repository}/releases/download/test/${asset}` }] });
       if (url === `https://github.com/${repository}/releases/download/test/${asset}`) return new Response(bytes[role]);
@@ -87,6 +89,39 @@ test("setup validates release integrity for both datasets before retaining them"
   const stage = temp(); await prepareGeoip(stage, current, { request: request() });
   expect((await managedGeoip(stage)).sha256).toBe(hash(`${hash(bytes.selection)}:${hash(bytes.comparison)}`));
   await expect(prepareGeoip(temp(), current, { request: request({ comparison: "0".repeat(64) }) })).rejects.toThrow("integrity");
+});
+test("setup uses CamoufoxCloud when GeoIP AIO is unavailable and keeps newer cached data", async () => {
+  const cloud = "CamoufoxCloud/geoip-all-in-one", tag = "fixture", build = Date.parse("2026-11-19T06:33:42Z");
+  const bytes = geoipFixture(undefined, "GeoIP2-City", {}, build / 1000), comparisonBytes = geoipFixture();
+  const { asset } = GEOIP_SOURCES.selection;
+  const { selection: repository, comparison } = repositories;
+  const request = (async (url: string) => {
+    if (url === `https://api.github.com/repos/${repository}/releases/latest`) return new Response(null, { status: 404 });
+    for (const source of [cloud, comparison]) {
+      const name = source === comparison ? GEOIP_SOURCES.comparison.asset : asset;
+      const download = `https://github.com/${source}/releases/download/${tag}/${name}`;
+      if (url === `https://api.github.com/repos/${source}/releases/latest`) return Response.json({ tag_name: tag, assets: [
+        { name, digest: `sha256:${hash(source === comparison ? comparisonBytes : bytes)}`,
+          size: (source === comparison ? comparisonBytes : bytes).length, browser_download_url: download },
+      ] });
+      if (url === download && source === cloud) return new Response(bytes);
+    }
+    throw Error(`Unexpected request: ${url}`);
+  }) as unknown as typeof fetch;
+  const current = temp(), stage = temp();
+  managedFixture(current);
+  // The cached selection has the same tag as both responses. An unavailable primary tag must not hide a different mirror build.
+  expect(await geoipPlan(current, build, request)).toEqual(["selection"]);
+  const result = await prepareGeoip(stage, current, { now: build, request });
+  expect(result.datasets.selection).toMatchObject({ origin: cloud, release: tag, sha256: hash(bytes) });
+  expect(result.status).toEqual({ selection: "downloaded", comparison: "reused" });
+
+  const newer = temp();
+  const next = build + 86_400_000;
+  const newerBytes = geoipFixture(undefined, "GeoIP2-City", {}, next / 1000);
+  managedFixture(newer, newerBytes, undefined, new Date(next).toISOString());
+  const kept = await prepareGeoip(temp(), newer, { now: build + 10 * 86_400_000, request });
+  expect(kept.datasets.selection.sha256).toBe(hash(newerBytes));
 });
 test("location evidence separates corroborated, uncorroborated, conflicting, and stale data", async () => {
   const now = Date.parse("2026-11-10T00:00:00Z"), london = { latitude: 0, longitude: 0, time_zone: "Europe/London" };
