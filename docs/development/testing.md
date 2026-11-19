@@ -47,8 +47,8 @@ modified: 2026-11-18T08:35:49Z
 - `bun run test:browser` builds, then runs `tests/browser/smoke.ts`.
 - It needs desktop access and the paired Camoufox build. See [Browser executable](../configuration/environment.md#browser-executable).
 - Browser checks use one installed paired browser at its real path. They do not copy it into each test home.
-- The suite takes the first paired build of: `CAMOUFOX_EXECUTABLE`, the default Stelz installation, the upstream cache, and its own cache in `$TMPDIR/stelz-seed-cache`.
-- With none, it downloads the paired build (over 1 GB) into its own cache once. It never changes the default installation.
+- The suite takes the first paired build of: `CAMOUFOX_EXECUTABLE`, the default Stelz installation, the upstream cache, and the project cache.
+- With none, it downloads the paired build (over 1 GB) into the project cache once. It never changes the default installation.
 - Setup prepares the current plugin and dependencies in the disposable home. Missing or stale location data can require GitHub access.
 - It uses independent MCP SDK clients and direct profiles in one disposable home. No model credentials.
 - All checks use one local page, `tests/helpers/fixture.ts`. Action checks reuse one work tab. Typing runs concurrently in a separate profile's startup tab.
@@ -69,7 +69,8 @@ One run does these checks in the same browsers:
 - An imported copy opens another window, so only the pixel ratio of its window must match.
 - `--windows` adds the window controls. They need visible desktop windows. A foreground restriction gives `incomplete` and a nonzero exit code.
 - Typing and window checks are parts of this suite. They do not run alone.
-- Location data and the fingerprint model stay in `$TMPDIR/stelz-seed-cache`. Setup refreshes old location data ([rule](../configuration/network.md#managed-location-data)).
+- The project cache is `.cache/` in the main checkout. Git ignores it, and all worktrees share it. It keeps the browser, the location data, and the fingerprint model between runs.
+- Setup refreshes old location data ([rule](../configuration/network.md#managed-location-data)). To download all of it again, delete `.cache/`.
 - Do not run `test:browser` and `test:ui` at the same time. Each one replaces `dist/` during its build, and both create profiles in the default port range.
 - The report gives the seconds from the start of the run for each check.
 - The suite prints its report. A pass removes its test home. A failure keeps it and prints the report path.

@@ -12,6 +12,7 @@
 - Preserve global harness configuration and approval protections.
 - For short-lived subagents, use `fork_turns: "none"` where the host supports it. Use `fork_context: false` otherwise.
 - Put temporary files, disposable test homes, logs, and reports in the system temp directory (`$TMPDIR`). Never create `.state` or other scratch folders in the repository.
+- The one exception is `.cache/`. It holds the downloads of the browser suite, and Git ignores it. See `docs/development/testing.md`.
 
 # Service boundary
 

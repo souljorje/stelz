@@ -1,19 +1,25 @@
 // Browser checks reuse one installed browser at its real path. They install one only when none is there.
-// The location data and the fingerprint model stay between runs in the same cache in the system temp directory.
+// The browser, the location data, and the fingerprint model stay between runs in the cache folder of the project.
 import { spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { homedir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { browserPlan, prepareBrowser } from "../../src/browser/browser-setup.ts";
 import { browserExecutable } from "../../src/browser/camoufox.ts";
 import { assertTestHome } from "./test-home.ts";
 
-const cache = join(tmpdir(), "stelz-seed-cache");
+/** `.cache/` in the main checkout. Git ignores it, and all worktrees of the project share it, so each download happens once. */
+function projectCache() {
+  const root = resolve(import.meta.dir, "../..");
+  const git = spawnSync("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd: root, encoding: "utf8" });
+  return join(git.status === 0 ? dirname(git.stdout.trim()) : root, ".cache");
+}
+const cache = projectCache();
 
 /**
  * Return the environment for `stelz setup` in a test home: the browser to use, and the cached location data.
- * The browser is the first paired build of: CAMOUFOX_EXECUTABLE, the default Stelz installation, the upstream cache, the test cache.
- * With none, the paired build goes into the test cache once. A check never changes the default installation.
+ * The browser is the first paired build of: CAMOUFOX_EXECUTABLE, the default Stelz installation, the upstream cache, the project cache.
+ * With none, the paired build goes into the project cache once. A check never changes the default installation.
  * A package seed supplies its own prepared runtime and browser.
  */
 export async function useRuntimeCache(home: string): Promise<Record<string, string>> {
@@ -23,7 +29,7 @@ export async function useRuntimeCache(home: string): Promise<Record<string, stri
     const manifest = JSON.parse(readFileSync(join(source, "runtime/versions.json"), "utf8"));
     return { CAMOUFOX_EXECUTABLE: realpathSync(process.env.CAMOUFOX_EXECUTABLE || manifest.camoufoxExecutable) };
   }
-  // A plan only reads. The download below writes to the test cache only.
+  // A plan only reads. The download below writes to the project cache only.
   const plan = [join(homedir(), ".local/share/stelz"), cache]
     .map(directory => browserPlan(directory, process.env.CAMOUFOX_EXECUTABLE)).find(plan => plan.source !== "downloaded");
   const executable = !plan ? (await prepareBrowser(cache)).executable
