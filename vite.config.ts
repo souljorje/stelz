@@ -1,4 +1,4 @@
-import { rmSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { defineConfig } from "vite";
 import { inspectBundledDependencies } from "./scripts/bundled-dependencies.ts";
@@ -37,6 +37,8 @@ export default defineConfig({
       // These builds share dist/, so clear it once before starting them.
       rmSync(dist, { recursive: true, force: true });
       await Promise.all(Object.values(builder.environments).map(environment => builder.build(environment)));
+      if (readFileSync(join(dist, "plugin.js"), "utf8").includes(root))
+        throw Error("The plugin bundle contains the project root path.");
     },
   },
 });
